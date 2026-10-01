@@ -89,7 +89,7 @@ You can install, manage, and update the entire `pachiware-agent` platform direct
 ### Option 1: One-Line Server Installer (Recommended)
 Run this command on your server (Linux or macOS):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware-agent/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | bash
 ```
 *Or locally from the repository:*
 ```bash
