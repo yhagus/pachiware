@@ -2,7 +2,7 @@
 # ==============================================================================
 # Pachiware Agent — One-Line Server Installer
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/pachiware/pachiware-agent/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware-agent/main/install.sh | bash
 #   or ./install.sh
 # ==============================================================================
 
@@ -60,7 +60,7 @@ else
   echo -e "  ${CYAN}→ Setting up deployment in:${NC} $INSTALL_DIR"
   if [ ! -d "$INSTALL_DIR" ]; then
     mkdir -p "$INSTALL_DIR"
-    git clone https://github.com/pachiware/pachiware-agent.git "$INSTALL_DIR" || true
+    git clone https://github.com/yhagus/pachiware-agent.git "$INSTALL_DIR" || true
   fi
 fi
 
