@@ -42,13 +42,12 @@ else
   echo -e "  ${GREEN}✔ Bun is already installed:${NC} $(bun --version)"
 fi
 
-# 3. Check Docker
+# 3. Check Docker (Optional)
 if ! command -v docker &> /dev/null; then
-  echo -e "  ${YELLOW}⚠ Warning: Docker is not installed or not in PATH.${NC}"
-  echo -e "    PostgreSQL 18 and Redis containers require Docker."
-  echo -e "    Install Docker: https://docs.docker.com/engine/install/"
+  echo -e "  ${CYAN}ℹ Docker is not installed (optional).${NC}"
+  echo -e "    Note: Docker is only needed if you want to use the bundled PostgreSQL/Redis containers."
 else
-  echo -e "  ${GREEN}✔ Docker is installed:${NC} $(docker --version)"
+  echo -e "  ${GREEN}✔ Docker is installed (optional container runner):${NC} $(docker --version)"
 fi
 
 # 4. Target Installation Directory
@@ -99,9 +98,10 @@ echo -e "\n${GREEN}${BOLD}======================================================
 echo -e "${GREEN}${BOLD} 🎉 Pachiware Agent CLI installed successfully!${NC}"
 echo -e "${GREEN}${BOLD}======================================================${NC}"
 echo -e "You can now run:"
-echo -e "  ${CYAN}pachiware --help${NC}      Show all available commands"
-echo -e "  ${CYAN}pachiware doctor${NC}      Verify Docker and system health"
-echo -e "  ${CYAN}pachiware start${NC}       Launch PostgreSQL 18, Redis, Agent & GUI"
-echo -e "  ${CYAN}pachiware update${NC}      Pull latest updates, migrations & restart"
-echo -e "  ${CYAN}pachiware status${NC}      Inspect real-time system status"
+echo -e "  ${CYAN}pachiware --help${NC}          Show all available commands"
+echo -e "  ${CYAN}pachiware doctor${NC}          Verify system health and configuration"
+echo -e "  ${CYAN}pachiware start${NC}           Launch Agent & Web GUI (connects to DB & Redis in .env)"
+echo -e "  ${CYAN}pachiware start --docker${NC}  Launch Agent and spin up bundled Postgres & Redis"
+echo -e "  ${CYAN}pachiware update${NC}          Pull latest updates, migrations & restart"
+echo -e "  ${CYAN}pachiware status${NC}          Inspect real-time system status"
 echo -e "${GREEN}${BOLD}======================================================${NC}\n"

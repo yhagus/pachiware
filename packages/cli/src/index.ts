@@ -27,7 +27,7 @@ ${c.cyan}${c.bold} | |_) / _\` |/ __| '_ \\| \\ \\ /\\ / / _\` | '__/ _ \\    / 
 ${c.cyan}${c.bold} |  __/ (_| | (__| | | | |\\ V  V / (_| | | |  __/   / ___ \\ (_| |  __/ | | | |_ ${c.reset}
 ${c.cyan}${c.bold} |_|   \\__,_|\\___|_| |_|_| \\_/\\_/ \\__,_|_|  \\___|  /_/   \\_\\__, |\\___|_| |_|\\__|${c.reset}
 ${c.cyan}${c.bold}                                                           |___/                ${c.reset}
-${c.gray}   Self-Hosted Autonomous AI Agent Platform with Discord & PostgreSQL 18       ${c.reset}
+${c.gray}   Self-Hosted Autonomous AI Agent Platform • Multi-Channel • Extensible ReAct ${c.reset}
 ${c.gray}   v${VERSION} • Bun Runtime • Lightweight Explicit ReAct Engine                     ${c.reset}
 `;
 
@@ -83,12 +83,13 @@ program
     // 2. Docker compose check
     const composeFile = join(targetDir, "docker-compose.yml");
     if (existsSync(composeFile)) {
-      console.log(`  ${c.green}✔${c.reset} Docker Compose configuration ready (Postgres 18 & Redis 7).`);
+      console.log(`  ${c.green}✔${c.reset} Docker Compose configuration available (for optional bundled Postgres & Redis).`);
     }
 
     console.log(`\n${c.green}${c.bold}Setup complete!${c.reset} Run the following to start services:`);
-    console.log(`  ${c.cyan}pachiware start${c.reset}      Start all containers and agent processes`);
-    console.log(`  ${c.cyan}pachiware doctor${c.reset}     Verify system health and prerequisites\n`);
+    console.log(`  ${c.cyan}pachiware start${c.reset}          Start Agent API & Web Console (connects to DB/Redis in .env)`);
+    console.log(`  ${c.cyan}pachiware start --docker${c.reset} Start Agent and spin up bundled Docker Postgres & Redis`);
+    console.log(`  ${c.cyan}pachiware doctor${c.reset}         Verify system health and prerequisites\n`);
   });
 
 /**
@@ -96,25 +97,31 @@ program
  */
 program
   .command("start")
-  .description("Start PostgreSQL 18, Redis, Agent API, and Web Management Console")
+  .description("Start Agent API and Web Management Console (uses existing DB/Redis by default)")
   .option("-d, --daemon", "Run processes in the background (daemon mode)")
   .option("--no-gui", "Start only the Agent backend service without the Web GUI")
+  .option("--docker", "Also spin up bundled PostgreSQL 18 and Redis containers via Docker Compose")
   .action(async (options) => {
     console.log(BANNER);
     console.log(`${c.bold}🚀 Starting Pachiware Agent Platform...${c.reset}\n`);
 
-    // 1. Start Docker containers
-    console.log(`  ${c.cyan}→ Starting PostgreSQL 18 and Redis containers...${c.reset}`);
-    try {
-      execSync("docker compose up -d", { cwd: rootDir, stdio: "inherit" });
-      console.log(`  ${c.green}✔${c.reset} Infrastructure containers running.`);
-    } catch (err: any) {
-      console.error(`  ${c.red}✖ Failed to start Docker containers:${c.reset}`, err.message);
-      process.exit(1);
+    // 1. Optional Docker containers (only if --docker is specified)
+    if (options.docker) {
+      console.log(`  ${c.cyan}→ Starting bundled PostgreSQL 18 and Redis containers via Docker Compose...${c.reset}`);
+      try {
+        execSync("docker compose up -d", { cwd: rootDir, stdio: "inherit" });
+        console.log(`  ${c.green}✔${c.reset} Bundled infrastructure containers running.`);
+      } catch (err: any) {
+        console.error(`  ${c.red}✖ Failed to start Docker containers:${c.reset}`, err.message);
+        process.exit(1);
+      }
+    } else {
+      console.log(`  ${c.gray}→ Using external / pre-existing PostgreSQL & Redis from .env (default).${c.reset}`);
+      console.log(`  ${c.gray}  Tip: Run with ${c.cyan}--docker${c.gray} if you want Pachiware to spin up bundled containers.${c.reset}`);
     }
 
     // 2. Run DB migrations
-    console.log(`  ${c.cyan}→ Ensuring PostgreSQL 18 database schema & seed...${c.reset}`);
+    console.log(`  ${c.cyan}→ Ensuring database schema migrations & seed...${c.reset}`);
     try {
       execSync("bun run ./packages/db/src/migrate.ts", { cwd: rootDir, stdio: "pipe" });
       execSync("bun run ./packages/db/src/seed.ts", { cwd: rootDir, stdio: "pipe" });
@@ -129,8 +136,9 @@ program
     console.log(`${c.green}${c.bold}====================================================${c.reset}`);
     console.log(`  ${c.cyan}🌐 Web Console:${c.reset}      ${c.bold}http://localhost:3000${c.reset}`);
     console.log(`  ${c.cyan}⚡ Agent REST API:${c.reset}   ${c.bold}http://localhost:3001${c.reset}`);
-    console.log(`  ${c.cyan}🐘 PostgreSQL 18:${c.reset}    localhost:5432 (DB: pachiware_agent)`);
-    console.log(`  ${c.cyan}🔴 Redis Cache:${c.reset}      localhost:6380 (Health: OK)`);
+    console.log(`  ${c.cyan}🐘 Database:${c.reset}         Connected via DATABASE_URL (.env)`);
+    console.log(`  ${c.cyan}🔴 Redis Cache:${c.reset}     Connected via REDIS_URL (.env)`);
+    console.log(`  ${c.cyan}📡 Messaging:${c.reset}       Discord active (extensible to Telegram, WhatsApp)`);
     console.log(`${c.gray}----------------------------------------------------${c.reset}`);
     console.log(`  ${c.dim}Press Ctrl+C to terminate services or run 'pachiware stop'${c.reset}\n`);
 
@@ -169,8 +177,8 @@ program
  */
 program
   .command("stop")
-  .description("Stop running Pachiware Agent services and containers")
-  .option("--all", "Also stop and remove Docker containers")
+  .description("Stop running Pachiware Agent services")
+  .option("--docker, --all", "Also stop and remove Docker containers if running")
   .action((options) => {
     console.log(BANNER);
     console.log(`${c.yellow}Stopping Pachiware Agent services...${c.reset}`);
@@ -180,9 +188,11 @@ program
       execSync("pkill -f 'vite --port 3000' || true", { stdio: "pipe" });
       console.log(`  ${c.green}✔${c.reset} Agent backend and Web console processes stopped.`);
 
-      if (options.all) {
-        execSync("docker compose down", { cwd: rootDir, stdio: "inherit" });
-        console.log(`  ${c.green}✔${c.reset} Docker containers stopped.`);
+      if (options.docker || options.all) {
+        try {
+          execSync("docker compose down", { cwd: rootDir, stdio: "inherit" });
+          console.log(`  ${c.green}✔${c.reset} Docker containers stopped.`);
+        } catch {}
       }
       console.log(`\n${c.green}${c.bold}Done.${c.reset}\n`);
     } catch (err: any) {
@@ -195,13 +205,18 @@ program
  */
 program
   .command("restart")
-  .description("Restart all Pachiware Agent services")
-  .action(() => {
+  .description("Restart running Pachiware Agent services")
+  .option("--docker", "Also restart Docker containers if running")
+  .action((options) => {
     console.log(`${c.yellow}Restarting Pachiware Agent...${c.reset}`);
     try {
       execSync("pkill -f 'bun.*apps/agent/src/index.ts' || true", { stdio: "pipe" });
       execSync("pkill -f 'vite --port 3000' || true", { stdio: "pipe" });
-      execSync("docker compose restart", { cwd: rootDir, stdio: "inherit" });
+      if (options.docker) {
+        try {
+          execSync("docker compose restart", { cwd: rootDir, stdio: "inherit" });
+        } catch {}
+      }
       console.log(`${c.green}Services restarted. Run 'pachiware start' or check 'pachiware status'.${c.reset}`);
     } catch (err: any) {
       console.error(`${c.red}Restart failed:${c.reset}`, err.message);
@@ -224,17 +239,15 @@ program
       const dockerOut = execSync("docker ps --filter 'name=pachiware' --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'", {
         encoding: "utf8",
       });
-      console.log(`${c.cyan}${c.bold}Containers:${c.reset}`);
       if (dockerOut.trim()) {
+        console.log(`${c.cyan}${c.bold}Bundled Containers (Docker):${c.reset}`);
         dockerOut.trim().split("\n").forEach((line) => {
           const [name, status, ports] = line.split("\t");
           console.log(`  ${c.green}●${c.reset} ${c.bold}${name.padEnd(20)}${c.reset} ${status.padEnd(25)} ${c.gray}${ports}${c.reset}`);
         });
-      } else {
-        console.log(`  ${c.yellow}● No containers running. Run 'pachiware start'${c.reset}`);
       }
     } catch {
-      console.log(`  ${c.red}✖ Docker daemon unreachable.${c.reset}`);
+      // Docker not running or not installed - fine when using external infra
     }
 
     // Check Agent REST API
@@ -246,7 +259,7 @@ program
         console.log(`  ${c.green}●${c.reset} API Status:     ${c.green}${body.status.toUpperCase()}${c.reset} (Uptime: ${Math.round(body.uptimeSeconds)}s)`);
         console.log(`  ${c.green}●${c.reset} Database:       ${body.services.database}`);
         console.log(`  ${c.green}●${c.reset} Redis Cache:    ${body.services.redis}`);
-        console.log(`  ${c.green}●${c.reset} Discord Bot:    ${body.services.discord.connected ? `Connected (${body.services.discord.botTag})` : "Simulation/Standby mode"}`);
+        console.log(`  ${c.green}●${c.reset} Messaging:      Discord active (${body.services.discord.connected ? `Connected as ${body.services.discord.botTag}` : "Standby/Simulation mode"})`);
       } else {
         console.log(`  ${c.yellow}● API returned status HTTP ${res.status}${c.reset}`);
       }
@@ -351,29 +364,29 @@ program
     console.log(BANNER);
     console.log(`${c.bold}🩺 Running Pachiware System Diagnostics...${c.reset}\n`);
 
-    // 1. Bun & Node Runtimes
+    // 1. Bun Runtime (Standalone - No Node.js required)
     try {
       const bunVer = execSync("bun --version", { encoding: "utf8" }).trim();
-      console.log(`  ${c.green}✔${c.reset} Bun Runtime:        v${bunVer}`);
+      console.log(`  ${c.green}✔${c.reset} Bun Runtime:        v${bunVer} (Standalone, Node.js not needed)`);
     } catch {
       console.log(`  ${c.red}✖${c.reset} Bun Runtime:        Not installed (recommended: curl -fsSL https://bun.sh/install | bash)`);
     }
 
-    // 2. Docker
+    // 2. Docker (Optional)
     try {
       const dockerVer = execSync("docker --version", { encoding: "utf8" }).trim();
       execSync("docker info", { stdio: "pipe" });
-      console.log(`  ${c.green}✔${c.reset} Docker Engine:      ${dockerVer} (Daemon active)`);
+      console.log(`  ${c.green}✔${c.reset} Docker Engine:      ${dockerVer} (Optional: ready for bundled containers)`);
     } catch {
-      console.log(`  ${c.red}✖${c.reset} Docker Engine:      Not running or not installed.`);
+      console.log(`  ${c.cyan}ℹ${c.reset} Docker Engine:      Not running or not installed (Optional: only needed if using --docker)`);
     }
 
     // 3. Ports check
     const ports = [
-      { port: 5432, desc: "PostgreSQL 18" },
-      { port: 6380, desc: "Redis Cache" },
       { port: 3001, desc: "Agent API" },
       { port: 3000, desc: "Web GUI" },
+      { port: 5432, desc: "PostgreSQL (default port)" },
+      { port: 6380, desc: "Redis Cache (default port)" },
     ];
 
     console.log(`\n  ${c.bold}Port Status:${c.reset}`);

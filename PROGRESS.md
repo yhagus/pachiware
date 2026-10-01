@@ -3,41 +3,43 @@
 ## 🎯 End Goals
 `pachiware-agent` is an intelligent, self-hosted AI agent platform built with TypeScript and Bun. It features:
 - **No heavy frameworks:** Lightweight, explicit ReAct agent execution loop with native tool calling.
-- **Multi-channel integration:** Discord bot (`discord.js`) providing server management, task creation, conversation channels, and status tracking.
-- **Management Web GUI (`apps/web`):** Clean, modern dashboard (Vite/React or Next.js + Tailwind CSS) for managing agent prompts, personality, active skills, tasks (Kanban/List), and LLM routing.
+- **Multi-channel integration:** Modular messaging gateway (Discord active; WhatsApp, Telegram, Slack planned) providing chat interaction, task creation, conversation channels, and status tracking.
+- **Management Web GUI (`apps/web`):** Clean, modern dashboard (Vite + React + Tailwind CSS + Lucide) for managing agent prompts, personality, active skills, tasks (Kanban/List), and LLM routing.
 - **LLM Router Adapter:** Direct integration with OpenAI, Anthropic, and custom OpenAI-compatible proxies (such as `9router`).
-- **Robust Persistence & Performance:** PostgreSQL 18 for persistent entities (agents, skills, tasks, conversations, messages) via Drizzle ORM, with Redis for low-latency session caching, rate-limiting, and state synchronization.
+- **Robust Persistence & Performance:** PostgreSQL for persistent entities (agents, skills, tasks, conversations, messages) via Drizzle ORM, with Redis for low-latency session caching, rate-limiting, and state synchronization. Runs with external instances by default or optional bundled local containers.
 
 ---
 
 ## 🏗 System Architecture
 
 ```text
-                                 +-----------------------+
-                                 |   Discord Gateway     |
-                                 |    (discord.js)       |
-                                 +-----------+-----------+
-                                             |
-                                             v
-+------------------------+       +-----------+-----------+       +------------------------+
-|   Web Management GUI   | <---> |   Hono REST/API &     | <---> |      Redis Cache       |
-|    (apps/web)          |       |   Agent ReAct Loop    |       | (Session, State, Rate) |
-+------------------------+       |     (apps/agent)      |       +------------------------+
-                                 +-----------+-----------+
-                                             |
-                         +-------------------+-------------------+
-                         |                                       |
-                         v                                       v
-             +-----------+-----------+               +-----------+-----------+
-             |   Tool & Skill Harness|               |   LLM Router Adapter  |
-             |   (packages/skills)   |               | (OpenAI/Claude/9router|
-             +-----------+-----------+               +-----------------------+
-                         |
-                         v
-             +-----------+-----------+
-             |     PostgreSQL 18     |
-             |     (packages/db)     |
-             +-----------------------+
+                                 +-------------------------------+
+                                 |    Multi-Channel Gateway      |
+                                 |  • Discord (Active)           |
+                                 |  • Telegram / WhatsApp (Next) |
+                                 +---------------+---------------+
+                                                 |
+                                                 v
++------------------------+       +---------------+---------------+       +------------------------+
+|   Web Management GUI   | <---> |        Hono REST/API &        | <---> |      Redis Cache       |
+|    (apps/web)          |       |       Agent ReAct Loop        |       | (Session, State, Rate) |
++------------------------+       |         (apps/agent)          |       | [External or Bundled]  |
+                                 +---------------+---------------+       +------------------------+
+                                                 |
+                             +-------------------+-------------------+
+                             |                                       |
+                             v                                       v
+                 +-----------+-----------+               +-----------+-----------+
+                 |   Tool & Skill Harness|               |   LLM Router Adapter  |
+                 |   (packages/skills)   |               | (OpenAI/Claude/9router|
+                 +-----------+-----------+               +-----------------------+
+                             |
+                             v
+                 +-----------+-----------+
+                 |      PostgreSQL       |
+                 |     (packages/db)     |
+                 | [External or Bundled] |
+                 +-----------------------+
 ```
 
 ### Component Structure
