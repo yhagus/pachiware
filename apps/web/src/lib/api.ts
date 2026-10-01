@@ -41,10 +41,30 @@ export interface AgentConfigData {
   defaultModel: string;
   temperature: number;
   maxTokens: number;
+  openaiApiKey?: string | null;
+  openaiBaseUrl?: string | null;
+  openaiModel?: string | null;
+  anthropicApiKey?: string | null;
+  anthropicBaseUrl?: string | null;
+  anthropicModel?: string | null;
   customBaseUrl?: string | null;
   customApiKey?: string | null;
+  customModel?: string | null;
+  discordBotToken?: string | null;
+  discordClientId?: string | null;
+  discordGuildId?: string | null;
   settings?: Record<string, any>;
   updatedAt: string;
+}
+
+export interface InfrastructureData {
+  databaseUrl: string;
+  rawDatabaseUrl?: string;
+  redisUrl: string;
+  rawRedisUrl?: string;
+  isFromRuntimeStore?: boolean;
+  updatedAt?: string;
+  notice?: string;
 }
 
 export interface SkillItem {
@@ -140,4 +160,42 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message, conversationId }),
     }),
+
+  testLLM: (data: { provider: string; apiKey?: string; baseUrl?: string }) =>
+    fetchJSON<{ success: boolean; message: string; modelCount?: number }>("/api/agent/test/llm", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  testDiscord: (data: { token?: string }) =>
+    fetchJSON<{ success: boolean; botTag?: string; botId?: string; error?: string }>("/api/agent/test/discord", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  restartDiscord: () =>
+    fetchJSON<{ success: boolean; message: string }>("/api/agent/discord/restart", {
+      method: "POST",
+    }),
+
+  getInfrastructure: () =>
+    fetchJSON<{ success: boolean; infrastructure: InfrastructureData }>("/api/agent/infrastructure"),
+
+  updateInfrastructure: (data: { databaseUrl?: string; redisUrl?: string }) =>
+    fetchJSON<{ success: boolean; message: string; infrastructure: InfrastructureData }>("/api/agent/infrastructure", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  testPostgres: (data: { databaseUrl?: string }) =>
+    fetchJSON<{ success: boolean; message: string; latencyMs?: number }>("/api/agent/infrastructure/test-db", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  testRedis: () =>
+    fetchJSON<{ success: boolean; message: string; latencyMs?: number }>("/api/agent/infrastructure/test-redis", {
+      method: "POST",
+    }),
 };
+

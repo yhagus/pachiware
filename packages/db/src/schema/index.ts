@@ -15,8 +15,27 @@ export const agentsConfig = pgTable("agents_config", {
   defaultModel: text("default_model").notNull().default("gpt-4o"),
   temperature: real("temperature").notNull().default(0.7),
   maxTokens: integer("max_tokens").notNull().default(4096),
+
+  // OpenAI Provider
+  openaiApiKey: text("openai_api_key"),
+  openaiBaseUrl: text("openai_base_url"),
+  openaiModel: text("openai_model"),
+
+  // Anthropic Provider
+  anthropicApiKey: text("anthropic_api_key"),
+  anthropicBaseUrl: text("anthropic_base_url"),
+  anthropicModel: text("anthropic_model"),
+
+  // Custom / 9router (OpenAI-compatible) Provider
   customBaseUrl: text("custom_base_url"),
   customApiKey: text("custom_api_key"),
+  customModel: text("custom_model"),
+
+  // Discord Gateway
+  discordBotToken: text("discord_bot_token"),
+  discordClientId: text("discord_client_id"),
+  discordGuildId: text("discord_guild_id"),
+
   settings: jsonb("settings").default({}).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .default(sql`CURRENT_TIMESTAMP`)

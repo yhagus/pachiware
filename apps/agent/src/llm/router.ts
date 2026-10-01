@@ -1,9 +1,31 @@
 import { config } from "../config.js";
+import { db, agentsConfig, eq } from "@pachiware/db";
+import { CacheService } from "../cache/redis.js";
 import { skillRegistry } from "@pachiware/skills";
 import type { ChatMessage, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
 
 export class LLMRouter {
+  private async getActiveDbConfig() {
+    try {
+      let cached = await CacheService.get<any>("agent:config:default");
+      if (!cached) {
+        const rows = await db
+          .select()
+          .from(agentsConfig)
+          .where(eq(agentsConfig.id, "default"))
+          .limit(1);
+        cached = rows[0] || null;
+        if (cached) {
+          await CacheService.set("agent:config:default", cached, 120);
+        }
+      }
+      return cached;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Main completion method dispatching to the configured or requested provider.
    */
@@ -11,16 +33,17 @@ export class LLMRouter {
     messages: ChatMessage[],
     options: LLMRequestOptions = {}
   ): Promise<LLMResponse> {
-    const provider = options.provider || config.llm.defaultProvider;
+    const dbConfig = await this.getActiveDbConfig();
+    const provider = options.provider || dbConfig?.defaultProvider || config.llm.defaultProvider;
 
     switch (provider) {
       case "anthropic":
-        return this.callAnthropic(messages, options);
+        return this.callAnthropic(messages, options, dbConfig);
       case "custom":
-        return this.callCustomOpenAI(messages, options);
+        return this.callCustomOpenAI(messages, options, dbConfig);
       case "openai":
       default:
-        return this.callOpenAI(messages, options);
+        return this.callOpenAI(messages, options, dbConfig);
     }
   }
 
@@ -29,11 +52,12 @@ export class LLMRouter {
    */
   private async callOpenAI(
     messages: ChatMessage[],
-    options: LLMRequestOptions
+    options: LLMRequestOptions,
+    dbConfig?: any
   ): Promise<LLMResponse> {
-    const apiKey = config.llm.openai.apiKey;
-    const baseUrl = config.llm.openai.baseUrl.replace(/\/+$/, "");
-    const model = options.model || config.llm.defaultModel;
+    const apiKey = dbConfig?.openaiApiKey || config.llm.openai.apiKey;
+    const baseUrl = (dbConfig?.openaiBaseUrl || config.llm.openai.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+    const model = options.model || dbConfig?.openaiModel || dbConfig?.defaultModel || config.llm.defaultModel;
 
     if (!apiKey) {
       return this.handleMissingApiKey("openai", messages, options);
@@ -136,11 +160,12 @@ export class LLMRouter {
    */
   private async callAnthropic(
     messages: ChatMessage[],
-    options: LLMRequestOptions
+    options: LLMRequestOptions,
+    dbConfig?: any
   ): Promise<LLMResponse> {
-    const apiKey = config.llm.anthropic.apiKey;
-    const baseUrl = config.llm.anthropic.baseUrl.replace(/\/+$/, "");
-    const model = options.model || "claude-3-5-sonnet-20241022";
+    const apiKey = dbConfig?.anthropicApiKey || config.llm.anthropic.apiKey;
+    const baseUrl = (dbConfig?.anthropicBaseUrl || config.llm.anthropic.baseUrl || "https://api.anthropic.com/v1").replace(/\/+$/, "");
+    const model = options.model || dbConfig?.anthropicModel || "claude-3-5-sonnet-20241022";
 
     if (!apiKey) {
       return this.handleMissingApiKey("anthropic", messages, options);
@@ -252,11 +277,12 @@ export class LLMRouter {
    */
   private async callCustomOpenAI(
     messages: ChatMessage[],
-    options: LLMRequestOptions
+    options: LLMRequestOptions,
+    dbConfig?: any
   ): Promise<LLMResponse> {
-    const apiKey = config.llm.custom.apiKey;
-    const baseUrl = (config.llm.custom.baseUrl || "https://api.9router.com/v1").replace(/\/+$/, "");
-    const model = options.model || config.llm.custom.model || "gpt-4o";
+    const apiKey = dbConfig?.customApiKey || config.llm.custom.apiKey;
+    const baseUrl = (dbConfig?.customBaseUrl || config.llm.custom.baseUrl || "https://api.9router.com/v1").replace(/\/+$/, "");
+    const model = options.model || dbConfig?.customModel || config.llm.custom.model || "gpt-4o";
 
     if (!apiKey) {
       return this.handleMissingApiKey("custom (9router)", messages, options);
@@ -472,6 +498,67 @@ export class LLMRouter {
       finishReason: "error",
     };
   }
+
+  static async testOpenAI(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string; modelCount?: number }> {
+    const url = (baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+    try {
+      const res = await fetch(`${url}/models`, {
+        headers: { Authorization: `Bearer ${apiKey.trim()}` },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        return { success: false, message: `OpenAI rejected credentials (${res.status}): ${text}` };
+      }
+      const data = await res.json();
+      return { success: true, message: `Successfully connected to OpenAI API`, modelCount: data.data?.length };
+    } catch (err: any) {
+      return { success: false, message: `Network error connecting to OpenAI: ${err.message}` };
+    }
+  }
+
+  static async testAnthropic(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string }> {
+    const url = (baseUrl || "https://api.anthropic.com/v1").replace(/\/+$/, "");
+    try {
+      const res = await fetch(`${url}/messages`, {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey.trim(),
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-haiku-20241022",
+          max_tokens: 1,
+          messages: [{ role: "user", content: "ping" }],
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        return { success: false, message: `Anthropic rejected credentials (${res.status}): ${text}` };
+      }
+      return { success: true, message: `Successfully authenticated with Anthropic Messages API` };
+    } catch (err: any) {
+      return { success: false, message: `Network error connecting to Anthropic: ${err.message}` };
+    }
+  }
+
+  static async testCustom(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string; modelCount?: number }> {
+    const url = (baseUrl || "https://api.9router.com/v1").replace(/\/+$/, "");
+    try {
+      const res = await fetch(`${url}/models`, {
+        headers: { Authorization: `Bearer ${apiKey.trim()}` },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        return { success: false, message: `Custom endpoint rejected credentials (${res.status}): ${text}` };
+      }
+      const data = await res.json();
+      return { success: true, message: `Successfully connected to Custom/Proxy endpoint`, modelCount: data.data?.length };
+    } catch (err: any) {
+      return { success: false, message: `Network error connecting to custom endpoint: ${err.message}` };
+    }
+  }
 }
 
 export const llmRouter = new LLMRouter();
+

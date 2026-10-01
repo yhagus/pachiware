@@ -16,12 +16,35 @@ export async function runMigrations() {
       default_model TEXT NOT NULL DEFAULT 'gpt-4o',
       temperature REAL NOT NULL DEFAULT 0.7,
       max_tokens INTEGER NOT NULL DEFAULT 4096,
+      openai_api_key TEXT,
+      openai_base_url TEXT,
+      openai_model TEXT,
+      anthropic_api_key TEXT,
+      anthropic_base_url TEXT,
+      anthropic_model TEXT,
       custom_base_url TEXT,
       custom_api_key TEXT,
+      custom_model TEXT,
+      discord_bot_token TEXT,
+      discord_client_id TEXT,
+      discord_guild_id TEXT,
       settings JSONB NOT NULL DEFAULT '{}'::jsonb,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `;
+
+  // Safely ensure columns exist on existing databases
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS openai_api_key TEXT;`;
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS openai_base_url TEXT;`;
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS openai_model TEXT;`;
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS anthropic_api_key TEXT;`;
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS anthropic_base_url TEXT;`;
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS anthropic_model TEXT;`;
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS custom_model TEXT;`;
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS discord_bot_token TEXT;`;
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS discord_client_id TEXT;`;
+  await queryClient`ALTER TABLE agents_config ADD COLUMN IF NOT EXISTS discord_guild_id TEXT;`;
+
 
   await queryClient`
     CREATE TABLE IF NOT EXISTS skills (

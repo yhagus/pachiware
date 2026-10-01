@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Cpu, Key, Globe, CheckCircle2, Shield, AlertCircle, Save } from "lucide-react";
+import { Cpu, Key, Globe, CheckCircle2, Shield, AlertCircle, Save, Zap, Loader2 } from "lucide-react";
 import { api, type AgentConfigData } from "../lib/api.js";
 
 interface LLMRouterConfigProps {
@@ -15,11 +15,28 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
     initialConfig?.defaultProvider || "openai"
   );
   const [model, setModel] = useState(initialConfig?.defaultModel || "gpt-4o");
-  const [baseUrl, setBaseUrl] = useState(
+
+  // OpenAI Fields
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState(
+    initialConfig?.openaiBaseUrl || "https://api.openai.com/v1"
+  );
+
+  // Anthropic Fields
+  const [anthropicApiKey, setAnthropicApiKey] = useState("");
+  const [anthropicBaseUrl, setAnthropicBaseUrl] = useState(
+    initialConfig?.anthropicBaseUrl || "https://api.anthropic.com/v1"
+  );
+
+  // Custom / 9router Fields
+  const [customApiKey, setCustomApiKey] = useState("");
+  const [customBaseUrl, setCustomBaseUrl] = useState(
     initialConfig?.customBaseUrl || "https://api.9router.com/v1"
   );
-  const [apiKey, setApiKey] = useState("");
+
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [successMsg, setSuccessMsg] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -27,9 +44,49 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
     if (initialConfig) {
       setProvider(initialConfig.defaultProvider);
       setModel(initialConfig.defaultModel);
-      setBaseUrl(initialConfig.customBaseUrl || "https://api.9router.com/v1");
+      setOpenaiBaseUrl(initialConfig.openaiBaseUrl || "https://api.openai.com/v1");
+      setAnthropicBaseUrl(initialConfig.anthropicBaseUrl || "https://api.anthropic.com/v1");
+      setCustomBaseUrl(initialConfig.customBaseUrl || "https://api.9router.com/v1");
     }
   }, [initialConfig]);
+
+  const handleTestConnection = async () => {
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      let key = "";
+      let url = "";
+
+      if (provider === "openai") {
+        key = openaiApiKey;
+        url = openaiBaseUrl;
+      } else if (provider === "anthropic") {
+        key = anthropicApiKey;
+        url = anthropicBaseUrl;
+      } else {
+        key = customApiKey;
+        url = customBaseUrl;
+      }
+
+      const res = await api.testLLM({
+        provider,
+        apiKey: key.trim() || undefined,
+        baseUrl: url.trim() || undefined,
+      });
+
+      setTestResult({
+        success: res.success,
+        message: res.message + (res.modelCount ? ` (${res.modelCount} models available)` : ""),
+      });
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: err.message || "Connection test failed.",
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,17 +98,21 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
       const payload: Partial<AgentConfigData> = {
         defaultProvider: provider,
         defaultModel: model,
-        customBaseUrl: baseUrl,
+        openaiBaseUrl,
+        anthropicBaseUrl,
+        customBaseUrl,
       };
 
-      if (apiKey.trim()) {
-        payload.customApiKey = apiKey.trim();
-      }
+      if (openaiApiKey.trim()) payload.openaiApiKey = openaiApiKey.trim();
+      if (anthropicApiKey.trim()) payload.anthropicApiKey = anthropicApiKey.trim();
+      if (customApiKey.trim()) payload.customApiKey = customApiKey.trim();
 
       const res = await api.updateAgentConfig(payload);
       onConfigSaved(res.config);
       setSuccessMsg(true);
-      setApiKey("");
+      setOpenaiApiKey("");
+      setAnthropicApiKey("");
+      setCustomApiKey("");
       setTimeout(() => setSuccessMsg(false), 3000);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to update LLM configuration.");
@@ -79,14 +140,14 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
             LLM Router & Provider Settings
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Configure direct LLM credentials, custom proxy endpoints (such as 9router), and fallback models.
+            Configure direct LLM credentials, custom proxy endpoints (e.g. 9router), and fallback models dynamically in the database.
           </p>
         </div>
 
         {successMsg && (
           <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-medium">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>LLM Router Updated!</span>
+            <span>Settings Saved!</span>
           </div>
         )}
       </div>
@@ -103,7 +164,7 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
           type="button"
           onClick={() => {
             setProvider("openai");
-            setModel("gpt-4o");
+            if (provider !== "openai") setModel("gpt-4o");
           }}
           className={`p-4 rounded-xl border text-left transition-all ${
             provider === "openai"
@@ -115,13 +176,16 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
           <div className="text-[11px] text-slate-400 mt-1">
             Official GPT-4o & o-series models via OpenAI API
           </div>
+          <div className="mt-2 text-[10px] font-mono text-indigo-400">
+            {initialConfig?.openaiApiKey ? "Configured in DB" : "Not configured"}
+          </div>
         </button>
 
         <button
           type="button"
           onClick={() => {
             setProvider("anthropic");
-            setModel("claude-3-5-sonnet-20241022");
+            if (provider !== "anthropic") setModel("claude-3-5-sonnet-20241022");
           }}
           className={`p-4 rounded-xl border text-left transition-all ${
             provider === "anthropic"
@@ -133,14 +197,16 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
           <div className="text-[11px] text-slate-400 mt-1">
             Claude 3.5 Sonnet & Haiku with native tool use
           </div>
+          <div className="mt-2 text-[10px] font-mono text-indigo-400">
+            {initialConfig?.anthropicApiKey ? "Configured in DB" : "Not configured"}
+          </div>
         </button>
 
         <button
           type="button"
           onClick={() => {
             setProvider("custom");
-            setModel("gpt-4o");
-            setBaseUrl("https://api.9router.com/v1");
+            if (provider !== "custom") setModel("gpt-4o");
           }}
           className={`p-4 rounded-xl border text-left transition-all ${
             provider === "custom"
@@ -157,14 +223,22 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
           <div className="text-[11px] text-slate-400 mt-1">
             Custom OpenAI-compatible reverse proxy endpoints
           </div>
+          <div className="mt-2 text-[10px] font-mono text-indigo-400">
+            {initialConfig?.customApiKey ? "Configured in DB" : "Not configured"}
+          </div>
         </button>
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
         <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-5">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">
-            Endpoint & Authentication
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">
+              Active Provider: {provider.toUpperCase()}
+            </h3>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-mono">
+              Saved in PostgreSQL (DB-First)
+            </span>
+          </div>
 
           {/* Model Selection */}
           <div>
@@ -189,63 +263,164 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 className="w-1/2 px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-              />
+              >
+              </input>
             </div>
           </div>
 
-          {/* Base URL (shown for Custom / 9router or editable) */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
-              <Globe className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Base API URL</span>
-            </label>
-            <input
-              type="url"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.9router.com/v1"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-              required={provider === "custom"}
-            />
-            <p className="text-[10px] text-slate-500 mt-1">
-              For 9router, use <code className="text-indigo-400 font-mono">https://api.9router.com/v1</code>.
-            </p>
-          </div>
+          {/* Provider Specific Settings */}
+          {provider === "openai" && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>OpenAI Base URL</span>
+                </label>
+                <input
+                  type="url"
+                  value={openaiBaseUrl}
+                  onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                  placeholder="https://api.openai.com/v1"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
 
-          {/* API Key */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
-              <Key className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Provider API Key</span>
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={
-                initialConfig?.customApiKey
-                  ? `Configured (${initialConfig.customApiKey}) - Leave empty to keep`
-                  : "Enter API Key (sk-...)"
-              }
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-            />
-            <p className="text-[10px] text-slate-500 mt-1">
-              Keys can also be configured directly via environment variables (<code className="text-indigo-400 font-mono">.env</code>).
-            </p>
-          </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>OpenAI API Key</span>
+                </label>
+                <input
+                  type="password"
+                  value={openaiApiKey}
+                  onChange={(e) => setOpenaiApiKey(e.target.value)}
+                  placeholder={
+                    initialConfig?.openaiApiKey
+                      ? `Configured (${initialConfig.openaiApiKey}) - Leave empty to keep`
+                      : "sk-..."
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+            </>
+          )}
+
+          {provider === "anthropic" && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Anthropic Base URL</span>
+                </label>
+                <input
+                  type="url"
+                  value={anthropicBaseUrl}
+                  onChange={(e) => setAnthropicBaseUrl(e.target.value)}
+                  placeholder="https://api.anthropic.com/v1"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Anthropic API Key</span>
+                </label>
+                <input
+                  type="password"
+                  value={anthropicApiKey}
+                  onChange={(e) => setAnthropicApiKey(e.target.value)}
+                  placeholder={
+                    initialConfig?.anthropicApiKey
+                      ? `Configured (${initialConfig.anthropicApiKey}) - Leave empty to keep`
+                      : "sk-ant-..."
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+            </>
+          )}
+
+          {provider === "custom" && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Custom Proxy Base URL</span>
+                </label>
+                <input
+                  type="url"
+                  value={customBaseUrl}
+                  onChange={(e) => setCustomBaseUrl(e.target.value)}
+                  placeholder="https://api.9router.com/v1"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                  required
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  For 9router, use <code className="text-indigo-400 font-mono">https://api.9router.com/v1</code>.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Custom API Key</span>
+                </label>
+                <input
+                  type="password"
+                  value={customApiKey}
+                  onChange={(e) => setCustomApiKey(e.target.value)}
+                  placeholder={
+                    initialConfig?.customApiKey
+                      ? `Configured (${initialConfig.customApiKey}) - Leave empty to keep`
+                      : "Enter API Key"
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Test Result Callout */}
+          {testResult && (
+            <div
+              className={`p-3.5 rounded-xl border text-xs flex items-center gap-2.5 ${
+                testResult.success
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                  : "bg-red-500/10 border-red-500/30 text-red-300"
+              }`}
+            >
+              {testResult.success ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+              )}
+              <span>{testResult.message}</span>
+            </div>
+          )}
         </div>
 
         {/* Informational Callout */}
         <div className="p-4 rounded-xl bg-slate-900/40 border border-indigo-500/20 flex items-start gap-3 text-xs text-slate-300">
           <Shield className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold text-white">Lightweight Architecture:</span>{" "}
-            Pachiware Agent uses an explicit, native tool-calling ReAct engine without bulky wrapper frameworks (such as LangChain or Hermes). Tool definitions are converted on-the-fly to each provider's native format.
+            <span className="font-semibold text-white">Dynamic Runtime Routing:</span>{" "}
+            Credentials saved here take effect immediately for the next agent inference cycle without requiring a server reboot. The <code className="text-indigo-400 font-mono">.env</code> file remains safely read-only.
           </div>
         </div>
 
-        {/* Submit */}
-        <div className="flex justify-end pt-2">
+        {/* Actions */}
+        <div className="flex items-center justify-between pt-2">
+          <button
+            type="button"
+            onClick={handleTestConnection}
+            disabled={isTesting}
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 font-medium text-xs border border-slate-700 transition-all flex items-center gap-2"
+          >
+            {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-amber-400" />}
+            <span>{isTesting ? "Testing Connection..." : "Test Connection"}</span>
+          </button>
+
           <button
             type="submit"
             disabled={isSaving}

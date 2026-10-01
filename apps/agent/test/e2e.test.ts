@@ -115,4 +115,48 @@ describe("Pachiware Agent Full End-to-End API & Engine Verification", () => {
     expect(chatBody.toolsExecuted[0].call.name).toBe("createTask");
     expect(chatBody.toolsExecuted[0].result.success).toBe(true);
   });
+
+  it("should retrieve and manage infrastructure config via runtime store", async () => {
+    // 1. Get infrastructure config
+    const res = await fetch(`${BASE_URL}/api/agent/infrastructure`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.infrastructure.databaseUrl).toBeDefined();
+    expect(body.infrastructure.redisUrl).toBeDefined();
+    expect(body.infrastructure.notice).toContain(".env is protected");
+
+    // 2. Test DB ping
+    const testDbRes = await fetch(`${BASE_URL}/api/agent/infrastructure/test-db`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(testDbRes.status).toBe(200);
+    const testDbBody = await testDbRes.json();
+    expect(testDbBody.success).toBe(true);
+  });
+
+  it("should safely mask secrets and support dynamic provider updates", async () => {
+    // 1. Update config with test key
+    const updateRes = await fetch(`${BASE_URL}/api/agent/config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        customModel: "gpt-4o",
+      }),
+    });
+    expect(updateRes.status).toBe(200);
+    const updateBody = await updateRes.json();
+    expect(updateBody.success).toBe(true);
+
+    // 2. Fetch config and verify secrets are masked
+    const getRes = await fetch(`${BASE_URL}/api/agent/config`);
+    expect(getRes.status).toBe(200);
+    const getBody = await getRes.json();
+    if (getBody.config.customApiKey) {
+      expect(getBody.config.customApiKey).toContain("••••");
+    }
+  });
 });
+

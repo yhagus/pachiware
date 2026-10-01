@@ -165,6 +165,28 @@ pachiware-agent/
 - [x] Global executable setup via `npm install -g pachiware`, `bun add -g pachiware`, or `bun link`
 - [x] Verify `pachiware --help` and core CLI subcommands
 
+### Phase 8: Web-Managed Dynamic Configuration & Persistent Runtime Store
+- [x] Database Schema & Integrations State:
+  - [x] Add explicit provider fields to `agents_config` (OpenAI, Anthropic, Custom LLM, and Discord credentials)
+  - [x] Update seed script to bootstrap from `.env` only if empty, treating `.env` as initial defaults
+  - [x] Database migration for new configuration columns
+- [x] Runtime Infrastructure Store (Non-Mutating `.env`):
+  - [x] Create runtime config manager for PostgreSQL & Redis (`runtime-config.json`, gitignored)
+  - [x] Fallback chain: `runtime-config.json` -> `process.env` -> defaults
+  - [x] Ensure `.env` is never mutated at runtime
+- [x] Backend Dynamic Services & API:
+  - [x] Dynamic LLM Router (loads active credentials from DB/cache on every completion)
+  - [x] Dynamic Discord Bot Manager (hot-reloads Gateway connection on token/guild update)
+  - [x] Dynamic Redis/DB connection test endpoints (`POST /api/settings/test`)
+  - [x] Infrastructure config endpoints (`GET/PUT /api/agent/infrastructure`)
+- [x] Web Management GUI:
+  - [x] Expand LLM Router tab for all providers (OpenAI, Anthropic, Custom) with masked keys and live connection tests
+  - [x] Add Discord Gateway configuration tab with live connection status, bot tag, and restart action
+  - [x] Add Infrastructure configuration tab (PostgreSQL & Redis) with pre-flight test and runtime config persistence
+- [x] Verification & Build Integrity:
+  - [x] Verify TypeScript compilation across monorepo (`bun run build` / type checks)
+  - [x] Verify test suite (7/7 passing E2E tests) and update documentation
+
 ---
 
 ## 📈 Current Progress Log
@@ -175,3 +197,5 @@ pachiware-agent/
 - **Phase 5: Completed ✅** (Web Management GUI, Vite + React + Tailwind, Dark Console)
 - **Phase 6: Completed ✅** (E2E Integration Testing with 10 passing tests, Monorepo Verification, Documentation)
 - **Phase 7: Completed ✅** (Global CLI `pachiware`, `pachiware --help`, `pachiware update`, and Server Installer `install.sh`)
+- **Phase 8: Completed ✅** (Web-Managed Dynamic Configuration without mutating `.env`)
+

@@ -1,16 +1,18 @@
 import * as dotenv from "dotenv";
 import { resolve } from "path";
+import { getInfraConfig } from "@pachiware/db";
 
 dotenv.config({ path: resolve(process.cwd(), "../../.env") });
 dotenv.config({ path: resolve(process.cwd(), ".env") });
+
+const infra = getInfraConfig();
 
 export const config = {
   port: parseInt(process.env.AGENT_PORT || "3001", 10),
   host: process.env.AGENT_HOST || "0.0.0.0",
   secretKey: process.env.AGENT_SECRET_KEY || "pachiware-super-secret-key-change-me",
-  databaseUrl:
-    process.env.DATABASE_URL || "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent",
-  redisUrl: process.env.REDIS_URL || "redis://localhost:6380",
+  databaseUrl: infra.databaseUrl,
+  redisUrl: infra.redisUrl,
 
   discord: {
     token: process.env.DISCORD_BOT_TOKEN || "",

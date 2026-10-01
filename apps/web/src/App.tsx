@@ -6,6 +6,8 @@ import { AgentPersonality } from "./pages/AgentPersonality.js";
 import { SkillsManager } from "./pages/SkillsManager.js";
 import { TaskManager } from "./pages/TaskManager.js";
 import { LLMRouterConfig } from "./pages/LLMRouterConfig.js";
+import { DiscordConfig } from "./pages/DiscordConfig.js";
+import { InfrastructureConfig } from "./pages/InfrastructureConfig.js";
 import { AgentPlayground } from "./pages/AgentPlayground.js";
 import {
   api,
@@ -77,7 +79,17 @@ export function App() {
       case "llm":
         return {
           title: "LLM Router & Providers",
-          subtitle: "Configure 9router, OpenAI, Anthropic endpoints and credentials",
+          subtitle: "Configure 9router, OpenAI, Anthropic endpoints and credentials dynamically in DB",
+        };
+      case "discord":
+        return {
+          title: "Discord Bot & Gateway",
+          subtitle: "Manage Discord bot tokens, guild binding, and hot-reload Gateway connection",
+        };
+      case "infrastructure":
+        return {
+          title: "Infrastructure & Data Stores",
+          subtitle: "PostgreSQL 18 & Redis configuration via persistent runtime store (read-only .env)",
         };
       case "playground":
         return {
@@ -151,6 +163,22 @@ export function App() {
             />
           )}
 
+          {currentTab === "discord" && (
+            <DiscordConfig
+              initialConfig={config}
+              health={health}
+              onConfigSaved={(newCfg) => setConfig(newCfg)}
+              onRefreshHealth={fetchAllData}
+            />
+          )}
+
+          {currentTab === "infrastructure" && (
+            <InfrastructureConfig
+              health={health}
+              onRefreshHealth={fetchAllData}
+            />
+          )}
+
           {currentTab === "playground" && <AgentPlayground />}
         </main>
       </div>
@@ -159,3 +187,4 @@ export function App() {
 }
 
 export default App;
+

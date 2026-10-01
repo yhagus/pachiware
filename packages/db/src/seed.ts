@@ -21,16 +21,46 @@ export async function runSeed() {
       defaultModel: process.env.DEFAULT_MODEL || "gpt-4o",
       temperature: 0.7,
       maxTokens: 4096,
+      openaiApiKey: process.env.OPENAI_API_KEY || null,
+      openaiBaseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+      openaiModel: process.env.DEFAULT_MODEL || "gpt-4o",
+      anthropicApiKey: process.env.ANTHROPIC_API_KEY || null,
+      anthropicBaseUrl: "https://api.anthropic.com/v1",
+      anthropicModel: "claude-3-5-sonnet-20241022",
       customBaseUrl: process.env.CUSTOM_LLM_BASE_URL || "https://api.9router.com/v1",
+      customApiKey: process.env.CUSTOM_LLM_API_KEY || null,
+      customModel: process.env.CUSTOM_LLM_MODEL || "gpt-4o",
+      discordBotToken: process.env.DISCORD_BOT_TOKEN || null,
+      discordClientId: process.env.DISCORD_CLIENT_ID || null,
+      discordGuildId: process.env.DISCORD_GUILD_ID || null,
       settings: {
         autoArchiveChannels: false,
         discordLogVerbosity: "info",
         maxReActIterations: 8,
       },
     });
-    console.log("  [+] Inserted default agent configuration");
+    console.log("  [+] Inserted default agent configuration with initial environment defaults");
   } else {
-    console.log("  [*] Agent configuration already exists");
+    // Backfill any missing columns from environment if not yet configured in DB
+    const current = existingConfig[0];
+    const backfill: Record<string, any> = {};
+
+    if (!current.openaiApiKey && process.env.OPENAI_API_KEY) backfill.openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!current.openaiBaseUrl && process.env.OPENAI_BASE_URL) backfill.openaiBaseUrl = process.env.OPENAI_BASE_URL;
+    if (!current.anthropicApiKey && process.env.ANTHROPIC_API_KEY) backfill.anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    if (!current.customApiKey && process.env.CUSTOM_LLM_API_KEY) backfill.customApiKey = process.env.CUSTOM_LLM_API_KEY;
+    if (!current.customBaseUrl && process.env.CUSTOM_LLM_BASE_URL) backfill.customBaseUrl = process.env.CUSTOM_LLM_BASE_URL;
+    if (!current.customModel && process.env.CUSTOM_LLM_MODEL) backfill.customModel = process.env.CUSTOM_LLM_MODEL;
+    if (!current.discordBotToken && process.env.DISCORD_BOT_TOKEN) backfill.discordBotToken = process.env.DISCORD_BOT_TOKEN;
+    if (!current.discordClientId && process.env.DISCORD_CLIENT_ID) backfill.discordClientId = process.env.DISCORD_CLIENT_ID;
+    if (!current.discordGuildId && process.env.DISCORD_GUILD_ID) backfill.discordGuildId = process.env.DISCORD_GUILD_ID;
+
+    if (Object.keys(backfill).length > 0) {
+      await db.update(agentsConfig).set(backfill).where(eq(agentsConfig.id, "default"));
+      console.log(`  [+] Backfilled ${Object.keys(backfill).length} initial config values from environment`);
+    } else {
+      console.log("  [*] Agent configuration already exists and is fully populated");
+    }
   }
 
   // 2. Seed Built-in Skills

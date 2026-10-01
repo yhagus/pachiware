@@ -7,6 +7,7 @@ import {
   EmbedBuilder,
 } from "discord.js";
 import { config } from "../config.js";
+import { db, agentsConfig, eq } from "@pachiware/db";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
 import { CacheService } from "../cache/redis.js";
@@ -16,10 +17,36 @@ export class DiscordBotService {
   private adapter: DiscordJSAdapter | null = null;
   private isConnected = false;
 
-  async start(): Promise<void> {
-    const token = config.discord.token;
+  async start(overrideCredentials?: { token?: string; guildId?: string }): Promise<void> {
+    let token = overrideCredentials?.token;
+    let guildId = overrideCredentials?.guildId;
+
     if (!token) {
-      console.log("ℹ️ Discord bot token not provided. Discord Gateway is running in standby/simulation mode.");
+      try {
+        const rows = await db
+          .select({
+            discordBotToken: agentsConfig.discordBotToken,
+            discordGuildId: agentsConfig.discordGuildId,
+          })
+          .from(agentsConfig)
+          .where(eq(agentsConfig.id, "default"))
+          .limit(1);
+
+        if (rows[0]?.discordBotToken) {
+          token = rows[0].discordBotToken;
+          guildId = rows[0].discordGuildId || undefined;
+        }
+      } catch (err: any) {
+        console.warn("Notice checking Discord credentials in DB:", err.message);
+      }
+    }
+
+    // Fall back to environment configuration
+    token = token || config.discord.token;
+    guildId = guildId || config.discord.guildId;
+
+    if (!token) {
+      console.log("ℹ️ Discord bot token not provided in DB or .env. Discord Gateway is running in standby/simulation mode.");
       return;
     }
 
@@ -34,7 +61,7 @@ export class DiscordBotService {
         partials: [Partials.Channel, Partials.Message],
       });
 
-      this.adapter = new DiscordJSAdapter(this.client, config.discord.guildId);
+      this.adapter = new DiscordJSAdapter(this.client, guildId);
 
       this.client.once(Events.ClientReady, (readyClient) => {
         this.isConnected = true;
@@ -49,6 +76,52 @@ export class DiscordBotService {
     } catch (err: any) {
       console.warn("⚠️ Failed to initialize Discord client:", err.message);
       this.isConnected = false;
+    }
+  }
+
+  async restart(overrideCredentials?: { token?: string; guildId?: string }): Promise<{ success: boolean; message: string }> {
+    console.log("🔄 Restarting Discord Gateway service with dynamic credentials...");
+    if (this.client) {
+      try {
+        this.client.destroy();
+      } catch {}
+      this.client = null;
+      this.adapter = null;
+      this.isConnected = false;
+    }
+
+    await this.start(overrideCredentials);
+    return {
+      success: true,
+      message: this.isConnected ? "Discord bot reconnected successfully." : "Discord bot restarted in standby mode.",
+    };
+  }
+
+  static async testToken(token: string): Promise<{ success: boolean; botTag?: string; botId?: string; error?: string }> {
+    if (!token) {
+      return { success: false, error: "Bot token is empty." };
+    }
+
+    try {
+      const res = await fetch("https://discord.com/api/v10/users/@me", {
+        headers: {
+          Authorization: `Bot ${token.trim()}`,
+        },
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        return { success: false, error: `Discord authentication rejected (${res.status}): ${body}` };
+      }
+
+      const data = await res.json();
+      return {
+        success: true,
+        botTag: `${data.username}#${data.discriminator || "0"}`,
+        botId: data.id,
+      };
+    } catch (err: any) {
+      return { success: false, error: `Failed to reach Discord Gateway: ${err.message}` };
     }
   }
 

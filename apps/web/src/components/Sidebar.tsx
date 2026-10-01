@@ -9,9 +9,19 @@ import {
   Terminal,
   Activity,
   Layers,
+  MessageSquare,
+  Database,
 } from "lucide-react";
 
-export type NavTab = "overview" | "personality" | "skills" | "tasks" | "llm" | "playground";
+export type NavTab =
+  | "overview"
+  | "personality"
+  | "skills"
+  | "tasks"
+  | "llm"
+  | "discord"
+  | "infrastructure"
+  | "playground";
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -48,8 +58,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, healt
     {
       id: "llm" as NavTab,
       label: "LLM Router",
-      description: "9router & Provider Keys",
+      description: "OpenAI, Claude, 9router",
       icon: Cpu,
+    },
+    {
+      id: "discord" as NavTab,
+      label: "Discord Gateway",
+      description: "Bot Token & Guild Sync",
+      icon: MessageSquare,
+    },
+    {
+      id: "infrastructure" as NavTab,
+      label: "Infrastructure",
+      description: "Postgres & Redis Config",
+      icon: Database,
     },
     {
       id: "playground" as NavTab,
