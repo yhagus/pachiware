@@ -1,0 +1,22 @@
+{
+  "name": "pachiware-agent-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "db:generate": "bun --filter @pachiware/db db:generate",
+    "db:migrate": "bun --filter @pachiware/db db:migrate",
+    "db:seed": "bun --filter @pachiware/db db:seed",
+    "db:studio": "bun --filter @pachiware/db db:studio",
+    "dev:agent": "bun --filter @pachiware/agent dev",
+    "dev:web": "bun --filter @pachiware/web dev",
+    "build": "bun --filter @pachiware/* build"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.13.0"
+  }
+}

@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.idea/
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Logs & temp
+*.log
+npm-debug.log*
+yarn-debug.log*
+bun.lockb
+.turbo
+.DS_Store
+
+# Persistence & data
+pgdata/
+redisdata/

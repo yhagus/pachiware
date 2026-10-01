@@ -1,0 +1,14 @@
+{
+  "name": "@pachiware/skills",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@pachiware/db": "workspace:*",
+    "drizzle-orm": "^0.39.3"
+  }
+}

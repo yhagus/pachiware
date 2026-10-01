@@ -1,0 +1,29 @@
+{
+  "name": "pachiware",
+  "version": "1.0.0",
+  "description": "CLI management tool and agent runner for Pachiware Agent",
+  "bin": {
+    "pachiware": "./bin/pachiware.js"
+  },
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "bun build ./src/index.ts --target=node --outfile=./bin/pachiware.js",
+    "compile": "bun build ./src/index.ts --compile --outfile=./bin/pachiware-bin",
+    "dev": "bun ./src/index.ts"
+  },
+  "dependencies": {
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0"
+  },
+  "keywords": [
+    "pachiware",
+    "ai-agent",
+    "react-loop",
+    "discord-agent",
+    "cli"
+  ],
+  "author": "Pachiware Core Team",
+  "license": "MIT"
+}

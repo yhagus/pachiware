@@ -1,0 +1,23 @@
+{
+  "name": "@pachiware/agent",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@pachiware/db": "workspace:*",
+    "@pachiware/skills": "workspace:*",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.39.3",
+    "hono": "^4.7.2",
+    "ioredis": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0"
+  }
+}
