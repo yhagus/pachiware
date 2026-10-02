@@ -187,6 +187,20 @@ pachiware-agent/
   - [x] Verify TypeScript compilation across monorepo (`bun run build` / type checks)
   - [x] Verify test suite (7/7 passing E2E tests) and update documentation
 
+### Phase 9: Zero-Config Resilience, Native In-Memory Fallback & Web Setup Wizard Mode
+- [x] Redis Optionality & Native In-Memory Engine:
+  - [x] Built-in native in-memory caching and sliding-window rate limiter (zero external dependencies)
+  - [x] Automatic and silent fallback when external Redis is not running or unreachable
+  - [x] Health check status remains `healthy (in-memory fallback)` without reporting degraded
+- [x] CLI `pachiware start` Resilience:
+  - [x] Pre-flight socket check to avoid raw ECONNREFUSED migration stack traces when DB is absent
+  - [x] Graceful transition to Setup Wizard Mode, starting both API and Web console smoothly
+- [x] Web Management GUI Setup Wizard (`apps/web/src/components/SetupWizard.tsx`):
+  - [x] Intercepts dashboard when PostgreSQL is uninitialized (`setupRequired: true`)
+  - [x] Displays a dedicated, clean setup screen with connection testing and one-click initialization
+  - [x] Automatically triggers `reconnectDatabase()`, `runMigrations()`, and `runSeed()` via backend `PUT /api/agent/infrastructure`
+  - [x] Smooth transition that unlocks the full dashboard once database connection is established
+
 ---
 
 ## 📈 Current Progress Log
@@ -198,4 +212,5 @@ pachiware-agent/
 - **Phase 6: Completed ✅** (E2E Integration Testing with 10 passing tests, Monorepo Verification, Documentation)
 - **Phase 7: Completed ✅** (Global CLI `pachiware`, `pachiware --help`, `pachiware update`, and Server Installer `install.sh`)
 - **Phase 8: Completed ✅** (Web-Managed Dynamic Configuration without mutating `.env`)
+- **Phase 9: Completed ✅** (Zero-Config Resilience, Native In-Memory Fallback, and Web Setup Wizard Mode)
 

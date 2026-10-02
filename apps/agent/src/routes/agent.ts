@@ -7,6 +7,9 @@ import {
   getInfraConfig,
   saveInfraConfig,
   testPostgresConnection,
+  reconnectDatabase,
+  runMigrations,
+  runSeed,
 } from "@pachiware/db";
 import { eq, desc } from "drizzle-orm";
 import { CacheService, redis } from "../cache/redis.js";
@@ -267,9 +270,29 @@ agentRoutes.put("/infrastructure", async (c) => {
   }
 
   const updated = saveInfraConfig(updates);
+  let statusMessage = "Infrastructure settings successfully saved to persistent runtime store (runtime-config.json).";
+
+  if (updates.databaseUrl) {
+    try {
+      reconnectDatabase(updated.databaseUrl);
+      await runMigrations();
+      await runSeed();
+      statusMessage = "PostgreSQL connected and database migrations & seed completed successfully!";
+    } catch (err: any) {
+      return c.json(
+        {
+          success: false,
+          message: `Saved configuration, but failed to connect or migrate PostgreSQL: ${err.message}`,
+          error: err.message,
+        },
+        400
+      );
+    }
+  }
+
   return c.json({
     success: true,
-    message: "Infrastructure settings successfully saved to persistent runtime store (runtime-config.json).",
+    message: statusMessage,
     infrastructure: {
       databaseUrl: maskConnectionUrl(updated.databaseUrl),
       redisUrl: maskConnectionUrl(updated.redisUrl),

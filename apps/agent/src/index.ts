@@ -12,15 +12,15 @@ async function main() {
   // 1. Ensure DB Migrations
   try {
     await runMigrations();
-  } catch (err: any) {
-    console.warn("Notice during startup migrations:", err.message);
+  } catch (_err: any) {
+    console.log("ℹ Database not yet initialized. Agent started in Setup Mode (Configure via Web GUI).");
   }
 
-  // 2. Connect Redis
+  // 2. Connect Redis (Optional - falls back to native in-memory store)
   try {
     await redis.connect().catch(() => {});
-  } catch (err: any) {
-    console.warn("Notice during Redis connect:", err.message);
+  } catch (_err: any) {
+    // In-memory fallback is active
   }
 
   // 3. Start Discord Bot Service in background

@@ -9,6 +9,7 @@ import { LLMRouterConfig } from "./pages/LLMRouterConfig.js";
 import { DiscordConfig } from "./pages/DiscordConfig.js";
 import { InfrastructureConfig } from "./pages/InfrastructureConfig.js";
 import { AgentPlayground } from "./pages/AgentPlayground.js";
+import { SetupWizard } from "./components/SetupWizard.js";
 import {
   api,
   type HealthResponse,
@@ -106,6 +107,18 @@ export function App() {
   };
 
   const headerInfo = getHeaderInfo();
+
+  // If health check shows database is not healthy or setup is required, show dedicated Setup Wizard
+  const isDbSetupRequired =
+    health !== null &&
+    (health.setupRequired === true ||
+      (health.services?.database !== undefined &&
+        health.services.database !== "healthy" &&
+        !health.services.database.startsWith("healthy")));
+
+  if (isDbSetupRequired) {
+    return <SetupWizard onConnected={fetchAllData} />;
+  }
 
   return (
     <div className="flex min-h-screen bg-[#0B0F19] text-slate-100">

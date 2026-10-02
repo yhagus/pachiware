@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { spawn, spawnSync, execSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { resolve, join } from "path";
+import { createConnection } from "net";
 
 const VERSION = "1.0.0";
 
@@ -48,6 +49,56 @@ function findWorkspaceRoot(): string {
 }
 
 const rootDir = findWorkspaceRoot();
+
+function getDatabaseTarget(dir: string): { host: string; port: number } {
+  let dbUrl = "";
+  const runtimeFile = join(dir, "runtime-config.json");
+  if (existsSync(runtimeFile)) {
+    try {
+      const parsed = JSON.parse(readFileSync(runtimeFile, "utf8"));
+      if (parsed.databaseUrl) dbUrl = parsed.databaseUrl;
+    } catch {}
+  }
+  if (!dbUrl) {
+    const envFile = join(dir, ".env");
+    if (existsSync(envFile)) {
+      const envContent = readFileSync(envFile, "utf8");
+      const match = envContent.match(/DATABASE_URL=["']?([^"'\n\r]+)["']?/);
+      if (match) dbUrl = match[1];
+    }
+  }
+  if (!dbUrl) {
+    dbUrl = "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent";
+  }
+
+  try {
+    const parsed = new URL(dbUrl);
+    return {
+      host: parsed.hostname || "127.0.0.1",
+      port: parseInt(parsed.port || "5432", 10),
+    };
+  } catch {
+    return { host: "127.0.0.1", port: 5432 };
+  }
+}
+
+async function isPortOpen(host: string, port: number, timeoutMs = 1500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port, timeout: timeoutMs });
+    socket.on("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on("timeout", () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.on("error", () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
 
 const program = new Command();
 
@@ -120,27 +171,50 @@ program
       console.log(`  ${c.gray}  Tip: Run with ${c.cyan}--docker${c.gray} if you want Pachiware to spin up bundled containers.${c.reset}`);
     }
 
-    // 2. Run DB migrations
-    console.log(`  ${c.cyan}→ Ensuring database schema migrations & seed...${c.reset}`);
-    try {
-      execSync("bun run ./packages/db/src/migrate.ts", { cwd: rootDir, stdio: "pipe" });
-      execSync("bun run ./packages/db/src/seed.ts", { cwd: rootDir, stdio: "pipe" });
-      console.log(`  ${c.green}✔${c.reset} Database migrations verified.`);
-    } catch (err: any) {
-      console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset}`, err.message);
+    // 2. Check DB connectivity before attempting migrations
+    console.log(`  ${c.cyan}→ Checking PostgreSQL database availability...${c.reset}`);
+    const { host: dbHost, port: dbPort } = getDatabaseTarget(rootDir);
+    const dbConnected = await isPortOpen(dbHost, dbPort, 1500);
+
+    if (dbConnected) {
+      console.log(`  ${c.green}✔${c.reset} PostgreSQL detected at ${dbHost}:${dbPort}. Ensuring migrations & seed...`);
+      try {
+        execSync("bun run ./packages/db/src/migrate.ts", { cwd: rootDir, stdio: "pipe" });
+        execSync("bun run ./packages/db/src/seed.ts", { cwd: rootDir, stdio: "pipe" });
+        console.log(`  ${c.green}✔${c.reset} Database migrations verified.`);
+      } catch (err: any) {
+        console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset}`, err.message);
+      }
+    } else {
+      console.log(`  ${c.yellow}ℹ PostgreSQL is not reachable yet at ${dbHost}:${dbPort}.${c.reset}`);
+      console.log(`  ${c.cyan}⚡ Starting Pachiware in Setup Wizard Mode.${c.reset}`);
+      console.log(`  ${c.dim}  (You can configure your database easily in the Web GUI at http://localhost:3000)${c.reset}`);
     }
 
     // 3. Print service endpoints
-    console.log(`\n${c.green}${c.bold}====================================================${c.reset}`);
-    console.log(`  ${c.bold}Pachiware Agent is LIVE and ready!${c.reset}`);
-    console.log(`${c.green}${c.bold}====================================================${c.reset}`);
-    console.log(`  ${c.cyan}🌐 Web Console:${c.reset}      ${c.bold}http://localhost:3000${c.reset}`);
-    console.log(`  ${c.cyan}⚡ Agent REST API:${c.reset}   ${c.bold}http://localhost:3001${c.reset}`);
-    console.log(`  ${c.cyan}🐘 Database:${c.reset}         Connected via DATABASE_URL (.env)`);
-    console.log(`  ${c.cyan}🔴 Redis Cache:${c.reset}     Connected via REDIS_URL (.env)`);
-    console.log(`  ${c.cyan}📡 Messaging:${c.reset}       Discord active (extensible to Telegram, WhatsApp)`);
-    console.log(`${c.gray}----------------------------------------------------${c.reset}`);
-    console.log(`  ${c.dim}Press Ctrl+C to terminate services or run 'pachiware stop'${c.reset}\n`);
+    if (dbConnected) {
+      console.log(`\n${c.green}${c.bold}====================================================${c.reset}`);
+      console.log(`  ${c.bold}Pachiware Agent is LIVE and ready!${c.reset}`);
+      console.log(`${c.green}${c.bold}====================================================${c.reset}`);
+      console.log(`  ${c.cyan}🌐 Web Console:${c.reset}       ${c.bold}http://localhost:3000${c.reset}`);
+      console.log(`  ${c.cyan}⚡ Agent REST API:${c.reset}    ${c.bold}http://localhost:3001${c.reset}`);
+      console.log(`  ${c.cyan}🐘 Database:${c.reset}          Connected (${dbHost}:${dbPort})`);
+      console.log(`  ${c.cyan}🔴 Cache Engine:${c.reset}      Active (Redis / native in-memory fallback)`);
+      console.log(`  ${c.cyan}📡 Messaging:${c.reset}        Discord active (Standby / Simulation mode)`);
+      console.log(`${c.gray}----------------------------------------------------${c.reset}`);
+      console.log(`  ${c.dim}Press Ctrl+C to terminate services or run 'pachiware stop'${c.reset}\n`);
+    } else {
+      console.log(`\n${c.yellow}${c.bold}====================================================${c.reset}`);
+      console.log(`  ${c.bold}Pachiware is LIVE in Setup Wizard Mode!${c.reset}`);
+      console.log(`${c.yellow}${c.bold}====================================================${c.reset}`);
+      console.log(`  ${c.cyan}🌐 Setup Console:${c.reset}     ${c.bold}http://localhost:3000${c.reset}`);
+      console.log(`  ${c.cyan}⚡ Agent REST API:${c.reset}    ${c.bold}http://localhost:3001${c.reset}`);
+      console.log(`  ${c.cyan}🐘 Database:${c.reset}          ${c.yellow}Setup Required (Connect via Web GUI)${c.reset}`);
+      console.log(`  ${c.cyan}🔴 Cache Engine:${c.reset}      ${c.green}Active (native in-memory fallback, zero-dependency)${c.reset}`);
+      console.log(`  ${c.cyan}📡 Messaging:${c.reset}        Standby / Simulation mode`);
+      console.log(`${c.gray}----------------------------------------------------${c.reset}`);
+      console.log(`  ${c.bold}👉 Open http://localhost:3000 to connect your PostgreSQL database.${c.reset}\n`);
+    }
 
     if (options.daemon) {
       console.log(`${c.green}✔ Running in background daemon mode.${c.reset}`);
@@ -184,8 +258,8 @@ program
     console.log(`${c.yellow}Stopping Pachiware Agent services...${c.reset}`);
 
     try {
-      execSync("pkill -f 'bun.*apps/agent/src/index.ts' || true", { stdio: "pipe" });
-      execSync("pkill -f 'vite --port 3000' || true", { stdio: "pipe" });
+      execSync("pkill -f 'bun.*apps/agent' || true", { stdio: "pipe" });
+      execSync("pkill -f 'bun.*@pachiware/web' || true", { stdio: "pipe" });
       console.log(`  ${c.green}✔${c.reset} Agent backend and Web console processes stopped.`);
 
       if (options.docker || options.all) {

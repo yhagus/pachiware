@@ -20,6 +20,7 @@ async function fetchJSON<T>(endpoint: string, options?: RequestInit): Promise<T>
 
 export interface HealthResponse {
   status: string;
+  setupRequired?: boolean;
   uptimeSeconds: number;
   services: {
     database: string;
