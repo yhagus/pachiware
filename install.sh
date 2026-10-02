@@ -42,7 +42,19 @@ else
   echo -e "  ${GREEN}✔ Bun is already installed:${NC} $(bun --version)"
 fi
 
-# 3. Check Docker (Optional)
+# 3. Check Git & Docker (Optional)
+if ! command -v git &> /dev/null; then
+  echo -e "  ${YELLOW}→ Git not found. Attempting to install git...${NC}"
+  if command -v apt-get &> /dev/null; then
+    sudo apt-get update && sudo apt-get install -y git
+  elif command -v yum &> /dev/null; then
+    sudo yum install -y git
+  else
+    echo -e "  ${RED}✖ Git is required. Please install git and re-run.${NC}"
+    exit 1
+  fi
+fi
+
 if ! command -v docker &> /dev/null; then
   echo -e "  ${CYAN}ℹ Docker is not installed (optional).${NC}"
   echo -e "    Note: Docker is only needed if you want to use the bundled PostgreSQL/Redis containers."
@@ -58,13 +70,33 @@ if [ -d "$PWD/apps/agent" ] && [ -f "$PWD/docker-compose.yml" ]; then
   echo -e "  ${CYAN}→ Installing directly from existing workspace:${NC} $INSTALL_DIR"
 else
   echo -e "  ${CYAN}→ Setting up deployment in:${NC} $INSTALL_DIR"
-  if [ ! -d "$INSTALL_DIR" ]; then
-    mkdir -p "$INSTALL_DIR"
-    git clone https://github.com/yhagus/pachiware.git "$INSTALL_DIR" || true
+  if [ ! -d "$INSTALL_DIR" ] || [ ! -f "$INSTALL_DIR/apps/agent/src/index.ts" ]; then
+    if [ -d "$INSTALL_DIR/.git" ]; then
+      echo -e "  ${CYAN}→ Updating existing clone in:${NC} $INSTALL_DIR"
+      git -C "$INSTALL_DIR" pull || true
+    else
+      echo -e "  ${CYAN}→ Cloning repository into:${NC} $INSTALL_DIR"
+      rm -rf "$INSTALL_DIR" 2>/dev/null || true
+      git clone https://github.com/yhagus/pachiware.git "$INSTALL_DIR"
+    fi
   fi
 fi
 
 cd "$INSTALL_DIR"
+
+# Save install directory pointer for global CLI discovery
+mkdir -p "$HOME/.config/pachiware" 2>/dev/null || true
+echo "$INSTALL_DIR" > "$HOME/.config/pachiware/install_dir" 2>/dev/null || true
+echo "$INSTALL_DIR" > "$HOME/.pachiware_root" 2>/dev/null || true
+
+# If running under sudo, also save for the original user
+if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+  SUDO_HOME=$(eval echo "~$SUDO_USER")
+  mkdir -p "$SUDO_HOME/.config/pachiware" 2>/dev/null || true
+  echo "$INSTALL_DIR" > "$SUDO_HOME/.config/pachiware/install_dir" 2>/dev/null || true
+  echo "$INSTALL_DIR" > "$SUDO_HOME/.pachiware_root" 2>/dev/null || true
+  chown -R "$SUDO_USER" "$SUDO_HOME/.config/pachiware" 2>/dev/null || true
+fi
 
 # 5. Copy .env if missing
 if [ ! -f "$INSTALL_DIR/.env" ] && [ -f "$INSTALL_DIR/.env.example" ]; then

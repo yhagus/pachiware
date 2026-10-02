@@ -32,14 +32,23 @@ ${c.gray}   Self-Hosted Autonomous AI Agent Platform • Multi-Channel • Exten
 ${c.gray}   v${VERSION} • Bun Runtime • Lightweight Explicit ReAct Engine                     ${c.reset}
 `;
 
-function findWorkspaceRoot(): string {
+function isValidWorkspace(dir: string): boolean {
+  if (!dir) return false;
+  try {
+    return (
+      existsSync(join(dir, "apps", "agent", "src", "index.ts")) &&
+      existsSync(join(dir, "package.json"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function findWorkspaceRoot(): string | null {
   const searchFrom = (startDir: string): string | null => {
     let current = startDir;
     while (current !== "/" && current !== "") {
-      if (
-        existsSync(join(current, "docker-compose.yml")) &&
-        existsSync(join(current, "apps", "agent"))
-      ) {
+      if (isValidWorkspace(current)) {
         return current;
       }
       const parent = resolve(current, "..");
@@ -53,36 +62,105 @@ function findWorkspaceRoot(): string {
   const fromCwd = searchFrom(process.cwd());
   if (fromCwd) return fromCwd;
 
-  // 2. Try from process.execPath (compiled standalone binary / symlinked binary)
+  // 2. Try from process.env.PACHIWARE_DIR
+  if (process.env.PACHIWARE_DIR) {
+    const fromEnv = searchFrom(process.env.PACHIWARE_DIR);
+    if (fromEnv) return fromEnv;
+  }
+
+  // 3. Try from saved install directory configs (~/.config/pachiware/install_dir, ~/.pachiware_root, /etc/pachiware/install_dir)
+  const candidateConfigFiles: string[] = [];
+  if (process.env.HOME) {
+    candidateConfigFiles.push(join(process.env.HOME, ".config", "pachiware", "install_dir"));
+    candidateConfigFiles.push(join(process.env.HOME, ".pachiware_root"));
+  }
+  candidateConfigFiles.push("/etc/pachiware/install_dir");
+
+  if (process.env.SUDO_USER && process.env.SUDO_USER !== "root") {
+    candidateConfigFiles.push(`/home/${process.env.SUDO_USER}/.config/pachiware/install_dir`);
+    candidateConfigFiles.push(`/home/${process.env.SUDO_USER}/.pachiware_root`);
+  }
+
+  for (const cfg of candidateConfigFiles) {
+    try {
+      if (existsSync(cfg)) {
+        const target = readFileSync(cfg, "utf8").trim();
+        if (target) {
+          const fromCfg = searchFrom(target);
+          if (fromCfg) return fromCfg;
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Try from process.execPath (compiled standalone binary / symlinked binary)
   try {
     const realExec = realpathSync(process.execPath);
     const fromExec = searchFrom(dirname(realExec));
     if (fromExec) return fromExec;
   } catch {}
 
-  // 3. Try from import.meta.dir (raw typescript script execution via bun)
+  // 5. Try from process.argv[1] (script or executable path)
   try {
-    const fromMeta = searchFrom(import.meta.dir);
-    if (fromMeta) return fromMeta;
+    if (process.argv[1]) {
+      const realArgv = realpathSync(process.argv[1]);
+      const fromArgv = searchFrom(dirname(realArgv));
+      if (fromArgv) return fromArgv;
+    }
   } catch {}
 
-  // 4. Try from process.env.PACHIWARE_DIR
-  if (process.env.PACHIWARE_DIR) {
-    const fromEnv = searchFrom(process.env.PACHIWARE_DIR);
-    if (fromEnv) return fromEnv;
-  }
+  // 6. Try from import.meta.dir (raw typescript script execution via bun)
+  try {
+    if (typeof import.meta.dir === "string" && !import.meta.dir.startsWith("/$bunfs")) {
+      const fromMeta = searchFrom(import.meta.dir);
+      if (fromMeta) return fromMeta;
+    }
+  } catch {}
 
-  // 5. Try default ~/.pachiware
+  // 7. Try standard directories
+  const candidateDirs: string[] = [];
   if (process.env.HOME) {
-    const defaultInstall = join(process.env.HOME, ".pachiware");
-    const fromDefault = searchFrom(defaultInstall);
-    if (fromDefault) return fromDefault;
+    candidateDirs.push(join(process.env.HOME, ".pachiware"));
+    candidateDirs.push(join(process.env.HOME, "pachiware"));
+  }
+  candidateDirs.push("/opt/pachiware");
+  candidateDirs.push("/var/www/pachiware");
+
+  if (process.env.SUDO_USER && process.env.SUDO_USER !== "root") {
+    candidateDirs.push(`/home/${process.env.SUDO_USER}/.pachiware`);
+    candidateDirs.push(`/home/${process.env.SUDO_USER}/pachiware`);
   }
 
-  return process.cwd();
+  for (const dir of candidateDirs) {
+    try {
+      if (existsSync(dir)) {
+        const fromDir = searchFrom(dir);
+        if (fromDir) return fromDir;
+      }
+    } catch {}
+  }
+
+  return null;
 }
 
 const rootDir = findWorkspaceRoot();
+
+function requireWorkspaceRoot(): string {
+  if (!rootDir || !isValidWorkspace(rootDir)) {
+    console.error(`\n${c.red}${c.bold}✖ Error: Unable to locate Pachiware Agent installation directory.${c.reset}`);
+    console.error(`  ${c.gray}Pachiware requires its workspace files (apps/agent, packages/db, etc.) to run.${c.reset}\n`);
+    console.error(`  Current directory: ${c.bold}${process.cwd()}${c.reset}`);
+    console.error(`\n  ${c.cyan}How to resolve this:${c.reset}`);
+    console.error(`  1. ${c.bold}Run inside your cloned Pachiware repository:${c.reset}`);
+    console.error(`     cd /path/to/pachiware && pachiware start\n`);
+    console.error(`  2. ${c.bold}Or define the PACHIWARE_DIR environment variable:${c.reset}`);
+    console.error(`     export PACHIWARE_DIR=/path/to/pachiware\n`);
+    console.error(`  3. ${c.bold}Or re-run the official installer to configure your environment:${c.reset}`);
+    console.error(`     curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | bash\n`);
+    process.exit(1);
+  }
+  return rootDir;
+}
 
 function getDatabaseTarget(dir: string): { host: string; port: number } {
   let dbUrl = "";
@@ -188,13 +266,14 @@ program
   .option("--docker", "Also spin up bundled PostgreSQL 18 and Redis containers via Docker Compose")
   .action(async (options) => {
     console.log(BANNER);
+    const wsRoot = requireWorkspaceRoot();
     console.log(`${c.bold}🚀 Starting Pachiware Agent Platform...${c.reset}\n`);
 
     // 1. Optional Docker containers (only if --docker is specified)
     if (options.docker) {
       console.log(`  ${c.cyan}→ Starting bundled PostgreSQL 18 and Redis containers via Docker Compose...${c.reset}`);
       try {
-        execSync("docker compose up -d", { cwd: rootDir, stdio: "inherit" });
+        execSync("docker compose up -d", { cwd: wsRoot, stdio: "inherit" });
         console.log(`  ${c.green}✔${c.reset} Bundled infrastructure containers running.`);
       } catch (err: any) {
         console.error(`  ${c.red}✖ Failed to start Docker containers:${c.reset}`, err.message);
@@ -207,14 +286,16 @@ program
 
     // 2. Check DB connectivity before attempting migrations
     console.log(`  ${c.cyan}→ Checking PostgreSQL database availability...${c.reset}`);
-    const { host: dbHost, port: dbPort } = getDatabaseTarget(rootDir);
+    const { host: dbHost, port: dbPort } = getDatabaseTarget(wsRoot);
     const dbConnected = await isPortOpen(dbHost, dbPort, 1500);
 
     if (dbConnected) {
       console.log(`  ${c.green}✔${c.reset} PostgreSQL detected at ${dbHost}:${dbPort}. Ensuring migrations & seed...`);
       try {
-        execSync("bun run ./packages/db/src/migrate.ts", { cwd: rootDir, stdio: "pipe" });
-        execSync("bun run ./packages/db/src/seed.ts", { cwd: rootDir, stdio: "pipe" });
+        const migrateScript = join(wsRoot, "packages", "db", "src", "migrate.ts");
+        const seedScript = join(wsRoot, "packages", "db", "src", "seed.ts");
+        execSync(`bun run "${migrateScript}"`, { cwd: wsRoot, stdio: "pipe" });
+        execSync(`bun run "${seedScript}"`, { cwd: wsRoot, stdio: "pipe" });
         console.log(`  ${c.green}✔${c.reset} Database migrations verified.`);
       } catch (err: any) {
         console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset}`, err.message);
@@ -256,15 +337,16 @@ program
     }
 
     // 4. Start Agent and optionally Web in parallel
-    const agentProc = spawn("bun", ["run", "apps/agent/src/index.ts"], {
-      cwd: rootDir,
+    const agentEntry = join(wsRoot, "apps", "agent", "src", "index.ts");
+    const agentProc = spawn("bun", ["run", agentEntry], {
+      cwd: wsRoot,
       stdio: "inherit",
     });
 
     let webProc: any = null;
     if (options.gui !== false) {
       webProc = spawn("bun", ["--filter", "@pachiware/web", "dev"], {
-        cwd: rootDir,
+        cwd: wsRoot,
         stdio: "inherit",
       });
     }
@@ -404,7 +486,8 @@ program
       spawnSync("docker", ["logs", "-f", "pachiware-redis"], { stdio: "inherit" });
     } else {
       console.log(`${c.gray}For live agent logs, run in foreground with 'pachiware start'.${c.reset}`);
-      spawnSync("docker", ["compose", "logs", "-f"], { cwd: rootDir, stdio: "inherit" });
+      const wsRoot = requireWorkspaceRoot();
+      spawnSync("docker", ["compose", "logs", "-f"], { cwd: wsRoot, stdio: "inherit" });
     }
   });
 
@@ -416,31 +499,24 @@ program
   .description("Pull the latest updates, execute database migrations, rebuild UI, and restart services")
   .action(async () => {
     console.log(BANNER);
+    const wsRoot = requireWorkspaceRoot();
     console.log(`${c.bold}🔄 Updating Pachiware Agent Platform...${c.reset}\n`);
 
     // 1. Pull latest code if git repo
-    if (existsSync(join(rootDir, ".git"))) {
+    if (existsSync(join(wsRoot, ".git"))) {
       console.log(`  ${c.cyan}→ Pulling latest code changes via Git...${c.reset}`);
       try {
-        execSync("git pull", { cwd: rootDir, stdio: "inherit" });
+        execSync("git pull", { cwd: wsRoot, stdio: "inherit" });
         console.log(`  ${c.green}✔${c.reset} Git pull completed.`);
       } catch (err: any) {
         console.warn(`  ${c.yellow}⚠ Git pull warning:${c.reset} ${err.message}`);
       }
     }
 
-    // Sanity-check: confirm we actually found the workspace root
-    const hasPkgJson = existsSync(join(rootDir, "package.json"));
-    if (!hasPkgJson) {
-      console.error(`  ${c.red}✖ Could not locate Pachiware workspace root (no package.json found at ${rootDir}).${c.reset}`);
-      console.error(`  ${c.yellow}  Hint: run this command from inside the pachiware install directory, or ensure the binary is installed correctly.${c.reset}`);
-      process.exit(1);
-    }
-
     // 2. Install dependencies
     console.log(`  ${c.cyan}→ Updating dependencies...${c.reset}`);
     try {
-      execSync("bun install", { cwd: rootDir, stdio: "inherit" });
+      execSync("bun install", { cwd: wsRoot, stdio: "inherit" });
       console.log(`  ${c.green}✔${c.reset} Dependencies up to date.`);
     } catch (err: any) {
       console.error(`  ${c.red}✖ Failed to install dependencies:${c.reset} ${err.message}`);
@@ -448,14 +524,14 @@ program
 
     // 3. Run database migrations (check DB connectivity first)
     console.log(`  ${c.cyan}→ Applying PostgreSQL 18 migrations...${c.reset}`);
-    const { host: dbHost, port: dbPort } = getDatabaseTarget(rootDir);
+    const { host: dbHost, port: dbPort } = getDatabaseTarget(wsRoot);
     const dbReachable = await isPortOpen(dbHost, dbPort, 1500);
     if (dbReachable) {
       try {
-        const migrateScript = join(rootDir, "packages", "db", "src", "migrate.ts");
-        const seedScript = join(rootDir, "packages", "db", "src", "seed.ts");
-        execSync(`bun run "${migrateScript}"`, { cwd: rootDir, stdio: "inherit" });
-        execSync(`bun run "${seedScript}"`, { cwd: rootDir, stdio: "inherit" });
+        const migrateScript = join(wsRoot, "packages", "db", "src", "migrate.ts");
+        const seedScript = join(wsRoot, "packages", "db", "src", "seed.ts");
+        execSync(`bun run "${migrateScript}"`, { cwd: wsRoot, stdio: "inherit" });
+        execSync(`bun run "${seedScript}"`, { cwd: wsRoot, stdio: "inherit" });
         console.log(`  ${c.green}✔${c.reset} Database migrations applied.`);
       } catch (err: any) {
         console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset} ${err.message}`);
@@ -467,10 +543,10 @@ program
 
     // 4. Rebuild Web GUI
     console.log(`  ${c.cyan}→ Building frontend management console...${c.reset}`);
-    const webPkg = join(rootDir, "apps", "web");
+    const webPkg = join(wsRoot, "apps", "web");
     if (existsSync(webPkg)) {
       try {
-        execSync("bun run --filter @pachiware/web build", { cwd: rootDir, stdio: "pipe" });
+        execSync("bun run --filter @pachiware/web build", { cwd: wsRoot, stdio: "pipe" });
         console.log(`  ${c.green}✔${c.reset} Web console compiled successfully.`);
       } catch (err: any) {
         console.warn(`  ${c.yellow}⚠ Notice during web build:${c.reset} ${err.message}`);
@@ -482,9 +558,9 @@ program
     // 5. Rebuild CLI binary itself
     console.log(`  ${c.cyan}→ Rebuilding CLI binary...${c.reset}`);
     try {
-      const cliEntry = join(rootDir, "packages", "cli", "src", "index.ts");
-      const cliBin = join(rootDir, "bin", "pachiware");
-      execSync(`bun build "${cliEntry}" --compile --outfile="${cliBin}"`, { cwd: rootDir, stdio: "pipe" });
+      const cliEntry = join(wsRoot, "packages", "cli", "src", "index.ts");
+      const cliBin = join(wsRoot, "bin", "pachiware");
+      execSync(`bun build "${cliEntry}" --compile --outfile="${cliBin}"`, { cwd: wsRoot, stdio: "pipe" });
       console.log(`  ${c.green}✔${c.reset} CLI binary rebuilt at ${cliBin}.`);
     } catch (err: any) {
       console.warn(`  ${c.yellow}⚠ Could not rebuild CLI binary:${c.reset} ${err.message}`);
@@ -544,13 +620,18 @@ program
       }
     }
 
-    // 4. Configuration .env
-    const envPath = join(rootDir, ".env");
-    console.log(`\n  ${c.bold}Configuration:${c.reset}`);
-    if (existsSync(envPath)) {
-      console.log(`  ${c.green}✔${c.reset} Environment file:   ${envPath} exists`);
+    // 4. Configuration & Workspace
+    console.log(`\n  ${c.bold}Configuration & Workspace:${c.reset}`);
+    if (rootDir) {
+      console.log(`  ${c.green}✔${c.reset} Workspace Root:     ${rootDir}`);
+      const envPath = join(rootDir, ".env");
+      if (existsSync(envPath)) {
+        console.log(`  ${c.green}✔${c.reset} Environment file:   ${envPath} exists`);
+      } else {
+        console.log(`  ${c.yellow}⚠${c.reset} Environment file:   Missing .env in ${rootDir} (Run 'pachiware init')`);
+      }
     } else {
-      console.log(`  ${c.yellow}⚠${c.reset} Environment file:   Missing .env (Run 'pachiware init')`);
+      console.log(`  ${c.yellow}⚠${c.reset} Workspace Root:     Not detected (Run inside Pachiware repo or set PACHIWARE_DIR)`);
     }
     console.log("");
   });
@@ -597,8 +678,9 @@ program
   .command("db:migrate")
   .description("Run database migrations on PostgreSQL 18")
   .action(() => {
-    const migrateScript = join(rootDir, "packages", "db", "src", "migrate.ts");
-    execSync(`bun run "${migrateScript}"`, { cwd: rootDir, stdio: "inherit" });
+    const wsRoot = requireWorkspaceRoot();
+    const migrateScript = join(wsRoot, "packages", "db", "src", "migrate.ts");
+    execSync(`bun run "${migrateScript}"`, { cwd: wsRoot, stdio: "inherit" });
   });
 
 /**
@@ -608,8 +690,9 @@ program
   .command("db:seed")
   .description("Seed default agent personality and built-in skills")
   .action(() => {
-    const seedScript = join(rootDir, "packages", "db", "src", "seed.ts");
-    execSync(`bun run "${seedScript}"`, { cwd: rootDir, stdio: "inherit" });
+    const wsRoot = requireWorkspaceRoot();
+    const seedScript = join(wsRoot, "packages", "db", "src", "seed.ts");
+    execSync(`bun run "${seedScript}"`, { cwd: wsRoot, stdio: "inherit" });
   });
 
 /**
@@ -626,12 +709,14 @@ program
 
     // 1. Stop Docker containers if requested
     if (options.docker) {
-      console.log(`  ${c.cyan}→ Stopping bundled Docker containers...${c.reset}`);
-      try {
-        execSync("docker compose down -v", { cwd: rootDir, stdio: "inherit" });
-        console.log(`  ${c.green}✔${c.reset} Docker containers stopped and removed.`);
-      } catch {
-        console.log(`  ${c.gray}  (No running Docker containers found — skipping.)${c.reset}`);
+      if (rootDir) {
+        console.log(`  ${c.cyan}→ Stopping bundled Docker containers...${c.reset}`);
+        try {
+          execSync("docker compose down -v", { cwd: rootDir, stdio: "inherit" });
+          console.log(`  ${c.green}✔${c.reset} Docker containers stopped and removed.`);
+        } catch {
+          console.log(`  ${c.gray}  (No running Docker containers found — skipping.)${c.reset}`);
+        }
       }
     }
 
@@ -669,25 +754,40 @@ program
       console.log(`  ${c.gray}  (No symlinks found in standard locations.)${c.reset}`);
     }
 
+    // Remove saved install directory configs
+    try {
+      if (process.env.HOME) {
+        const cfgPath = join(process.env.HOME, ".config", "pachiware", "install_dir");
+        const rootPath = join(process.env.HOME, ".pachiware_root");
+        if (existsSync(cfgPath)) execSync(`rm -f "${cfgPath}"`, { stdio: "pipe" });
+        if (existsSync(rootPath)) execSync(`rm -f "${rootPath}"`, { stdio: "pipe" });
+      }
+    } catch {}
+
     // 4. Optionally delete the installation directory
     if (options.purge) {
-      console.log(`\n  ${c.red}${c.bold}⚠ --purge: Deleting installation directory: ${rootDir}${c.reset}`);
-      const answer = await new Promise<string>((res) => {
-        process.stdout.write(`  ${c.bold}Type "yes" to confirm permanent deletion: ${c.reset}`);
-        process.stdin.setEncoding("utf8");
-        process.stdin.once("data", (d) => res(d.toString().trim()));
-      });
-      if (answer === "yes") {
-        try {
-          execSync(`rm -rf "${rootDir}"`, { stdio: "pipe" });
-          console.log(`  ${c.green}✔${c.reset} Installation directory deleted.`);
-        } catch (err: any) {
-          console.error(`  ${c.red}✖ Failed to delete ${rootDir}:${c.reset} ${err.message}`);
-        }
+      const purgeDir = rootDir;
+      if (!purgeDir) {
+        console.log(`  ${c.yellow}ℹ No workspace directory detected to purge.${c.reset}`);
       } else {
-        console.log(`  ${c.yellow}Purge cancelled. Installation directory kept.${c.reset}`);
+        console.log(`\n  ${c.red}${c.bold}⚠ --purge: Deleting installation directory: ${purgeDir}${c.reset}`);
+        const answer = await new Promise<string>((res) => {
+          process.stdout.write(`  ${c.bold}Type "yes" to confirm permanent deletion: ${c.reset}`);
+          process.stdin.setEncoding("utf8");
+          process.stdin.once("data", (d) => res(d.toString().trim()));
+        });
+        if (answer === "yes") {
+          try {
+            execSync(`rm -rf "${purgeDir}"`, { stdio: "pipe" });
+            console.log(`  ${c.green}✔${c.reset} Installation directory deleted.`);
+          } catch (err: any) {
+            console.error(`  ${c.red}✖ Failed to delete ${purgeDir}:${c.reset} ${err.message}`);
+          }
+        } else {
+          console.log(`  ${c.yellow}Purge cancelled. Installation directory kept.${c.reset}`);
+        }
       }
-    } else {
+    } else if (rootDir) {
       console.log(`\n  ${c.dim}Tip: The installation files at ${rootDir} were kept.`);
       console.log(`  ${c.dim}Run with ${c.cyan}--purge${c.dim} to also delete them.${c.reset}`);
     }

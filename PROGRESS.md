@@ -215,6 +215,18 @@ pachiware-agent/
 - [x] Repository Cleanliness:
   - [x] Removed compiled `bin/pachiware` artifact from git tracking index while respecting `.gitignore`
 
+### Phase 11: Cross-Platform Linux / Ubuntu Global Path Resolution & Workspace Hardening
+- [x] Bulletproof Global Workspace Detection:
+  - [x] Added `isValidWorkspace()` validation confirming presence of `apps/agent/src/index.ts` and `package.json`
+  - [x] Multi-source candidate search: `process.cwd()`, `PACHIWARE_DIR`, `~/.config/pachiware/install_dir`, `~/.pachiware_root`, `/etc/pachiware/install_dir`, `SUDO_USER` configs, `process.execPath`, `process.argv[1]`, and default directories
+  - [x] Added `requireWorkspaceRoot()` safeguard preventing partial boots and misleading "Agent is LIVE" outputs when executed outside workspace
+- [x] Absolute Script Path Execution:
+  - [x] Replaced relative paths (`apps/agent/src/index.ts`, `./packages/db/src/migrate.ts`) with resolved absolute paths (`join(wsRoot, ...)`)
+- [x] Server Installer (`install.sh`) Resilience:
+  - [x] Automated `git` installation / verification for Ubuntu/Debian (`apt-get`) and RHEL/CentOS (`yum`)
+  - [x] Safe clone handling: avoids clobbering existing directories and automatically updates existing clones
+  - [x] Global install path registration to `~/.config/pachiware/install_dir` and `~/.pachiware_root` (including `SUDO_USER` persistence)
+
 ---
 
 ## 📈 Current Progress Log
@@ -228,4 +240,5 @@ pachiware-agent/
 - **Phase 8: Completed ✅** (Web-Managed Dynamic Configuration without mutating `.env`)
 - **Phase 9: Completed ✅** (Zero-Config Resilience, Native In-Memory Fallback, and Web Setup Wizard Mode)
 - **Phase 10: Completed ✅** (CLI Uninstaller, `pachiware update` Workspace Detection Fix, and Git Remote Cleanup)
+- **Phase 11: Completed ✅** (Linux/Ubuntu Global Path Resolution, Absolute Script Spawning, and install.sh Hardening)
 
