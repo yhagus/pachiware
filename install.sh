@@ -70,15 +70,13 @@ if [ -d "$PWD/apps/agent" ] && [ -f "$PWD/docker-compose.yml" ]; then
   echo -e "  ${CYAN}→ Installing directly from existing workspace:${NC} $INSTALL_DIR"
 else
   echo -e "  ${CYAN}→ Setting up deployment in:${NC} $INSTALL_DIR"
-  if [ ! -d "$INSTALL_DIR" ] || [ ! -f "$INSTALL_DIR/apps/agent/src/index.ts" ]; then
-    if [ -d "$INSTALL_DIR/.git" ]; then
-      echo -e "  ${CYAN}→ Updating existing clone in:${NC} $INSTALL_DIR"
-      git -C "$INSTALL_DIR" pull || true
-    else
-      echo -e "  ${CYAN}→ Cloning repository into:${NC} $INSTALL_DIR"
-      rm -rf "$INSTALL_DIR" 2>/dev/null || true
-      git clone https://github.com/yhagus/pachiware.git "$INSTALL_DIR"
-    fi
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    echo -e "  ${CYAN}→ Updating existing repository in:${NC} $INSTALL_DIR"
+    git -C "$INSTALL_DIR" pull
+  elif [ ! -d "$INSTALL_DIR" ] || [ ! -f "$INSTALL_DIR/apps/agent/src/index.ts" ]; then
+    echo -e "  ${CYAN}→ Cloning repository into:${NC} $INSTALL_DIR"
+    rm -rf "$INSTALL_DIR" 2>/dev/null || true
+    git clone https://github.com/yhagus/pachiware.git "$INSTALL_DIR"
   fi
 fi
 
@@ -117,14 +115,18 @@ BUN_BIN="$HOME/.bun/bin/pachiware"
 if [ -w "/usr/local/bin" ]; then
   ln -sf "$INSTALL_DIR/bin/pachiware" "$BIN_TARGET"
   echo -e "  ${GREEN}✔ Linked binary to:${NC} $BIN_TARGET"
-elif [ -d "$HOME/.bun/bin" ]; then
+elif command -v sudo &> /dev/null; then
+  sudo ln -sf "$INSTALL_DIR/bin/pachiware" "$BIN_TARGET" 2>/dev/null && \
+    echo -e "  ${GREEN}✔ Linked binary to:${NC} $BIN_TARGET (via sudo)" || true
+fi
+
+if [ -d "$HOME/.bun/bin" ]; then
   ln -sf "$INSTALL_DIR/bin/pachiware" "$BUN_BIN"
   echo -e "  ${GREEN}✔ Linked binary to:${NC} $BUN_BIN"
-else
-  mkdir -p "$HOME/.local/bin"
-  ln -sf "$INSTALL_DIR/bin/pachiware" "$HOME/.local/bin/pachiware"
-  echo -e "  ${GREEN}✔ Linked binary to:${NC} $HOME/.local/bin/pachiware"
 fi
+mkdir -p "$HOME/.local/bin"
+ln -sf "$INSTALL_DIR/bin/pachiware" "$HOME/.local/bin/pachiware"
+echo -e "  ${GREEN}✔ Linked binary to:${NC} $HOME/.local/bin/pachiware"
 
 echo -e "\n${GREEN}${BOLD}======================================================${NC}"
 echo -e "${GREEN}${BOLD} 🎉 Pachiware Agent CLI installed successfully!${NC}"
