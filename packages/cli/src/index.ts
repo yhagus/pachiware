@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
 import { spawn, spawnSync, execSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { resolve, join } from "path";
+import { existsSync, readFileSync, writeFileSync, realpathSync } from "fs";
+import { resolve, join, dirname } from "path";
 import { createConnection } from "net";
 
 const VERSION = "1.0.0";
@@ -33,18 +33,52 @@ ${c.gray}   v${VERSION} • Bun Runtime • Lightweight Explicit ReAct Engine   
 `;
 
 function findWorkspaceRoot(): string {
-  let current = process.cwd();
-  while (current !== "/" && current !== "") {
-    if (
-      existsSync(join(current, "docker-compose.yml")) &&
-      existsSync(join(current, "apps", "agent"))
-    ) {
-      return current;
+  const searchFrom = (startDir: string): string | null => {
+    let current = startDir;
+    while (current !== "/" && current !== "") {
+      if (
+        existsSync(join(current, "docker-compose.yml")) &&
+        existsSync(join(current, "apps", "agent"))
+      ) {
+        return current;
+      }
+      const parent = resolve(current, "..");
+      if (parent === current) break;
+      current = parent;
     }
-    const parent = resolve(current, "..");
-    if (parent === current) break;
-    current = parent;
+    return null;
+  };
+
+  // 1. Try from the current working directory (dev / in-repo usage)
+  const fromCwd = searchFrom(process.cwd());
+  if (fromCwd) return fromCwd;
+
+  // 2. Try from process.execPath (compiled standalone binary / symlinked binary)
+  try {
+    const realExec = realpathSync(process.execPath);
+    const fromExec = searchFrom(dirname(realExec));
+    if (fromExec) return fromExec;
+  } catch {}
+
+  // 3. Try from import.meta.dir (raw typescript script execution via bun)
+  try {
+    const fromMeta = searchFrom(import.meta.dir);
+    if (fromMeta) return fromMeta;
+  } catch {}
+
+  // 4. Try from process.env.PACHIWARE_DIR
+  if (process.env.PACHIWARE_DIR) {
+    const fromEnv = searchFrom(process.env.PACHIWARE_DIR);
+    if (fromEnv) return fromEnv;
   }
+
+  // 5. Try default ~/.pachiware
+  if (process.env.HOME) {
+    const defaultInstall = join(process.env.HOME, ".pachiware");
+    const fromDefault = searchFrom(defaultInstall);
+    if (fromDefault) return fromDefault;
+  }
+
   return process.cwd();
 }
 
@@ -395,6 +429,14 @@ program
       }
     }
 
+    // Sanity-check: confirm we actually found the workspace root
+    const hasPkgJson = existsSync(join(rootDir, "package.json"));
+    if (!hasPkgJson) {
+      console.error(`  ${c.red}✖ Could not locate Pachiware workspace root (no package.json found at ${rootDir}).${c.reset}`);
+      console.error(`  ${c.yellow}  Hint: run this command from inside the pachiware install directory, or ensure the binary is installed correctly.${c.reset}`);
+      process.exit(1);
+    }
+
     // 2. Install dependencies
     console.log(`  ${c.cyan}→ Updating dependencies...${c.reset}`);
     try {
@@ -404,26 +446,51 @@ program
       console.error(`  ${c.red}✖ Failed to install dependencies:${c.reset} ${err.message}`);
     }
 
-    // 3. Run database migrations
+    // 3. Run database migrations (check DB connectivity first)
     console.log(`  ${c.cyan}→ Applying PostgreSQL 18 migrations...${c.reset}`);
-    try {
-      execSync("bun run ./packages/db/src/migrate.ts", { cwd: rootDir, stdio: "inherit" });
-      execSync("bun run ./packages/db/src/seed.ts", { cwd: rootDir, stdio: "inherit" });
-      console.log(`  ${c.green}✔${c.reset} Database migrations applied.`);
-    } catch (err: any) {
-      console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset} ${err.message}`);
+    const { host: dbHost, port: dbPort } = getDatabaseTarget(rootDir);
+    const dbReachable = await isPortOpen(dbHost, dbPort, 1500);
+    if (dbReachable) {
+      try {
+        const migrateScript = join(rootDir, "packages", "db", "src", "migrate.ts");
+        const seedScript = join(rootDir, "packages", "db", "src", "seed.ts");
+        execSync(`bun run "${migrateScript}"`, { cwd: rootDir, stdio: "inherit" });
+        execSync(`bun run "${seedScript}"`, { cwd: rootDir, stdio: "inherit" });
+        console.log(`  ${c.green}✔${c.reset} Database migrations applied.`);
+      } catch (err: any) {
+        console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset} ${err.message}`);
+      }
+    } else {
+      console.log(`  ${c.yellow}ℹ Skipping migrations — PostgreSQL not reachable at ${dbHost}:${dbPort}.${c.reset}`);
+      console.log(`  ${c.dim}  (Run 'pachiware db:migrate' manually once your database is up.)${c.reset}`);
     }
 
     // 4. Rebuild Web GUI
     console.log(`  ${c.cyan}→ Building frontend management console...${c.reset}`);
-    try {
-      execSync("bun --filter @pachiware/web build", { cwd: rootDir, stdio: "pipe" });
-      console.log(`  ${c.green}✔${c.reset} Web console compiled successfully.`);
-    } catch (err: any) {
-      console.warn(`  ${c.yellow}⚠ Notice during web build:${c.reset} ${err.message}`);
+    const webPkg = join(rootDir, "apps", "web");
+    if (existsSync(webPkg)) {
+      try {
+        execSync("bun run --filter @pachiware/web build", { cwd: rootDir, stdio: "pipe" });
+        console.log(`  ${c.green}✔${c.reset} Web console compiled successfully.`);
+      } catch (err: any) {
+        console.warn(`  ${c.yellow}⚠ Notice during web build:${c.reset} ${err.message}`);
+      }
+    } else {
+      console.log(`  ${c.gray}→ No web package found — skipping frontend build.${c.reset}`);
     }
 
-    // 5. Restart services
+    // 5. Rebuild CLI binary itself
+    console.log(`  ${c.cyan}→ Rebuilding CLI binary...${c.reset}`);
+    try {
+      const cliEntry = join(rootDir, "packages", "cli", "src", "index.ts");
+      const cliBin = join(rootDir, "bin", "pachiware");
+      execSync(`bun build "${cliEntry}" --compile --outfile="${cliBin}"`, { cwd: rootDir, stdio: "pipe" });
+      console.log(`  ${c.green}✔${c.reset} CLI binary rebuilt at ${cliBin}.`);
+    } catch (err: any) {
+      console.warn(`  ${c.yellow}⚠ Could not rebuild CLI binary:${c.reset} ${err.message}`);
+    }
+
+    // Done
     console.log(`\n${c.green}${c.bold}✔ Pachiware Agent successfully updated!${c.reset}`);
     console.log(`To reload running services, execute: ${c.cyan}pachiware restart${c.reset}\n`);
   });
@@ -530,7 +597,8 @@ program
   .command("db:migrate")
   .description("Run database migrations on PostgreSQL 18")
   .action(() => {
-    execSync("bun run ./packages/db/src/migrate.ts", { cwd: rootDir, stdio: "inherit" });
+    const migrateScript = join(rootDir, "packages", "db", "src", "migrate.ts");
+    execSync(`bun run "${migrateScript}"`, { cwd: rootDir, stdio: "inherit" });
   });
 
 /**
@@ -540,7 +608,91 @@ program
   .command("db:seed")
   .description("Seed default agent personality and built-in skills")
   .action(() => {
-    execSync("bun run ./packages/db/src/seed.ts", { cwd: rootDir, stdio: "inherit" });
+    const seedScript = join(rootDir, "packages", "db", "src", "seed.ts");
+    execSync(`bun run "${seedScript}"`, { cwd: rootDir, stdio: "inherit" });
+  });
+
+/**
+ * Command: uninstall
+ */
+program
+  .command("uninstall")
+  .description("Completely remove Pachiware CLI from your system")
+  .option("--purge", "Also delete the installation directory and all data (irreversible!)")
+  .option("--docker", "Also stop and remove bundled Docker containers before uninstalling")
+  .action(async (options) => {
+    console.log(BANNER);
+    console.log(`${c.bold}${c.red}🗑  Uninstalling Pachiware Agent...${c.reset}\n`);
+
+    // 1. Stop Docker containers if requested
+    if (options.docker) {
+      console.log(`  ${c.cyan}→ Stopping bundled Docker containers...${c.reset}`);
+      try {
+        execSync("docker compose down -v", { cwd: rootDir, stdio: "inherit" });
+        console.log(`  ${c.green}✔${c.reset} Docker containers stopped and removed.`);
+      } catch {
+        console.log(`  ${c.gray}  (No running Docker containers found — skipping.)${c.reset}`);
+      }
+    }
+
+    // 2. Stop running agent & web processes
+    console.log(`  ${c.cyan}→ Stopping running Pachiware processes...${c.reset}`);
+    try {
+      execSync("pkill -f 'bun.*apps/agent' || true", { stdio: "pipe" });
+      execSync("pkill -f 'bun.*@pachiware/web' || true", { stdio: "pipe" });
+      console.log(`  ${c.green}✔${c.reset} Processes stopped.`);
+    } catch {
+      // non-fatal — processes may already be stopped
+    }
+
+    // 3. Remove symlinks / binaries from known PATH locations
+    const symlinks = [
+      "/usr/local/bin/pachiware",
+      `${process.env.HOME}/.bun/bin/pachiware`,
+      `${process.env.HOME}/.local/bin/pachiware`,
+    ];
+
+    console.log(`  ${c.cyan}→ Removing CLI symlinks / binaries from PATH...${c.reset}`);
+    let removedAny = false;
+    for (const linkPath of symlinks) {
+      if (existsSync(linkPath)) {
+        try {
+          execSync(`rm -f "${linkPath}"`, { stdio: "pipe" });
+          console.log(`  ${c.green}✔${c.reset} Removed ${linkPath}`);
+          removedAny = true;
+        } catch (err: any) {
+          console.warn(`  ${c.yellow}⚠ Could not remove ${linkPath}:${c.reset} ${err.message}`);
+        }
+      }
+    }
+    if (!removedAny) {
+      console.log(`  ${c.gray}  (No symlinks found in standard locations.)${c.reset}`);
+    }
+
+    // 4. Optionally delete the installation directory
+    if (options.purge) {
+      console.log(`\n  ${c.red}${c.bold}⚠ --purge: Deleting installation directory: ${rootDir}${c.reset}`);
+      const answer = await new Promise<string>((res) => {
+        process.stdout.write(`  ${c.bold}Type "yes" to confirm permanent deletion: ${c.reset}`);
+        process.stdin.setEncoding("utf8");
+        process.stdin.once("data", (d) => res(d.toString().trim()));
+      });
+      if (answer === "yes") {
+        try {
+          execSync(`rm -rf "${rootDir}"`, { stdio: "pipe" });
+          console.log(`  ${c.green}✔${c.reset} Installation directory deleted.`);
+        } catch (err: any) {
+          console.error(`  ${c.red}✖ Failed to delete ${rootDir}:${c.reset} ${err.message}`);
+        }
+      } else {
+        console.log(`  ${c.yellow}Purge cancelled. Installation directory kept.${c.reset}`);
+      }
+    } else {
+      console.log(`\n  ${c.dim}Tip: The installation files at ${rootDir} were kept.`);
+      console.log(`  ${c.dim}Run with ${c.cyan}--purge${c.dim} to also delete them.${c.reset}`);
+    }
+
+    console.log(`\n${c.green}${c.bold}✔ Pachiware has been uninstalled.${c.reset}\n`);
   });
 
 program.parse(process.argv);

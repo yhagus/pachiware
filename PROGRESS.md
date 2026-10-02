@@ -157,8 +157,8 @@ pachiware-agent/
   - [x] `pachiware stop`: stop running agent, web console, and containers
   - [x] `pachiware restart`: restart all platform services
   - [x] `pachiware status`: inspect live status of DB, Redis, Agent API, and Discord Gateway
-  - [x] `pachiware logs [service]`: stream live logs (agent, web, postgres, redis)
-  - [x] `pachiware update`: automated pull, migration, rebuild, and restart workflow
+  - [x] `pachiware update`: automated pull, migration, rebuild, and restart workflow with robust directory detection and DB reachability check
+  - [x] `pachiware uninstall`: completely remove CLI symlinks, stop running processes, with optional `--purge` and `--docker` options
   - [x] `pachiware doctor`: diagnostic tool checking ports, docker, dependencies, and environment
   - [x] `pachiware db:migrate` & `pachiware db:seed`: database management shortcuts
 - [x] One-line server installer script `install.sh` (`curl -fsSL ... | bash`)
@@ -201,6 +201,20 @@ pachiware-agent/
   - [x] Automatically triggers `reconnectDatabase()`, `runMigrations()`, and `runSeed()` via backend `PUT /api/agent/infrastructure`
   - [x] Smooth transition that unlocks the full dashboard once database connection is established
 
+### Phase 10: CLI Lifecycle Refinements, Global Execution Hardening & Repository Hygiene
+- [x] Global CLI Workspace Discovery:
+  - [x] Update `findWorkspaceRoot()` to traverse upwards from `import.meta.dir` when invoked outside repository directory
+  - [x] Guard `pachiware update` with directory validation preventing errors when `package.json` is missing
+  - [x] Validate PostgreSQL availability before running migrations during updates
+  - [x] Use `bun run --filter @pachiware/web build` syntax for monorepo frontend builds
+  - [x] Automatically recompile CLI binary upon successful update
+- [x] Complete Platform Uninstaller:
+  - [x] Added `pachiware uninstall` command
+  - [x] Cleans up symlinks across `/usr/local/bin`, `~/.bun/bin`, and `~/.local/bin`
+  - [x] Supports `--purge` to delete installation directory and `--docker` to tear down containers
+- [x] Repository Cleanliness:
+  - [x] Removed compiled `bin/pachiware` artifact from git tracking index while respecting `.gitignore`
+
 ---
 
 ## 📈 Current Progress Log
@@ -213,4 +227,5 @@ pachiware-agent/
 - **Phase 7: Completed ✅** (Global CLI `pachiware`, `pachiware --help`, `pachiware update`, and Server Installer `install.sh`)
 - **Phase 8: Completed ✅** (Web-Managed Dynamic Configuration without mutating `.env`)
 - **Phase 9: Completed ✅** (Zero-Config Resilience, Native In-Memory Fallback, and Web Setup Wizard Mode)
+- **Phase 10: Completed ✅** (CLI Uninstaller, `pachiware update` Workspace Detection Fix, and Git Remote Cleanup)
 

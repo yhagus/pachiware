@@ -133,6 +133,7 @@ Commands:
   chat <message>       Send a test prompt directly to the ReAct loop from terminal
   db:migrate           Run database schema migrations on PostgreSQL
   db:seed              Seed default agent personality and built-in skills
+  uninstall [options]  Completely remove Pachiware CLI and services (--purge, --docker)
 ```
 
 ### 🚀 Starting the Platform
@@ -148,6 +149,15 @@ pachiware start --docker
 To update the platform to the latest version, run migrations, and recompile:
 ```bash
 pachiware update
+```
+
+### 🗑️ Uninstalling
+To remove Pachiware symlinks and stop services:
+```bash
+pachiware uninstall
+
+# Or completely remove data, stop Docker containers, and purge directories:
+pachiware uninstall --purge --docker
 ```
 
 ### 🩺 System Diagnostics

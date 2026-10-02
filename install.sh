@@ -104,4 +104,5 @@ echo -e "  ${CYAN}pachiware start${NC}           Launch Agent & Web GUI (connect
 echo -e "  ${CYAN}pachiware start --docker${NC}  Launch Agent and spin up bundled Postgres & Redis"
 echo -e "  ${CYAN}pachiware update${NC}          Pull latest updates, migrations & restart"
 echo -e "  ${CYAN}pachiware status${NC}          Inspect real-time system status"
+echo -e "  ${CYAN}pachiware uninstall${NC}       Completely remove Pachiware CLI and services"
 echo -e "${GREEN}${BOLD}======================================================${NC}\n"
