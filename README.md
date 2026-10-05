@@ -1,201 +1,130 @@
 # Pachiware Agent
 
-A self-hosted, tenant-aware AI agent engine built with Bun, Hono, Drizzle, SQLite/PostgreSQL, and Discord.js. Each tenant owns an agent configuration, provider credentials, skills, tasks, conversations, usage events, and any number of Discord bots.
+Asisten AI self-hosted untuk chat, pengelolaan task, dan otomasi Discord. Dashboard web menyediakan pengaturan model AI, system prompt, skills, task, dan beberapa Discord bot.
 
-## Architecture
+Repository ini menggunakan Bun + Hono untuk backend, React + Vite untuk dashboard, Drizzle untuk SQLite/PostgreSQL 18, dan Discord.js untuk bot. Redis bersifat opsional; tanpa Redis, cache menggunakan memori. Data dan konfigurasi dipisahkan per tenant. Aplikasi signup dan billing tidak disertakan.
 
-Pachiware is the **data plane**: it runs agents, tools, and bots. Your external SaaS **control plane** owns users, signup, billing, plans, and quotas. No signup or billing application is included here.
+## Sebelum Instalasi
 
-```text
-External SaaS control plane -- X-Platform-Key --> /api/admin/*
-Operator console / API client -- Bearer API key --> /api/v1/*
-DiscordBotManager -- botId --> tenantId --> ReAct loop --> tools / LLM
-                                         |
-                                SQLite or PostgreSQL
-                                  + optional Redis
-```
+- Gunakan Linux atau macOS dengan akses terminal dan koneksi internet.
+- Bun **1.4.0 atau lebih baru** diperlukan. Installer memasangnya jika belum tersedia. Jika Bun sudah terpasang tetapi lebih lama, jalankan `bun upgrade` terlebih dahulu.
+- Docker dengan Compose hanya diperlukan jika memilih PostgreSQL bawaan.
+- Siapkan API key provider LLM untuk mulai chat. Token Discord hanya diperlukan jika ingin memakai bot.
 
-API keys identify tenants without becoming the tenant identity. They can be scoped, rotated, and revoked independently. Tenant ownership is checked on queries and tool execution; composite database foreign keys prevent linking messages or bots across tenants. Cache and rate-limit keys include tenant IDs.
+## Instalasi
 
-## Setup
+Pilih salah satu metode berikut. Keduanya menjalankan setup yang sama.
 
-Requires Bun (tested with 1.4.0). SQLite and the native memory cache work without Docker. PostgreSQL 18 and Redis are optional.
-
-```bash
-bun install
-cp .env.example .env
-bun run db:migrate
-bun run db:seed
-bun run dev:agent
-# In another terminal:
-bun run dev:web
-```
-
-API: `http://localhost:3001`. Operator console: `http://localhost:3000`.
-
-For bundled PostgreSQL and Redis, configure `DATABASE_URL` and run `docker compose up -d`, or use `pachiware start --docker`. The one-line installer remains available:
+### Metode 1: Installer Satu Perintah
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | bash
 ```
 
-The console is an operator/debug panel. Enter a tenant API key to manage that tenant. Enter a platform key to initialize a tenant or change host infrastructure. Tenant keys are stored in browser localStorage; platform keys remain in sessionStorage. Use the console only on trusted operator devices. `VITE_PACHIWARE_API_KEY` is an optional development default bundled into the GUI; do not place platform keys in frontend env variables.
+Installer menyimpan aplikasi di `~/.pachiware`, memasang dependency, membangun CLI `pachiware`, lalu membuka setup interaktif di terminal.
 
-### First-Run Database Choice
+### Metode 2: Dari Repository
 
-The setup flow makes the database choice explicit:
+Cocok jika ingin melihat atau mengembangkan source code. Git harus sudah tersedia.
 
-1. **SQLite** is the zero-config recommendation for a single server. It creates `data/pachiware.db` and needs no Docker, PostgreSQL, or Redis.
-2. **PostgreSQL external** accepts an existing PostgreSQL 18 connection URL (local, cloud, or managed).
-3. **PostgreSQL 18 Docker** uses the bundled `postgres:18-alpine` and Redis containers. Start them with `pachiware start --docker`; a browser wizard cannot start Docker on the server.
+```bash
+git clone https://github.com/yhagus/pachiware.git
+cd pachiware
+bash install.sh
+```
 
-The same choices are available from `pachiware init`. It configures the database, runs migrations/seed, creates the default tenant and an operator API key, and saves an encrypted localhost handoff in gitignored `operator-access.json` (mode 0600). Bundled Docker mode starts PostgreSQL 18 and Redis and waits for readiness. Fresh installs generate platform/encryption keys; existing encryption keys are preserved. The curl installer uses the interactive terminal when available. Automated fresh installs default to SQLite, and can be controlled without prompts using `PACHIWARE_DATABASE=sqlite|postgres|docker` and `PACHIWARE_POSTGRES_URL`.
+Aplikasi menggunakan direktori clone tersebut sebagai direktori instalasi.
 
-### Open the Console After CLI Setup
+### Pilih Database Saat Setup
 
-After `pachiware init` or a successful curl installation, run `pachiware start` and open `http://localhost:3000`. The web server provides a server-only, uncached credentials handoff restricted to loopback clients, localhost Host, and same-origin browser requests. The browser connects automatically before loading tenant data, so it opens the dashboard without repeating the setup wizard or asking you to paste keys. Keys are never included in the production JavaScript bundle.
-
-Remote browsers still use explicit operator credentials. Database setup failures remain visible and do not count as completed setup. LLM provider credentials and optional Discord bots can be configured in the dashboard after provisioning; the dashboard is usable before either is connected.
-
-The installer requires Bun 1.4.0+ for lockfile v2 and fails with upgrade instructions when an older Bun is detected. It uses `--frozen-lockfile` rather than silently rewriting dependency resolutions.
-
-### Host Configuration
-
-| Variable | Default | Purpose |
+| Pilihan | Cocok untuk | Yang perlu disiapkan |
 | --- | --- | --- |
-| `DATABASE_URL` | `sqlite:./data/pachiware.db` | SQLite file, `sqlite::memory:` for tests, or `postgresql://...` |
-| `REDIS_URL` | `redis://localhost:6380` | Optional cache; unreachable Redis uses memory fallback |
-| `AGENT_PORT`, `AGENT_HOST` | `3001`, `0.0.0.0` | API bind address |
-| `AGENT_SECRET_KEY` | Development placeholder | Platform key fallback and development encryption derivation |
-| `PLATFORM_ADMIN_KEY` | `AGENT_SECRET_KEY` | Protects all `/api/admin/*` routes |
-| `PLATFORM_ENCRYPTION_KEY` | Development derivation only | Canonical base64-encoded 32-byte AES key; required with `NODE_ENV=production` |
-| `VITE_API_URL` | Same-origin `/api` | GUI backend URL; Vite dev server proxies to port 3001 |
-| `PACHIWARE_API_KEY` | Unset | Tenant credential for `pachiware chat` |
+| **SQLite** | Memulai dengan konfigurasi paling sederhana | Tidak ada layanan tambahan; data disimpan di `data/pachiware.db` |
+| **PostgreSQL external** | Menggunakan database yang sudah tersedia | PostgreSQL 18 dan connection URL `postgresql://user:password@host:5432/database` |
+| **PostgreSQL 18 Docker** | Menjalankan database dan Redis di mesin sendiri | Docker aktif; setup menyalakan container dan menunggu siap |
 
-Generate independent platform and encryption credentials before production:
+Pilih **SQLite** jika belum membutuhkan PostgreSQL. Setup membuat konfigurasi lokal, menjalankan migrasi dan seed, serta menyiapkan tenant default dan akses dashboard otomatis. Pada instalasi baru, kunci platform dan enkripsi dibuat otomatis.
+
+Untuk instalasi otomatis tanpa prompt, contoh berikut memilih SQLite:
 
 ```bash
-openssl rand -hex 32
-openssl rand -base64 32
+curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | PACHIWARE_DATABASE=sqlite bash
 ```
 
-Store the first output as `PLATFORM_ADMIN_KEY` and the second as `PLATFORM_ENCRYPTION_KEY` in your server environment. Keep the encryption key stable and backed up with your database. Changing it requires decrypting and re-encrypting existing secrets with the old/new keys; it is not an automatic key rotation. AES-256-GCM encrypts provider keys and bot tokens. API keys use 192 random bits and are stored only as SHA-256 hashes plus display prefixes. Responses never return stored hashes, encrypted secrets, or decrypted credentials.
+Pilihan lain adalah `PACHIWARE_DATABASE=docker`, atau `PACHIWARE_DATABASE=postgres` dengan `PACHIWARE_POSTGRES_URL`. Tanpa terminal interaktif dan tanpa pilihan eksplisit, instalasi baru menggunakan SQLite.
 
-Infrastructure settings can be changed through the admin API or console; changes persist in gitignored `runtime-config.json`. `.env` is not mutated at runtime.
+## Jalankan dan Buka Dashboard
 
-### Bootstrap and Migration
-
-Fresh databases created with `db:migrate` alone start without tenants. `pachiware init` and the curl installer complete tenant provisioning; `pachiware start` also completes it for earlier CLI installations. Run `pachiware init` once if your earlier installation has not finished setup.
-
-An existing single-tenant database is migrated transactionally to `slug: default`. Existing config, skills, tasks, conversations, and messages retain their data and gain tenant ownership. Provider keys are encrypted and the Discord configuration becomes a bot row. SQLite tables are rebuilt to enforce NOT NULL and foreign keys; PostgreSQL columns/primary keys are altered and backfilled. On a fresh database, legacy credential env vars can also create this default tenant.
-
-`DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CUSTOM_LLM_API_KEY`, their URLs/models, and `DEFAULT_LLM_PROVIDER`/`DEFAULT_MODEL` are read **only during the initial bootstrap migration**. Re-running migrations or seeds never imports env credentials into an existing tenant. Runtime provider calls require that tenant's stored credentials; there is no simulated LLM or env fallback.
-
-The bootstrap API key is printed **once after the migration commits**. Save it then. If it is lost, issue another key through the Admin API. Migration requires a configured encryption key or development `AGENT_SECRET_KEY` when importing secrets. Back up an existing database before upgrading.
-
-### Provision a Tenant and API Key
+Setelah installer selesai:
 
 ```bash
-curl -X POST http://localhost:3001/api/admin/tenants \
-  -H "X-Platform-Key: $PLATFORM_ADMIN_KEY" -H 'Content-Type: application/json' \
-  -d '{"name":"Example Team","slug":"example"}'
-
-# Use the tenant ID returned above:
-curl -X POST http://localhost:3001/api/admin/tenants/TENANT_ID/api-keys \
-  -H "X-Platform-Key: $PLATFORM_ADMIN_KEY" -H 'Content-Type: application/json' \
-  -d '{"name":"Operator","scopes":[]}'
+pachiware start
 ```
 
-The issue response contains `{success, raw, keyPrefix, keyId}`. `raw` is returned once; key-list endpoints expose metadata and prefixes only. Empty scopes or `*` grant full tenant access. Otherwise scopes use `resource:read` or `resource:write`, where resource is `config`, `chat`, `conversations`, `skills`, `tasks`, or `bots`. GET uses `read`; other methods use `write`.
+Jika memakai PostgreSQL Docker, gunakan perintah ini untuk memastikan container ikut dinyalakan:
 
 ```bash
-curl http://localhost:3001/api/v1/tasks -H "Authorization: Bearer $PACHIWARE_API_KEY"
+pachiware start --docker
 ```
 
-## API Contract
+Buka **http://localhost:3000**. Setelah setup CLI berhasil, dashboard langsung terhubung tanpa mengulang setup wizard atau memasukkan API key operator. Biarkan terminal proses tetap berjalan; `Ctrl+C` menghentikan aplikasi.
 
-`GET /api/health` is public: readiness, data-store health, and an array of active bot runtime statuses. A database with no tenants reports `setupRequired: true`.
+Jika perintah `pachiware` belum dikenali, buka terminal baru. Untuk instalasi default, CLI juga bisa dijalankan melalui `~/.pachiware/bin/pachiware`.
 
-All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Content-Type: application/json`.
-
-| Method | Admin Endpoint | Input / Result |
-| --- | --- | --- |
-| POST | `/api/admin/tenants` | `{name, slug?, metadata?}` -> `{tenant}` |
-| GET | `/api/admin/tenants` | `{tenants}` (excludes deleted) |
-| GET | `/api/admin/tenants/:id` | `{tenant}` |
-| PATCH | `/api/admin/tenants/:id` | `{name?, status?: active or suspended, metadata?}`; slug immutable |
-| DELETE | `/api/admin/tenants/:id` | Soft delete; stops tenant bots |
-| POST | `/api/admin/tenants/:id/api-keys` | `{name?, scopes?}` -> raw key once |
-| GET | `/api/admin/tenants/:id/api-keys` | `{apiKeys}` (prefix and metadata) |
-| DELETE | `/api/admin/api-keys/:keyId` | Revoke key |
-| POST | `/api/admin/tenants/:id/bots` | `{name?, token, clientId?, guildIds?, isEnabled?}` -> `{bot}` |
-| GET | `/api/admin/tenants/:id/bots` | `{bots}` |
-| PATCH | `/api/admin/bots/:botId` | Bot fields; token encrypted on write |
-| POST | `/api/admin/bots/:botId/restart` | Restart this gateway |
-| DELETE | `/api/admin/bots/:botId` | Stop and remove bot from active listings |
-| GET | `/api/admin/tenants/:id/usage?from=&to=` | `{usage}` grouped by tenant/type/provider/model |
-| GET | `/api/admin/usage?from=&to=` | Platform usage aggregation |
-| GET, PUT | `/api/admin/infrastructure` | Host database/Redis settings |
-| POST | `/api/admin/infrastructure/test-db` | `{databaseUrl?}` -> connection test |
-| POST | `/api/admin/infrastructure/test-redis` | Redis connection test |
-
-Usage ranges accept ISO dates, including both boundaries. Invalid or reversed ranges return 400. Events include `llm_tokens` (successful completions with prompt/completion token counts), `tool_call` (tool name/success), and `discord_message` (accepted inbound requests). Bot deletion retains a disabled tombstone to preserve historical usage/conversation references and erases its token.
-
-All `/api/v1/*` requests require `Authorization: Bearer <tenant API key>`. Missing/revoked/deleted keys return 401; suspended tenants and insufficient scopes return 403.
-
-| Method | Tenant Endpoint | Purpose |
-| --- | --- | --- |
-| GET, PUT | `/api/v1/config` | Prompt, model, settings, provider credentials |
-| POST | `/api/v1/config/test/llm` | `{provider, apiKey?, baseUrl?}`; masked key uses saved tenant credential |
-| POST | `/api/v1/chat` | `{message, conversationId?}` -> reply, steps, tools, conversation ID |
-| GET | `/api/v1/conversations` | Tenant conversations |
-| GET | `/api/v1/conversations/:id/messages` | Tenant-owned history |
-| GET, POST | `/api/v1/tasks` | Filter/search/counts or create task |
-| PATCH, DELETE | `/api/v1/tasks/:id` | Update/delete owned task |
-| GET | `/api/v1/skills` | Platform definitions plus tenant state |
-| PATCH | `/api/v1/skills/:id/toggle` | Toggle tenant skill |
-| PUT | `/api/v1/skills/:id` | `{config}` tenant skill settings |
-| POST | `/api/v1/skills/test` | `{toolName, arguments?}` execute enabled tenant tool |
-| GET, POST | `/api/v1/bots` | List/add tenant bots |
-| PATCH, DELETE | `/api/v1/bots/:id` | Update/delete tenant bot |
-| POST | `/api/v1/bots/:id/test` | `{token?}` test provided or stored token |
-| POST | `/api/v1/bots/:id/restart` | Restart owned gateway |
-
-Credential config fields are `openaiApiKeyEncrypted`, `anthropicApiKeyEncrypted`, and `customApiKeyEncrypted`. On writes these accept **plaintext** and encrypt server-side; reads return `••••••••` or null. Omitted/masked values preserve the existing key; null or empty clears it. Bot responses expose `hasToken` rather than a token. Old unauthenticated `/api/agent/*`, `/api/tasks`, and `/api/skills` endpoints are removed.
-
-## Discord and ReAct
-
-The bot manager runs a separate Discord client per enabled bot under an active tenant. Configure Message Content Intent in the Discord developer portal and invite the bot with channel permissions. Bots respond to mentions, DMs, and their own threads, show typing indicators, split long replies, and send action summaries. Optional `guildIds` restrict accepted guild messages; tool adapters use the incoming guild. Suspending or deleting a tenant stops its bots and rejects subsequent tenant API requests.
-
-Built-in tools include task creation/list/status/assignment and channel creation/list/topic/archive. Disabling all tenant skills leaves no tools available, and direct tool execution checks tenant enablement too. The ReAct loop persists tenant-owned history and never accepts another tenant's conversation ID.
-
-## CLI
-
-`pachiware --help` lists lifecycle commands: `init`, `start [--docker] [--daemon] [--no-gui]`, `stop`, `restart`, `status`, `doctor`, `logs`, `update`, `uninstall`, `db:migrate`, `db:seed`, and `chat`.
+Jika instalasi berada di server lain, buat tunnel dari komputer Anda agar dashboard tetap diakses melalui localhost:
 
 ```bash
-PACHIWARE_API_KEY=pk_live_example pachiware chat 'List my tasks'
+ssh -L 3000:127.0.0.1:3000 user@server
 ```
 
-Provider/bot credentials are managed via tenant APIs or the console, not CLI environment settings.
+Biarkan koneksi SSH terbuka, lalu buka `http://localhost:3000` di komputer Anda. Akses otomatis hanya tersedia melalui localhost; akses langsung lewat alamat IP server memerlukan kredensial operator.
 
-## Verification
+## Selesaikan Konfigurasi dan Mulai Memakai
 
-```bash
-bun test
-bun run typecheck
-bun run build
-```
+### 1. Hubungkan Model AI
 
-Tests use isolated temporary SQLite databases and mocked LLM/Discord integrations; no live credentials, server, or production database are required. PostgreSQL migration verification uses a disposable instance when available. The DB package supports both dialects with matching schema exports.
+Di menu **LLM Router**, pilih OpenAI, Anthropic, atau endpoint custom seperti 9router. Masukkan API key, base URL bila diperlukan, dan nama model yang tersedia pada provider Anda. Uji koneksinya lalu simpan konfigurasi.
 
-## Layout
+### 2. Coba Chat dan Task
+
+Buka **Agent Playground** dan kirim pesan untuk memastikan model merespons. Atur perilaku agent lewat **Personality & Prompts**, lalu aktifkan tools yang diperlukan di **Skills & Harnesses**. Coba meminta agent membuat task, lalu periksa hasilnya di **Task Kanban**.
+
+Dashboard bisa dibuka sebelum LLM dikonfigurasi, tetapi chat memerlukan kredensial provider yang valid.
+
+### 3. Hubungkan Discord (Opsional)
+
+1. Buat aplikasi dan bot di [Discord Developer Portal](https://discord.com/developers/applications).
+2. Aktifkan **Message Content Intent**, lalu undang bot ke server dengan izin melihat channel, membaca riwayat, dan mengirim pesan. Berikan izin mengelola channel jika ingin memakai tools pengelolaan channel.
+3. Di **Discord Bots**, tambahkan nama dan token bot. Isi Application ID dan Guild IDs bila diperlukan, lalu simpan dengan **Enabled** aktif.
+4. Periksa status koneksinya, lalu mention bot atau kirim DM untuk mencoba percakapan.
+
+Instalasi siap dipakai ketika dashboard terhubung, chat mendapat respons dari model, dan bot terhubung jika Discord digunakan.
+
+## Perintah Harian
+
+| Perintah | Kegunaan |
+| --- | --- |
+| `pachiware start` | Menjalankan backend dan dashboard |
+| `pachiware start --docker` | Menyalakan PostgreSQL/Redis bawaan dan aplikasi |
+| `pachiware status` | Memeriksa status layanan |
+| `pachiware doctor` | Memeriksa konfigurasi dan konektivitas |
+| `pachiware stop` | Menghentikan aplikasi |
+| `pachiware update` | Mengambil pembaruan dan menjalankan migrasi |
+| `pachiware --help` | Melihat semua perintah |
+
+Untuk instalasi lama yang belum menyelesaikan setup, jalankan `pachiware init` lalu `pachiware start`. Jika wizard masih muncul, periksa hasil setup dan jalankan `pachiware doctor`; pastikan database yang dipilih dapat diakses.
+
+Sebelum memperbarui aplikasi, cadangkan database dan file konfigurasi di direktori instalasi: `.env`, `runtime-config.json` jika ada, dan `operator-access.json`. Simpan kunci enkripsi bersama backup; kunci tersebut diperlukan untuk membaca kredensial yang tersimpan.
+
+## Isi Repository
 
 ```text
-apps/agent/       Hono API, tenant middleware, bot manager, ReAct, LLM router
-apps/web/         React/Vite operator console
-packages/db/      Dual-dialect schema, migration, seed, crypto, tenancy
-packages/skills/  Tool definitions and handlers
-packages/cli/     Lifecycle CLI
-PROGRESS.md       Implementation status and verification evidence
+apps/agent/       Backend, agent loop, integrasi LLM dan Discord
+apps/web/         Dashboard pengelolaan
+packages/db/      Schema, migrasi, seed, dan penyimpanan terenkripsi
+packages/skills/  Tools bawaan
+packages/cli/     Setup dan pengelolaan layanan
+PROGRESS.md       Status implementasi dan hasil verifikasi
 ```
+
+Dokumentasi integrasi tersedia di [API Reference](docs/api.md). Untuk pengembangan, pemeriksaan repository dapat dijalankan dengan `bun test`, `bun run typecheck`, dan `bun run build`.
