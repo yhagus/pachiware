@@ -6,10 +6,11 @@ import {
   messages as messagesTable,
   getInfraConfig,
   saveInfraConfig,
-  testPostgresConnection,
+  testDatabaseConnection,
   reconnectDatabase,
   runMigrations,
   runSeed,
+  activeDialect,
 } from "@pachiware/db";
 import { eq, desc } from "drizzle-orm";
 import { CacheService, redis } from "../cache/redis.js";
@@ -219,6 +220,7 @@ agentRoutes.get("/infrastructure", async (c) => {
     infrastructure: {
       databaseUrl: maskConnectionUrl(infra.databaseUrl),
       rawDatabaseUrl: infra.databaseUrl,
+      databaseDialect: activeDialect,
       redisUrl: maskConnectionUrl(infra.redisUrl),
       rawRedisUrl: infra.redisUrl,
       isFromRuntimeStore: infra.isFromRuntimeStore,
@@ -228,7 +230,7 @@ agentRoutes.get("/infrastructure", async (c) => {
   });
 });
 
-// Test infrastructure PostgreSQL connection
+// Test infrastructure database connection (dialect-aware: sqlite or postgres)
 agentRoutes.post("/infrastructure/test-db", async (c) => {
   const body = await c.req.json();
   let url = body.databaseUrl;
@@ -237,7 +239,7 @@ agentRoutes.post("/infrastructure/test-db", async (c) => {
     url = infra.databaseUrl;
   }
 
-  const result = await testPostgresConnection(url);
+  const result = await testDatabaseConnection(url);
   return c.json(result);
 });
 

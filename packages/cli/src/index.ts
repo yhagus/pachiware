@@ -162,7 +162,7 @@ function requireWorkspaceRoot(): string {
   return rootDir;
 }
 
-function getDatabaseTarget(dir: string): { host: string; port: number } {
+function getDatabaseTarget(dir: string): { dialect: "sqlite" | "postgres"; host: string; port: number; url: string; sqlitePath?: string } {
   let dbUrl = "";
   const runtimeFile = join(dir, "runtime-config.json");
   if (existsSync(runtimeFile)) {
@@ -180,17 +180,40 @@ function getDatabaseTarget(dir: string): { host: string; port: number } {
     }
   }
   if (!dbUrl) {
-    dbUrl = "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent";
+    // Default: SQLite file inside the workspace (zero-config)
+    dbUrl = "sqlite:./data/pachiware.db";
+  }
+
+  const lower = dbUrl.trim().toLowerCase();
+  const isSqlite =
+    lower.startsWith("sqlite:") ||
+    lower.startsWith("sqlite3:") ||
+    lower.startsWith("file:") ||
+    /\.(db|sqlite|sqlite3)$/.test(lower) ||
+    (!lower.startsWith("postgres://") && !lower.startsWith("postgresql://"));
+
+  if (isSqlite) {
+    let p = dbUrl.trim();
+    for (const prefix of ["sqlite://", "sqlite3://", "sqlite:", "sqlite3:", "file://", "file:"]) {
+      if (p.startsWith(prefix)) {
+        p = p.slice(prefix.length);
+        break;
+      }
+    }
+    const sqlitePath = p === ":memory:" || p === "" ? ":memory:" : (p.startsWith("/") ? p : resolve(dir, p));
+    return { dialect: "sqlite", host: "local", port: 0, url: dbUrl, sqlitePath };
   }
 
   try {
     const parsed = new URL(dbUrl);
     return {
+      dialect: "postgres",
       host: parsed.hostname || "127.0.0.1",
       port: parseInt(parsed.port || "5432", 10),
+      url: dbUrl,
     };
   } catch {
-    return { host: "127.0.0.1", port: 5432 };
+    return { dialect: "postgres", host: "127.0.0.1", port: 5432, url: dbUrl };
   }
 }
 
@@ -285,12 +308,26 @@ program
     }
 
     // 2. Check DB connectivity before attempting migrations
-    console.log(`  ${c.cyan}→ Checking PostgreSQL database availability...${c.reset}`);
-    const { host: dbHost, port: dbPort } = getDatabaseTarget(wsRoot);
-    const dbConnected = await isPortOpen(dbHost, dbPort, 1500);
+    const dbTarget = getDatabaseTarget(wsRoot);
+    let dbConnected = false;
+    let dbDescription = "";
+
+    if (dbTarget.dialect === "sqlite") {
+      console.log(`  ${c.cyan}→ Using SQLite database (zero-config, no external services required)...${c.reset}`);
+      dbConnected = true;
+      dbDescription = dbTarget.sqlitePath === ":memory:"
+        ? "SQLite :memory: (ephemeral)"
+        : `SQLite file (${dbTarget.sqlitePath})`;
+    } else {
+      console.log(`  ${c.cyan}→ Checking PostgreSQL database availability...${c.reset}`);
+      dbConnected = await isPortOpen(dbTarget.host, dbTarget.port, 1500);
+      dbDescription = dbConnected
+        ? `Connected (${dbTarget.host}:${dbTarget.port})`
+        : `PostgreSQL not reachable at ${dbTarget.host}:${dbTarget.port}`;
+    }
 
     if (dbConnected) {
-      console.log(`  ${c.green}✔${c.reset} PostgreSQL detected at ${dbHost}:${dbPort}. Ensuring migrations & seed...`);
+      console.log(`  ${c.green}✔${c.reset} Database available: ${dbDescription}. Ensuring migrations & seed...`);
       try {
         const migrateScript = join(wsRoot, "packages", "db", "src", "migrate.ts");
         const seedScript = join(wsRoot, "packages", "db", "src", "seed.ts");
@@ -301,7 +338,7 @@ program
         console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset}`, err.message);
       }
     } else {
-      console.log(`  ${c.yellow}ℹ PostgreSQL is not reachable yet at ${dbHost}:${dbPort}.${c.reset}`);
+      console.log(`  ${c.yellow}ℹ ${dbDescription}.${c.reset}`);
       console.log(`  ${c.cyan}⚡ Starting Pachiware in Setup Wizard Mode.${c.reset}`);
       console.log(`  ${c.dim}  (You can configure your database easily in the Web GUI at http://localhost:3000)${c.reset}`);
     }
@@ -313,7 +350,8 @@ program
       console.log(`${c.green}${c.bold}====================================================${c.reset}`);
       console.log(`  ${c.cyan}🌐 Web Console:${c.reset}       ${c.bold}http://localhost:3000${c.reset}`);
       console.log(`  ${c.cyan}⚡ Agent REST API:${c.reset}    ${c.bold}http://localhost:3001${c.reset}`);
-      console.log(`  ${c.cyan}🐘 Database:${c.reset}          Connected (${dbHost}:${dbPort})`);
+      const dbIcon = dbTarget.dialect === "sqlite" ? "💾" : "🐘";
+      console.log(`  ${c.cyan}${dbIcon} Database:${c.reset}          ${dbDescription}`);
       console.log(`  ${c.cyan}🔴 Cache Engine:${c.reset}      Active (Redis / native in-memory fallback)`);
       console.log(`  ${c.cyan}📡 Messaging:${c.reset}        Discord active (Standby / Simulation mode)`);
       console.log(`${c.gray}----------------------------------------------------${c.reset}`);
@@ -523,21 +561,21 @@ program
     }
 
     // 3. Run database migrations (check DB connectivity first)
-    console.log(`  ${c.cyan}→ Applying PostgreSQL 18 migrations...${c.reset}`);
-    const { host: dbHost, port: dbPort } = getDatabaseTarget(wsRoot);
-    const dbReachable = await isPortOpen(dbHost, dbPort, 1500);
+    console.log(`  ${c.cyan}→ Applying database migrations...${c.reset}`);
+    const updTarget = getDatabaseTarget(wsRoot);
+    const dbReachable = updTarget.dialect === "sqlite" ? true : await isPortOpen(updTarget.host, updTarget.port, 1500);
     if (dbReachable) {
       try {
         const migrateScript = join(wsRoot, "packages", "db", "src", "migrate.ts");
         const seedScript = join(wsRoot, "packages", "db", "src", "seed.ts");
         execSync(`bun run "${migrateScript}"`, { cwd: wsRoot, stdio: "inherit" });
         execSync(`bun run "${seedScript}"`, { cwd: wsRoot, stdio: "inherit" });
-        console.log(`  ${c.green}✔${c.reset} Database migrations applied.`);
+        console.log(`  ${c.green}✔${c.reset} Database migrations applied (${updTarget.dialect}).`);
       } catch (err: any) {
         console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset} ${err.message}`);
       }
     } else {
-      console.log(`  ${c.yellow}ℹ Skipping migrations — PostgreSQL not reachable at ${dbHost}:${dbPort}.${c.reset}`);
+      console.log(`  ${c.yellow}ℹ Skipping migrations — PostgreSQL not reachable at ${updTarget.host}:${updTarget.port}.${c.reset}`);
       console.log(`  ${c.dim}  (Run 'pachiware db:migrate' manually once your database is up.)${c.reset}`);
     }
 
@@ -602,8 +640,8 @@ program
     const ports = [
       { port: 3001, desc: "Agent API" },
       { port: 3000, desc: "Web GUI" },
-      { port: 5432, desc: "PostgreSQL (default port)" },
-      { port: 6380, desc: "Redis Cache (default port)" },
+      { port: 5432, desc: "PostgreSQL (only required when DATABASE_URL=postgres://...)" },
+      { port: 6380, desc: "Redis Cache (optional — native in-memory fallback available)" },
     ];
 
     console.log(`\n  ${c.bold}Port Status:${c.reset}`);
@@ -629,6 +667,14 @@ program
         console.log(`  ${c.green}✔${c.reset} Environment file:   ${envPath} exists`);
       } else {
         console.log(`  ${c.yellow}⚠${c.reset} Environment file:   Missing .env in ${rootDir} (Run 'pachiware init')`);
+      }
+
+      const dbTarget = getDatabaseTarget(rootDir);
+      if (dbTarget.dialect === "sqlite") {
+        console.log(`  ${c.green}✔${c.reset} Database:           SQLite ${c.gray}(${dbTarget.sqlitePath})${c.reset}`);
+        console.log(`  ${c.dim}                      Zero-config — no external services required.${c.reset}`);
+      } else {
+        console.log(`  ${c.cyan}ℹ${c.reset} Database:           PostgreSQL at ${dbTarget.host}:${dbTarget.port}`);
       }
     } else {
       console.log(`  ${c.yellow}⚠${c.reset} Workspace Root:     Not detected (Run inside Pachiware repo or set PACHIWARE_DIR)`);
@@ -676,7 +722,7 @@ program
  */
 program
   .command("db:migrate")
-  .description("Run database migrations on PostgreSQL 18")
+  .description("Run database migrations (auto-detects SQLite or PostgreSQL from DATABASE_URL)")
   .action(() => {
     const wsRoot = requireWorkspaceRoot();
     const migrateScript = join(wsRoot, "packages", "db", "src", "migrate.ts");

@@ -28,3 +28,12 @@ bun.lockb
 pgdata/
 redisdata/
 runtime-config.json
+
+# SQLite local database (default zero-config storage)
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3

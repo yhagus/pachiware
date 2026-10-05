@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { queryClient } from "@pachiware/db";
+import { pingDatabase, activeDialect } from "@pachiware/db";
 import { redis, isRedisConnected } from "../cache/redis.js";
 import { discordBotService } from "../discord/client.js";
 
@@ -8,9 +8,9 @@ export const healthRoutes = new Hono();
 healthRoutes.get("/", async (c) => {
   let dbStatus = "unknown";
   try {
-    const res = await queryClient`SELECT 1 as alive`;
-    dbStatus = res.length > 0 ? "healthy" : "degraded";
-  } catch (err: any) {
+    const alive = await pingDatabase();
+    dbStatus = alive ? "healthy" : "degraded";
+  } catch {
     dbStatus = "unreachable";
   }
 
@@ -35,6 +35,7 @@ healthRoutes.get("/", async (c) => {
     memory: process.memoryUsage(),
     services: {
       database: dbStatus,
+      databaseDialect: activeDialect,
       redis: redisStatus,
       discord: discordStatus,
     },
