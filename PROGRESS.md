@@ -382,3 +382,9 @@ Regression note: an early CLI fixture exposed inherited `PACHIWARE_DIR` pointing
 - [x] Document end-to-end LLM setup, chat/task verification, optional Discord connection, daily commands, and backup guidance.
 - [x] Move tenant provisioning examples and endpoint reference to `docs/api.md`.
 - [x] Check documented commands and dashboard labels against source; verify the moved API reference is preserved and `git diff --check` passes. Documentation-only change; runtime code unchanged.
+
+### Bilingual README
+
+- [x] Provide the English guide in `README.md` and preserve the Indonesian guide in `README.id.md` with reciprocal language links.
+- [x] Keep installation, database selection, dashboard setup, LLM/Discord usage, and daily commands equivalent in both languages.
+- [x] Verify matching shell examples, valid local documentation links, and clean `git diff --check`. Documentation-only change.

@@ -1,31 +1,33 @@
 # Pachiware Agent
 
-Asisten AI self-hosted untuk chat, pengelolaan task, dan otomasi Discord. Dashboard web menyediakan pengaturan model AI, system prompt, skills, task, dan beberapa Discord bot.
+**English** | [Bahasa Indonesia](README.id.md)
 
-Repository ini menggunakan Bun + Hono untuk backend, React + Vite untuk dashboard, Drizzle untuk SQLite/PostgreSQL 18, dan Discord.js untuk bot. Redis bersifat opsional; tanpa Redis, cache menggunakan memori. Data dan konfigurasi dipisahkan per tenant. Aplikasi signup dan billing tidak disertakan.
+A self-hosted AI assistant for chat, task management, and Discord automation. The web dashboard lets you configure AI models, system prompts, skills, tasks, and multiple Discord bots.
 
-## Sebelum Instalasi
+This repository uses Bun + Hono for the backend, React + Vite for the dashboard, Drizzle for SQLite/PostgreSQL 18, and Discord.js for bots. Redis is optional; without it, caching uses memory. Each tenant has separate data and configuration. Signup and billing applications are not included.
 
-- Gunakan Linux atau macOS dengan akses terminal dan koneksi internet.
-- Bun **1.4.0 atau lebih baru** diperlukan. Installer memasangnya jika belum tersedia. Jika Bun sudah terpasang tetapi lebih lama, jalankan `bun upgrade` terlebih dahulu.
-- Docker dengan Compose hanya diperlukan jika memilih PostgreSQL bawaan.
-- Siapkan API key provider LLM untuk mulai chat. Token Discord hanya diperlukan jika ingin memakai bot.
+## Before You Install
 
-## Instalasi
+- Use Linux or macOS with terminal access and an internet connection.
+- Bun **1.4.0 or newer** is required. The installer installs Bun if it is missing. If you already have an older version, run `bun upgrade` first.
+- Docker with Compose is required only when choosing the bundled PostgreSQL option.
+- Have an LLM provider API key ready to start chatting. A Discord token is required only if you want to use a bot.
 
-Pilih salah satu metode berikut. Keduanya menjalankan setup yang sama.
+## Installation
 
-### Metode 1: Installer Satu Perintah
+Choose one of the following methods. Both run the same setup workflow.
+
+### Method 1: One-Command Installer
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | bash
 ```
 
-Installer menyimpan aplikasi di `~/.pachiware`, memasang dependency, membangun CLI `pachiware`, lalu membuka setup interaktif di terminal.
+The installer places the application in `~/.pachiware`, installs dependencies, builds the `pachiware` CLI, and opens interactive setup in your terminal.
 
-### Metode 2: Dari Repository
+### Method 2: From the Repository
 
-Cocok jika ingin melihat atau mengembangkan source code. Git harus sudah tersedia.
+Use this method to inspect or develop the source code. Git must already be installed.
 
 ```bash
 git clone https://github.com/yhagus/pachiware.git
@@ -33,98 +35,98 @@ cd pachiware
 bash install.sh
 ```
 
-Aplikasi menggunakan direktori clone tersebut sebagai direktori instalasi.
+The application uses your cloned repository as its installation directory.
 
-### Pilih Database Saat Setup
+### Choose a Database During Setup
 
-| Pilihan | Cocok untuk | Yang perlu disiapkan |
+| Option | Best for | What you need |
 | --- | --- | --- |
-| **SQLite** | Memulai dengan konfigurasi paling sederhana | Tidak ada layanan tambahan; data disimpan di `data/pachiware.db` |
-| **PostgreSQL external** | Menggunakan database yang sudah tersedia | PostgreSQL 18 dan connection URL `postgresql://user:password@host:5432/database` |
-| **PostgreSQL 18 Docker** | Menjalankan database dan Redis di mesin sendiri | Docker aktif; setup menyalakan container dan menunggu siap |
+| **SQLite** | Getting started with minimal configuration | No additional services; data is stored in `data/pachiware.db` |
+| **External PostgreSQL** | Using an existing database | PostgreSQL 18 and a connection URL: `postgresql://user:password@host:5432/database` |
+| **PostgreSQL 18 Docker** | Running the database and Redis on your own machine | Docker running; setup starts the containers and waits until they are ready |
 
-Pilih **SQLite** jika belum membutuhkan PostgreSQL. Setup membuat konfigurasi lokal, menjalankan migrasi dan seed, serta menyiapkan tenant default dan akses dashboard otomatis. Pada instalasi baru, kunci platform dan enkripsi dibuat otomatis.
+Choose **SQLite** if you do not need PostgreSQL yet. Setup creates local configuration, runs migrations and seed, and provisions the default tenant and automatic dashboard access. New installations generate platform and encryption keys automatically.
 
-Untuk instalasi otomatis tanpa prompt, contoh berikut memilih SQLite:
+For an automated installation without prompts, this example selects SQLite:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | PACHIWARE_DATABASE=sqlite bash
 ```
 
-Pilihan lain adalah `PACHIWARE_DATABASE=docker`, atau `PACHIWARE_DATABASE=postgres` dengan `PACHIWARE_POSTGRES_URL`. Tanpa terminal interaktif dan tanpa pilihan eksplisit, instalasi baru menggunakan SQLite.
+Other options are `PACHIWARE_DATABASE=docker`, or `PACHIWARE_DATABASE=postgres` with `PACHIWARE_POSTGRES_URL`. Without an interactive terminal or an explicit choice, new installations default to SQLite.
 
-## Jalankan dan Buka Dashboard
+## Start the Application and Open the Dashboard
 
-Setelah installer selesai:
+After the installer finishes:
 
 ```bash
 pachiware start
 ```
 
-Jika memakai PostgreSQL Docker, gunakan perintah ini untuk memastikan container ikut dinyalakan:
+If you use PostgreSQL Docker, use this command to ensure the containers are started too:
 
 ```bash
 pachiware start --docker
 ```
 
-Buka **http://localhost:3000**. Setelah setup CLI berhasil, dashboard langsung terhubung tanpa mengulang setup wizard atau memasukkan API key operator. Biarkan terminal proses tetap berjalan; `Ctrl+C` menghentikan aplikasi.
+Open **http://localhost:3000**. After successful CLI setup, the dashboard connects automatically without repeating the setup wizard or asking for an operator API key. Keep the terminal running; `Ctrl+C` stops the application.
 
-Jika perintah `pachiware` belum dikenali, buka terminal baru. Untuk instalasi default, CLI juga bisa dijalankan melalui `~/.pachiware/bin/pachiware`.
+If your terminal does not recognize `pachiware`, open a new terminal. For the default installation, you can also run the CLI through `~/.pachiware/bin/pachiware`.
 
-Jika instalasi berada di server lain, buat tunnel dari komputer Anda agar dashboard tetap diakses melalui localhost:
+If you installed on a remote server, create a tunnel from your computer to access the dashboard through localhost:
 
 ```bash
 ssh -L 3000:127.0.0.1:3000 user@server
 ```
 
-Biarkan koneksi SSH terbuka, lalu buka `http://localhost:3000` di komputer Anda. Akses otomatis hanya tersedia melalui localhost; akses langsung lewat alamat IP server memerlukan kredensial operator.
+Keep the SSH connection open, then visit `http://localhost:3000` on your computer. Automatic access is available only through localhost; direct access through the server's IP address requires operator credentials.
 
-## Selesaikan Konfigurasi dan Mulai Memakai
+## Finish Configuration and Start Using Pachiware
 
-### 1. Hubungkan Model AI
+### 1. Connect an AI Model
 
-Di menu **LLM Router**, pilih OpenAI, Anthropic, atau endpoint custom seperti 9router. Masukkan API key, base URL bila diperlukan, dan nama model yang tersedia pada provider Anda. Uji koneksinya lalu simpan konfigurasi.
+In **LLM Router**, choose OpenAI, Anthropic, or a custom endpoint such as 9router. Enter your API key, base URL if needed, and a model name available from your provider. Test the connection, then save the configuration.
 
-### 2. Coba Chat dan Task
+### 2. Try Chat and Tasks
 
-Buka **Agent Playground** dan kirim pesan untuk memastikan model merespons. Atur perilaku agent lewat **Personality & Prompts**, lalu aktifkan tools yang diperlukan di **Skills & Harnesses**. Coba meminta agent membuat task, lalu periksa hasilnya di **Task Kanban**.
+Open **Agent Playground** and send a message to confirm that the model responds. Adjust the agent's behavior in **Personality & Prompts**, then enable the tools you need in **Skills & Harnesses**. Try asking the agent to create a task, then check the result in **Task Kanban**.
 
-Dashboard bisa dibuka sebelum LLM dikonfigurasi, tetapi chat memerlukan kredensial provider yang valid.
+The dashboard works before you configure an LLM, but chat requires valid provider credentials.
 
-### 3. Hubungkan Discord (Opsional)
+### 3. Connect Discord (Optional)
 
-1. Buat aplikasi dan bot di [Discord Developer Portal](https://discord.com/developers/applications).
-2. Aktifkan **Message Content Intent**, lalu undang bot ke server dengan izin melihat channel, membaca riwayat, dan mengirim pesan. Berikan izin mengelola channel jika ingin memakai tools pengelolaan channel.
-3. Di **Discord Bots**, tambahkan nama dan token bot. Isi Application ID dan Guild IDs bila diperlukan, lalu simpan dengan **Enabled** aktif.
-4. Periksa status koneksinya, lalu mention bot atau kirim DM untuk mencoba percakapan.
+1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Enable **Message Content Intent**, then invite the bot to your server with permissions to view channels, read message history, and send messages. Grant channel management permissions if you want to use the channel management tools.
+3. In **Discord Bots**, add a name and bot token. Fill in the Application ID and Guild IDs if needed, then save with **Enabled** checked.
+4. Check the connection status, then mention the bot or send it a DM to try a conversation.
 
-Instalasi siap dipakai ketika dashboard terhubung, chat mendapat respons dari model, dan bot terhubung jika Discord digunakan.
+Your installation is ready when the dashboard connects, chat receives a model response, and the bot connects if you use Discord.
 
-## Perintah Harian
+## Everyday Commands
 
-| Perintah | Kegunaan |
+| Command | Purpose |
 | --- | --- |
-| `pachiware start` | Menjalankan backend dan dashboard |
-| `pachiware start --docker` | Menyalakan PostgreSQL/Redis bawaan dan aplikasi |
-| `pachiware status` | Memeriksa status layanan |
-| `pachiware doctor` | Memeriksa konfigurasi dan konektivitas |
-| `pachiware stop` | Menghentikan aplikasi |
-| `pachiware update` | Mengambil pembaruan dan menjalankan migrasi |
-| `pachiware --help` | Melihat semua perintah |
+| `pachiware start` | Start the backend and dashboard |
+| `pachiware start --docker` | Start bundled PostgreSQL/Redis and the application |
+| `pachiware status` | Check service status |
+| `pachiware doctor` | Check configuration and connectivity |
+| `pachiware stop` | Stop the application |
+| `pachiware update` | Fetch updates and run migrations |
+| `pachiware --help` | Show all commands |
 
-Untuk instalasi lama yang belum menyelesaikan setup, jalankan `pachiware init` lalu `pachiware start`. Jika wizard masih muncul, periksa hasil setup dan jalankan `pachiware doctor`; pastikan database yang dipilih dapat diakses.
+For older installations with incomplete setup, run `pachiware init` followed by `pachiware start`. If the wizard still appears, review the setup output and run `pachiware doctor`; make sure the selected database is reachable.
 
-Sebelum memperbarui aplikasi, cadangkan database dan file konfigurasi di direktori instalasi: `.env`, `runtime-config.json` jika ada, dan `operator-access.json`. Simpan kunci enkripsi bersama backup; kunci tersebut diperlukan untuk membaca kredensial yang tersimpan.
+Before updating, back up your database and configuration files in the installation directory: `.env`, `runtime-config.json` if present, and `operator-access.json`. Keep the encryption key with your backup; it is required to read stored credentials.
 
-## Isi Repository
+## Repository Layout
 
 ```text
-apps/agent/       Backend, agent loop, integrasi LLM dan Discord
-apps/web/         Dashboard pengelolaan
-packages/db/      Schema, migrasi, seed, dan penyimpanan terenkripsi
-packages/skills/  Tools bawaan
-packages/cli/     Setup dan pengelolaan layanan
-PROGRESS.md       Status implementasi dan hasil verifikasi
+apps/agent/       Backend, agent loop, LLM and Discord integrations
+apps/web/         Management dashboard
+packages/db/      Schema, migrations, seed, and encrypted storage
+packages/skills/  Built-in tools
+packages/cli/     Setup and service management
+PROGRESS.md       Implementation status and verification results
 ```
 
-Dokumentasi integrasi tersedia di [API Reference](docs/api.md). Untuk pengembangan, pemeriksaan repository dapat dijalankan dengan `bun test`, `bun run typecheck`, dan `bun run build`.
+Integration documentation is available in the [API Reference](docs/api.md). For development, run repository checks with `bun test`, `bun run typecheck`, and `bun run build`.
