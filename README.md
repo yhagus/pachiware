@@ -49,7 +49,15 @@ The setup flow makes the database choice explicit:
 2. **PostgreSQL external** accepts an existing PostgreSQL 18 connection URL (local, cloud, or managed).
 3. **PostgreSQL 18 Docker** uses the bundled `postgres:18-alpine` and Redis containers. Start them with `pachiware start --docker`; a browser wizard cannot start Docker on the server.
 
-The same choices are available from `pachiware init`, which writes only `DATABASE_URL` to `.env` and explains the next command. The curl installer uses the interactive terminal when available. Piped or automated installs default to SQLite, and can be controlled without prompts using `PACHIWARE_DATABASE=sqlite|postgres|docker` and `PACHIWARE_POSTGRES_URL`.
+The same choices are available from `pachiware init`. It configures the database, runs migrations/seed, creates the default tenant and an operator API key, and saves an encrypted localhost handoff in gitignored `operator-access.json` (mode 0600). Bundled Docker mode starts PostgreSQL 18 and Redis and waits for readiness. Fresh installs generate platform/encryption keys; existing encryption keys are preserved. The curl installer uses the interactive terminal when available. Automated fresh installs default to SQLite, and can be controlled without prompts using `PACHIWARE_DATABASE=sqlite|postgres|docker` and `PACHIWARE_POSTGRES_URL`.
+
+### Open the Console After CLI Setup
+
+After `pachiware init` or a successful curl installation, run `pachiware start` and open `http://localhost:3000`. The web server provides a server-only, uncached credentials handoff restricted to loopback clients, localhost Host, and same-origin browser requests. The browser connects automatically before loading tenant data, so it opens the dashboard without repeating the setup wizard or asking you to paste keys. Keys are never included in the production JavaScript bundle.
+
+Remote browsers still use explicit operator credentials. Database setup failures remain visible and do not count as completed setup. LLM provider credentials and optional Discord bots can be configured in the dashboard after provisioning; the dashboard is usable before either is connected.
+
+The installer requires Bun 1.4.0+ for lockfile v2 and fails with upgrade instructions when an older Bun is detected. It uses `--frozen-lockfile` rather than silently rewriting dependency resolutions.
 
 ### Host Configuration
 
@@ -77,7 +85,7 @@ Infrastructure settings can be changed through the admin API or console; changes
 
 ### Bootstrap and Migration
 
-Fresh databases without legacy credentials start with no tenants. Use the console Setup Wizard with your platform key, or provision a tenant through the Admin API below.
+Fresh databases created with `db:migrate` alone start without tenants. `pachiware init` and the curl installer complete tenant provisioning; `pachiware start` also completes it for earlier CLI installations. Run `pachiware init` once if your earlier installation has not finished setup.
 
 An existing single-tenant database is migrated transactionally to `slug: default`. Existing config, skills, tasks, conversations, and messages retain their data and gain tenant ownership. Provider keys are encrypted and the Discord configuration becomes a bot row. SQLite tables are rebuilt to enforce NOT NULL and foreign keys; PostgreSQL columns/primary keys are altered and backfilled. On a fresh database, legacy credential env vars can also create this default tenant.
 

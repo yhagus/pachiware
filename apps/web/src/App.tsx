@@ -14,6 +14,7 @@ import { SetupWizard } from "./components/SetupWizard.js";
 import {
   api,
   getApiKey,
+  connectLocalConsole,
   type HealthResponse,
   type AgentConfigData,
   type SkillItem,
@@ -21,6 +22,7 @@ import {
 } from "./lib/api.js";
 
 export function App() {
+  const [isConnecting, setIsConnecting] = useState(true);
   const activeApiKey = getApiKey();
   const [credentialVersion, setCredentialVersion] = useState(0);
   const [currentTab, setCurrentTab] = useState<NavTab>("overview");
@@ -68,11 +70,16 @@ export function App() {
   };
 
   useEffect(() => {
-    fetchAllData();
-    const interval = setInterval(fetchAllData, 15000);
+    let mounted = true;
+    void connectLocalConsole().then(async () => {
+      if (!mounted) return;
+      await fetchAllData();
+      if (mounted) setIsConnecting(false);
+    });
+    const interval = setInterval(() => { if (mounted) void fetchAllData(); }, 15000);
     const changed = () => { setCredentialVersion((version) => version + 1); setConfig(null); setSkills([]); setTasks([]); void fetchAllData(); };
     window.addEventListener("pachiware:credentials", changed);
-    return () => { clearInterval(interval); window.removeEventListener("pachiware:credentials", changed); };
+    return () => { mounted = false; clearInterval(interval); window.removeEventListener("pachiware:credentials", changed); };
   }, []);
 
   const getHeaderInfo = () => {
@@ -131,6 +138,7 @@ export function App() {
         health.services.database !== "healthy" &&
         !health.services.database.startsWith("healthy")));
 
+  if (isConnecting) return <div className="min-h-screen bg-[#0B0F19] text-slate-300 flex items-center justify-center">Connecting to your console...</div>;
   if (isDbSetupRequired) {
     return <SetupWizard onConnected={fetchAllData} />;
   }
@@ -212,4 +220,3 @@ export function App() {
 }
 
 export default App;
-

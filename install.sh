@@ -15,32 +15,6 @@ RED='\033[0;31m'
 NC='\033[0m'
 BOLD='\033[1m'
 
-tty_prompt() {
-  local question="$1"
-  local fallback="$2"
-  if [ -r /dev/tty ]; then
-    printf "%b" "$question" > /dev/tty
-    IFS= read -r answer < /dev/tty || answer=""
-    echo "${answer:-$fallback}"
-  else
-    echo "$fallback"
-  fi
-}
-
-set_env_value() {
-  local key="$1"
-  local value="$2"
-  local file="$INSTALL_DIR/.env"
-  local tmp="${file}.pachiware.tmp"
-  awk -v key="$key" -v value="$value" '
-    BEGIN { replaced = 0 }
-    $0 ~ ("^" key "=") { print key "=" value; replaced = 1; next }
-    { print }
-    END { if (!replaced) print key "=" value }
-  ' "$file" > "$tmp"
-  mv "$tmp" "$file"
-}
-
 echo -e "${CYAN}${BOLD}"
 cat << 'EOF'
   ____            _     _                              _                      
@@ -66,6 +40,14 @@ if ! command -v bun &> /dev/null; then
   export PATH="$BUN_INSTALL/bin:$PATH"
 else
   echo -e "  ${GREEN}✔ Bun is already installed:${NC} $(bun --version)"
+fi
+
+# Lockfile v2 is generated and tested with Bun 1.4.0 or later.
+BUN_VERSION="$(bun --version)"
+if ! awk -v version="$BUN_VERSION" 'BEGIN { split(version, v, "."); exit !(v[1] > 1 || (v[1] == 1 && v[2] >= 4)) }'; then
+  echo -e "${RED}Bun $BUN_VERSION cannot read this repository lockfile. Bun 1.4.0+ is required.${NC}"
+  echo "Upgrade with bun upgrade (or your package manager), then rerun the installer."
+  exit 1
 fi
 
 # 3. Check Git & Docker (Optional)
@@ -101,7 +83,10 @@ else
     git -C "$INSTALL_DIR" pull
   elif [ ! -d "$INSTALL_DIR" ] || [ ! -f "$INSTALL_DIR/apps/agent/src/index.ts" ]; then
     echo -e "  ${CYAN}→ Cloning repository into:${NC} $INSTALL_DIR"
-    rm -rf "$INSTALL_DIR" 2>/dev/null || true
+    if [ -d "$INSTALL_DIR" ] && [ -n "$(ls -A "$INSTALL_DIR")" ]; then
+      echo "Installation directory is not empty: $INSTALL_DIR. Choose an empty PACHIWARE_DIR."
+      exit 1
+    fi
     git clone https://github.com/yhagus/pachiware.git "$INSTALL_DIR"
   fi
 fi
@@ -122,46 +107,26 @@ if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
   chown -R "$SUDO_USER" "$SUDO_HOME/.config/pachiware" 2>/dev/null || true
 fi
 
-# 5. Copy .env if missing
-if [ ! -f "$INSTALL_DIR/.env" ] && [ -f "$INSTALL_DIR/.env.example" ]; then
-  cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
-  echo -e "  ${GREEN}✔ Created default .env configuration.${NC}"
-fi
-
-# 6. Choose the database explicitly. Piped curl installs use SQLite unless
-# PACHIWARE_DATABASE or PACHIWARE_POSTGRES_URL is provided.
-DB_CHOICE="${PACHIWARE_DATABASE:-}"
-if [ -z "$DB_CHOICE" ] && [ ! -r /dev/tty ] && grep -q '^DATABASE_URL=' "$INSTALL_DIR/.env"; then
-  echo -e "  ${CYAN}ℹ Existing DATABASE_URL preserved for non-interactive install.${NC}"
-  DB_CHOICE="preserve"
-elif [ -z "$DB_CHOICE" ]; then
-  DB_CHOICE="$(tty_prompt "Choose database: [1] SQLite (zero-config), [2] PostgreSQL external, [3] PostgreSQL 18 Docker [1]: " "1")"
-fi
-case "$(printf '%s' "$DB_CHOICE" | tr '[:upper:]' '[:lower:]')" in
-  preserve) ;;
-  2|postgres|postgresql)
-    POSTGRES_URL="${PACHIWARE_POSTGRES_URL:-}"
-    if [ -z "$POSTGRES_URL" ]; then
-      POSTGRES_URL="$(tty_prompt "PostgreSQL URL [postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent]: " "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent")"
-    fi
-    set_env_value "DATABASE_URL" "$POSTGRES_URL"
-    echo -e "  ${GREEN}✔ PostgreSQL selected.${NC} Ensure the server is reachable before pachiware start."
-    ;;
-  3|docker)
-    set_env_value "DATABASE_URL" "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent"
-    echo -e "  ${GREEN}✔ PostgreSQL 18 Docker selected.${NC} Run: pachiware start --docker"
-    ;;
-  *)
-    set_env_value "DATABASE_URL" "sqlite:./data/pachiware.db"
-    echo -e "  ${GREEN}✔ SQLite selected.${NC} No Docker, PostgreSQL, or Redis setup is required."
-    ;;
-esac
-
 # 7. Install dependencies & build CLI
 echo -e "  ${CYAN}→ Building CLI binary...${NC}"
-bun install --frozen-lockfile 2>/dev/null || bun install
+bun install --frozen-lockfile
 mkdir -p "$INSTALL_DIR/bin"
 bun build "$INSTALL_DIR/packages/cli/src/index.ts" --compile --outfile="$INSTALL_DIR/bin/pachiware"
+
+# Complete database, tenant, and local-console access using the same CLI workflow.
+INIT_ARGS=(init "$INSTALL_DIR")
+if [ -n "${PACHIWARE_DATABASE:-}" ]; then
+  INIT_ARGS+=(--database "$PACHIWARE_DATABASE")
+fi
+if [ -n "${PACHIWARE_POSTGRES_URL:-}" ]; then
+  INIT_ARGS+=(--postgres-url "$PACHIWARE_POSTGRES_URL")
+fi
+if { exec 3<>/dev/tty; } 2>/dev/null; then
+  "$INSTALL_DIR/bin/pachiware" "${INIT_ARGS[@]}" <&3
+  exec 3>&-
+else
+  "$INSTALL_DIR/bin/pachiware" "${INIT_ARGS[@]}" </dev/null
+fi
 
 # 7. Symlink pachiware to global PATH
 BIN_TARGET="/usr/local/bin/pachiware"

@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
 import { spawn, spawnSync, execSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync, realpathSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, realpathSync, chmodSync } from "fs";
 import { resolve, join, dirname } from "path";
+import { randomBytes } from "node:crypto";
 import { createConnection } from "net";
 import { createInterface } from "readline/promises";
 import { stdin as input, stdout as output } from "process";
@@ -248,23 +249,22 @@ async function ask(question: string, fallback: string): Promise<string> {
   }
 }
 
-async function chooseDatabase(options: { database?: string; postgresUrl?: string; currentUrl?: string } = {}) {
+async function chooseDatabase(options: { database?: string; postgresUrl?: string; currentUrl?: string; dockerUrl?: string } = {}) {
   const currentChoice = options.currentUrl?.startsWith("postgres") ? "2" : "1";
-  const choice = options.database || (!input.isTTY || !output.isTTY ? currentChoice : await ask(
+  const choice = options.database || (options.postgresUrl ? "2" : "") || (!input.isTTY || !output.isTTY ? currentChoice : await ask(
     `${c.bold}Database${c.reset}: ${c.cyan}1${c.reset}) SQLite  ${c.cyan}2${c.reset}) PostgreSQL external  ${c.cyan}3${c.reset}) PostgreSQL 18 Docker`,
-    "1"
+    currentChoice
   ));
+  if (!["1", "2", "3", "sqlite", "postgres", "postgresql", "docker"].includes(choice.toLowerCase())) throw new Error("Choose sqlite, postgres, or docker.");
   if (choice === "2" || /postgres/i.test(choice)) {
-    return {
-      url: options.postgresUrl || (!input.isTTY || !output.isTTY
-        ? options.currentUrl || "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent"
-        : await ask("PostgreSQL connection URL:", "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent")),
-      label: "PostgreSQL (external)",
-      needsDocker: false,
-    };
+    const url = options.postgresUrl || await ask("PostgreSQL connection URL:", options.currentUrl?.startsWith("postgres") ? options.currentUrl : "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent");
+    const parsed = new URL(url);
+    if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname || parsed.pathname.length < 2) throw new Error("Provide a valid PostgreSQL URL with a database name.");
+    if (parsed.hash) throw new Error("PostgreSQL URL credentials must be URL-encoded (for example, # becomes %23).");
+    return { url: parsed.toString(), label: "PostgreSQL (external)", needsDocker: false };
   }
   if (choice === "3" || /docker/i.test(choice)) {
-    return { url: "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent", label: "PostgreSQL 18 (bundled Docker)", needsDocker: true };
+    return { url: options.dockerUrl || "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent", label: "PostgreSQL 18 (bundled Docker)", needsDocker: true };
   }
   return { url: "sqlite:./data/pachiware.db", label: "SQLite (zero-config)", needsDocker: false };
 }
@@ -275,12 +275,45 @@ function updateEnvValue(envFile: string, key: string, value: string): void {
   const next = lines.map((line) => {
     if (line.startsWith(`${key}=`)) {
       replaced = true;
-      return `${key}=${value}`;
+      return `${key}=${JSON.stringify(value)}`;
     }
     return line;
   });
-  if (!replaced) next.push(`${key}=${value}`);
+  if (!replaced) next.push(`${key}=${JSON.stringify(value)}`);
   writeFileSync(envFile, `${next.join("\n").replace(/\n*$/, "")}\n`);
+}
+
+function completeCliSetup(workspace: string, databaseUrl = getDatabaseTarget(workspace).url) {
+  const result = spawnSync("bun", [join(workspace, "packages/db/src/setup.ts")], {
+    cwd: workspace, stdio: "inherit", env: { ...process.env, DATABASE_URL: databaseUrl, PACHIWARE_DIR: workspace },
+  });
+  if (result.error || result.status !== 0) throw new Error("Setup did not complete. Check database connectivity and encryption configuration, then run pachiware init again.");
+}
+
+function preparePlatformKeys(envFile: string, fresh: boolean) {
+  const content = readFileSync(envFile, "utf8");
+  const value = (key: string) => content.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1]?.trim().replace(/^(['"])(.*)\1$/, "$2");
+  if (!value("PLATFORM_ADMIN_KEY")) updateEnvValue(envFile, "PLATFORM_ADMIN_KEY", randomBytes(32).toString("hex"));
+  // Existing databases may rely on development key derivation; preserve its source.
+  if (fresh && !value("PLATFORM_ENCRYPTION_KEY")) updateEnvValue(envFile, "PLATFORM_ENCRYPTION_KEY", randomBytes(32).toString("base64"));
+  chmodSync(envFile, 0o600);
+}
+
+function dockerDatabaseUrl(envFile: string): string {
+  const content = readFileSync(envFile, "utf8");
+  const value = (key: string, fallback: string) => {
+    if (process.env[key]) return process.env[key]!;
+    const raw = content.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1]?.trim();
+    if (!raw) return fallback;
+    if (raw.startsWith('"')) return JSON.parse(raw);
+    if (raw.startsWith("'")) return raw.slice(1, -1);
+    return raw.split("#")[0].trim();
+  };
+  const user = encodeURIComponent(value("POSTGRES_USER", "pachiware"));
+  const password = encodeURIComponent(value("POSTGRES_PASSWORD", "pachiware_secret"));
+  const port = value("POSTGRES_PORT", "5432");
+  const database = encodeURIComponent(value("POSTGRES_DB", "pachiware_agent"));
+  return `postgresql://${user}:${password}@localhost:${port}/${database}`;
 }
 
 const program = new Command();
@@ -309,15 +342,22 @@ program
     const envFile = join(targetDir, ".env");
     const envExample = join(targetDir, ".env.example");
 
-    if (!existsSync(envFile) && existsSync(envExample)) {
+    const freshEnvironment = !existsSync(envFile);
+    if (freshEnvironment && existsSync(envExample)) {
       writeFileSync(envFile, readFileSync(envExample, "utf8"));
       console.log(`  ${c.green}✔${c.reset} Created ${c.cyan}.env${c.reset} configuration from template.`);
     } else if (existsSync(envFile)) {
       console.log(`  ${c.green}✔${c.reset} Existing ${c.cyan}.env${c.reset} configuration detected.`);
     }
 
-    const database = await chooseDatabase({ ...options, currentUrl: getDatabaseTarget(targetDir).url });
+    preparePlatformKeys(envFile, freshEnvironment);
+    const database = await chooseDatabase({ ...options, currentUrl: getDatabaseTarget(targetDir).url, dockerUrl: dockerDatabaseUrl(envFile) });
     updateEnvValue(envFile, "DATABASE_URL", database.url);
+    const runtimeFile = join(targetDir, "runtime-config.json");
+    if (existsSync(runtimeFile)) {
+      const runtime = JSON.parse(readFileSync(runtimeFile, "utf8"));
+      writeFileSync(runtimeFile, JSON.stringify({ ...runtime, databaseUrl: database.url }, null, 2) + "\n", { mode: 0o600 });
+    }
     console.log(`  ${c.green}✔${c.reset} Database selected: ${database.label}`);
     if (database.needsDocker) {
       console.log(`  ${c.cyan}ℹ${c.reset} Run ${c.bold}pachiware start --docker${c.reset} to start PostgreSQL 18 and Redis.`);
@@ -327,16 +367,14 @@ program
       console.log(`  ${c.cyan}ℹ${c.reset} Verify PostgreSQL is reachable before running ${c.bold}pachiware start${c.reset}.`);
     }
 
-    // 2. Docker compose check
-    const composeFile = join(targetDir, "docker-compose.yml");
-    if (existsSync(composeFile)) {
-      console.log(`  ${c.green}✔${c.reset} Docker Compose configuration available (for optional bundled Postgres & Redis).`);
+    if (database.needsDocker) {
+      const docker = spawnSync("docker", ["compose", "up", "-d", "--wait", "--wait-timeout", "60"], { cwd: targetDir, stdio: "inherit" });
+      if (docker.error || docker.status !== 0) throw new Error("Start Docker and rerun pachiware init --database docker.");
     }
+    completeCliSetup(targetDir, database.url);
+    console.log(`\n${c.green}${c.bold}Setup complete.${c.reset} Run ${c.cyan}pachiware start${database.needsDocker ? " --docker" : ""}${c.reset}, then open http://localhost:3000.`);
+    console.log(`  Localhost automatically connects to your tenant. LLM credentials and optional bots can be configured in the console.`);
 
-    console.log(`\n${c.green}${c.bold}Setup complete!${c.reset} Run the following to start services:`);
-    console.log(`  ${c.cyan}pachiware start${c.reset}          Start Agent API & Web Console (connects to DB/Redis in .env)`);
-    console.log(`  ${c.cyan}pachiware start --docker${c.reset} Start Agent and spin up bundled Docker Postgres & Redis`);
-    console.log(`  ${c.cyan}pachiware doctor${c.reset}         Verify system health and prerequisites\n`);
   });
 
 /**
@@ -357,7 +395,7 @@ program
     if (options.docker) {
       console.log(`  ${c.cyan}→ Starting bundled PostgreSQL 18 and Redis containers via Docker Compose...${c.reset}`);
       try {
-        execSync("docker compose up -d", { cwd: wsRoot, stdio: "inherit" });
+        execSync("docker compose up -d --wait --wait-timeout 60", { cwd: wsRoot, stdio: "inherit" });
         console.log(`  ${c.green}✔${c.reset} Bundled infrastructure containers running.`);
       } catch (err: any) {
         console.error(`  ${c.red}✖ Failed to start Docker containers:${c.reset}`, err.message);
@@ -390,13 +428,11 @@ program
     if (dbConnected) {
       console.log(`  ${c.green}✔${c.reset} Database available: ${dbDescription}. Ensuring migrations & seed...`);
       try {
-        const migrateScript = join(wsRoot, "packages", "db", "src", "migrate.ts");
-        const seedScript = join(wsRoot, "packages", "db", "src", "seed.ts");
-        execSync(`bun run "${migrateScript}"`, { cwd: wsRoot, stdio: "pipe" });
-        execSync(`bun run "${seedScript}"`, { cwd: wsRoot, stdio: "pipe" });
+        completeCliSetup(wsRoot);
         console.log(`  ${c.green}✔${c.reset} Database migrations verified.`);
       } catch (err: any) {
-        console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset}`, err.message);
+        dbConnected = false;
+        console.warn(`  ${c.yellow}Setup incomplete:${c.reset} ${err.message}`);
       }
     } else {
       console.log(`  ${c.yellow}ℹ ${dbDescription}.${c.reset}`);
@@ -414,7 +450,7 @@ program
       const dbIcon = dbTarget.dialect === "sqlite" ? "💾" : "🐘";
       console.log(`  ${c.cyan}${dbIcon} Database:${c.reset}          ${dbDescription}`);
       console.log(`  ${c.cyan}🔴 Cache Engine:${c.reset}      Active (Redis / native in-memory fallback)`);
-      console.log(`  ${c.cyan}📡 Messaging:${c.reset}        Discord active (Standby / Simulation mode)`);
+      console.log(`  ${c.cyan}📡 Messaging:${c.reset}        Configure tenant bots in the console`);
       console.log(`${c.gray}----------------------------------------------------${c.reset}`);
       console.log(`  ${c.dim}Press Ctrl+C to terminate services or run 'pachiware stop'${c.reset}\n`);
     } else {
@@ -548,7 +584,7 @@ program
         console.log(`  ${c.green}●${c.reset} API Status:     ${c.green}${body.status.toUpperCase()}${c.reset} (Uptime: ${Math.round(body.uptimeSeconds)}s)`);
         console.log(`  ${c.green}●${c.reset} Database:       ${body.services.database}`);
         console.log(`  ${c.green}●${c.reset} Redis Cache:    ${body.services.redis}`);
-        console.log(`  ${c.green}●${c.reset} Messaging:      Discord active (${body.services.discord.connected ? `Connected as ${body.services.discord.botTag}` : "Standby/Simulation mode"})`);
+        console.log(`  ${c.green}●${c.reset} Messaging:      ${body.services.discord.filter((bot: any) => bot.connected).length} connected Discord bot(s)`);
       } else {
         console.log(`  ${c.yellow}● API returned status HTTP ${res.status}${c.reset}`);
       }
@@ -902,4 +938,7 @@ program
     console.log(`\n${c.green}${c.bold}✔ Pachiware has been uninstalled.${c.reset}\n`);
   });
 
-program.parse(process.argv);
+program.parseAsync(process.argv).catch((err) => {
+  console.error(`Setup/command failed: ${err.message}`);
+  process.exitCode = 1;
+});

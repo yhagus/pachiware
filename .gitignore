@@ -28,6 +28,8 @@ bun.lockb
 pgdata/
 redisdata/
 runtime-config.json
+operator-access.json
+operator-access.json.*.tmp
 
 # SQLite local database (default zero-config storage)
 data/

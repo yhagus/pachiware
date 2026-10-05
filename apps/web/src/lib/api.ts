@@ -7,6 +7,29 @@ export function setCredentials(apiKey: string, platformKey: string) {
   sessionStorage.setItem("pachiware.platformKey", platformKey.trim());
   window.dispatchEvent(new Event("pachiware:credentials"));
 }
+
+export async function connectLocalConsole(): Promise<void> {
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)) return;
+  try {
+    if (getApiKey()) {
+      const current = await fetch(`${BASE_URL}/api/v1/config`, { headers: { Authorization: `Bearer ${getApiKey()}` }, cache: "no-store" });
+      if (current.status !== 401) return;
+    }
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const response = await fetch("/api/console/session", { credentials: "same-origin", cache: "no-store" });
+      if (response.status === 503) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        continue;
+      }
+      if (!response.ok) return;
+      const session = await response.json();
+      if (typeof session.apiKey === "string" && typeof session.platformKey === "string") setCredentials(session.apiKey, session.platformKey);
+      return;
+    }
+  } catch {
+    // Manual credential entry remains available when CLI setup is absent.
+  }
+}
 async function fetchJSON<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
   headers.set("Content-Type", "application/json");
