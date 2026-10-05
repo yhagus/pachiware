@@ -1,28 +1,30 @@
-import { config } from "../config.js";
-import { db, agentsConfig, eq } from "@pachiware/db";
-import { CacheService } from "../cache/redis.js";
+import { db, agentsConfig, usageEvents, decryptSecret, eq } from "@pachiware/db";
+import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry } from "@pachiware/skills";
 import type { ChatMessage, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
 
 export class LLMRouter {
-  private async getActiveDbConfig() {
+  private async getActiveTenantConfig(tenantId: string) {
     try {
-      let cached = await CacheService.get<any>("agent:config:default");
+      let cached = await CacheService.get<any>(tenantKey(tenantId, "agent:config"));
       if (!cached) {
         const rows = await db
           .select()
           .from(agentsConfig)
-          .where(eq(agentsConfig.id, "default"))
+          .where(eq(agentsConfig.tenantId, tenantId))
           .limit(1);
         cached = rows[0] || null;
         if (cached) {
-          await CacheService.set("agent:config:default", cached, 120);
+          await CacheService.set(tenantKey(tenantId, "agent:config"), cached, 120);
         }
       }
-      return cached;
+      if (!cached) throw new Error("Tenant agent configuration not found");
+      const decrypted = { ...cached };
+      for (const provider of ["openai", "anthropic", "custom"]) decrypted[`${provider}ApiKey`] = cached[`${provider}ApiKeyEncrypted`] ? decryptSecret(cached[`${provider}ApiKeyEncrypted`]) : null;
+      return decrypted;
     } catch {
-      return null;
+      throw new Error("Unable to load tenant LLM configuration");
     }
   }
 
@@ -31,20 +33,22 @@ export class LLMRouter {
    */
   async complete(
     messages: ChatMessage[],
-    options: LLMRequestOptions = {}
+    options: LLMRequestOptions
   ): Promise<LLMResponse> {
-    const dbConfig = await this.getActiveDbConfig();
-    const provider = options.provider || dbConfig?.defaultProvider || config.llm.defaultProvider;
-
+    const dbConfig = await this.getActiveTenantConfig(options.tenantId);
+    const provider = options.provider || dbConfig.defaultProvider;
+    const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature, maxTokens: options.maxTokens ?? dbConfig.maxTokens };
+    let response: LLMResponse;
     switch (provider) {
-      case "anthropic":
-        return this.callAnthropic(messages, options, dbConfig);
-      case "custom":
-        return this.callCustomOpenAI(messages, options, dbConfig);
-      case "openai":
-      default:
-        return this.callOpenAI(messages, options, dbConfig);
+      case "anthropic": response = await this.callAnthropic(messages, resolved, dbConfig); break;
+      case "custom": response = await this.callCustomOpenAI(messages, resolved, dbConfig); break;
+      case "openai": response = await this.callOpenAI(messages, resolved, dbConfig); break;
+      default: throw new Error("Unsupported tenant LLM provider");
     }
+    if (response.finishReason !== "error") {
+      await db.insert(usageEvents).values({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0 });
+    }
+    return response;
   }
 
   /**
@@ -55,9 +59,9 @@ export class LLMRouter {
     options: LLMRequestOptions,
     dbConfig?: any
   ): Promise<LLMResponse> {
-    const apiKey = dbConfig?.openaiApiKey || config.llm.openai.apiKey;
-    const baseUrl = (dbConfig?.openaiBaseUrl || config.llm.openai.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
-    const model = options.model || dbConfig?.openaiModel || dbConfig?.defaultModel || config.llm.defaultModel;
+    const apiKey = dbConfig?.openaiApiKey;
+    const baseUrl = (dbConfig?.openaiBaseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+    const model = options.model || dbConfig?.openaiModel || dbConfig?.defaultModel || "gpt-4o";
 
     if (!apiKey) {
       return this.handleMissingApiKey("openai", messages, options);
@@ -113,8 +117,7 @@ export class LLMRouter {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
+        throw new Error(`OpenAI API error (${response.status}): provider request rejected`);
       }
 
       const data = await response.json();
@@ -150,8 +153,8 @@ export class LLMRouter {
           : undefined,
       };
     } catch (err: any) {
-      console.warn("⚠️ OpenAI call failed, falling back to simulated response:", err.message);
-      return this.handleFallback(err.message, messages, options);
+      console.warn("LLM provider request failed.");
+      return this.handleFallback("Provider request failed", messages, options);
     }
   }
 
@@ -163,8 +166,8 @@ export class LLMRouter {
     options: LLMRequestOptions,
     dbConfig?: any
   ): Promise<LLMResponse> {
-    const apiKey = dbConfig?.anthropicApiKey || config.llm.anthropic.apiKey;
-    const baseUrl = (dbConfig?.anthropicBaseUrl || config.llm.anthropic.baseUrl || "https://api.anthropic.com/v1").replace(/\/+$/, "");
+    const apiKey = dbConfig?.anthropicApiKey;
+    const baseUrl = (dbConfig?.anthropicBaseUrl || "https://api.anthropic.com/v1").replace(/\/+$/, "");
     const model = options.model || dbConfig?.anthropicModel || "claude-3-5-sonnet-20241022";
 
     if (!apiKey) {
@@ -234,8 +237,7 @@ export class LLMRouter {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+        throw new Error(`Anthropic API error (${response.status}): provider request rejected`);
       }
 
       const data = await response.json();
@@ -267,8 +269,8 @@ export class LLMRouter {
           : undefined,
       };
     } catch (err: any) {
-      console.warn("⚠️ Anthropic call failed, falling back to simulated response:", err.message);
-      return this.handleFallback(err.message, messages, options);
+      console.warn("LLM provider request failed.");
+      return this.handleFallback("Provider request failed", messages, options);
     }
   }
 
@@ -280,9 +282,9 @@ export class LLMRouter {
     options: LLMRequestOptions,
     dbConfig?: any
   ): Promise<LLMResponse> {
-    const apiKey = dbConfig?.customApiKey || config.llm.custom.apiKey;
-    const baseUrl = (dbConfig?.customBaseUrl || config.llm.custom.baseUrl || "https://api.9router.com/v1").replace(/\/+$/, "");
-    const model = options.model || dbConfig?.customModel || config.llm.custom.model || "gpt-4o";
+    const apiKey = dbConfig?.customApiKey;
+    const baseUrl = (dbConfig?.customBaseUrl || "https://api.9router.com/v1").replace(/\/+$/, "");
+    const model = options.model || dbConfig?.customModel || "gpt-4o";
 
     if (!apiKey) {
       return this.handleMissingApiKey("custom (9router)", messages, options);
@@ -339,8 +341,7 @@ export class LLMRouter {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Custom LLM endpoint error (${response.status}): ${errorText}`);
+        throw new Error(`Custom LLM endpoint error (${response.status}): provider request rejected`);
       }
 
       const data = await response.json();
@@ -376,8 +377,8 @@ export class LLMRouter {
           : undefined,
       };
     } catch (err: any) {
-      console.warn("⚠️ Custom LLM call failed, falling back to simulated response:", err.message);
-      return this.handleFallback(err.message, messages, options);
+      console.warn("LLM provider request failed.");
+      return this.handleFallback("Provider request failed", messages, options);
     }
   }
 
@@ -390,101 +391,7 @@ export class LLMRouter {
     messages: ChatMessage[],
     options: LLMRequestOptions
   ): LLMResponse {
-    // If the conversation already has a tool response as the most recent interaction,
-    // synthesize the final answer and conclude the ReAct loop!
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg && lastMsg.role === "tool") {
-      let parsed: any = null;
-      try {
-        parsed = JSON.parse(lastMsg.content || "{}");
-      } catch {}
-
-      const msg = parsed?.data?.message || parsed?.message || (parsed?.success ? "Action completed successfully." : "Execution finished.");
-      return {
-        content: `✅ ${msg} (Verified via Pachiware ReAct Loop)`,
-        toolCalls: [],
-        finishReason: "stop",
-      };
-    }
-
-    const lastUserMessage = [...messages].reverse().find((m) => m.role === "user")?.content || "";
-    const lower = lastUserMessage.toLowerCase();
-
-    // Check if tools were already executed for this user turn
-    const hasToolResult = messages.some((m) => m.role === "tool");
-    if (hasToolResult) {
-      return {
-        content: "I have completed executing the requested actions.",
-        toolCalls: [],
-        finishReason: "stop",
-      };
-    }
-
-    // Intelligent command parsing for development / live testing without active key:
-    if (lower.includes("create task") || lower.includes("new task")) {
-      const titleMatch = lastUserMessage.match(/(?:title|task)[:\s]+"([^"]+)"/i) ||
-                         lastUserMessage.match(/create task[:\s]+(.+)/i);
-      const title = titleMatch ? titleMatch[1].trim() : "New Agent Task";
-
-      return {
-        content: `I'll create the task "${title}" for you.`,
-        toolCalls: [
-          {
-            id: `call_${Date.now()}`,
-            name: "createTask",
-            arguments: {
-              title,
-              description: `Created via agent ReAct loop (${lastUserMessage})`,
-              priority: lower.includes("urgent") ? "urgent" : "medium",
-            },
-          },
-        ],
-        finishReason: "tool_calls",
-      };
-    }
-
-    if (lower.includes("list tasks") || lower.includes("show tasks") || lower.includes("my tasks")) {
-      return {
-        content: "Let me check the current tasks for you.",
-        toolCalls: [
-          {
-            id: `call_${Date.now()}`,
-            name: "listTasks",
-            arguments: {
-              status: lower.includes("completed") ? "completed" : "all",
-              limit: 10,
-            },
-          },
-        ],
-        finishReason: "tool_calls",
-      };
-    }
-
-    if (lower.includes("create channel")) {
-      const match = lastUserMessage.match(/create channel[:\s]+#?([a-zA-Z0-9_-]+)/i);
-      const channelName = match ? match[1] : "new-project-channel";
-
-      return {
-        content: `I'll provision the Discord channel #${channelName}.`,
-        toolCalls: [
-          {
-            id: `call_${Date.now()}`,
-            name: "createChannel",
-            arguments: {
-              channelName,
-              type: "text",
-            },
-          },
-        ],
-        finishReason: "tool_calls",
-      };
-    }
-
-    return {
-      content: `Hello! I am Pachiware Agent. (Note: No ${providerName} API key is currently configured in your .env or Dashboard settings. Please configure your OpenAI, Anthropic, or 9router API key in the Management GUI or .env file to enable live LLM reasoning.)`,
-      toolCalls: [],
-      finishReason: "stop",
-    };
+    return { content: `No ${providerName} API key configured for this tenant. Configure credentials in the operator console.`, toolCalls: [], finishReason: "error" };
   }
 
   private handleFallback(
@@ -506,8 +413,7 @@ export class LLMRouter {
         headers: { Authorization: `Bearer ${apiKey.trim()}` },
       });
       if (!res.ok) {
-        const text = await res.text();
-        return { success: false, message: `OpenAI rejected credentials (${res.status}): ${text}` };
+        return { success: false, message: `OpenAI rejected credentials (${res.status}).` };
       }
       const data = await res.json();
       return { success: true, message: `Successfully connected to OpenAI API`, modelCount: data.data?.length };
@@ -533,8 +439,7 @@ export class LLMRouter {
         }),
       });
       if (!res.ok) {
-        const text = await res.text();
-        return { success: false, message: `Anthropic rejected credentials (${res.status}): ${text}` };
+        return { success: false, message: `Anthropic rejected credentials (${res.status}).` };
       }
       return { success: true, message: `Successfully authenticated with Anthropic Messages API` };
     } catch (err: any) {
@@ -549,8 +454,7 @@ export class LLMRouter {
         headers: { Authorization: `Bearer ${apiKey.trim()}` },
       });
       if (!res.ok) {
-        const text = await res.text();
-        return { success: false, message: `Custom endpoint rejected credentials (${res.status}): ${text}` };
+        return { success: false, message: `Custom endpoint rejected credentials (${res.status}).` };
       }
       const data = await res.json();
       return { success: true, message: `Successfully connected to Custom/Proxy endpoint`, modelCount: data.data?.length };

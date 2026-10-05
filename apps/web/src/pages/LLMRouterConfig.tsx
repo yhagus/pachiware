@@ -103,9 +103,9 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
         customBaseUrl,
       };
 
-      if (openaiApiKey.trim()) payload.openaiApiKey = openaiApiKey.trim();
-      if (anthropicApiKey.trim()) payload.anthropicApiKey = anthropicApiKey.trim();
-      if (customApiKey.trim()) payload.customApiKey = customApiKey.trim();
+      if (openaiApiKey.trim()) payload.openaiApiKeyEncrypted = openaiApiKey.trim();
+      if (anthropicApiKey.trim()) payload.anthropicApiKeyEncrypted = anthropicApiKey.trim();
+      if (customApiKey.trim()) payload.customApiKeyEncrypted = customApiKey.trim();
 
       const res = await api.updateAgentConfig(payload);
       onConfigSaved(res.config);
@@ -177,7 +177,7 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
             Official GPT-4o & o-series models via OpenAI API
           </div>
           <div className="mt-2 text-[10px] font-mono text-indigo-400">
-            {initialConfig?.openaiApiKey ? "Configured in DB" : "Not configured"}
+            {initialConfig?.openaiApiKeyEncrypted ? "Configured in DB" : "Not configured"}
           </div>
         </button>
 
@@ -198,7 +198,7 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
             Claude 3.5 Sonnet & Haiku with native tool use
           </div>
           <div className="mt-2 text-[10px] font-mono text-indigo-400">
-            {initialConfig?.anthropicApiKey ? "Configured in DB" : "Not configured"}
+            {initialConfig?.anthropicApiKeyEncrypted ? "Configured in DB" : "Not configured"}
           </div>
         </button>
 
@@ -224,7 +224,7 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
             Custom OpenAI-compatible reverse proxy endpoints
           </div>
           <div className="mt-2 text-[10px] font-mono text-indigo-400">
-            {initialConfig?.customApiKey ? "Configured in DB" : "Not configured"}
+            {initialConfig?.customApiKeyEncrypted ? "Configured in DB" : "Not configured"}
           </div>
         </button>
       </div>
@@ -295,8 +295,8 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
                   value={openaiApiKey}
                   onChange={(e) => setOpenaiApiKey(e.target.value)}
                   placeholder={
-                    initialConfig?.openaiApiKey
-                      ? `Configured (${initialConfig.openaiApiKey}) - Leave empty to keep`
+                    initialConfig?.openaiApiKeyEncrypted
+                      ? `Configured (${initialConfig.openaiApiKeyEncrypted}) - Leave empty to keep`
                       : "sk-..."
                   }
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
@@ -331,8 +331,8 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
                   value={anthropicApiKey}
                   onChange={(e) => setAnthropicApiKey(e.target.value)}
                   placeholder={
-                    initialConfig?.anthropicApiKey
-                      ? `Configured (${initialConfig.anthropicApiKey}) - Leave empty to keep`
+                    initialConfig?.anthropicApiKeyEncrypted
+                      ? `Configured (${initialConfig.anthropicApiKeyEncrypted}) - Leave empty to keep`
                       : "sk-ant-..."
                   }
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
@@ -371,8 +371,8 @@ export const LLMRouterConfig: React.FC<LLMRouterConfigProps> = ({
                   value={customApiKey}
                   onChange={(e) => setCustomApiKey(e.target.value)}
                   placeholder={
-                    initialConfig?.customApiKey
-                      ? `Configured (${initialConfig.customApiKey}) - Leave empty to keep`
+                    initialConfig?.customApiKeyEncrypted
+                      ? `Configured (${initialConfig.customApiKeyEncrypted}) - Leave empty to keep`
                       : "Enter API Key"
                   }
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"

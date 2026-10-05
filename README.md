@@ -1,292 +1,193 @@
 # Pachiware Agent
 
-An intelligent, self-hosted autonomous AI agent platform built with **TypeScript**, **Bun**, **Hono**, **PostgreSQL**, and **Redis**.
+A self-hosted, tenant-aware AI agent engine built with Bun, Hono, Drizzle, SQLite/PostgreSQL, and Discord.js. Each tenant owns an agent configuration, provider credentials, skills, tasks, conversations, usage events, and any number of Discord bots.
 
-`pachiware-agent` features an explicit, lightweight **ReAct (Reasoning + Action) execution loop** with native tool calling, free from heavyweight frameworks like LangChain or Hermes. It is fully controllable via a **Web Management Console** and built with a modular, **multi-channel messaging architecture**.
+## Architecture
 
-> [!NOTE]
-> **Multi-Channel Architecture (Not Discord-Exclusive):**
-> Pachiware Agent is designed as a multi-channel autonomous agent platform. It is **not Discord-exclusive**. The core agent logic and ReAct reasoning engine are completely decoupled from the messaging interface.
-> 
-> **Discord** happens to be the first fully supported communication channel in the current release. Additional adapters for platforms such as **WhatsApp**, **Telegram**, **Slack**, and more are on the roadmap and will be supported in upcoming releases.
-
----
-
-## 🏗 Architecture & Blueprint
+Pachiware is the **data plane**: it runs agents, tools, and bots. Your external SaaS **control plane** owns users, signup, billing, plans, and quotas. No signup or billing application is included here.
 
 ```text
-                                 +-------------------------------+
-                                 |    Multi-Channel Gateway      |
-                                 |  • Discord (Active)           |
-                                 |  • Telegram / WhatsApp (Next) |
-                                 +---------------+---------------+
-                                                 |
-                                                 v
-+------------------------+       +---------------+---------------+       +------------------------+
-|   Web Management GUI   | <---> |        Hono REST API &        | <---> |      Redis Cache       |
-|    (apps/web: 3000)    |       |       Agent ReAct Loop        |       | (Session, State, Rate) |
-|                        |       |      (apps/agent: 3001)       |       | [External or Bundled]  |
-+------------------------+       +---------------+---------------+       +------------------------+
-                                                 |
-                             +-------------------+-------------------+
-                             |                                       |
-                             v                                       v
-                 +-----------+-----------+               +-----------+-----------+
-                 |  Skill & Tool Harness |               |   LLM Router Adapter  |
-                 |   (packages/skills)   |               | (OpenAI/Claude/9router|
-                 +-----------+-----------+               +-----------------------+
-                             |
-                             v
-                 +-----------+-----------+
-                 |      PostgreSQL       |
-                 |     (packages/db)     |
-                 | [External or Bundled] |
-                 +-----------------------+
+External SaaS control plane -- X-Platform-Key --> /api/admin/*
+Operator console / API client -- Bearer API key --> /api/v1/*
+DiscordBotManager -- botId --> tenantId --> ReAct loop --> tools / LLM
+                                         |
+                                SQLite or PostgreSQL
+                                  + optional Redis
 ```
 
----
+API keys identify tenants without becoming the tenant identity. They can be scoped, rotated, and revoked independently. Tenant ownership is checked on queries and tool execution; composite database foreign keys prevent linking messages or bots across tenants. Cache and rate-limit keys include tenant IDs.
 
-## 🗄️ Database & Redis: External by Default vs Bundled Docker
+## Setup
 
-**Does `install.sh` or `pachiware start` automatically create Redis and PostgreSQL?**
+Requires Bun (tested with 1.4.0). SQLite and the native memory cache work without Docker. PostgreSQL 18 and Redis are optional.
 
-> **By default, NO.** 
-
-- **External by default:** By default, Pachiware connects to your existing database and cache using the `DATABASE_URL` and `REDIS_URL` specified in your `.env` file (e.g., your existing local PostgreSQL, cloud-hosted DB like Neon/Supabase/RDS, or Redis like Upstash).
-- **Optional Bundled Containers:** If you do not have PostgreSQL or Redis installed and would like Pachiware to spin up bundled local containers (PostgreSQL 18 and Redis 7), simply add the `--docker` flag:
-  ```bash
-  pachiware start --docker
-  ```
-  Or run Docker Compose directly:
-  ```bash
-  docker compose up -d
-  ```
-
----
-
-## 📦 Monorepo Structure
-
-```text
-pachiware-agent/
-├── apps/
-│   ├── agent/                 # Bun + Hono backend, ReAct loop, Messaging adapters (Discord active), LLM Router
-│   └── web/                   # Management console (Vite + React + Tailwind CSS + Lucide)
-├── packages/
-│   ├── db/                    # Drizzle ORM schema, PostgreSQL connection, migrations & seed
-│   └── skills/                # Tool definitions & execution handlers (Tasks, Channels, Custom)
-├── docker-compose.yml          # Optional bundled PostgreSQL 18-alpine & Redis 7-alpine services
-├── install.sh                 # One-line server installer script
-├── PROGRESS.md                # Phased development tracking and roadmap document
-└── README.md                  # System overview and getting started guide
+```bash
+bun install
+cp .env.example .env
+bun run db:migrate
+bun run db:seed
+bun run dev:agent
+# In another terminal:
+bun run dev:web
 ```
 
----
+API: `http://localhost:3001`. Operator console: `http://localhost:3000`.
 
-## 🚀 One-Line Server Installer & Global CLI
+For bundled PostgreSQL and Redis, configure `DATABASE_URL` and run `docker compose up -d`, or use `pachiware start --docker`. The one-line installer remains available:
 
-You can install, manage, and update the entire `pachiware-agent` platform directly from your terminal using the global **`pachiware`** CLI command.
-
-### Option 1: One-Line Server Installer (Recommended)
-Run this command on your server (Linux or macOS):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | bash
 ```
-*Or locally from the repository:*
-```bash
-./install.sh
-```
 
-### Option 2: Install via npm / bun
-```bash
-npm install -g pachiware
-# or
-bun add -g pachiware
-```
+The console is an operator/debug panel. Enter a tenant API key to manage that tenant. Enter a platform key to initialize a tenant or change host infrastructure. Tenant keys are stored in browser localStorage; platform keys remain in sessionStorage. Use the console only on trusted operator devices. `VITE_PACHIWARE_API_KEY` is an optional development default bundled into the GUI; do not place platform keys in frontend env variables.
 
-Once installed, the **`pachiware`** command is available globally in your `$PATH`.
+### First-Run Database Choice
 
----
+The setup flow makes the database choice explicit:
 
-## 💻 CLI Commands (`pachiware --help`)
+1. **SQLite** is the zero-config recommendation for a single server. It creates `data/pachiware.db` and needs no Docker, PostgreSQL, or Redis.
+2. **PostgreSQL external** accepts an existing PostgreSQL 18 connection URL (local, cloud, or managed).
+3. **PostgreSQL 18 Docker** uses the bundled `postgres:18-alpine` and Redis containers. Start them with `pachiware start --docker`; a browser wizard cannot start Docker on the server.
 
-```text
-Usage: pachiware [options] [command]
+The same choices are available from `pachiware init`, which writes only `DATABASE_URL` to `.env` and explains the next command. The curl installer uses the interactive terminal when available. Piped or automated installs default to SQLite, and can be controlled without prompts using `PACHIWARE_DATABASE=sqlite|postgres|docker` and `PACHIWARE_POSTGRES_URL`.
 
-Autonomous AI Agent Platform CLI - Manage, Deploy, and Update Pachiware
+### Host Configuration
 
-Options:
-  -v, --version        Output the current version of Pachiware
-  -h, --help           Display help and command overview
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | `sqlite:./data/pachiware.db` | SQLite file, `sqlite::memory:` for tests, or `postgresql://...` |
+| `REDIS_URL` | `redis://localhost:6380` | Optional cache; unreachable Redis uses memory fallback |
+| `AGENT_PORT`, `AGENT_HOST` | `3001`, `0.0.0.0` | API bind address |
+| `AGENT_SECRET_KEY` | Development placeholder | Platform key fallback and development encryption derivation |
+| `PLATFORM_ADMIN_KEY` | `AGENT_SECRET_KEY` | Protects all `/api/admin/*` routes |
+| `PLATFORM_ENCRYPTION_KEY` | Development derivation only | Canonical base64-encoded 32-byte AES key; required with `NODE_ENV=production` |
+| `VITE_API_URL` | Same-origin `/api` | GUI backend URL; Vite dev server proxies to port 3001 |
+| `PACHIWARE_API_KEY` | Unset | Tenant credential for `pachiware chat` |
 
-Commands:
-  init [dir]           Initialize or scaffold a Pachiware Agent deployment (.env and configs)
-  start [options]      Start Agent API and Web Console (uses existing DB/Redis by default)
-                       Options: --docker (spin up bundled Postgres & Redis containers),
-                                -d, --daemon (run in background),
-                                --no-gui (start Agent backend API only)
-  stop [options]       Stop running Pachiware Agent services (--docker to stop containers)
-  restart [options]    Restart running Pachiware Agent services
-  status | health      Check live health of agent, web, DB, Redis, and messaging gateway
-  logs [service]       Stream logs (agent, web, postgres, or redis)
-  update               Pull latest updates, run migrations, rebuild UI & restart
-  doctor               Diagnose system dependencies, runtimes, ports, and .env
-  chat <message>       Send a test prompt directly to the ReAct loop from terminal
-  db:migrate           Run database schema migrations on PostgreSQL
-  db:seed              Seed default agent personality and built-in skills
-  uninstall [options]  Completely remove Pachiware CLI and services (--purge, --docker)
-```
-
-### 🚀 Starting the Platform
-```bash
-# Default: connects to your existing DB and Redis configured in .env
-pachiware start
-
-# Or with bundled local Docker containers for PostgreSQL 18 & Redis:
-pachiware start --docker
-```
-
-### 🔄 Updating with a Single Command
-To update the platform to the latest version, run migrations, and recompile:
-```bash
-pachiware update
-```
-
-### 🗑️ Uninstalling
-To remove Pachiware symlinks and stop services:
-```bash
-pachiware uninstall
-
-# Or completely remove data, stop Docker containers, and purge directories:
-pachiware uninstall --purge --docker
-```
-
-### 🩺 System Diagnostics
-To verify runtimes, port availability, and environment configuration:
-```bash
-pachiware doctor
-```
-
-### 💬 Quick Terminal Chat
-Test your autonomous agent's ReAct reasoning right from the shell:
-```bash
-pachiware chat "Please create task 'Deploy Ingress Gateway' with priority high"
-```
-
----
-
-## ⚡ Manual Quick Start (Without Global CLI)
-
-If you prefer working directly from the cloned repository using Bun:
+Generate independent platform and encryption credentials before production:
 
 ```bash
-# 1. Install dependencies
-bun install
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env with your DATABASE_URL, REDIS_URL, LLM keys, etc.
-
-# 3. (Optional) If you don't have existing Postgres/Redis running:
-docker compose up -d
-
-# 4. Run database migrations & seed
-bun run packages/db/src/migrate.ts
-bun run packages/db/src/seed.ts
-
-# 5. Start Agent API and Web Console
-# Terminal 1: Agent backend
-bun run apps/agent/src/index.ts
-
-# Terminal 2: Web management dashboard
-bun --filter @pachiware/web dev
+openssl rand -hex 32
+openssl rand -base64 32
 ```
 
-The Web Console will be accessible at `http://localhost:3000` and the Agent REST API at `http://localhost:3001`.
+Store the first output as `PLATFORM_ADMIN_KEY` and the second as `PLATFORM_ENCRYPTION_KEY` in your server environment. Keep the encryption key stable and backed up with your database. Changing it requires decrypting and re-encrypting existing secrets with the old/new keys; it is not an automatic key rotation. AES-256-GCM encrypts provider keys and bot tokens. API keys use 192 random bits and are stored only as SHA-256 hashes plus display prefixes. Responses never return stored hashes, encrypted secrets, or decrypted credentials.
 
----
+Infrastructure settings can be changed through the admin API or console; changes persist in gitignored `runtime-config.json`. `.env` is not mutated at runtime.
 
-## ⚙️ Environment Configuration (`.env`)
+### Bootstrap and Migration
 
-Copy `.env.example` to `.env`:
+Fresh databases without legacy credentials start with no tenants. Use the console Setup Wizard with your platform key, or provision a tenant through the Admin API below.
+
+An existing single-tenant database is migrated transactionally to `slug: default`. Existing config, skills, tasks, conversations, and messages retain their data and gain tenant ownership. Provider keys are encrypted and the Discord configuration becomes a bot row. SQLite tables are rebuilt to enforce NOT NULL and foreign keys; PostgreSQL columns/primary keys are altered and backfilled. On a fresh database, legacy credential env vars can also create this default tenant.
+
+`DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CUSTOM_LLM_API_KEY`, their URLs/models, and `DEFAULT_LLM_PROVIDER`/`DEFAULT_MODEL` are read **only during the initial bootstrap migration**. Re-running migrations or seeds never imports env credentials into an existing tenant. Runtime provider calls require that tenant's stored credentials; there is no simulated LLM or env fallback.
+
+The bootstrap API key is printed **once after the migration commits**. Save it then. If it is lost, issue another key through the Admin API. Migration requires a configured encryption key or development `AGENT_SECRET_KEY` when importing secrets. Back up an existing database before upgrading.
+
+### Provision a Tenant and API Key
+
 ```bash
-cp .env.example .env
+curl -X POST http://localhost:3001/api/admin/tenants \
+  -H "X-Platform-Key: $PLATFORM_ADMIN_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"Example Team","slug":"example"}'
+
+# Use the tenant ID returned above:
+curl -X POST http://localhost:3001/api/admin/tenants/TENANT_ID/api-keys \
+  -H "X-Platform-Key: $PLATFORM_ADMIN_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"Operator","scopes":[]}'
 ```
 
-| Variable | Default | Description |
-|---|---|---|
-| `DATABASE_URL` | `postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent` | PostgreSQL connection string (external or local) |
-| `REDIS_URL` | `redis://localhost:6380` | Redis caching & rate-limiting endpoint (external or local) |
-| `AGENT_PORT` | `3001` | Hono REST API server port |
-| `DEFAULT_LLM_PROVIDER` | `openai` | Active provider: `openai`, `anthropic`, or `custom` |
-| `DEFAULT_MODEL` | `gpt-4o` | Default reasoning model |
-| `OPENAI_API_KEY` | `""` | OpenAI API Key |
-| `ANTHROPIC_API_KEY` | `""` | Anthropic API Key |
-| `CUSTOM_LLM_BASE_URL` | `https://api.9router.com/v1` | Custom / 9router proxy endpoint |
-| `CUSTOM_LLM_API_KEY` | `""` | 9router or custom proxy API key |
-| `DISCORD_BOT_TOKEN` | `""` | Discord Bot Token (Gateway operates in simulation/standby mode if omitted) |
-| `DISCORD_CLIENT_ID` | `""` | Discord Application Client ID |
-| `DISCORD_GUILD_ID` | `""` | Default Discord Server ID |
+The issue response contains `{success, raw, keyPrefix, keyId}`. `raw` is returned once; key-list endpoints expose metadata and prefixes only. Empty scopes or `*` grant full tenant access. Otherwise scopes use `resource:read` or `resource:write`, where resource is `config`, `chat`, `conversations`, `skills`, `tasks`, or `bots`. GET uses `read`; other methods use `write`.
 
----
+```bash
+curl http://localhost:3001/api/v1/tasks -H "Authorization: Bearer $PACHIWARE_API_KEY"
+```
 
-## 🛠 Features
+## API Contract
 
-### 1. Explicit ReAct Execution Loop
-The agent reasons iteratively through user requests using a lightweight **Thought -> Action (Tool Call) -> Observation -> Answer** cycle:
-- Multi-step reasoning with a maximum iteration guard (default: 8).
-- Observes real outputs returned from database tasks and messaging actions.
-- Automatically stores full session conversations and tool calls in PostgreSQL.
+`GET /api/health` is public: readiness, data-store health, and an array of active bot runtime statuses. A database with no tenants reports `setupRequired: true`.
 
-### 2. Multi-Channel Messaging Gateway
-- **Platform-Agnostic Core:** The agent engine is decoupled from messaging platforms, allowing flexible routing to multiple chat channels.
-- **Discord (Active):** Full support for Discord server operations, channel orchestration, role tasks, mentions, typing indicators, and rich embeds via `discord.js`. Automatic simulation/standby mode if no bot token is configured.
-- **WhatsApp, Telegram, Slack (Upcoming):** Modular adapters in development to allow the agent to collaborate across various messaging apps with the same unified ReAct loop.
+All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Content-Type: application/json`.
 
-### 3. Extensible Skill & Tool Harness (`packages/skills`)
-- **Task Management Skill:** `createTask`, `listTasks`, `updateTaskStatus`, `assignTask`.
-- **Channel Operations Skill (Discord currently):** `createChannel`, `archiveChannel`, `listChannels`, `setChannelTopic` (with automatic simulation fallback if live token is omitted). Future channels (e.g. Telegram group management, WhatsApp broadcast) will follow this exact harness contract.
-- Tool definitions are dynamically converted to OpenAI and Anthropic JSON Schemas.
+| Method | Admin Endpoint | Input / Result |
+| --- | --- | --- |
+| POST | `/api/admin/tenants` | `{name, slug?, metadata?}` -> `{tenant}` |
+| GET | `/api/admin/tenants` | `{tenants}` (excludes deleted) |
+| GET | `/api/admin/tenants/:id` | `{tenant}` |
+| PATCH | `/api/admin/tenants/:id` | `{name?, status?: active or suspended, metadata?}`; slug immutable |
+| DELETE | `/api/admin/tenants/:id` | Soft delete; stops tenant bots |
+| POST | `/api/admin/tenants/:id/api-keys` | `{name?, scopes?}` -> raw key once |
+| GET | `/api/admin/tenants/:id/api-keys` | `{apiKeys}` (prefix and metadata) |
+| DELETE | `/api/admin/api-keys/:keyId` | Revoke key |
+| POST | `/api/admin/tenants/:id/bots` | `{name?, token, clientId?, guildIds?, isEnabled?}` -> `{bot}` |
+| GET | `/api/admin/tenants/:id/bots` | `{bots}` |
+| PATCH | `/api/admin/bots/:botId` | Bot fields; token encrypted on write |
+| POST | `/api/admin/bots/:botId/restart` | Restart this gateway |
+| DELETE | `/api/admin/bots/:botId` | Stop and remove bot from active listings |
+| GET | `/api/admin/tenants/:id/usage?from=&to=` | `{usage}` grouped by tenant/type/provider/model |
+| GET | `/api/admin/usage?from=&to=` | Platform usage aggregation |
+| GET, PUT | `/api/admin/infrastructure` | Host database/Redis settings |
+| POST | `/api/admin/infrastructure/test-db` | `{databaseUrl?}` -> connection test |
+| POST | `/api/admin/infrastructure/test-redis` | Redis connection test |
 
-### 4. Web Management Console (`apps/web`)
-- **Dashboard Overview:** Health status cards for Postgres, Redis, Messaging Gateway, and Agent Engine.
-- **Personality & Prompts Editor:** Live System Prompt tuning, Temperature slider (0.0 to 1.0), and Token limits.
-- **Skills & Harnesses Manager:** Instant live toggle switches to enable/disable skills without restarting the agent, with an interactive parameter testing playground.
-- **Task Kanban Board:** Workflow columns (Pending, In Progress, Completed), search, priority filtering, and task creation.
-- **LLM Router Settings:** Switch between OpenAI, Anthropic, and 9router / custom OpenAI-compatible proxies.
-- **Agent Playground:** Interactive chat sandbox with real-time ReAct loop step inspector (Thought, Tool Call, Observation).
+Usage ranges accept ISO dates, including both boundaries. Invalid or reversed ranges return 400. Events include `llm_tokens` (successful completions with prompt/completion token counts), `tool_call` (tool name/success), and `discord_message` (accepted inbound requests). Bot deletion retains a disabled tombstone to preserve historical usage/conversation references and erases its token.
 
----
+All `/api/v1/*` requests require `Authorization: Bearer <tenant API key>`. Missing/revoked/deleted keys return 401; suspended tenants and insufficient scopes return 403.
 
-## 🧪 Testing & Verification
+| Method | Tenant Endpoint | Purpose |
+| --- | --- | --- |
+| GET, PUT | `/api/v1/config` | Prompt, model, settings, provider credentials |
+| POST | `/api/v1/config/test/llm` | `{provider, apiKey?, baseUrl?}`; masked key uses saved tenant credential |
+| POST | `/api/v1/chat` | `{message, conversationId?}` -> reply, steps, tools, conversation ID |
+| GET | `/api/v1/conversations` | Tenant conversations |
+| GET | `/api/v1/conversations/:id/messages` | Tenant-owned history |
+| GET, POST | `/api/v1/tasks` | Filter/search/counts or create task |
+| PATCH, DELETE | `/api/v1/tasks/:id` | Update/delete owned task |
+| GET | `/api/v1/skills` | Platform definitions plus tenant state |
+| PATCH | `/api/v1/skills/:id/toggle` | Toggle tenant skill |
+| PUT | `/api/v1/skills/:id` | `{config}` tenant skill settings |
+| POST | `/api/v1/skills/test` | `{toolName, arguments?}` execute enabled tenant tool |
+| GET, POST | `/api/v1/bots` | List/add tenant bots |
+| PATCH, DELETE | `/api/v1/bots/:id` | Update/delete tenant bot |
+| POST | `/api/v1/bots/:id/test` | `{token?}` test provided or stored token |
+| POST | `/api/v1/bots/:id/restart` | Restart owned gateway |
 
-Run the complete test suite (unit tests and end-to-end integration tests):
+Credential config fields are `openaiApiKeyEncrypted`, `anthropicApiKeyEncrypted`, and `customApiKeyEncrypted`. On writes these accept **plaintext** and encrypt server-side; reads return `••••••••` or null. Omitted/masked values preserve the existing key; null or empty clears it. Bot responses expose `hasToken` rather than a token. Old unauthenticated `/api/agent/*`, `/api/tasks`, and `/api/skills` endpoints are removed.
+
+## Discord and ReAct
+
+The bot manager runs a separate Discord client per enabled bot under an active tenant. Configure Message Content Intent in the Discord developer portal and invite the bot with channel permissions. Bots respond to mentions, DMs, and their own threads, show typing indicators, split long replies, and send action summaries. Optional `guildIds` restrict accepted guild messages; tool adapters use the incoming guild. Suspending or deleting a tenant stops its bots and rejects subsequent tenant API requests.
+
+Built-in tools include task creation/list/status/assignment and channel creation/list/topic/archive. Disabling all tenant skills leaves no tools available, and direct tool execution checks tenant enablement too. The ReAct loop persists tenant-owned history and never accepts another tenant's conversation ID.
+
+## CLI
+
+`pachiware --help` lists lifecycle commands: `init`, `start [--docker] [--daemon] [--no-gui]`, `stop`, `restart`, `status`, `doctor`, `logs`, `update`, `uninstall`, `db:migrate`, `db:seed`, and `chat`.
+
+```bash
+PACHIWARE_API_KEY=pk_live_example pachiware chat 'List my tasks'
+```
+
+Provider/bot credentials are managed via tenant APIs or the console, not CLI environment settings.
+
+## Verification
+
 ```bash
 bun test
+bun run typecheck
+bun run build
 ```
 
-### Specific Suites:
-```bash
-# Skills Harness Unit Tests
-bun test packages/skills/test/skills.test.ts
+Tests use isolated temporary SQLite databases and mocked LLM/Discord integrations; no live credentials, server, or production database are required. PostgreSQL migration verification uses a disposable instance when available. The DB package supports both dialects with matching schema exports.
 
-# Full REST API & ReAct Loop End-to-End Tests
-bun test apps/agent/test/e2e.test.ts
+## Layout
+
+```text
+apps/agent/       Hono API, tenant middleware, bot manager, ReAct, LLM router
+apps/web/         React/Vite operator console
+packages/db/      Dual-dialect schema, migration, seed, crypto, tenancy
+packages/skills/  Tool definitions and handlers
+packages/cli/     Lifecycle CLI
+PROGRESS.md       Implementation status and verification evidence
 ```
-
----
-
-## 📡 Core REST Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/health` | System health for Database, Redis, and Messaging gateway |
-| `GET` | `/api/agent/config` | Retrieve current agent system prompt and LLM settings |
-| `PUT` | `/api/agent/config` | Update agent personality, prompt, and model config |
-| `POST` | `/api/agent/chat` | Interactive chat endpoint executing ReAct loop |
-| `GET` | `/api/skills` | List registered skills and tools |
-| `PATCH` | `/api/skills/:id/toggle` | Toggle skill active state live |
-| `POST` | `/api/skills/test` | Execute a tool directly with test parameters |
-| `GET` | `/api/tasks` | List tasks with status/priority filtering |
-| `POST` | `/api/tasks` | Create a new task in PostgreSQL |
-| `PATCH` | `/api/tasks/:id` | Update task title, status, or assignee |
-| `DELETE` | `/api/tasks/:id` | Delete a task |

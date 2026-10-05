@@ -75,7 +75,8 @@ export function isRedisConnected(): boolean {
   return isConnected;
 }
 
-export const redis = new Redis(config.redisUrl, {
+function createRedis(url: string): Redis {
+  const client = new Redis(url, {
   maxRetriesPerRequest: 1,
   enableOfflineQueue: false,
   retryStrategy(times) {
@@ -86,24 +87,19 @@ export const redis = new Redis(config.redisUrl, {
     return 500;
   },
   lazyConnect: true,
-});
-
-redis.on("connect", () => {
-  isConnected = true;
-  console.log("⚡ Connected to Redis at", config.redisUrl);
-});
-
-redis.on("ready", () => {
-  isConnected = true;
-});
-
-redis.on("close", () => {
+  });
+  client.on("ready", () => { if (redis === client) isConnected = true; });
+  client.on("close", () => { if (redis === client) isConnected = false; });
+  client.on("error", () => { if (redis === client) isConnected = false; });
+  return client;
+}
+export let redis = createRedis(config.redisUrl);
+export async function reconnectRedis(url: string) {
+  redis.disconnect();
   isConnected = false;
-});
-
-redis.on("error", (_err) => {
-  isConnected = false;
-});
+  redis = createRedis(url);
+  await redis.connect().catch(() => {});
+}
 
 export class CacheService {
   /**
@@ -158,7 +154,7 @@ export class CacheService {
     windowSeconds: number = 60
   ): Promise<{ allowed: boolean; remaining: number; resetIn: number }> {
     if (isConnected) {
-      const key = `ratelimit:${identifier}`;
+      const key = identifier.startsWith("ratelimit:") ? identifier : `ratelimit:${identifier}`;
       try {
         const current = await redis.incr(key);
         if (current === 1) {
@@ -179,4 +175,10 @@ export class CacheService {
 
     return memoryCache.checkRateLimit(identifier, limit, windowSeconds);
   }
+}
+
+export function tenantKey(tenantId: string, suffix: string): string {
+  if (["agent:config", "skills:active"].includes(suffix)) return `${suffix}:${tenantId}`;
+  const [namespace, ...parts] = suffix.split(":");
+  return `${namespace}:${tenantId}:${parts.join(":")}`;
 }

@@ -16,15 +16,15 @@ import * as pgSchema from "./pg/index.js";
 import * as sqliteSchema from "./sqlite/index.js";
 
 const { databaseUrl } = getInfraConfig();
-export const activeDialect: DbDialect = detectDialect(databaseUrl);
+export let activeDialect: DbDialect = detectDialect(databaseUrl);
 
 const active = activeDialect === "postgres" ? pgSchema : sqliteSchema;
 
-export const agentsConfig = active.agentsConfig;
-export const skills = active.skills;
-export const tasks = active.tasks;
-export const conversations = active.conversations;
-export const messages = active.messages;
+export let agentsConfig = active.agentsConfig;
+export let skills = active.skills;
+export let tasks = active.tasks;
+export let conversations = active.conversations;
+export let messages = active.messages;
 
 // Re-export shared types (identical across both dialects for every table)
 export type AgentConfig = typeof pgSchema.agentsConfig.$inferSelect;
@@ -44,3 +44,29 @@ export type NewMessage = typeof pgSchema.messages.$inferInsert;
 
 // Access to the raw dialect-specific schemas if needed (migrations, dialect-aware tooling)
 export { pgSchema, sqliteSchema };
+
+export let tenants = active.tenants;
+export type Tenant = typeof pgSchema.tenants.$inferSelect;
+export type NewTenant = typeof pgSchema.tenants.$inferInsert;
+
+export let apiKeys = active.apiKeys;
+export type ApiKey = typeof pgSchema.apiKeys.$inferSelect;
+export type NewApiKey = typeof pgSchema.apiKeys.$inferInsert;
+
+export let bots = active.bots;
+export type Bot = typeof pgSchema.bots.$inferSelect;
+export type NewBot = typeof pgSchema.bots.$inferInsert;
+
+export let usageEvents = active.usageEvents;
+export type UsageEvent = typeof pgSchema.usageEvents.$inferSelect;
+export type NewUsageEvent = typeof pgSchema.usageEvents.$inferInsert;
+
+export let tenantSkills = active.tenantSkills;
+export type TenantSkill = typeof pgSchema.tenantSkills.$inferSelect;
+export type NewTenantSkill = typeof pgSchema.tenantSkills.$inferInsert;
+
+export function switchSchema(dialect: DbDialect) {
+  activeDialect = dialect;
+  const next = dialect === "postgres" ? pgSchema : sqliteSchema;
+  ({ agentsConfig, skills, tasks, conversations, messages, tenants, apiKeys, bots, usageEvents, tenantSkills } = next);
+}

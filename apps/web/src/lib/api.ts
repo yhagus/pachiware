@@ -1,59 +1,54 @@
 const BASE_URL = import.meta.env.VITE_API_URL || "";
 
+export function getApiKey(): string { return localStorage.getItem("pachiware.apiKey") || import.meta.env.VITE_PACHIWARE_API_KEY || ""; }
+export function getPlatformKey(): string { return sessionStorage.getItem("pachiware.platformKey") || ""; }
+export function setCredentials(apiKey: string, platformKey: string) {
+  localStorage.setItem("pachiware.apiKey", apiKey.trim());
+  sessionStorage.setItem("pachiware.platformKey", platformKey.trim());
+  window.dispatchEvent(new Event("pachiware:credentials"));
+}
 async function fetchJSON<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const url = `${BASE_URL}${endpoint}`;
-  const response = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers || {}),
-    },
-    ...options,
-  });
-
+  const headers = new Headers(options?.headers);
+  headers.set("Content-Type", "application/json");
+  if (endpoint.startsWith("/api/v1/")) headers.set("Authorization", `Bearer ${getApiKey()}`);
+  if (endpoint.startsWith("/api/admin/")) headers.set("X-Platform-Key", getPlatformKey());
+  const response = await fetch(`${BASE_URL}${endpoint}`, { ...options, headers });
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || data.message || `HTTP ${response.status}`);
   }
-
   return response.json();
 }
 
 export interface HealthResponse {
   status: string;
   setupRequired?: boolean;
+  hasTenants?: boolean;
   uptimeSeconds: number;
   services: {
     database: string;
     redis: string;
-    discord: {
-      connected: boolean;
-      botTag: string | null;
-      botId: string | null;
-      guildCount: number;
-    };
+    discord: { connected: boolean; botTag: string | null; botId: string; tenantId: string; guildCount: number }[];
   };
 }
 
 export interface AgentConfigData {
-  id: string;
+  tenantId: string;
   name: string;
   systemPrompt: string;
   defaultProvider: "openai" | "anthropic" | "custom";
   defaultModel: string;
   temperature: number;
   maxTokens: number;
-  openaiApiKey?: string | null;
+  openaiApiKeyEncrypted?: string | null;
   openaiBaseUrl?: string | null;
   openaiModel?: string | null;
-  anthropicApiKey?: string | null;
+  anthropicApiKeyEncrypted?: string | null;
   anthropicBaseUrl?: string | null;
   anthropicModel?: string | null;
   customBaseUrl?: string | null;
-  customApiKey?: string | null;
+  customApiKeyEncrypted?: string | null;
   customModel?: string | null;
-  discordBotToken?: string | null;
-  discordClientId?: string | null;
-  discordGuildId?: string | null;
   settings?: Record<string, any>;
   updatedAt: string;
 }
@@ -105,23 +100,23 @@ export const api = {
   getHealth: () => fetchJSON<HealthResponse>("/api/health"),
 
   getAgentConfig: () =>
-    fetchJSON<{ success: boolean; config: AgentConfigData }>("/api/agent/config"),
+    fetchJSON<{ success: boolean; config: AgentConfigData }>("/api/v1/config"),
 
   updateAgentConfig: (data: Partial<AgentConfigData>) =>
-    fetchJSON<{ success: boolean; message: string; config: AgentConfigData }>("/api/agent/config", {
+    fetchJSON<{ success: boolean; message: string; config: AgentConfigData }>("/api/v1/config", {
       method: "PUT",
       body: JSON.stringify(data),
     }),
 
-  getSkills: () => fetchJSON<{ success: boolean; skills: SkillItem[] }>("/api/skills"),
+  getSkills: () => fetchJSON<{ success: boolean; skills: SkillItem[] }>("/api/v1/skills"),
 
   toggleSkill: (id: string) =>
-    fetchJSON<{ success: boolean; message: string; skill: SkillItem }>(`/api/skills/${id}/toggle`, {
+    fetchJSON<{ success: boolean; message: string; skill: SkillItem }>(`/api/v1/skills/${id}/toggle`, {
       method: "PATCH",
     }),
 
   testTool: (toolName: string, args: Record<string, any>) =>
-    fetchJSON<{ success: boolean; result: any }>("/api/skills/test", {
+    fetchJSON<{ success: boolean; result: any }>("/api/v1/skills/test", {
       method: "POST",
       body: JSON.stringify({ toolName, arguments: args }),
     }),
@@ -136,67 +131,69 @@ export const api = {
       success: boolean;
       counts: { total: number; pending: number; in_progress: number; completed: number };
       tasks: TaskItem[];
-    }>(`/api/tasks${qs ? `?${qs}` : ""}`);
+    }>(`/api/v1/tasks${qs ? `?${qs}` : ""}`);
   },
 
   createTask: (data: Partial<TaskItem>) =>
-    fetchJSON<{ success: boolean; task: TaskItem }>("/api/tasks", {
+    fetchJSON<{ success: boolean; task: TaskItem }>("/api/v1/tasks", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
   updateTask: (id: string, data: Partial<TaskItem>) =>
-    fetchJSON<{ success: boolean; task: TaskItem }>(`/api/tasks/${id}`, {
+    fetchJSON<{ success: boolean; task: TaskItem }>(`/api/v1/tasks/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
 
   deleteTask: (id: string) =>
-    fetchJSON<{ success: boolean; message: string }>(`/api/tasks/${id}`, {
+    fetchJSON<{ success: boolean; message: string }>(`/api/v1/tasks/${id}`, {
       method: "DELETE",
     }),
 
   sendChat: (message: string, conversationId?: string) =>
-    fetchJSON<ChatResponse>("/api/agent/chat", {
+    fetchJSON<ChatResponse>("/api/v1/chat", {
       method: "POST",
       body: JSON.stringify({ message, conversationId }),
     }),
 
   testLLM: (data: { provider: string; apiKey?: string; baseUrl?: string }) =>
-    fetchJSON<{ success: boolean; message: string; modelCount?: number }>("/api/agent/test/llm", {
+    fetchJSON<{ success: boolean; message: string; modelCount?: number }>("/api/v1/config/test/llm", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  testDiscord: (data: { token?: string }) =>
-    fetchJSON<{ success: boolean; botTag?: string; botId?: string; error?: string }>("/api/agent/test/discord", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  restartDiscord: () =>
-    fetchJSON<{ success: boolean; message: string }>("/api/agent/discord/restart", {
-      method: "POST",
-    }),
+  getBots: () => fetchJSON<{ success: boolean; bots: Bot[] }>("/api/v1/bots"),
+  createBot: (data: BotInput) => fetchJSON<{ success: boolean; bot: Bot }>("/api/v1/bots", { method: "POST", body: JSON.stringify(data) }),
+  updateBot: (id: string, data: Partial<BotInput>) => fetchJSON<{ success: boolean; bot: Bot }>(`/api/v1/bots/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteBot: (id: string) => fetchJSON<{ success: boolean }>(`/api/v1/bots/${id}`, { method: "DELETE" }),
+  testBot: (id: string) => fetchJSON<{ success: boolean; botTag?: string; error?: string }>(`/api/v1/bots/${id}/test`, { method: "POST", body: "{}" }),
+  restartBot: (id: string) => fetchJSON<{ success: boolean; message: string }>(`/api/v1/bots/${id}/restart`, { method: "POST" }),
+  listTenants: () => fetchJSON<{ tenants: { id: string; name: string; slug: string }[] }>("/api/admin/tenants"),
+  createTenant: (name: string, slug?: string) => fetchJSON<{ tenant: { id: string } }>("/api/admin/tenants", { method: "POST", body: JSON.stringify({ name, slug }) }),
+  issueApiKey: (id: string) => fetchJSON<{ raw: string; keyPrefix: string }>(`/api/admin/tenants/${id}/api-keys`, { method: "POST", body: JSON.stringify({ name: "Operator console" }) }),
 
   getInfrastructure: () =>
-    fetchJSON<{ success: boolean; infrastructure: InfrastructureData }>("/api/agent/infrastructure"),
+    fetchJSON<{ success: boolean; infrastructure: InfrastructureData }>("/api/admin/infrastructure"),
 
   updateInfrastructure: (data: { databaseUrl?: string; redisUrl?: string }) =>
-    fetchJSON<{ success: boolean; message: string; infrastructure: InfrastructureData }>("/api/agent/infrastructure", {
+    fetchJSON<{ success: boolean; message: string; infrastructure: InfrastructureData }>("/api/admin/infrastructure", {
       method: "PUT",
       body: JSON.stringify(data),
     }),
 
   testPostgres: (data: { databaseUrl?: string }) =>
-    fetchJSON<{ success: boolean; message: string; latencyMs?: number }>("/api/agent/infrastructure/test-db", {
+    fetchJSON<{ success: boolean; message: string; latencyMs?: number }>("/api/admin/infrastructure/test-db", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
   testRedis: () =>
-    fetchJSON<{ success: boolean; message: string; latencyMs?: number }>("/api/agent/infrastructure/test-redis", {
+    fetchJSON<{ success: boolean; message: string; latencyMs?: number }>("/api/admin/infrastructure/test-redis", {
       method: "POST",
     }),
 };
 
+
+export interface Bot { id: string; tenantId: string; name: string; platform: string; clientId: string | null; guildIds: string[]; isEnabled: boolean; hasToken: boolean; connectionStatus: string; lastError: string | null; lastConnectedAt: string | null; }
+export interface BotInput { name?: string; token: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean; }

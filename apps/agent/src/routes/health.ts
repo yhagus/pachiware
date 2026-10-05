@@ -1,7 +1,9 @@
 import { Hono } from "hono";
-import { pingDatabase, activeDialect } from "@pachiware/db";
+import { ne } from "drizzle-orm";
+import { config } from "../config.js";
+import { pingDatabase, activeDialect, db, tenants } from "@pachiware/db";
 import { redis, isRedisConnected } from "../cache/redis.js";
-import { discordBotService } from "../discord/client.js";
+import { discordBotManager } from "../discord/client.js";
 
 export const healthRoutes = new Hono();
 
@@ -24,12 +26,17 @@ healthRoutes.get("/", async (c) => {
     }
   }
 
-  const discordStatus = discordBotService.getStatus();
-  const setupRequired = dbStatus !== "healthy";
+  const discordStatus = discordBotManager.getAggregateStatus();
+  let tenantCount = 0;
+  let schemaReady = false;
+  try { tenantCount = (await db.select({ id: tenants.id }).from(tenants).where(ne(tenants.status, "deleted")).limit(1)).length; schemaReady = true; } catch {}
+  const setupRequired = dbStatus !== "healthy" || !schemaReady || tenantCount === 0;
 
   return c.json({
     status: setupRequired ? "setup_required" : "ok",
     setupRequired,
+    hasTenants: tenantCount > 0,
+    hasEncryptionKey: config.hasEncryptionKey,
     timestamp: new Date().toISOString(),
     uptimeSeconds: process.uptime(),
     memory: process.memoryUsage(),

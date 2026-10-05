@@ -1,5 +1,5 @@
-import { db, skills as skillsTable } from "@pachiware/db";
-import { eq } from "drizzle-orm";
+import { db, skills as skillsTable, tenantSkills, usageEvents } from "@pachiware/db";
+import { eq, and } from "drizzle-orm";
 import { taskManagementSkill } from "./builtin/tasks.js";
 import { discordManagementSkill } from "./builtin/discord.js";
 import type {
@@ -62,35 +62,11 @@ export class SkillRegistry {
    * Loads enabled skills from PostgreSQL (or memory fallback),
    * filtering out disabled skills.
    */
-  public async getActiveTools(): Promise<ToolDefinition[]> {
-    try {
-      const dbSkills = await db
-        .select()
-        .from(skillsTable)
-        .where(eq(skillsTable.isEnabled, true));
-
-      const enabledSkillIds = new Set(dbSkills.map((s) => s.id));
-
-      const activeTools: ToolDefinition[] = [];
-      for (const [skillId, skill] of this.skills.entries()) {
-        // If skill exists in DB and is enabled, or if DB is empty / during initial run
-        if (enabledSkillIds.size === 0 || enabledSkillIds.has(skillId)) {
-          activeTools.push(...skill.tools);
-        }
-      }
-
-      // Also append any custom tool definitions stored directly in DB
-      for (const dbSkill of dbSkills) {
-        if (!this.skills.has(dbSkill.id) && Array.isArray(dbSkill.toolDefinitions)) {
-          activeTools.push(...(dbSkill.toolDefinitions as ToolDefinition[]));
-        }
-      }
-
-      return activeTools;
-    } catch (err) {
-      console.warn("⚠️ Failed to load skills from DB, falling back to in-memory active skills:", err);
-      return Array.from(this.skills.values()).flatMap((s) => s.tools);
-    }
+  public async getActiveTools(tenantId: string): Promise<ToolDefinition[]> {
+    const rows = await db.select({ definition: skillsTable, state: tenantSkills }).from(tenantSkills)
+      .innerJoin(skillsTable, eq(tenantSkills.skillId, skillsTable.id))
+      .where(and(eq(tenantSkills.tenantId, tenantId), eq(tenantSkills.isEnabled, true)));
+    return rows.flatMap(({ definition }: any) => this.skills.get(definition.id)?.tools || definition.toolDefinitions);
   }
 
   /**
@@ -123,11 +99,20 @@ export class SkillRegistry {
   /**
    * Executes a tool call using the appropriate registered handler and context.
    */
-  public async executeTool(
+  public async executeTool(toolCall: ToolCall, context: SkillContext): Promise<ToolResult> {
+    const result = await this.executeInternal(toolCall, context);
+    if (context.tenantId) await context.db.insert(usageEvents).values({ tenantId: context.tenantId, botId: context.botId || null, type: "tool_call", metadata: { name: toolCall.name, success: result.success } });
+    return result;
+  }
+
+  private async executeInternal(
     toolCall: ToolCall,
     context: SkillContext
   ): Promise<ToolResult> {
     const { id: toolCallId, name, arguments: args } = toolCall;
+    if (!context.tenantId) return { toolCallId, name, success: false, error: "Tenant context required" };
+    const allowed = await this.getActiveTools(context.tenantId);
+    if (!allowed.some((tool) => tool.name === name)) return { toolCallId, name, success: false, error: "Tool is disabled or unavailable for this tenant" };
     const skillId = this.toolToSkillMap.get(name);
 
     if (!skillId) {

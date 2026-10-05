@@ -1,5 +1,5 @@
 import * as schema from "./schema/index.js";
-import { activeDialect } from "./schema/index.js";
+import { activeDialect, switchSchema } from "./schema/index.js";
 import { getInfraConfig } from "./runtime-store.js";
 import { detectDialect, resolveSqlitePath } from "./dialect.js";
 
@@ -76,6 +76,7 @@ export function reconnectDatabase(newConnectionString?: string) {
     }
   } catch {}
 
+  switchSchema(detectDialect(conn));
   const { db: nextDb, client: nextClient } = initDriver(conn);
   db = nextDb;
   queryClient = nextClient;
@@ -104,5 +105,7 @@ export * from "./migrate.js";
 export * from "./seed.js";
 export * from "./runtime-store.js";
 export * from "./dialect.js";
+export * from "./crypto.js";
+export * from "./tenancy.js";
 export { eq, desc, asc, sql, and, or } from "drizzle-orm";
 export default db;

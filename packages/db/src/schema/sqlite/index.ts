@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, foreignKey } from "drizzle-orm/sqlite-core";
 import { randomUUID } from "crypto";
 
 /**
@@ -20,8 +20,42 @@ import { randomUUID } from "crypto";
 const defaultUuid = () => randomUUID();
 const defaultNow = () => new Date();
 
+export const tenants = sqliteTable("tenants", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  status: text("status").notNull().default("active"),
+  platformMetadata: text("platform_metadata", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+});
+
+export const apiKeys = sqliteTable("api_keys", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  keyPrefix: text("key_prefix").notNull(), keyHash: text("key_hash").notNull(),
+  name: text("name").notNull().default("API Key"), scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull().default([]),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }), revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [index("api_keys_tenant_idx").on(t.tenantId), uniqueIndex("api_keys_hash_idx").on(t.keyHash)]);
+
+export const bots = sqliteTable("bots", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull().default("Discord Bot"), platform: text("platform").notNull().default("discord"),
+  tokenEncrypted: text("token_encrypted").notNull(), clientId: text("client_id"), guildIds: text("guild_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
+  isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true), connectionStatus: text("connection_status").notNull().default("disconnected"),
+  lastConnectedAt: integer("last_connected_at", { mode: "timestamp_ms" }), lastError: text("last_error"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [index("bots_tenant_idx").on(t.tenantId), uniqueIndex("bots_tenant_id_idx").on(t.tenantId, t.id)]);
+
+export const usageEvents = sqliteTable("usage_events", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),
+  type: text("type").notNull(), provider: text("provider"), model: text("model"),
+  promptTokens: integer("prompt_tokens").notNull().default(0), completionTokens: integer("completion_tokens").notNull().default(0),
+  metadata: text("metadata", { mode: "json" }).$type<Record<string, any>>().notNull().default({}), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [index("usage_tenant_created_idx").on(t.tenantId, t.createdAt), foreignKey({ columns: [t.tenantId, t.botId], foreignColumns: [bots.tenantId, bots.id] })]);
+
 export const agentsConfig = sqliteTable("agents_config", {
-  id: text("id").primaryKey().default("default"),
+  tenantId: text("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
   name: text("name").notNull().default("Pachiware Agent"),
   systemPrompt: text("system_prompt").notNull().default(
     "You are Pachiware Agent, an intelligent autonomous system capable of channel management, task tracking, and problem solving. You execute actions via your available tools and communicate clearly and concisely."
@@ -31,21 +65,18 @@ export const agentsConfig = sqliteTable("agents_config", {
   temperature: real("temperature").notNull().default(0.7),
   maxTokens: integer("max_tokens").notNull().default(4096),
 
-  openaiApiKey: text("openai_api_key"),
+  openaiApiKeyEncrypted: text("openai_api_key_encrypted"),
   openaiBaseUrl: text("openai_base_url"),
   openaiModel: text("openai_model"),
 
-  anthropicApiKey: text("anthropic_api_key"),
+  anthropicApiKeyEncrypted: text("anthropic_api_key_encrypted"),
   anthropicBaseUrl: text("anthropic_base_url"),
   anthropicModel: text("anthropic_model"),
 
   customBaseUrl: text("custom_base_url"),
-  customApiKey: text("custom_api_key"),
+  customApiKeyEncrypted: text("custom_api_key_encrypted"),
   customModel: text("custom_model"),
 
-  discordBotToken: text("discord_bot_token"),
-  discordClientId: text("discord_client_id"),
-  discordGuildId: text("discord_guild_id"),
 
   settings: text("settings", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
@@ -57,7 +88,7 @@ export const skills = sqliteTable("skills", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description").notNull(),
-  isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
+  defaultEnabled: integer("default_enabled", { mode: "boolean" }).notNull().default(true),
   toolDefinitions: text("tool_definitions", { mode: "json" }).$type<any[]>().notNull().default([]),
   handlerType: text("handler_type").notNull().default("builtin"),
   config: text("config", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
@@ -69,7 +100,14 @@ export const skills = sqliteTable("skills", {
     .$defaultFn(defaultNow),
 });
 
+export const tenantSkills = sqliteTable("tenant_skills", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  skillId: text("skill_id").notNull().references(() => skills.id, { onDelete: "cascade" }),
+  isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true), config: text("config", { mode: "json" }).$type<Record<string, any>>().notNull().default({}), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("tenant_skills_unique_idx").on(t.tenantId, t.skillId)]);
+
 export const tasks = sqliteTable("tasks", {
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   id: text("id").primaryKey().$defaultFn(defaultUuid),
   title: text("title").notNull(),
   description: text("description"),
@@ -85,9 +123,11 @@ export const tasks = sqliteTable("tasks", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(defaultNow),
-});
+}, (t) => [index("tasks_tenant_created_idx").on(t.tenantId, t.createdAt)]);
 
 export const conversations = sqliteTable("conversations", {
+  botId: text("bot_id"),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   id: text("id").primaryKey().$defaultFn(defaultUuid),
   channelId: text("channel_id"),
   userId: text("user_id"),
@@ -99,9 +139,10 @@ export const conversations = sqliteTable("conversations", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(defaultNow),
-});
+}, (t) => [index("conversations_tenant_created_idx").on(t.tenantId, t.createdAt), uniqueIndex("conversations_tenant_id_idx").on(t.tenantId, t.id), foreignKey({ columns: [t.tenantId, t.botId], foreignColumns: [bots.tenantId, bots.id] })]);
 
 export const messages = sqliteTable("messages", {
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   id: text("id").primaryKey().$defaultFn(defaultUuid),
   conversationId: text("conversation_id")
     .notNull()
@@ -114,7 +155,7 @@ export const messages = sqliteTable("messages", {
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(defaultNow),
-});
+}, (t) => [index("messages_tenant_created_idx").on(t.tenantId, t.createdAt), foreignKey({ columns: [t.tenantId, t.conversationId], foreignColumns: [conversations.tenantId, conversations.id] }).onDelete("cascade")]);
 
 // Shared type definitions
 export type AgentConfig = typeof agentsConfig.$inferSelect;
@@ -131,3 +172,18 @@ export type NewConversation = typeof conversations.$inferInsert;
 
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
+
+export type Tenant = typeof tenants.$inferSelect;
+export type NewTenant = typeof tenants.$inferInsert;
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type NewApiKey = typeof apiKeys.$inferInsert;
+
+export type Bot = typeof bots.$inferSelect;
+export type NewBot = typeof bots.$inferInsert;
+
+export type UsageEvent = typeof usageEvents.$inferSelect;
+export type NewUsageEvent = typeof usageEvents.$inferInsert;
+
+export type TenantSkill = typeof tenantSkills.$inferSelect;
+export type NewTenantSkill = typeof tenantSkills.$inferInsert;

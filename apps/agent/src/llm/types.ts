@@ -22,6 +22,8 @@ export interface LLMResponse {
 }
 
 export interface LLMRequestOptions {
+  tenantId: string;
+  botId?: string;
   model?: string;
   temperature?: number;
   maxTokens?: number;

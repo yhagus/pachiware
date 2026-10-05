@@ -1,256 +1,115 @@
-import {
-  Client,
-  GatewayIntentBits,
-  Partials,
-  Events,
-  type Message,
-  EmbedBuilder,
-} from "discord.js";
-import { config } from "../config.js";
-import { db, agentsConfig, eq } from "@pachiware/db";
+import { Client, GatewayIntentBits, Partials, Events, type Message, EmbedBuilder } from "discord.js";
+import { db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, getTenantById, updateBot, eq } from "@pachiware/db";
+import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
-import { CacheService } from "../cache/redis.js";
+import { CacheService, tenantKey } from "../cache/redis.js";
 
-export class DiscordBotService {
-  private client: Client | null = null;
-  private adapter: DiscordJSAdapter | null = null;
-  private isConnected = false;
+type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[] };
+export class DiscordBotManager {
+  private clients = new Map<string, BotRuntime>();
+  private operations = new Map<string, Promise<any>>();
 
-  async start(overrideCredentials?: { token?: string; guildId?: string }): Promise<void> {
-    let token = overrideCredentials?.token;
-    let guildId = overrideCredentials?.guildId;
-
-    if (!token) {
-      try {
-        const rows = await db
-          .select({
-            discordBotToken: agentsConfig.discordBotToken,
-            discordGuildId: agentsConfig.discordGuildId,
-          })
-          .from(agentsConfig)
-          .where(eq(agentsConfig.id, "default"))
-          .limit(1);
-
-        if (rows[0]?.discordBotToken) {
-          token = rows[0].discordBotToken;
-          guildId = rows[0].discordGuildId || undefined;
-        }
-      } catch (err: any) {
-        console.warn("Notice checking Discord credentials in DB:", err.message);
-      }
-    }
-
-    // Fall back to environment configuration
-    token = token || config.discord.token;
-    guildId = guildId || config.discord.guildId;
-
-    if (!token) {
-      console.log("ℹ️ Discord bot token not provided in DB or .env. Discord Gateway is running in standby/simulation mode.");
-      return;
-    }
-
-    try {
-      this.client = new Client({
-        intents: [
-          GatewayIntentBits.Guilds,
-          GatewayIntentBits.GuildMessages,
-          GatewayIntentBits.MessageContent,
-          GatewayIntentBits.DirectMessages,
-        ],
-        partials: [Partials.Channel, Partials.Message],
-      });
-
-      this.adapter = new DiscordJSAdapter(this.client, guildId);
-
-      this.client.once(Events.ClientReady, (readyClient) => {
-        this.isConnected = true;
-        console.log(`🤖 Discord Bot connected as ${readyClient.user.tag}!`);
-      });
-
-      this.client.on(Events.MessageCreate, async (msg: Message) => {
-        await this.handleMessage(msg);
-      });
-
-      await this.client.login(token);
-    } catch (err: any) {
-      console.warn("⚠️ Failed to initialize Discord client:", err.message);
-      this.isConnected = false;
-    }
+  private serialize<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const pending = (this.operations.get(id) || Promise.resolve()).catch(() => {}).then(operation);
+    this.operations.set(id, pending);
+    void pending.finally(() => { if (this.operations.get(id) === pending) this.operations.delete(id); }).catch(() => {});
+    return pending;
   }
-
-  async restart(overrideCredentials?: { token?: string; guildId?: string }): Promise<{ success: boolean; message: string }> {
-    console.log("🔄 Restarting Discord Gateway service with dynamic credentials...");
-    if (this.client) {
-      try {
-        this.client.destroy();
-      } catch {}
-      this.client = null;
-      this.adapter = null;
-      this.isConnected = false;
-    }
-
-    await this.start(overrideCredentials);
-    return {
-      success: true,
-      message: this.isConnected ? "Discord bot reconnected successfully." : "Discord bot restarted in standby mode.",
-    };
+  async startAll() {
+    const active = await listAllActiveBots();
+    await Promise.allSettled(active.map(({ bot }: any) => this.startBot(bot.id)));
   }
-
-  static async testToken(token: string): Promise<{ success: boolean; botTag?: string; botId?: string; error?: string }> {
-    if (!token) {
-      return { success: false, error: "Bot token is empty." };
-    }
-
-    try {
-      const res = await fetch("https://discord.com/api/v10/users/@me", {
-        headers: {
-          Authorization: `Bot ${token.trim()}`,
-        },
-      });
-
-      if (!res.ok) {
-        const body = await res.text();
-        return { success: false, error: `Discord authentication rejected (${res.status}): ${body}` };
-      }
-
-      const data = await res.json();
-      return {
-        success: true,
-        botTag: `${data.username}#${data.discriminator || "0"}`,
-        botId: data.id,
-      };
-    } catch (err: any) {
-      return { success: false, error: `Failed to reach Discord Gateway: ${err.message}` };
-    }
+  startBot(id: string) { return this.serialize(id, () => this.start(id)); }
+  restartBot(id: string) { return this.serialize(id, async () => { await this.stop(id); return this.start(id); }); }
+  stopBot(id: string) { return this.serialize(id, () => this.stop(id)); }
+  removeBot(id: string) { return this.stopBot(id); }
+  async stopTenant(tenantId: string) {
+    await Promise.all([...this.clients].filter(([, r]) => r.tenantId === tenantId).map(([id]) => this.stopBot(id)));
   }
-
-  private async handleMessage(msg: Message): Promise<void> {
-    if (!this.client || msg.author.bot) return;
-
-    // Check if the bot was mentioned or if it is a DM
-    const botMention = `<@${this.client.user?.id}>`;
-    const isMentioned = msg.content.includes(botMention);
-    const isDirectMessage = !msg.guild;
-
-    if (!isMentioned && !isDirectMessage) {
-      return;
-    }
-
-    // Rate-limit check per user
-    const rateCheck = await CacheService.checkRateLimit(`discord:user:${msg.author.id}`, 10, 60);
-    if (!rateCheck.allowed) {
-      await msg.reply("⚠️ You are sending requests too quickly. Please wait a few seconds before trying again.");
-      return;
-    }
-
-    // Clean message content (remove bot mention)
-    const cleanedText = msg.content.replace(new RegExp(`<@!?${this.client.user?.id}>`, "g"), "").trim();
-    if (!cleanedText) {
-      await msg.reply("Hello! How can I assist you today? Mention me with a question or task.");
-      return;
-    }
-
-    // Indicate typing while ReAct loop thinks and executes
+  private async stop(id: string) {
+    const runtime = this.clients.get(id);
+    this.clients.delete(id);
+    if (runtime) await runtime.client.destroy();
+    const [row] = await db.select().from(bots).where(eq(bots.id, id)).limit(1);
+    if (row && row.connectionStatus !== "deleted") await updateBot(id, { connectionStatus: "disconnected" });
+    return { success: true, message: "Bot stopped." };
+  }
+  private async start(id: string) {
+    if (this.clients.has(id)) return { success: true, message: "Bot already started." };
+    let resolved;
+    try { resolved = await getBotDecrypted(id); }
+    catch { await updateBot(id, { connectionStatus: "error", lastError: "Unable to decrypt bot token." }); return { success: false, message: "Unable to decrypt bot token." }; }
+    if (!resolved) return { success: false, message: "Bot not found." };
+    const { bot, token } = resolved;
+    const tenant = await getTenantById(bot.tenantId);
+    if (!bot.isEnabled || tenant?.status !== "active") return { success: false, message: "Bot or tenant is disabled." };
+    const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages], partials: [Partials.Channel, Partials.Message] });
+    const runtime: BotRuntime = { client, adapter: new DiscordJSAdapter(client, bot.guildIds[0]), tenantId: bot.tenantId, connected: false, guildIds: bot.guildIds };
+    this.clients.set(id, runtime);
+    await updateBot(id, { connectionStatus: "connecting", lastError: null });
+    client.once(Events.ClientReady, () => {
+      if (this.clients.get(id) !== runtime) return;
+      runtime.connected = true;
+      void updateBot(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
+    });
+    client.on(Events.ShardDisconnect, () => { runtime.connected = false; void updateBot(id, { connectionStatus: "disconnected" }).catch(() => {}); });
+    client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
+    client.on(Events.Error, () => { void updateBot(id, { lastError: "Discord gateway error" }).catch(() => {}); });
+    client.on(Events.MessageCreate, (msg) => { void this.handleMessage(id, msg).catch(() => {}); });
     try {
-      await msg.channel.sendTyping();
+      await client.login(token);
+      return { success: true, message: "Bot gateway started." };
     } catch {
-      // Channel may lack typing permissions
+      this.clients.delete(id);
+      await client.destroy();
+      await updateBot(id, { connectionStatus: "error", lastError: "Discord login failed; verify token, intents, and connectivity." });
+      return { success: false, message: "Discord login failed." };
     }
-
-    const typingInterval = setInterval(async () => {
-      try {
-        await msg.channel.sendTyping();
-      } catch {}
-    }, 4000);
-
+  }
+  static async testToken(token: string) {
+    if (!token) return { success: false, error: "Bot token is empty." };
     try {
-      const output = await agentReActLoop.run({
-        message: cleanedText,
-        context: {
-          platform: "discord",
-          guildName: msg.guild?.name,
-          guildId: msg.guild?.id,
-          channelName: (msg.channel as any).name || "dm",
-          channelId: msg.channel.id,
-          userName: msg.author.username,
-          userId: msg.author.id,
-          skillContext: {
-            discord: this.adapter || undefined,
-          },
-        },
-      });
-
-      clearInterval(typingInterval);
-
-      // Reply with the final response
-      const chunks = this.chunkMessage(output.reply, 1900);
-      for (let i = 0; i < chunks.length; i++) {
-        if (i === 0) {
-          await msg.reply(chunks[i]);
-        } else {
-          await msg.channel.send(chunks[i]);
-        }
-      }
-
-      // If tools were executed, post an informative embed summary
-      if (output.toolCallsExecuted.length > 0) {
-        const embed = new EmbedBuilder()
-          .setTitle("🛠️ Actions Executed")
-          .setColor(0x5865f2)
-          .setFooter({ text: `ReAct iterations: ${output.iterations}` });
-
-        for (const item of output.toolCallsExecuted.slice(0, 5)) {
-          const statusIcon = item.result.success ? "✅" : "⚠️";
-          const details =
-            item.result.data?.message ||
-            item.result.error ||
-            JSON.stringify(item.call.arguments);
-
-          embed.addFields({
-            name: `${statusIcon} ${item.call.name}`,
-            value: details.length > 250 ? details.slice(0, 247) + "..." : details,
-          });
-        }
-
+      const response = await fetch("https://discord.com/api/v10/users/@me", { headers: { Authorization: `Bot ${token.trim()}` }, signal: AbortSignal.timeout(10000) });
+      if (!response.ok) return { success: false, error: `Discord authentication rejected (${response.status}).` };
+      const user = await response.json();
+      return { success: true, botTag: user.username, botId: user.id };
+    } catch { return { success: false, error: "Failed to reach Discord API." }; }
+  }
+  async handleMessage(botId: string, msg: Message) {
+    const runtime = this.clients.get(botId);
+    if (!runtime || msg.author.bot) return;
+    const tenant = await getTenantById(runtime.tenantId);
+    if (tenant?.status !== "active") return;
+    if (msg.guildId && runtime.guildIds.length && !runtime.guildIds.includes(msg.guildId)) return;
+    const mentioned = msg.mentions.users.has(runtime.client.user?.id || "");
+    const thread = msg.channel.isThread() && msg.channel.ownerId === runtime.client.user?.id;
+    if (msg.guild && !mentioned && !thread) return;
+    const rate = await CacheService.checkRateLimit(tenantKey(runtime.tenantId, `ratelimit:discord:user:${msg.author.id}`), 10, 60);
+    if (!rate.allowed) { await msg.reply("Please wait before sending another request."); return; }
+    const text = msg.content.replace(new RegExp(`<@!?${runtime.client.user?.id}>`, "g"), "").trim();
+    if (!text) return;
+    await db.insert(usageEvents).values({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
+    const typing = async () => { try { if ("sendTyping" in msg.channel) await msg.channel.sendTyping(); } catch {} };
+    await typing();
+    const interval = setInterval(() => { void typing(); }, 4000);
+    try {
+      const [agent] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, runtime.tenantId)).limit(1);
+      const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, msg.channelId), eq(conversations.userId, msg.author.id))).orderBy(desc(conversations.createdAt)).limit(1);
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: text, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 8, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId: msg.channelId, userId: msg.author.id, userName: msg.author.username, skillContext: { discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]) } } });
+      for (const chunk of output.reply.match(/[^]{1,1900}/g) || ["Done."]) await msg.reply({ content: chunk, allowedMentions: { parse: [] } });
+      if (output.toolCallsExecuted.length && msg.channel.isSendable()) {
+        const embed = new EmbedBuilder().setTitle("Actions executed").setColor(0x5865f2);
+        for (const { call, result } of output.toolCallsExecuted.slice(0, 5)) embed.addFields({ name: call.name, value: result.success ? "Completed" : "Failed" });
         await msg.channel.send({ embeds: [embed] });
       }
-    } catch (err: any) {
-      clearInterval(typingInterval);
-      console.error("Error processing Discord message in ReAct loop:", err);
-      await msg.reply(`⚠️ An error occurred while processing your request: ${err.message}`);
-    }
+    } catch { await msg.reply("Unable to process this request. Check your tenant configuration.").catch(() => {}); }
+    finally { clearInterval(interval); }
   }
-
-  private chunkMessage(text: string, size: number = 1900): string[] {
-    const chunks: string[] = [];
-    let current = "";
-
-    const lines = text.split("\n");
-    for (const line of lines) {
-      if ((current + "\n" + line).length > size) {
-        if (current) chunks.push(current);
-        current = line;
-      } else {
-        current = current ? current + "\n" + line : line;
-      }
-    }
-    if (current) chunks.push(current);
-    return chunks.length > 0 ? chunks : [text];
+  getStatus(id?: string) {
+    const rows = [...this.clients].map(([botId, runtime]) => ({ botId, tenantId: runtime.tenantId, connected: runtime.connected, botTag: runtime.client.user?.tag || null, guildCount: runtime.client.guilds.cache.size }));
+    return id ? rows.find((row) => row.botId === id) || null : rows;
   }
-
-  getStatus() {
-    return {
-      connected: this.isConnected,
-      botTag: this.client?.user?.tag || null,
-      botId: this.client?.user?.id || null,
-      guildCount: this.client?.guilds.cache.size || 0,
-    };
-  }
-
-  getAdapter(): DiscordJSAdapter | null {
-    return this.adapter;
-  }
+  getAggregateStatus() { return this.getStatus(); }
 }
-
-export const discordBotService = new DiscordBotService();
+export const discordBotManager = new DiscordBotManager();

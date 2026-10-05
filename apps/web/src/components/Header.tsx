@@ -15,7 +15,7 @@ export const Header: React.FC<HeaderProps> = ({
   isRefreshing,
 }) => {
   return (
-    <header className="h-16 px-8 border-b border-slate-800/80 bg-[#0B0F19]/60 backdrop-blur-md flex items-center justify-between sticky top-0 z-30">
+    <header className="min-h-16 px-4 sm:px-8 py-3 gap-3 flex-wrap border-b border-slate-800/80 bg-[#0B0F19]/60 backdrop-blur-md flex items-center justify-between sticky top-0 z-30">
       <div>
         <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
           {title}
@@ -24,7 +24,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="flex items-center space-x-3">
-        <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs text-slate-300">
+        <div className="hidden lg:flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs text-slate-300">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
           <span className="font-medium text-slate-200">Port 3001</span>
           <span className="text-slate-400">|</span>

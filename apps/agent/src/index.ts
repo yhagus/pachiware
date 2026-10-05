@@ -1,8 +1,8 @@
 import { createServer } from "./server.js";
 import { config } from "./config.js";
 import { redis } from "./cache/redis.js";
-import { discordBotService } from "./discord/client.js";
-import { runMigrations } from "@pachiware/db";
+import { discordBotManager } from "./discord/client.js";
+import { runMigrations, runSeed } from "@pachiware/db";
 
 async function main() {
   console.log("=========================================");
@@ -12,6 +12,7 @@ async function main() {
   // 1. Ensure DB Migrations
   try {
     await runMigrations();
+    await runSeed();
   } catch (_err: any) {
     console.log("ℹ Database not yet initialized. Agent started in Setup Mode (Configure via Web GUI).");
   }
@@ -24,7 +25,7 @@ async function main() {
   }
 
   // 3. Start Discord Bot Service in background
-  discordBotService.start().catch((err) => {
+  discordBotManager.startAll().catch((err) => {
     console.warn("Notice during Discord bot startup:", err.message);
   });
 

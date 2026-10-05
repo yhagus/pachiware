@@ -17,6 +17,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     if (this.guildId) {
       const g = await this.client.guilds.fetch(this.guildId).catch(() => null);
       if (g) return g;
+      throw new Error("Configured Discord guild is unavailable to this bot.");
     }
 
     const firstGuild = this.client.guilds.cache.first();
@@ -79,12 +80,12 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     const guild = await this.getGuild();
     const channel = await guild.channels.fetch(args.channelId).catch(() => null);
 
-    if (!channel || !channel.isTextBased()) {
+    if (!channel || !channel.isTextBased() || !("permissionOverwrites" in channel)) {
       throw new Error(`Channel "${args.channelId}" was not found or is not a text channel.`);
     }
 
     // Archive by making channel read-only for @everyone
-    await (channel as GuildTextBasedChannel).permissionOverwrites.edit(
+    await channel.permissionOverwrites.edit(
       guild.roles.everyone,
       {
         SendMessages: false,

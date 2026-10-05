@@ -1,160 +1,121 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const BASE_URL = "http://localhost:3001";
+const workspace = process.cwd();
+const encryptionKey = Buffer.alloc(32, 19).toString("base64");
 
-describe("Pachiware Agent Full End-to-End API & Engine Verification", () => {
-  it("should return healthy status for Database and Redis on /api/health", async () => {
-    const res = await fetch(`${BASE_URL}/api/health`);
-    expect(res.status).toBe(200);
+function runApiScenario(script: string) {
+  const directory = mkdtempSync(join(tmpdir(), "pachiware-api-"));
+  const result = Bun.spawnSync({
+    cmd: ["bun", "--eval", script],
+    cwd: workspace,
+    env: {
+      ...process.env,
+      DATABASE_URL: `sqlite:${join(directory, "phase13.db")}`,
+      PLATFORM_ENCRYPTION_KEY: encryptionKey,
+      PLATFORM_ADMIN_KEY: "phase13-admin-key",
+      NODE_ENV: "test",
+    },
+  });
+  return { directory, result };
+}
 
-    const body = await res.json();
-    expect(body.services.redis).toContain("healthy");
+function stderr(result: ReturnType<typeof Bun.spawnSync>) {
+  return new TextDecoder().decode(result.stderr).trim();
+}
+
+function jsonOutput(result: ReturnType<typeof Bun.spawnSync>) {
+  const stdout = new TextDecoder().decode(result.stdout).trim().split("\n");
+  return JSON.parse(stdout.at(-1)!);
+}
+
+describe("Phase 13 tenant API", () => {
+  test("enforces admin, tenant auth, scopes, isolation, encrypted config, and bot lifecycle", () => {
+    const { directory, result } = runApiScenario(`
+      const assert = (condition, message) => { if (!condition) throw new Error(message); };
+      const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))});
+      const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
+      const { db, agentsConfig, eq } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
+      await runMigrations(); await runSeed();
+      const { createServer } = await import(${JSON.stringify(join(workspace, "apps/agent/src/server.ts"))});
+      const { discordBotManager } = await import(${JSON.stringify(join(workspace, "apps/agent/src/discord/client.ts"))});
+      const calls = [];
+      discordBotManager.startBot = async (id) => (calls.push(["start", id]), { success: true });
+      discordBotManager.restartBot = async (id) => (calls.push(["restart", id]), { success: true });
+      discordBotManager.removeBot = async (id) => (calls.push(["remove", id]), { success: true });
+      discordBotManager.stopBot = async (id) => (calls.push(["stop", id]), { success: true });
+      const app = createServer();
+      const admin = { "X-Platform-Key": "phase13-admin-key", "Content-Type": "application/json" };
+      const request = async (path, init = {}) => app.request(path, init);
+      const body = async (res) => await res.json();
+      const create = async (name, slug) => { const res = await request("/api/admin/tenants", { method: "POST", headers: admin, body: JSON.stringify({ name, slug }) }); assert(res.status === 201, "tenant provisioning failed"); return (await body(res)).tenant; };
+      const first = await create("First", "first"); const second = await create("Second", "second");
+      const issue = async (tenant, scopes = []) => { const res = await request("/api/admin/tenants/" + tenant.id + "/api-keys", { method: "POST", headers: admin, body: JSON.stringify({ name: "test", scopes }) }); assert(res.status === 201, "key issuance failed"); return body(res); };
+      const firstKey = await issue(first); const secondKey = await issue(second); const scoped = await issue(first, ["tasks:read"]);
+      const auth = (key) => ({ Authorization: "Bearer " + key, "Content-Type": "application/json" });
+      assert((await request("/api/admin/tenants")).status === 401, "admin key required");
+      assert((await request("/api/v1/tasks")).status === 401, "tenant key required");
+      assert((await request("/api/v1/tasks", { headers: auth("bad") })).status === 401, "bad key rejected");
+      assert((await request("/api/v1/tasks", { method: "POST", headers: auth(scoped.raw), body: JSON.stringify({ title: "denied" }) })).status === 403, "write scope rejected");
+      const created = await request("/api/v1/tasks", { method: "POST", headers: auth(firstKey.raw), body: JSON.stringify({ title: "private deploy", priority: "high" }) });
+      assert(created.status === 201, "task creation failed"); const task = (await body(created)).task;
+      const secondList = await body(await request("/api/v1/tasks?search=private", { headers: auth(secondKey.raw) }));
+      assert(secondList.tasks.length === 0 && secondList.counts.total === 0, "task crossed tenant boundary");
+      assert((await request("/api/v1/tasks/" + task.id, { method: "PATCH", headers: auth(secondKey.raw), body: JSON.stringify({ status: "completed" }) })).status === 404, "foreign task update rejected");
+      const list = await body(await request("/api/v1/tasks?search=private", { headers: auth(firstKey.raw) }));
+      assert(list.tasks.length === 1 && list.counts.pending === 1, "tenant task search/counts failed");
+      assert((await request("/api/v1/tasks/" + task.id, { method: "DELETE", headers: auth(firstKey.raw) })).status === 200, "task delete failed");
+      assert((await request("/api/admin/api-keys/" + firstKey.keyId, { method: "DELETE", headers: admin })).status === 200, "key revoke failed");
+      assert((await request("/api/v1/tasks", { headers: auth(firstKey.raw) })).status === 401, "revoked key accepted");
+      const configPut = await request("/api/v1/config", { method: "PUT", headers: auth(secondKey.raw), body: JSON.stringify({ openaiApiKeyEncrypted: "tenant-secret", defaultModel: "tenant-model" }) });
+      assert(configPut.status === 200, "config update failed");
+      const config = await body(await request("/api/v1/config", { headers: auth(secondKey.raw) }));
+      assert(config.config.openaiApiKeyEncrypted === "••••••••", "config secret exposed");
+      const [stored] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, second.id));
+      assert(stored.openaiApiKeyEncrypted !== "tenant-secret" && stored.openaiApiKeyEncrypted.startsWith("v1:"), "config secret not encrypted");
+      const botRes = await request("/api/v1/bots", { method: "POST", headers: auth(secondKey.raw), body: JSON.stringify({ name: "test bot", token: "bot-secret", isEnabled: false }) });
+      assert(botRes.status === 201, "bot creation failed"); const bot = (await body(botRes)).bot;
+      assert(!JSON.stringify(bot).includes("bot-secret"), "bot secret exposed");
+      assert((await request("/api/v1/bots/" + bot.id, { method: "PATCH", headers: auth(secondKey.raw), body: JSON.stringify({ name: "updated" }) })).status === 200, "bot update failed");
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async () => new Response(JSON.stringify({ id: "discord-user", username: "mock" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      assert((await request("/api/v1/bots/" + bot.id + "/test", { method: "POST", headers: auth(secondKey.raw), body: JSON.stringify({}) })).status === 200, "bot token test failed"); globalThis.fetch = originalFetch;
+      assert((await request("/api/v1/bots/" + bot.id + "/restart", { method: "POST", headers: auth(secondKey.raw) })).status === 200, "bot restart failed");
+      assert((await request("/api/v1/bots/" + bot.id, { method: "DELETE", headers: auth(secondKey.raw) })).status === 200, "bot delete failed");
+      assert(calls.some(([name]) => name === "restart") && calls.some(([name]) => name === "remove"), "bot manager was not called");
+      assert((await request("/api/admin/tenants/" + second.id, { method: "PATCH", headers: admin, body: JSON.stringify({ status: "suspended" }) })).status === 200, "tenant suspend failed");
+      assert((await request("/api/v1/tasks", { headers: auth(secondKey.raw) })).status === 403, "suspended tenant accepted");
+      const cors = await request("/api/v1/tasks", { method: "OPTIONS", headers: { Origin: "https://operator.example", "Access-Control-Request-Method": "GET" } });
+      assert(cors.headers.get("access-control-allow-methods")?.includes("GET"), "CORS preflight missing");
+      console.log(JSON.stringify({ ok: true, botCalls: calls.length }));
+    `);
+    try { expect(result.exitCode, stderr(result)).toBe(0); expect(jsonOutput(result)).toMatchObject({ ok: true, botCalls: expect.any(Number) }); }
+    finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
-  it("should retrieve and update agent configuration", async () => {
-    // 1. Get config
-    const getRes = await fetch(`${BASE_URL}/api/agent/config`);
-    expect(getRes.status).toBe(200);
-    const getBody = await getRes.json();
-    expect(getBody.success).toBe(true);
-    expect(getBody.config.name).toBeDefined();
-
-    // 2. Update config
-    const updateRes = await fetch(`${BASE_URL}/api/agent/config`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        temperature: 0.75,
-      }),
-    });
-    expect(updateRes.status).toBe(200);
-    const updateBody = await updateRes.json();
-    expect(updateBody.success).toBe(true);
-    expect(updateBody.config.temperature).toBe(0.75);
-  });
-
-  it("should list registered skills and toggle enabled status", async () => {
-    // 1. List skills
-    const res = await fetch(`${BASE_URL}/api/skills`);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
-    expect(body.skills.length).toBeGreaterThanOrEqual(2);
-
-    const taskSkill = body.skills.find((s: any) => s.id === "task_management");
-    expect(taskSkill).toBeDefined();
-    const originalState = taskSkill.isEnabled;
-
-    // 2. Toggle skill
-    const toggleRes = await fetch(`${BASE_URL}/api/skills/task_management/toggle`, {
-      method: "PATCH",
-    });
-    expect(toggleRes.status).toBe(200);
-    const toggleBody = await toggleRes.json();
-    expect(toggleBody.success).toBe(true);
-    expect(toggleBody.skill.isEnabled).toBe(!originalState);
-
-    // 3. Toggle back to original state
-    const restoreRes = await fetch(`${BASE_URL}/api/skills/task_management/toggle`, {
-      method: "PATCH",
-    });
-    const restoreBody = await restoreRes.json();
-    expect(restoreBody.skill.isEnabled).toBe(originalState);
-  });
-
-  it("should execute full Task CRUD lifecycle via REST API", async () => {
-    // 1. Create Task
-    const createRes = await fetch(`${BASE_URL}/api/tasks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "E2E Verification Temporary Task",
-        description: "Testing API lifecycle",
-        priority: "high",
-        assignedTo: "qa-suite",
-      }),
-    });
-    expect(createRes.status).toBe(201);
-    const createBody = await createRes.json();
-    expect(createBody.success).toBe(true);
-    const taskId = createBody.task.id;
-
-    // 2. Update status
-    const updateRes = await fetch(`${BASE_URL}/api/tasks/${taskId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "completed" }),
-    });
-    expect(updateRes.status).toBe(200);
-    const updateBody = await updateRes.json();
-    expect(updateBody.task.status).toBe("completed");
-
-    // 3. Delete Task
-    const deleteRes = await fetch(`${BASE_URL}/api/tasks/${taskId}`, {
-      method: "DELETE",
-    });
-    expect(deleteRes.status).toBe(200);
-  });
-
-  it("should execute conversational ReAct loop and return tool execution traces", async () => {
-    const chatRes = await fetch(`${BASE_URL}/api/agent/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: "Please create task \"Deploy Edge Gateway Service\" with priority high",
-      }),
-    });
-
-    expect(chatRes.status).toBe(200);
-    const chatBody = await chatRes.json();
-    expect(chatBody.success).toBe(true);
-    expect(chatBody.reply).toBeDefined();
-    expect(chatBody.toolsExecuted.length).toBeGreaterThan(0);
-    expect(chatBody.toolsExecuted[0].call.name).toBe("createTask");
-    expect(chatBody.toolsExecuted[0].result.success).toBe(true);
-  });
-
-  it("should retrieve and manage infrastructure config via runtime store", async () => {
-    // 1. Get infrastructure config
-    const res = await fetch(`${BASE_URL}/api/agent/infrastructure`);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
-    expect(body.infrastructure.databaseUrl).toBeDefined();
-    expect(body.infrastructure.redisUrl).toBeDefined();
-    expect(body.infrastructure.notice).toContain(".env is protected");
-
-    // 2. Test DB ping
-    const testDbRes = await fetch(`${BASE_URL}/api/agent/infrastructure/test-db`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    expect(testDbRes.status).toBe(200);
-    const testDbBody = await testDbRes.json();
-    expect(testDbBody.success).toBe(true);
-  });
-
-  it("should safely mask secrets and support dynamic provider updates", async () => {
-    // 1. Update config with test key
-    const updateRes = await fetch(`${BASE_URL}/api/agent/config`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        customModel: "gpt-4o",
-      }),
-    });
-    expect(updateRes.status).toBe(200);
-    const updateBody = await updateRes.json();
-    expect(updateBody.success).toBe(true);
-
-    // 2. Fetch config and verify secrets are masked
-    const getRes = await fetch(`${BASE_URL}/api/agent/config`);
-    expect(getRes.status).toBe(200);
-    const getBody = await getRes.json();
-    if (getBody.config.customApiKey) {
-      expect(getBody.config.customApiKey).toContain("••••");
-    }
+  test("rejects cross-tenant conversations and records ReAct LLM/tool usage", () => {
+    const { directory, result } = runApiScenario(`
+      const assert = (condition, message) => { if (!condition) throw new Error(message); };
+      const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))}); const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
+      const { db, usageEvents, tenantSkills, eq } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))}); const { createTenant, issueApiKey } = await import(${JSON.stringify(join(workspace, "packages/db/src/tenancy.ts"))});
+      await runMigrations(); await runSeed(); const first = await createTenant({ name: "Chat one", slug: "chat-one" }); const second = await createTenant({ name: "Chat two", slug: "chat-two" }); const firstKey = await issueApiKey(first.id); const secondKey = await issueApiKey(second.id);
+      const { createServer } = await import(${JSON.stringify(join(workspace, "apps/agent/src/server.ts"))}); const app = createServer(); const auth = (key) => ({ Authorization: "Bearer " + key, "Content-Type": "application/json" });
+      assert((await app.request("/api/v1/config", { method: "PUT", headers: auth(firstKey.raw), body: JSON.stringify({ openaiApiKeyEncrypted: "mock-openai-key" }) })).status === 200, "LLM config failed");
+      let completions = 0; const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (_url, init) => { completions++; const request = JSON.parse(init.body); assert(request.tools.some((tool) => tool.function.name === "createTask"), "active tool absent"); return new Response(JSON.stringify({ choices: [{ message: completions === 1 ? { content: null, tool_calls: [{ id: "tool-1", type: "function", function: { name: "createTask", arguments: JSON.stringify({ title: "via react" }) } }] } : { content: "created" } }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } }), { headers: { "Content-Type": "application/json" } }); };
+      const chat = await app.request("/api/v1/chat", { method: "POST", headers: auth(firstKey.raw), body: JSON.stringify({ message: "create a task" }) }); globalThis.fetch = originalFetch;
+      assert(chat.status === 200, "ReAct chat failed"); const payload = await chat.json(); assert(payload.reply === "created" && payload.toolsExecuted.length === 1 && payload.toolsExecuted[0].result.success, "ReAct tool cycle failed: " + JSON.stringify(payload));
+      assert((await app.request("/api/v1/conversations/" + payload.conversationId + "/messages", { headers: auth(secondKey.raw) })).status === 404, "foreign conversation visible");
+      assert((await app.request("/api/v1/chat", { method: "POST", headers: auth(secondKey.raw), body: JSON.stringify({ message: "reuse", conversationId: payload.conversationId }) })).status === 404, "foreign conversation reuse accepted");
+      const usage = await db.select().from(usageEvents).where(eq(usageEvents.tenantId, first.id)); assert(usage.filter((row) => row.type === "llm_tokens").length === 2 && usage.some((row) => row.type === "tool_call"), "usage events absent");
+      const aggregate = await (await app.request("/api/admin/tenants/" + first.id + "/usage", { headers: { "X-Platform-Key": "phase13-admin-key" } })).json(); assert(aggregate.usage.some((row) => row.type === "llm_tokens" && row.events === 2), "usage aggregate incorrect");
+      await db.update(tenantSkills).set({ isEnabled: false }).where(eq(tenantSkills.tenantId, second.id)); const skills = await (await app.request("/api/v1/skills", { headers: auth(secondKey.raw) })).json(); assert(skills.skills.every((skill) => !skill.isEnabled), "all skills not disabled");
+      const disabled = await (await app.request("/api/v1/skills/test", { method: "POST", headers: auth(secondKey.raw), body: JSON.stringify({ toolName: "createTask", arguments: { title: "blocked" } }) })).json(); assert(!disabled.result.success && disabled.result.error.includes("disabled"), "disabled tool executed");
+      console.log(JSON.stringify({ ok: true, usage: usage.length, completions }));
+    `);
+    try { expect(result.exitCode, stderr(result)).toBe(0); expect(jsonOutput(result)).toMatchObject({ ok: true, completions: 2 }); }
+    finally { rmSync(directory, { recursive: true, force: true }); }
   });
 });
-

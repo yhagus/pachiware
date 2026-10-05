@@ -133,13 +133,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </div>
           <div className="text-xl font-bold text-white">
-            {health?.services.discord.connected ? "Connected" : "Standby Mode"}
+            {health?.services.discord.some((bot) => bot.connected) ? "Connected" : "Standby Mode"}
           </div>
           <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
             <span>
-              {health?.services.discord.connected
-                ? `${health.services.discord.botTag}`
-                : "Simulation fallback active"}
+              {health?.services.discord.some((bot) => bot.connected)
+                ? `${health?.services.discord.filter((bot) => bot.connected).length || 0} connected bots`
+                : "No bots connected"}
             </span>
           </div>
         </div>

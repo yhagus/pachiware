@@ -4,6 +4,8 @@ import { spawn, spawnSync, execSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync, realpathSync } from "fs";
 import { resolve, join, dirname } from "path";
 import { createConnection } from "net";
+import { createInterface } from "readline/promises";
+import { stdin as input, stdout as output } from "process";
 
 const VERSION = "1.0.0";
 
@@ -235,6 +237,52 @@ async function isPortOpen(host: string, port: number, timeoutMs = 1500): Promise
   });
 }
 
+async function ask(question: string, fallback: string): Promise<string> {
+  if (!input.isTTY || !output.isTTY) return fallback;
+  const readline = createInterface({ input, output });
+  try {
+    const answer = (await readline.question(`${question} ${c.gray}[${fallback}]${c.reset} `)).trim();
+    return answer || fallback;
+  } finally {
+    readline.close();
+  }
+}
+
+async function chooseDatabase(options: { database?: string; postgresUrl?: string; currentUrl?: string } = {}) {
+  const currentChoice = options.currentUrl?.startsWith("postgres") ? "2" : "1";
+  const choice = options.database || (!input.isTTY || !output.isTTY ? currentChoice : await ask(
+    `${c.bold}Database${c.reset}: ${c.cyan}1${c.reset}) SQLite  ${c.cyan}2${c.reset}) PostgreSQL external  ${c.cyan}3${c.reset}) PostgreSQL 18 Docker`,
+    "1"
+  ));
+  if (choice === "2" || /postgres/i.test(choice)) {
+    return {
+      url: options.postgresUrl || (!input.isTTY || !output.isTTY
+        ? options.currentUrl || "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent"
+        : await ask("PostgreSQL connection URL:", "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent")),
+      label: "PostgreSQL (external)",
+      needsDocker: false,
+    };
+  }
+  if (choice === "3" || /docker/i.test(choice)) {
+    return { url: "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent", label: "PostgreSQL 18 (bundled Docker)", needsDocker: true };
+  }
+  return { url: "sqlite:./data/pachiware.db", label: "SQLite (zero-config)", needsDocker: false };
+}
+
+function updateEnvValue(envFile: string, key: string, value: string): void {
+  const lines = existsSync(envFile) ? readFileSync(envFile, "utf8").split(/\r?\n/) : [];
+  let replaced = false;
+  const next = lines.map((line) => {
+    if (line.startsWith(`${key}=`)) {
+      replaced = true;
+      return `${key}=${value}`;
+    }
+    return line;
+  });
+  if (!replaced) next.push(`${key}=${value}`);
+  writeFileSync(envFile, `${next.join("\n").replace(/\n*$/, "")}\n`);
+}
+
 const program = new Command();
 
 program
@@ -250,9 +298,11 @@ program
 program
   .command("init [dir]")
   .description("Initialize or scaffold a Pachiware Agent deployment")
-  .action(async (dir) => {
+  .option("--database <choice>", "Database choice: sqlite, postgres, or docker")
+  .option("--postgres-url <url>", "PostgreSQL URL when using external PostgreSQL")
+  .action(async (dir, options) => {
     console.log(BANNER);
-    const targetDir = dir ? resolve(process.cwd(), dir) : rootDir;
+    const targetDir = dir ? resolve(process.cwd(), dir) : requireWorkspaceRoot();
     console.log(`${c.green}⚡ Initializing Pachiware Agent at:${c.reset} ${c.bold}${targetDir}${c.reset}\n`);
 
     // 1. Check or create .env
@@ -264,6 +314,17 @@ program
       console.log(`  ${c.green}✔${c.reset} Created ${c.cyan}.env${c.reset} configuration from template.`);
     } else if (existsSync(envFile)) {
       console.log(`  ${c.green}✔${c.reset} Existing ${c.cyan}.env${c.reset} configuration detected.`);
+    }
+
+    const database = await chooseDatabase({ ...options, currentUrl: getDatabaseTarget(targetDir).url });
+    updateEnvValue(envFile, "DATABASE_URL", database.url);
+    console.log(`  ${c.green}✔${c.reset} Database selected: ${database.label}`);
+    if (database.needsDocker) {
+      console.log(`  ${c.cyan}ℹ${c.reset} Run ${c.bold}pachiware start --docker${c.reset} to start PostgreSQL 18 and Redis.`);
+    } else if (database.url.startsWith("sqlite:")) {
+      console.log(`  ${c.cyan}ℹ${c.reset} SQLite needs no Docker, PostgreSQL, or Redis setup.`);
+    } else {
+      console.log(`  ${c.cyan}ℹ${c.reset} Verify PostgreSQL is reachable before running ${c.bold}pachiware start${c.reset}.`);
     }
 
     // 2. Docker compose check
@@ -418,7 +479,7 @@ program
 
       if (options.docker || options.all) {
         try {
-          execSync("docker compose down", { cwd: rootDir, stdio: "inherit" });
+          execSync("docker compose down", { cwd: requireWorkspaceRoot(), stdio: "inherit" });
           console.log(`  ${c.green}✔${c.reset} Docker containers stopped.`);
         } catch {}
       }
@@ -442,7 +503,7 @@ program
       execSync("pkill -f 'vite --port 3000' || true", { stdio: "pipe" });
       if (options.docker) {
         try {
-          execSync("docker compose restart", { cwd: rootDir, stdio: "inherit" });
+          execSync("docker compose restart", { cwd: requireWorkspaceRoot(), stdio: "inherit" });
         } catch {}
       }
       console.log(`${c.green}Services restarted. Run 'pachiware start' or check 'pachiware status'.${c.reset}`);
@@ -691,9 +752,9 @@ program
   .action(async (message) => {
     console.log(`${c.cyan}Sending prompt to Pachiware ReAct Engine...${c.reset}\n`);
     try {
-      const res = await fetch("http://localhost:3001/api/agent/chat", {
+      const res = await fetch(`http://localhost:${process.env.AGENT_PORT || "3001"}/api/v1/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.PACHIWARE_API_KEY || ""}` },
         body: JSON.stringify({ message }),
       });
 
@@ -758,7 +819,7 @@ program
       if (rootDir) {
         console.log(`  ${c.cyan}→ Stopping bundled Docker containers...${c.reset}`);
         try {
-          execSync("docker compose down -v", { cwd: rootDir, stdio: "inherit" });
+          execSync("docker compose down -v", { cwd: requireWorkspaceRoot(), stdio: "inherit" });
           console.log(`  ${c.green}✔${c.reset} Docker containers stopped and removed.`);
         } catch {
           console.log(`  ${c.gray}  (No running Docker containers found — skipping.)${c.reset}`);

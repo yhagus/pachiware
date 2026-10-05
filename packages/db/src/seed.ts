@@ -1,74 +1,21 @@
-import { db, agentsConfig, skills, tasks } from "./index.js";
-import { eq } from "drizzle-orm";
+import { db, agentsConfig, skills, tenantSkills, tenants, tasks } from "./index.js";
+import { eq, and } from "drizzle-orm";
+
+export async function seedTenant(tenantId: string, store = db) {
+  await store.insert(agentsConfig).values({ tenantId, settings: { maxReActIterations: 8 } }).onConflictDoNothing();
+  const definitions = await store.select().from(skills);
+  for (const skill of definitions) {
+    await store.insert(tenantSkills).values({ tenantId, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config }).onConflictDoNothing();
+  }
+}
 
 export async function runSeed() {
-  console.log("🌱 Seeding default database entities...");
-
-  // 1. Seed Agent Configuration
-  const existingConfig = await db
-    .select()
-    .from(agentsConfig)
-    .where(eq(agentsConfig.id, "default"))
-    .limit(1);
-
-  if (existingConfig.length === 0) {
-    await db.insert(agentsConfig).values({
-      id: "default",
-      name: "Pachiware Agent",
-      systemPrompt:
-        "You are Pachiware Agent, a helpful, proactive, and precise AI assistant. You help manage Discord servers, organize and track tasks, and solve user problems autonomously. Always use the provided tools to take action when requested, and provide clear summaries.",
-      defaultProvider: process.env.DEFAULT_LLM_PROVIDER || "openai",
-      defaultModel: process.env.DEFAULT_MODEL || "gpt-4o",
-      temperature: 0.7,
-      maxTokens: 4096,
-      openaiApiKey: process.env.OPENAI_API_KEY || null,
-      openaiBaseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-      openaiModel: process.env.DEFAULT_MODEL || "gpt-4o",
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY || null,
-      anthropicBaseUrl: "https://api.anthropic.com/v1",
-      anthropicModel: "claude-3-5-sonnet-20241022",
-      customBaseUrl: process.env.CUSTOM_LLM_BASE_URL || "https://api.9router.com/v1",
-      customApiKey: process.env.CUSTOM_LLM_API_KEY || null,
-      customModel: process.env.CUSTOM_LLM_MODEL || "gpt-4o",
-      discordBotToken: process.env.DISCORD_BOT_TOKEN || null,
-      discordClientId: process.env.DISCORD_CLIENT_ID || null,
-      discordGuildId: process.env.DISCORD_GUILD_ID || null,
-      settings: {
-        autoArchiveChannels: false,
-        discordLogVerbosity: "info",
-        maxReActIterations: 8,
-      },
-    });
-    console.log("  [+] Inserted default agent configuration with initial environment defaults");
-  } else {
-    // Backfill any missing columns from environment if not yet configured in DB
-    const current = existingConfig[0];
-    const backfill: Record<string, any> = {};
-
-    if (!current.openaiApiKey && process.env.OPENAI_API_KEY) backfill.openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!current.openaiBaseUrl && process.env.OPENAI_BASE_URL) backfill.openaiBaseUrl = process.env.OPENAI_BASE_URL;
-    if (!current.anthropicApiKey && process.env.ANTHROPIC_API_KEY) backfill.anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    if (!current.customApiKey && process.env.CUSTOM_LLM_API_KEY) backfill.customApiKey = process.env.CUSTOM_LLM_API_KEY;
-    if (!current.customBaseUrl && process.env.CUSTOM_LLM_BASE_URL) backfill.customBaseUrl = process.env.CUSTOM_LLM_BASE_URL;
-    if (!current.customModel && process.env.CUSTOM_LLM_MODEL) backfill.customModel = process.env.CUSTOM_LLM_MODEL;
-    if (!current.discordBotToken && process.env.DISCORD_BOT_TOKEN) backfill.discordBotToken = process.env.DISCORD_BOT_TOKEN;
-    if (!current.discordClientId && process.env.DISCORD_CLIENT_ID) backfill.discordClientId = process.env.DISCORD_CLIENT_ID;
-    if (!current.discordGuildId && process.env.DISCORD_GUILD_ID) backfill.discordGuildId = process.env.DISCORD_GUILD_ID;
-
-    if (Object.keys(backfill).length > 0) {
-      await db.update(agentsConfig).set(backfill).where(eq(agentsConfig.id, "default"));
-      console.log(`  [+] Backfilled ${Object.keys(backfill).length} initial config values from environment`);
-    } else {
-      console.log("  [*] Agent configuration already exists and is fully populated");
-    }
-  }
-
   // 2. Seed Built-in Skills
   const taskManagementSkill = {
     id: "task_management",
     name: "Task Management",
     description: "Create, view, update status, and assign tasks stored in PostgreSQL.",
-    isEnabled: true,
+    defaultEnabled: true,
     handlerType: "builtin",
     toolDefinitions: [
       {
@@ -142,7 +89,7 @@ export async function runSeed() {
     id: "discord_management",
     name: "Discord Management",
     description: "Manage Discord guild channels, topics, archiving, and permissions.",
-    isEnabled: true,
+    defaultEnabled: true,
     handlerType: "builtin",
     toolDefinitions: [
       {
@@ -224,43 +171,16 @@ export async function runSeed() {
     }
   }
 
-  // 3. Seed Initial Starter Tasks
-  const existingTasks = await db.select().from(tasks).limit(1);
-  if (existingTasks.length === 0) {
-    await db.insert(tasks).values([
-      {
-        title: "Setup Discord Server Welcome Channel",
-        description: "Create a dedicated onboarding channel with rules and role assignments.",
-        status: "completed",
-        priority: "high",
-        assignedTo: "pachiware-agent",
-      },
-      {
-        title: "Integrate Redis Rate-Limiter",
-        description: "Configure token bucket rate limiting for Discord message events and LLM calls.",
-        status: "in_progress",
-        priority: "high",
-        assignedTo: "core-team",
-      },
-      {
-        title: "Build Agent Management Web Dashboard",
-        description: "Provide interactive prompt editing, skill toggling, and Kanban task board.",
-        status: "in_progress",
-        priority: "medium",
-        assignedTo: "frontend-team",
-      },
-    ]);
-    console.log("  [+] Inserted sample starter tasks");
+  const allTenants = await db.select().from(tenants);
+  for (const tenant of allTenants) {
+    await seedTenant(tenant.id);
+    if (tenant.platformMetadata?.bootstrap !== true) continue;
+    const existingTasks = await db.select().from(tasks).where(eq(tasks.tenantId, tenant.id)).limit(1);
+    if (!existingTasks.length) {
+      await db.insert(tasks).values({ tenantId: tenant.id, title: "Configure your tenant agent", description: "Set your LLM credentials and connect a Discord bot in the operator console." });
+    }
   }
-
-  console.log("✅ Seeding completed successfully!");
+  console.log("Platform skills and tenant defaults seeded.");
 }
 
-if (import.meta.main || process.argv[1]?.endsWith("seed.ts")) {
-  runSeed()
-    .then(() => process.exit(0))
-    .catch((err) => {
-      console.error("❌ Seeding failed:", err);
-      process.exit(1);
-    });
-}
+if (import.meta.main) runSeed().then(() => process.exit(0)).catch(() => { console.error("Seed failed."); process.exit(1); });

@@ -67,6 +67,8 @@ export interface DiscordClientAdapter {
 }
 
 export interface SkillContext {
+  tenantId: string;
+  botId?: string;
   db: typeof db;
   discord?: DiscordClientAdapter;
   guildId?: string;

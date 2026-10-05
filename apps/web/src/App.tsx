@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Sidebar, type NavTab } from "./components/Sidebar.js";
 import { Header } from "./components/Header.js";
 import { DashboardOverview } from "./pages/DashboardOverview.js";
@@ -6,12 +6,14 @@ import { AgentPersonality } from "./pages/AgentPersonality.js";
 import { SkillsManager } from "./pages/SkillsManager.js";
 import { TaskManager } from "./pages/TaskManager.js";
 import { LLMRouterConfig } from "./pages/LLMRouterConfig.js";
-import { DiscordConfig } from "./pages/DiscordConfig.js";
+import { BotsManager } from "./pages/BotsManager.js";
+import { OperatorCredentials } from "./components/OperatorCredentials.js";
 import { InfrastructureConfig } from "./pages/InfrastructureConfig.js";
 import { AgentPlayground } from "./pages/AgentPlayground.js";
 import { SetupWizard } from "./components/SetupWizard.js";
 import {
   api,
+  getApiKey,
   type HealthResponse,
   type AgentConfigData,
   type SkillItem,
@@ -19,6 +21,8 @@ import {
 } from "./lib/api.js";
 
 export function App() {
+  const activeApiKey = getApiKey();
+  const [credentialVersion, setCredentialVersion] = useState(0);
   const [currentTab, setCurrentTab] = useState<NavTab>("overview");
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [config, setConfig] = useState<AgentConfigData | null>(null);
@@ -32,16 +36,25 @@ export function App() {
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const requestVersion = useRef(0);
+  const [dataError, setDataError] = useState("");
   const fetchAllData = async () => {
+    const version = ++requestVersion.current;
     setIsRefreshing(true);
     try {
       const [healthRes, configRes, skillsRes, tasksRes] = await Promise.all([
         api.getHealth().catch(() => null),
-        api.getAgentConfig().catch(() => null),
+        api.getAgentConfig().catch((err) => { if (version === requestVersion.current) setDataError(err.message); return null; }),
         api.getSkills().catch(() => null),
         api.getTasks().catch(() => null),
       ]);
 
+      if (version !== requestVersion.current) return;
+      if (configRes) setDataError("");
+      setConfig(configRes?.config || null);
+      setSkills(skillsRes?.skills || []);
+      setTasks(tasksRes?.tasks || []);
+      if (!tasksRes) setTaskCounts({ total: 0, pending: 0, in_progress: 0, completed: 0 });
       if (healthRes) setHealth(healthRes);
       if (configRes?.config) setConfig(configRes.config);
       if (skillsRes?.skills) setSkills(skillsRes.skills);
@@ -57,7 +70,9 @@ export function App() {
   useEffect(() => {
     fetchAllData();
     const interval = setInterval(fetchAllData, 15000);
-    return () => clearInterval(interval);
+    const changed = () => { setCredentialVersion((version) => version + 1); setConfig(null); setSkills([]); setTasks([]); void fetchAllData(); };
+    window.addEventListener("pachiware:credentials", changed);
+    return () => { clearInterval(interval); window.removeEventListener("pachiware:credentials", changed); };
   }, []);
 
   const getHeaderInfo = () => {
@@ -75,7 +90,7 @@ export function App() {
       case "tasks":
         return {
           title: "Task Management Kanban",
-          subtitle: "PostgreSQL 18 task workflow synchronized with Discord & Web",
+          subtitle: "Tenant task workflow synchronized with Discord & Web",
         };
       case "llm":
         return {
@@ -84,7 +99,7 @@ export function App() {
         };
       case "discord":
         return {
-          title: "Discord Bot & Gateway",
+          title: "Tenant Discord Bots",
           subtitle: "Manage Discord bot tokens, guild binding, and hot-reload Gateway connection",
         };
       case "infrastructure":
@@ -136,7 +151,9 @@ export function App() {
           isRefreshing={isRefreshing}
         />
 
-        <main className="flex-1 p-8 overflow-y-auto">
+        <OperatorCredentials />
+        {dataError && <p role="alert" className="px-6 py-3 text-sm text-amber-300">{dataError}</p>}
+        <main key={credentialVersion} className="flex-1 p-4 sm:p-8 overflow-y-auto">
           {currentTab === "overview" && (
             <DashboardOverview
               health={health}
@@ -151,7 +168,7 @@ export function App() {
           {currentTab === "personality" && (
             <AgentPersonality
               initialConfig={config}
-              onConfigSaved={(newCfg) => setConfig(newCfg)}
+              onConfigSaved={(newCfg) => { if (getApiKey() === activeApiKey) setConfig(newCfg); }}
             />
           )}
 
@@ -172,17 +189,12 @@ export function App() {
           {currentTab === "llm" && (
             <LLMRouterConfig
               initialConfig={config}
-              onConfigSaved={(newCfg) => setConfig(newCfg)}
+              onConfigSaved={(newCfg) => { if (getApiKey() === activeApiKey) setConfig(newCfg); }}
             />
           )}
 
           {currentTab === "discord" && (
-            <DiscordConfig
-              initialConfig={config}
-              health={health}
-              onConfigSaved={(newCfg) => setConfig(newCfg)}
-              onRefreshHealth={fetchAllData}
-            />
+            <BotsManager />
           )}
 
           {currentTab === "infrastructure" && (

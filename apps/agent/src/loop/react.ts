@@ -1,11 +1,13 @@
 import { db, conversations, messages as messagesTable } from "@pachiware/db";
-import { eq, asc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { skillRegistry, type ToolCall, type ToolResult, type SkillContext } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
 
 export interface ReActInput {
+  tenantId: string;
+  botId?: string;
   message: string;
   conversationId?: string;
   context: PromptContext & {
@@ -27,15 +29,22 @@ export class AgentReActLoop {
    * Executes the ReAct cycle (Thought -> Action -> Observation -> Answer).
    */
   async run(input: ReActInput): Promise<ReActOutput> {
-    const maxIterations = input.maxIterations || 8;
+    const requestedIterations = Number(input.maxIterations) || 8;
+    const maxIterations = Math.min(32, Math.max(1, requestedIterations));
     const toolCallsExecuted: { call: ToolCall; result: ToolResult }[] = [];
 
     // 1. Ensure conversation exists in PostgreSQL
     let convId = input.conversationId;
+    if (convId) {
+      const [owned] = await db.select().from(conversations).where(and(eq(conversations.id, convId), eq(conversations.tenantId, input.tenantId))).limit(1);
+      if (!owned) throw new Error("Conversation not found");
+    }
     if (!convId) {
       const [newConv] = await db
         .insert(conversations)
         .values({
+          tenantId: input.tenantId,
+          botId: input.botId || null,
           platform: input.context.platform,
           channelId: input.context.channelId || null,
           userId: input.context.userId || null,
@@ -44,22 +53,24 @@ export class AgentReActLoop {
       convId = newConv.id;
     }
 
+    if (!convId) throw new Error("Conversation creation failed");
+
     // 2. Build dynamic system prompt
-    const systemPrompt = await SystemPromptBuilder.build(input.context);
+    const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId });
 
     // 3. Load previous messages from DB
     const existingDbMessages = await db
       .select()
       .from(messagesTable)
-      .where(eq(messagesTable.conversationId, convId))
-      .orderBy(asc(messagesTable.createdAt))
+      .where(and(eq(messagesTable.conversationId, convId), eq(messagesTable.tenantId, input.tenantId)))
+      .orderBy(desc(messagesTable.createdAt))
       .limit(30);
 
     const messageHistory: ChatMessage[] = [
       { role: "system", content: systemPrompt },
     ];
 
-    for (const msg of existingDbMessages) {
+    for (const msg of existingDbMessages.reverse()) {
       messageHistory.push({
         role: msg.role as any,
         content: msg.content,
@@ -75,17 +86,20 @@ export class AgentReActLoop {
     });
 
     await db.insert(messagesTable).values({
+      tenantId: input.tenantId,
       conversationId: convId,
       role: "user",
       content: input.message,
     });
 
     // 5. Retrieve active tools
-    const activeTools = await skillRegistry.getActiveTools();
+    const activeTools = await skillRegistry.getActiveTools(input.tenantId);
 
     // 6. Build execution context for tools
     const skillContext: SkillContext = {
       db,
+      tenantId: input.tenantId,
+      botId: input.botId,
       discord: input.context.skillContext?.discord,
       guildId: input.context.guildId,
       channelId: input.context.channelId,
@@ -102,6 +116,8 @@ export class AgentReActLoop {
 
       // LLM Step (Thinking & Tool Decision)
       const response = await llmRouter.complete(messageHistory, {
+        tenantId: input.tenantId,
+        botId: input.botId,
         tools: activeTools,
       });
 
@@ -117,10 +133,12 @@ export class AgentReActLoop {
       });
 
       await db.insert(messagesTable).values({
+        tenantId: input.tenantId,
         conversationId: convId,
         role: "assistant",
         content: response.content,
         toolCalls: response.toolCalls.length > 0 ? response.toolCalls : null,
+        tokensUsed: response.usage?.totalTokens || null,
       });
 
       // If no tool calls, this is the final answer!
@@ -149,7 +167,8 @@ export class AgentReActLoop {
         });
 
         await db.insert(messagesTable).values({
-          conversationId: convId,
+          tenantId: input.tenantId,
+        conversationId: convId,
           role: "tool",
           content: toolResultContent,
           toolCallId: toolCall.id,

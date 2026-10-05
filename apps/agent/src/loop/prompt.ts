@@ -1,9 +1,10 @@
 import { db, agentsConfig, tasks, type Task } from "@pachiware/db";
-import { eq } from "drizzle-orm";
-import { CacheService } from "../cache/redis.js";
+import { eq, and, ne } from "drizzle-orm";
+import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry } from "@pachiware/skills";
 
 export interface PromptContext {
+  tenantId: string;
   platform: "discord" | "web";
   guildName?: string;
   guildId?: string;
@@ -17,16 +18,16 @@ export class SystemPromptBuilder {
   /**
    * Builds the comprehensive dynamic system prompt.
    */
-  static async build(context?: PromptContext): Promise<string> {
+  static async build(context: PromptContext): Promise<string> {
     // 1. Fetch agent configuration (check Redis cache first)
-    const cacheKey = "agent:config:default";
+    const cacheKey = tenantKey(context.tenantId, "agent:config");
     let config = await CacheService.get<any>(cacheKey);
 
     if (!config) {
       const rows = await db
         .select()
         .from(agentsConfig)
-        .where(eq(agentsConfig.id, "default"))
+        .where(eq(agentsConfig.tenantId, context.tenantId))
         .limit(1);
 
       config = rows[0] || {
@@ -63,13 +64,15 @@ ${context.userName ? `- User: ${context.userName} (ID: ${context.userId})` : ""}
     }
 
     // 5. Active Skills Summary
-    const activeTools = await skillRegistry.getActiveTools();
+    const activeTools = await skillRegistry.getActiveTools(context.tenantId);
     const toolNames = activeTools.map((t) => `\`${t.name}\``).join(", ");
     promptSections.push(`
 ### Active Tools Available:
 ${toolNames.length > 0 ? toolNames : "None currently active."}
 `);
 
+    const activeTasks: Task[] = await db.select().from(tasks).where(and(eq(tasks.tenantId, context.tenantId), ne(tasks.status, "completed"))).limit(10);
+    if (activeTasks.length) promptSections.push("### Active Tasks:\n" + activeTasks.map((task) => `${task.id}: ${task.title} (${task.status})`).join("\n"));
     return promptSections.join("\n").trim();
   }
 }

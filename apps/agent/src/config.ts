@@ -14,27 +14,6 @@ export const config = {
   databaseUrl: infra.databaseUrl,
   redisUrl: infra.redisUrl,
 
-  discord: {
-    token: process.env.DISCORD_BOT_TOKEN || "",
-    clientId: process.env.DISCORD_CLIENT_ID || "",
-    guildId: process.env.DISCORD_GUILD_ID || "",
-  },
-
-  llm: {
-    defaultProvider: (process.env.DEFAULT_LLM_PROVIDER || "openai") as "openai" | "anthropic" | "custom",
-    defaultModel: process.env.DEFAULT_MODEL || "gpt-4o",
-    openai: {
-      apiKey: process.env.OPENAI_API_KEY || "",
-      baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-    },
-    anthropic: {
-      apiKey: process.env.ANTHROPIC_API_KEY || "",
-      baseUrl: "https://api.anthropic.com/v1",
-    },
-    custom: {
-      apiKey: process.env.CUSTOM_LLM_API_KEY || "",
-      baseUrl: process.env.CUSTOM_LLM_BASE_URL || "https://api.9router.com/v1",
-      model: process.env.CUSTOM_LLM_MODEL || "gpt-4o",
-    },
-  },
+  platformAdminKey: process.env.PLATFORM_ADMIN_KEY || process.env.AGENT_SECRET_KEY || "pachiware-super-secret-key-change-me",
+  hasEncryptionKey: Boolean(process.env.PLATFORM_ENCRYPTION_KEY),
 };

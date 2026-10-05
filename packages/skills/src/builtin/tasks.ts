@@ -82,12 +82,14 @@ export const taskManagementSkill: SkillModule = {
       },
       context: SkillContext
     ) => {
+      if (typeof args.title !== "string" || !args.title.trim()) throw new Error("Task title is required");
       const channelId = args.discordChannelId || context.channelId || null;
       const guildId = context.guildId || null;
 
       const [newTask] = await context.db
         .insert(tasks)
         .values({
+          tenantId: context.tenantId,
           title: args.title,
           description: args.description || null,
           priority: args.priority || "medium",
@@ -112,10 +114,10 @@ export const taskManagementSkill: SkillModule = {
       },
       context: SkillContext
     ) => {
-      const limit = args.limit || 20;
+      const limit = Math.min(100, Math.max(1, Number(args.limit) || 20));
       let query = context.db.select().from(tasks).$dynamic();
 
-      const conditions = [];
+      const conditions = [eq(tasks.tenantId, context.tenantId)];
 
       if (args.status && args.status !== "all") {
         conditions.push(eq(tasks.status, args.status));
@@ -144,20 +146,21 @@ export const taskManagementSkill: SkillModule = {
       const existing = await context.db
         .select()
         .from(tasks)
-        .where(eq(tasks.id, args.taskId))
+        .where(and(eq(tasks.id, args.taskId), eq(tasks.tenantId, context.tenantId)))
         .limit(1);
 
       if (existing.length === 0) {
         throw new Error(`Task with ID ${args.taskId} not found.`);
       }
 
+      if (!["pending", "in_progress", "completed"].includes(args.status)) throw new Error("Invalid task status");
       const [updated] = await context.db
         .update(tasks)
         .set({
           status: args.status,
           updatedAt: new Date(),
         })
-        .where(eq(tasks.id, args.taskId))
+        .where(and(eq(tasks.id, args.taskId), eq(tasks.tenantId, context.tenantId)))
         .returning();
 
       return {
@@ -174,7 +177,7 @@ export const taskManagementSkill: SkillModule = {
       const existing = await context.db
         .select()
         .from(tasks)
-        .where(eq(tasks.id, args.taskId))
+        .where(and(eq(tasks.id, args.taskId), eq(tasks.tenantId, context.tenantId)))
         .limit(1);
 
       if (existing.length === 0) {
@@ -187,7 +190,7 @@ export const taskManagementSkill: SkillModule = {
           assignedTo: args.assignedTo,
           updatedAt: new Date(),
         })
-        .where(eq(tasks.id, args.taskId))
+        .where(and(eq(tasks.id, args.taskId), eq(tasks.tenantId, context.tenantId)))
         .returning();
 
       return {
