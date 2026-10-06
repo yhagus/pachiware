@@ -2,6 +2,8 @@ import { defineConfig, loadEnv } from "vite";
 import { fileURLToPath } from "node:url";
 import { operatorSessionPlugin } from "./operator-session.js";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import path from "node:path";
 
 export default defineConfig(({ mode }) => {
   const workspaceRoot = fileURLToPath(new URL("../..", import.meta.url));
@@ -11,7 +13,8 @@ export default defineConfig(({ mode }) => {
   }
   const apiUrl = `http://127.0.0.1:${process.env.AGENT_PORT || hostEnv.AGENT_PORT || "3001"}`;
   return {
-  plugins: [react(), operatorSessionPlugin(workspaceRoot, apiUrl)],
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "./src") } },
+  plugins: [react(), tailwindcss(), operatorSessionPlugin(workspaceRoot)],
   preview: { proxy: { "/api": { target: apiUrl, changeOrigin: true } } },
   server: {
     port: 3000,

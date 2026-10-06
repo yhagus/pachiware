@@ -11,6 +11,7 @@
     "db:migrate": "bun --filter @pachiware/db db:migrate",
     "db:seed": "bun --filter @pachiware/db db:seed",
     "db:studio": "bun --filter @pachiware/db db:studio",
+    "dev": "bun run dev:agent & bun run dev:web & wait",
     "dev:agent": "bun --filter @pachiware/agent dev",
     "dev:web": "bun --filter @pachiware/web dev",
     "build": "bun --filter @pachiware/* build",
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@types/node": "^22.13.0",
     "bun-types": "1.4.0",
+    "shadcn": "^4.21.2",
     "typescript": "^5.7.3"
   }
 }

@@ -7,9 +7,7 @@ import { decryptSecret } from "../../packages/db/src/crypto.js";
 const loopbackAddresses = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 const localHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-type AccessValidator = (apiKey: string, tenantId: string) => Promise<boolean>;
-
-export function operatorSessionMiddleware(workspaceRoot: string, validate: AccessValidator = apiValidator()) {
+export function operatorSessionMiddleware(workspaceRoot: string) {
   return async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     if (req.url?.split("?")[0] !== "/api/console/session") return next();
     res.setHeader("Cache-Control", "no-store");
@@ -28,16 +26,7 @@ export function operatorSessionMiddleware(workspaceRoot: string, validate: Acces
         return res.end(JSON.stringify({ error: "Automatic console access is available only from localhost." }));
       }
       const saved = JSON.parse(readFileSync(resolve(workspaceRoot, "operator-access.json"), "utf8"));
-      const apiKey = decryptSecret(saved.apiKeyEncrypted);
-      let valid: boolean;
-      try { valid = await validate(apiKey, saved.tenantId); }
-      catch {
-        res.statusCode = 503;
-        return res.end(JSON.stringify({ error: "Agent is starting; try again shortly." }));
-      }
-      if (!valid) throw new Error("Operator key is no longer valid.");
-      const platformKey = decryptSecret(saved.platformKeyEncrypted);
-      res.end(JSON.stringify({ apiKey, platformKey }));
+      res.end(JSON.stringify({ platformKey: decryptSecret(saved.platformKeyEncrypted) }));
     } catch {
       res.statusCode = 404;
       res.end(JSON.stringify({ error: "CLI setup has not completed." }));
@@ -45,19 +34,8 @@ export function operatorSessionMiddleware(workspaceRoot: string, validate: Acces
   };
 }
 
-function apiValidator(apiUrl = `http://127.0.0.1:${process.env.AGENT_PORT || "3001"}`): AccessValidator {
-  return async (apiKey, tenantId) => {
-    const response = await fetch(`${apiUrl}/api/v1/config`, {
-      headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) return false;
-    const data = await response.json();
-    return data.config?.tenantId === tenantId;
-  };
-}
-
-export function operatorSessionPlugin(workspaceRoot: string, apiUrl?: string): Plugin {
-  const middleware = operatorSessionMiddleware(workspaceRoot, apiValidator(apiUrl));
+export function operatorSessionPlugin(workspaceRoot: string): Plugin {
+  const middleware = operatorSessionMiddleware(workspaceRoot);
   return {
     name: "local-operator-session",
     configureServer(server) { server.middlewares.use(middleware); },
