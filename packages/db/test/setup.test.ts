@@ -30,43 +30,29 @@ function stderr(result: ReturnType<typeof Bun.spawnSync>) {
 }
 
 describe("completeOperatorSetup", () => {
-  test("creates a protected encrypted handoff, reuses it, and reissues a revoked key", () => {
+  test("creates a protected encrypted handoff for the default tenant and is idempotent", () => {
     const directory = mkdtempSync(join(tmpdir(), "pachiware-operator-setup-"));
     try {
       const result = runSetup(directory, `
         import { statSync, readFileSync } from "node:fs";
         import { completeOperatorSetup } from ${JSON.stringify(join(source, "setup.ts"))};
-        import { decryptSecret } from ${JSON.stringify(join(source, "crypto.ts"))};
-        import { getTenantBySlug, getTenantByApiKey, revokeApiKey } from ${JSON.stringify(join(source, "tenancy.ts"))};
+        import { getTenantBySlug } from ${JSON.stringify(join(source, "tenancy.ts"))};
+        const file = ${JSON.stringify(join(directory, "operator-access.json"))};
         const first = await completeOperatorSetup(${JSON.stringify(directory)});
-        const initial = JSON.parse(readFileSync(${JSON.stringify(join(directory, "operator-access.json"))}, "utf8"));
-        const firstRaw = decryptSecret(initial.apiKeyEncrypted);
-        await completeOperatorSetup(${JSON.stringify(directory)});
-        const reused = JSON.parse(readFileSync(${JSON.stringify(join(directory, "operator-access.json"))}, "utf8"));
-        await revokeApiKey(reused.keyId);
-        await completeOperatorSetup(${JSON.stringify(directory)});
-        const reissued = JSON.parse(readFileSync(${JSON.stringify(join(directory, "operator-access.json"))}, "utf8"));
-        const current = await getTenantByApiKey(decryptSecret(reissued.apiKeyEncrypted));
+        const saved = readFileSync(file, "utf8");
+        const again = await completeOperatorSetup(${JSON.stringify(directory)});
+        const parsed = JSON.parse(readFileSync(file, "utf8"));
         console.log(JSON.stringify({
           slug: first.slug,
-          mode: statSync(${JSON.stringify(join(directory, "operator-access.json"))}).mode & 0o777,
-          hasRawSecret: JSON.stringify(reissued).includes(firstRaw),
-          reusedKey: initial.keyId === reused.keyId,
-          reissuedKey: reused.keyId !== reissued.keyId,
-          tenant: current?.tenant.slug,
+          mode: statSync(file).mode & 0o777,
+          sameTenant: again.id === first.id && parsed.tenantId === first.id,
+          noTenantKey: !("apiKeyEncrypted" in parsed) && !("keyId" in parsed),
+          plaintextPlatformKey: saved.includes(process.env.PLATFORM_ADMIN_KEY),
           defaultTenant: (await getTenantBySlug("default"))?.id === first.id,
         }));
       `);
       expect(result.exitCode, stderr(result)).toBe(0);
-      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual({
-        slug: "default",
-        mode: 0o600,
-        hasRawSecret: false,
-        reusedKey: true,
-        reissuedKey: true,
-        tenant: "default",
-        defaultTenant: true,
-      });
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual({ slug: "default", mode: 0o600, sameTenant: true, noTenantKey: true, plaintextPlatformKey: false, defaultTenant: true });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

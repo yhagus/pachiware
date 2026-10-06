@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { db, tenants, createTenant, getTenantById, updateTenant, deleteTenant } from "@pachiware/db";
-import { ne } from "drizzle-orm";
+import { db, tenants, apiKeys, createTenant, getTenantBySlug, getTenantById, updateTenant, deleteTenant } from "@pachiware/db";
+import { eq, ne } from "drizzle-orm";
 import { discordBotManager } from "../../discord/client.js";
 import { object, string } from "../validation.js";
 export const tenantAdminRoutes = new Hono();
@@ -9,7 +9,10 @@ tenantAdminRoutes.post("/", async (c) => {
   const name = string(body.name, "name")!;
   const slug = string(body.slug, "slug", true);
   if (slug && !/^[a-z0-9][a-z0-9_-]*$/.test(slug)) return c.json({ error: "Invalid slug" }, 400);
-  const tenant = await createTenant({ name, slug, metadata: body.metadata === undefined ? undefined : object(body.metadata, "metadata") });
+  if (slug && await getTenantBySlug(slug)) return c.json({ error: "Slug is already taken" }, 409);
+  const apiKeyId = string(body.apiKeyId, "apiKeyId", true) || undefined;
+  if (apiKeyId && !(await db.select().from(apiKeys).where(eq(apiKeys.id, apiKeyId)).limit(1)).length) return c.json({ error: "API key not found" }, 404);
+  const tenant = await createTenant({ name, slug, apiKeyId, metadata: body.metadata === undefined ? undefined : object(body.metadata, "metadata") });
   return c.json({ success: true, tenant }, 201);
 });
 tenantAdminRoutes.get("/", async (c) => c.json({ success: true, tenants: await db.select().from(tenants).where(ne(tenants.status, "deleted")).limit(1000) }));

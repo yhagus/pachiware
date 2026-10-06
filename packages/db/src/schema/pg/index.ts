@@ -5,32 +5,47 @@ import { sql } from "drizzle-orm";
  * Agents Configuration Table
  * Stores agent personality, active system prompts, LLM router defaults, and provider configurations.
  */
+export const apiKeys = pgTable("api_keys", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`),
+  keyPrefix: text("key_prefix").notNull(), keyHash: text("key_hash").notNull(),
+  name: text("name").notNull().default("API Key"), scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }), revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [uniqueIndex("api_keys_hash_idx").on(t.keyHash)]);
+
 export const tenants = pgTable("tenants", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  apiKeyId: text("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
   status: text("status").notNull().default("active"),
   platformMetadata: jsonb("platform_metadata").$type<Record<string, any>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
-export const apiKeys = pgTable("api_keys", {
+export const profiles = pgTable("profiles", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  keyPrefix: text("key_prefix").notNull(), keyHash: text("key_hash").notNull(),
-  name: text("name").notNull().default("API Key"), scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
-  lastUsedAt: timestamp("last_used_at", { withTimezone: true }), revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (t) => [index("api_keys_tenant_idx").on(t.tenantId), uniqueIndex("api_keys_hash_idx").on(t.keyHash)]);
+  name: text("name").notNull(), provider: text("provider").notNull(), model: text("model").notNull(), baseUrl: text("base_url"), apiKeyEncrypted: text("api_key_encrypted"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [index("profiles_tenant_idx").on(t.tenantId)]);
 
 export const bots = pgTable("bots", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   name: text("name").notNull().default("Discord Bot"), platform: text("platform").notNull().default("discord"),
   tokenEncrypted: text("token_encrypted").notNull(), clientId: text("client_id"), guildIds: jsonb("guild_ids").$type<string[]>().notNull().default([]),
   isEnabled: boolean("is_enabled").notNull().default(true), connectionStatus: text("connection_status").notNull().default("disconnected"),
+  profileId: text("profile_id").references(() => profiles.id, { onDelete: "set null" }),
   lastConnectedAt: timestamp("last_connected_at", { withTimezone: true }), lastError: text("last_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [index("bots_tenant_idx").on(t.tenantId), uniqueIndex("bots_tenant_id_idx").on(t.tenantId, t.id)]);
+
+export const guildConfigs = pgTable("guild_configs", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  botId: text("bot_id").notNull().references(() => bots.id, { onDelete: "cascade" }), guildId: text("guild_id").notNull(),
+  systemPrompt: text("system_prompt"), useThreads: boolean("use_threads").notNull().default(true), alwaysChannelIds: jsonb("always_channel_ids").$type<string[]>().notNull().default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 
 export const usageEvents = pgTable("usage_events", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),
@@ -190,8 +205,13 @@ export type NewTenant = typeof tenants.$inferInsert;
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;
 
+export type Profile = typeof profiles.$inferSelect;
+export type NewProfile = typeof profiles.$inferInsert;
+
 export type Bot = typeof bots.$inferSelect;
 export type NewBot = typeof bots.$inferInsert;
+
+export type GuildConfig = typeof guildConfigs.$inferSelect;
 
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type NewUsageEvent = typeof usageEvents.$inferInsert;

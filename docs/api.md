@@ -2,24 +2,27 @@
 
 Base URL lokal: `http://localhost:3001`.
 
-## Provision a Tenant and API Key
+## API Keys and Tenants
+
+API keys are global. A key may act only on tenants created under it; a tenant's `apiKeyId` is `null` when it is not under any key (for example, created from the console without choosing one).
 
 ```bash
-curl -X POST http://localhost:3001/api/admin/tenants \
+# Create a key (raw value is returned once):
+curl -X POST http://localhost:3001/api/admin/api-keys \
   -H "X-Platform-Key: $PLATFORM_ADMIN_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"Production"}'
+
+# Create a tenant under that key:
+curl -X POST http://localhost:3001/api/v1/tenants \
+  -H "Authorization: Bearer $PACHIWARE_API_KEY" -H 'Content-Type: application/json' \
   -d '{"name":"Example Team","slug":"example"}'
 
-# Use the tenant ID returned above:
-curl -X POST http://localhost:3001/api/admin/tenants/TENANT_ID/api-keys \
-  -H "X-Platform-Key: $PLATFORM_ADMIN_KEY" -H 'Content-Type: application/json' \
-  -d '{"name":"Operator","scopes":[]}'
+# Act on it (tenant id or slug in X-Tenant-Id):
+curl http://localhost:3001/api/v1/tasks \
+  -H "Authorization: Bearer $PACHIWARE_API_KEY" -H "X-Tenant-Id: example"
 ```
 
-The issue response contains `{success, raw, keyPrefix, keyId}`. `raw` is returned once; key-list endpoints expose metadata and prefixes only. Empty scopes or `*` grant full tenant access. Otherwise scopes use `resource:read` or `resource:write`, where resource is `config`, `chat`, `conversations`, `skills`, `tasks`, or `bots`. GET uses `read`; other methods use `write`.
-
-```bash
-curl http://localhost:3001/api/v1/tasks -H "Authorization: Bearer $PACHIWARE_API_KEY"
-```
+The issue response contains `{success, raw, keyPrefix, keyId}`. `raw` is returned once; key-list endpoints expose metadata and prefixes only. Keys currently get scope `*` (full access); the middleware already enforces `resource:read` / `resource:write` scopes for when custom scopes are added.
 
 ## API Contract
 
@@ -29,15 +32,20 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 
 | Method | Admin Endpoint | Input / Result |
 | --- | --- | --- |
-| POST | `/api/admin/tenants` | `{name, slug?, metadata?}` -> `{tenant}` |
+| POST | `/api/admin/tenants` | `{name, slug?, apiKeyId?, metadata?}` -> `{tenant}`; duplicate slug returns 409 |
 | GET | `/api/admin/tenants` | `{tenants}` (excludes deleted) |
 | GET | `/api/admin/tenants/:id` | `{tenant}` |
 | PATCH | `/api/admin/tenants/:id` | `{name?, status?: active or suspended, metadata?}`; slug immutable |
 | DELETE | `/api/admin/tenants/:id` | Soft delete; stops tenant bots |
-| POST | `/api/admin/tenants/:id/api-keys` | `{name?, scopes?}` -> raw key once |
-| GET | `/api/admin/tenants/:id/api-keys` | `{apiKeys}` (prefix and metadata) |
+| POST | `/api/admin/api-keys` | `{name?}` -> raw key once |
+| GET | `/api/admin/api-keys` | `{apiKeys}` (prefix, metadata, `tenantCount`) |
 | DELETE | `/api/admin/api-keys/:keyId` | Revoke key |
-| POST | `/api/admin/tenants/:id/bots` | `{name?, token, clientId?, guildIds?, isEnabled?}` -> `{bot}` |
+| POST | `/api/admin/tenants/:id/profiles` | `{name, provider: openai or custom, model, baseUrl? (required for custom), apiKey?}` -> `{profile}` (key never returned, `hasApiKey` only) |
+| GET | `/api/admin/tenants/:id/profiles` | `{profiles}` |
+| POST | `/api/admin/profiles/models` | `{provider, baseUrl?, apiKey?, profileId?}` -> `{models}` from `<baseUrl>/models`; a blank key reuses the saved profile key; 502 on provider failure |
+| PATCH | `/api/admin/profiles/:profileId` | Profile fields; blank or masked `apiKey` keeps the current one |
+| DELETE | `/api/admin/profiles/:profileId` | Delete; integrations using it fall back to the tenant default |
+| POST | `/api/admin/tenants/:id/bots` | `{name?, token, clientId?, guildIds?, profileId?, isEnabled?}` -> `{bot}`; `profileId` must belong to the tenant |
 | GET | `/api/admin/tenants/:id/bots` | `{bots}` |
 | PATCH | `/api/admin/bots/:botId` | Bot fields; token encrypted on write |
 | POST | `/api/admin/bots/:botId/restart` | Restart this gateway |
@@ -50,7 +58,12 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 
 Usage ranges accept ISO dates, including both boundaries. Invalid or reversed ranges return 400. Events include `llm_tokens` (successful completions with prompt/completion token counts), `tool_call` (tool name/success), and `discord_message` (accepted inbound requests). Bot deletion retains a disabled tombstone to preserve historical usage/conversation references and erases its token.
 
-All `/api/v1/*` requests require `Authorization: Bearer <tenant API key>`. Missing/revoked/deleted keys return 401; suspended tenants and insufficient scopes return 403.
+All `/api/v1/*` requests require `Authorization: Bearer <API key>`. Except `/api/v1/tenants`, they also require `X-Tenant-Id` (id or slug): missing header returns 400, a tenant that does not exist or is not under the key returns 404. Missing/revoked keys return 401; suspended tenants and insufficient scopes return 403.
+
+| Method | Key Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/v1/tenants` | Tenants under this key |
+| POST | `/api/v1/tenants` | `{name, slug?}` -> `{tenant}` owned by this key |
 
 | Method | Tenant Endpoint | Purpose |
 | --- | --- | --- |
@@ -72,3 +85,12 @@ All `/api/v1/*` requests require `Authorization: Bearer <tenant API key>`. Missi
 
 Credential config fields are `openaiApiKeyEncrypted`, `anthropicApiKeyEncrypted`, and `customApiKeyEncrypted`. On writes these accept **plaintext** and encrypt server-side; reads return `••••••••` or null. Omitted/masked values preserve the existing key; null or empty clears it. Bot responses expose `hasToken` rather than a token. Old unauthenticated `/api/agent/*`, `/api/tasks`, and `/api/skills` endpoints are removed.
 
+
+## Discord server config (platform admin, `X-Platform-Key`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/admin/bots/:botId/guilds/:guildId/config` | `{systemPrompt, useThreads, alwaysChannelIds}`; defaults when unset |
+| PUT | `/api/admin/bots/:botId/guilds/:guildId/config` | Partial update. `systemPrompt` ≤ 8000 chars (empty clears), `useThreads` boolean, `alwaysChannelIds` string[] (max 50) |
+
+`systemPrompt` is appended to the tenant prompt under "Server instructions" for that server only. The bot answers DMs, its own threads, `alwaysChannelIds` channels, and @mentions or replies to it. With `useThreads`, a mention opens a thread and the conversation continues there without mentions. Guild conversations are shared per channel or thread, and turns are prefixed with the speaker's name.

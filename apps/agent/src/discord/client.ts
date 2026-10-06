@@ -1,8 +1,10 @@
-import { Client, GatewayIntentBits, Partials, Events, type Message, EmbedBuilder } from "discord.js";
+import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Message, type ThreadChannel, EmbedBuilder } from "discord.js";
 import { db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, getTenantById, updateBot, eq } from "@pachiware/db";
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
+import { respondReason, threadName, speakerTurn } from "./routing.js";
+import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 
 type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[] };
@@ -79,32 +81,68 @@ export class DiscordBotManager {
   async handleMessage(botId: string, msg: Message) {
     const runtime = this.clients.get(botId);
     if (!runtime || msg.author.bot) return;
+    const botUserId = runtime.client.user?.id || "";
     const tenant = await getTenantById(runtime.tenantId);
     if (tenant?.status !== "active") return;
-    if (msg.guildId && runtime.guildIds.length && !runtime.guildIds.includes(msg.guildId)) return;
-    const mentioned = msg.mentions.users.has(runtime.client.user?.id || "");
-    const thread = msg.channel.isThread() && msg.channel.ownerId === runtime.client.user?.id;
-    if (msg.guild && !mentioned && !thread) return;
+    const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
+    const trigger = {
+      authorIsBot: msg.author.bot, guildId: msg.guildId, allowedGuildIds: runtime.guildIds,
+      mentioned: msg.mentions.users.has(botUserId), repliedToBot: false,
+      inOwnThread: msg.channel.isThread() && msg.channel.ownerId === botUserId,
+      channelId: msg.channelId, alwaysChannelIds: guild?.alwaysChannelIds ?? [],
+    };
+    let reason = respondReason(trigger);
+    // Fetching the referenced message costs an API call, so only do it when nothing else decided.
+    if (!reason && msg.reference?.messageId && !trigger.authorIsBot) {
+      const ref = await msg.fetchReference().catch(() => null);
+      reason = respondReason({ ...trigger, repliedToBot: ref?.author.id === botUserId });
+    }
+    if (!reason) return;
     const rate = await CacheService.checkRateLimit(tenantKey(runtime.tenantId, `ratelimit:discord:user:${msg.author.id}`), 10, 60);
     if (!rate.allowed) { await msg.reply("Please wait before sending another request."); return; }
-    const text = msg.content.replace(new RegExp(`<@!?${runtime.client.user?.id}>`, "g"), "").trim();
+    const text = msg.content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
     if (!text) return;
     await db.insert(usageEvents).values({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
-    const typing = async () => { try { if ("sendTyping" in msg.channel) await msg.channel.sendTyping(); } catch {} };
+    // A mention in a plain text channel opens a thread so the follow-ups need no mention; without permission it falls back to the channel.
+    let thread: ThreadChannel | null = null;
+    if (reason === "mention" && guild?.useThreads && "startThread" in msg && !msg.channel.isThread() && !msg.channel.isDMBased()) {
+      thread = await msg.startThread({ name: threadName(text), autoArchiveDuration: 60 }).catch(() => null);
+    }
+    const channelId = thread?.id ?? msg.channelId;
+    // One turn at a time per conversation, so concurrent messages do not interleave history.
+    await this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, msg, text, channelId, thread));
+  }
+  private async reply(runtime: BotRuntime, botId: string, msg: Message, text: string, channelId: string, thread: ThreadChannel | null) {
+    const target = thread ?? msg.channel;
+    const typing = async () => { try { if ("sendTyping" in target) await target.sendTyping(); } catch {} };
     await typing();
     const interval = setInterval(() => { void typing(); }, 4000);
+    const send = (content: string) => thread ? thread.send({ content, allowedMentions: { parse: [] } }) : msg.reply({ content, allowedMentions: { parse: [] } });
     try {
       const [agent] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, runtime.tenantId)).limit(1);
-      const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, msg.channelId), eq(conversations.userId, msg.author.id))).orderBy(desc(conversations.createdAt)).limit(1);
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: text, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 8, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId: msg.channelId, userId: msg.author.id, userName: msg.author.username, skillContext: { discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]) } } });
-      for (const chunk of output.reply.match(/[^]{1,1900}/g) || ["Done."]) await msg.reply({ content: chunk, allowedMentions: { parse: [] } });
-      if (output.toolCallsExecuted.length && msg.channel.isSendable()) {
+      const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
+      const speaker = msg.member?.displayName || msg.author.username;
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: speakerTurn(msg.guildId, speaker, text), conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 8, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: msg.author.id, userName: speaker, skillContext: { discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]) } } });
+      for (const chunk of output.reply.match(/[^]{1,1900}/g) || ["Done."]) await send(chunk);
+      if (output.toolCallsExecuted.length && target.isSendable()) {
         const embed = new EmbedBuilder().setTitle("Actions executed").setColor(0x5865f2);
         for (const { call, result } of output.toolCallsExecuted.slice(0, 5)) embed.addFields({ name: call.name, value: result.success ? "Completed" : "Failed" });
-        await msg.channel.send({ embeds: [embed] });
+        await target.send({ embeds: [embed] });
       }
-    } catch { await msg.reply("Unable to process this request. Check your tenant configuration.").catch(() => {}); }
+    } catch { await send("Unable to process this request. Check your tenant configuration.").catch(() => {}); }
     finally { clearInterval(interval); }
+  }
+  // Servers and channels come from the live gateway cache, so they are only available while the bot is connected.
+  getGuilds(id: string) {
+    const runtime = this.clients.get(id);
+    if (!runtime?.connected) return null;
+    const kinds: Partial<Record<ChannelType, string>> = { [ChannelType.GuildText]: "text", [ChannelType.GuildVoice]: "voice", [ChannelType.GuildAnnouncement]: "announcement", [ChannelType.GuildStageVoice]: "stage", [ChannelType.GuildForum]: "forum" };
+    return [...runtime.client.guilds.cache.values()].map((g) => ({
+      id: g.id, name: g.name, icon: g.iconURL({ size: 64 }), memberCount: g.memberCount,
+      allowed: !runtime.guildIds.length || runtime.guildIds.includes(g.id),
+      channels: [...g.channels.cache.values()].filter((c) => c.type in kinds).sort((a: any, b: any) => a.rawPosition - b.rawPosition)
+        .map((c: any) => ({ id: c.id, name: c.name, type: kinds[c.type as ChannelType]!, category: c.parent?.name ?? null })),
+    }));
   }
   getStatus(id?: string) {
     const rows = [...this.clients].map(([botId, runtime]) => ({ botId, tenantId: runtime.tenantId, connected: runtime.connected, botTag: runtime.client.user?.tag || null, guildCount: runtime.client.guilds.cache.size }));

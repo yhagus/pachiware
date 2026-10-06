@@ -18,6 +18,7 @@ export interface LLMResponse {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    cachedTokens?: number;
   };
 }
 
@@ -27,6 +28,7 @@ export interface LLMRequestOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  cacheKey?: string;
   tools?: ToolDefinition[];
   provider?: "openai" | "anthropic" | "custom";
 }

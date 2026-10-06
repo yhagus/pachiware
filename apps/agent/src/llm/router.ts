@@ -1,4 +1,5 @@
-import { db, agentsConfig, usageEvents, decryptSecret, eq } from "@pachiware/db";
+import { cachedTokensOf } from "./usage.js";
+import { db, agentsConfig, bots, profiles, usageEvents, decryptSecret, eq, and } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry } from "@pachiware/skills";
 import type { ChatMessage, LLMRequestOptions, LLMResponse } from "./types.js";
@@ -28,6 +29,14 @@ export class LLMRouter {
     }
   }
 
+  // An integration may point at a profile (one provider + one model). It overrides the tenant default for that integration only.
+  private async getBotProfile(tenantId: string, botId?: string) {
+    if (!botId) return null;
+    const [row] = await db.select({ profile: profiles }).from(bots).innerJoin(profiles, eq(bots.profileId, profiles.id))
+      .where(and(eq(bots.id, botId), eq(bots.tenantId, tenantId), eq(profiles.tenantId, tenantId))).limit(1);
+    return row?.profile ?? null;
+  }
+
   /**
    * Main completion method dispatching to the configured or requested provider.
    */
@@ -35,7 +44,13 @@ export class LLMRouter {
     messages: ChatMessage[],
     options: LLMRequestOptions
   ): Promise<LLMResponse> {
-    const dbConfig = await this.getActiveTenantConfig(options.tenantId);
+    let dbConfig = await this.getActiveTenantConfig(options.tenantId);
+    const profile = options.provider ? null : await this.getBotProfile(options.tenantId, options.botId);
+    if (profile) {
+      if (!["openai", "custom"].includes(profile.provider)) throw new Error("Unsupported profile provider");
+      const key = profile.apiKeyEncrypted ? decryptSecret(profile.apiKeyEncrypted) : null;
+      dbConfig = { ...dbConfig, defaultProvider: profile.provider, defaultModel: profile.model, [`${profile.provider}ApiKey`]: key, [`${profile.provider}BaseUrl`]: profile.baseUrl, [`${profile.provider}Model`]: profile.model };
+    }
     const provider = options.provider || dbConfig.defaultProvider;
     const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature, maxTokens: options.maxTokens ?? dbConfig.maxTokens };
     let response: LLMResponse;
@@ -46,7 +61,7 @@ export class LLMRouter {
       default: throw new Error("Unsupported tenant LLM provider");
     }
     if (response.finishReason !== "error") {
-      await db.insert(usageEvents).values({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0 });
+      await db.insert(usageEvents).values({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0 } });
     }
     return response;
   }
@@ -102,6 +117,9 @@ export class LLMRouter {
       max_tokens: options.maxTokens ?? 4096,
     };
 
+    // Routes requests of one conversation to the same cache; only OpenAI itself is known to accept the field.
+    if (options.cacheKey && new URL(baseUrl).hostname === "api.openai.com") body.prompt_cache_key = options.cacheKey;
+
     if (options.tools && options.tools.length > 0) {
       body.tools = skillRegistry.toOpenAITools(options.tools);
     }
@@ -149,6 +167,7 @@ export class LLMRouter {
               promptTokens: data.usage.prompt_tokens,
               completionTokens: data.usage.completion_tokens,
               totalTokens: data.usage.total_tokens,
+              cachedTokens: cachedTokensOf(data.usage),
             }
           : undefined,
       };
@@ -373,6 +392,7 @@ export class LLMRouter {
               promptTokens: data.usage.prompt_tokens,
               completionTokens: data.usage.completion_tokens,
               totalTokens: data.usage.total_tokens,
+              cachedTokens: cachedTokensOf(data.usage),
             }
           : undefined,
       };

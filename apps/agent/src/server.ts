@@ -7,11 +7,14 @@ import { conversationRoutes } from "./routes/v1/conversations.js";
 import { skillRoutes } from "./routes/v1/skills.js";
 import { taskRoutes } from "./routes/v1/tasks.js";
 import { botRoutes } from "./routes/v1/bots.js";
+import { tenantRoutes } from "./routes/v1/tenants.js";
 import { tenantAdminRoutes } from "./routes/admin/tenants.js";
 import { apiKeyAdminRoutes } from "./routes/admin/apiKeys.js";
 import { botAdminRoutes } from "./routes/admin/bots.js";
+import { profileAdminRoutes } from "./routes/admin/profiles.js";
 import { usageAdminRoutes } from "./routes/admin/usage.js";
 import { infrastructureRoutes } from "./routes/admin/infrastructure.js";
+import { statsAdminRoutes } from "./routes/admin/stats.js";
 import { tenantMiddleware } from "./middleware/tenant.js";
 import { platformAdminMiddleware } from "./middleware/platformAdmin.js";
 import { HTTPException } from "hono/http-exception";
@@ -52,10 +55,13 @@ export function createServer() {
   app.route("/api/v1/skills", skillRoutes);
   app.route("/api/v1/tasks", taskRoutes);
   app.route("/api/v1/bots", botRoutes);
+  app.route("/api/v1/tenants", tenantRoutes);
   app.route("/api/admin/tenants", tenantAdminRoutes);
   app.route("/api/admin", apiKeyAdminRoutes);
   app.route("/api/admin", botAdminRoutes);
+  app.route("/api/admin", profileAdminRoutes);
   app.route("/api/admin", usageAdminRoutes);
+  app.route("/api/admin", statsAdminRoutes);
   app.route("/api/admin/infrastructure", infrastructureRoutes);
 
   // Fallback root endpoint

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { eq, and, isNull, ne } from "drizzle-orm";
-import { db, tenants, apiKeys, bots, agentsConfig, skills, tenantSkills, activeDialect } from "./index.js";
+import { eq, and, or, isNull, ne, sql } from "drizzle-orm";
+import { db, tenants, apiKeys, bots, guildConfigs, agentsConfig, skills, tenantSkills, activeDialect } from "./index.js";
 import { seedTenant } from "./seed.js";
 import { encryptSecret, decryptSecret, hashApiKey, generateApiKey } from "./crypto.js";
 
@@ -10,18 +10,20 @@ export async function getTenantById(id: string) {
 export async function getTenantBySlug(slug: string) {
   return (await db.select().from(tenants).where(and(eq(tenants.slug, slug), ne(tenants.status, "deleted"))).limit(1))[0] || null;
 }
-export async function getTenantByApiKey(raw: string, includeSuspended = false) {
+export async function getApiKeyByRaw(raw: string) {
   if (!raw || raw.length > 256) return null;
-  const [result] = await db.select({ tenant: tenants, apiKey: apiKeys }).from(apiKeys)
-    .innerJoin(tenants, eq(apiKeys.tenantId, tenants.id))
-    .where(and(eq(apiKeys.keyHash, hashApiKey(raw)), isNull(apiKeys.revokedAt), ne(tenants.status, "deleted"))).limit(1);
-  if (!result || (!includeSuspended && result.tenant.status !== "active")) return null;
-  return result;
+  return (await db.select().from(apiKeys).where(and(eq(apiKeys.keyHash, hashApiKey(raw)), isNull(apiKeys.revokedAt))).limit(1))[0] || null;
 }
-export async function issueApiKey(tenantId: string, name = "API Key", scopes: string[] = []) {
-  if (!await getTenantById(tenantId)) throw new Error("Tenant not found");
+// A key only reaches tenants created under it; `ref` is a tenant id or slug.
+export async function getTenantForApiKey(apiKeyId: string, ref: string) {
+  return (await db.select().from(tenants).where(and(eq(tenants.apiKeyId, apiKeyId), or(eq(tenants.id, ref), eq(tenants.slug, ref)), ne(tenants.status, "deleted"))).limit(1))[0] || null;
+}
+export async function listTenantsForApiKey(apiKeyId: string) {
+  return db.select().from(tenants).where(and(eq(tenants.apiKeyId, apiKeyId), ne(tenants.status, "deleted")));
+}
+export async function issueApiKey(name = "API Key", scopes: string[] = ["*"]) {
   const key = generateApiKey();
-  const [row] = await db.insert(apiKeys).values({ tenantId, name, scopes, keyPrefix: key.keyPrefix, keyHash: hashApiKey(key.raw) }).returning();
+  const [row] = await db.insert(apiKeys).values({ name, scopes, keyPrefix: key.keyPrefix, keyHash: hashApiKey(key.raw) }).returning();
   return { ...key, keyId: row.id };
 }
 export async function revokeApiKey(keyId: string) {
@@ -30,8 +32,8 @@ export async function revokeApiKey(keyId: string) {
 export async function touchApiKeyLastUsed(keyId: string) {
   await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, keyId));
 }
-export async function createTenant(input: { name: string; slug?: string; metadata?: Record<string, any> }) {
-  const values = { id: randomUUID(), name: input.name, slug: input.slug || randomUUID(), platformMetadata: input.metadata || {} };
+export async function createTenant(input: { name: string; slug?: string; apiKeyId?: string; metadata?: Record<string, any> }) {
+  const values = { id: randomUUID(), name: input.name, slug: input.slug || randomUUID(), apiKeyId: input.apiKeyId ?? null, platformMetadata: input.metadata || {} };
   if (activeDialect === "sqlite") {
     // Bun SQLite transactions must stay synchronous to retain rollback semantics.
     return db.transaction((tx: any) => {
@@ -60,17 +62,20 @@ export async function updateTenant(id: string, input: { name?: string; status?: 
   return (await db.update(tenants).set(update).where(and(eq(tenants.id, id), ne(tenants.status, "deleted"))).returning())[0] || null;
 }
 export async function deleteTenant(id: string) { return updateTenant(id, { status: "deleted" }); }
-export async function listApiKeysForTenant(tenantId: string) {
-  return db.select({ id: apiKeys.id, tenantId: apiKeys.tenantId, name: apiKeys.name, keyPrefix: apiKeys.keyPrefix, scopes: apiKeys.scopes, lastUsedAt: apiKeys.lastUsedAt, revokedAt: apiKeys.revokedAt, createdAt: apiKeys.createdAt }).from(apiKeys).where(eq(apiKeys.tenantId, tenantId));
+export async function listApiKeys() {
+  const keys = await db.select({ id: apiKeys.id, name: apiKeys.name, keyPrefix: apiKeys.keyPrefix, scopes: apiKeys.scopes, lastUsedAt: apiKeys.lastUsedAt, revokedAt: apiKeys.revokedAt, createdAt: apiKeys.createdAt }).from(apiKeys);
+  const counts = await db.select({ id: tenants.apiKeyId, n: sql<number>`count(*)` }).from(tenants).where(ne(tenants.status, "deleted")).groupBy(tenants.apiKeyId);
+  const byKey = new Map(counts.map((c: any) => [c.id, Number(c.n)]));
+  return keys.map((k: any) => ({ ...k, tenantCount: byKey.get(k.id) ?? 0 }));
 }
-export async function createBot(input: { tenantId: string; name?: string; platform?: string; token: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean }) {
+export async function createBot(input: { tenantId: string; name?: string; platform?: string; token: string; clientId?: string; guildIds?: string[]; profileId?: string | null; isEnabled?: boolean }) {
   if (!await getTenantById(input.tenantId)) throw new Error("Tenant not found");
   if (!input.token?.trim()) throw new Error("Bot token is required");
   if (input.platform && input.platform !== "discord") throw new Error("Unsupported bot platform");
   const { token, ...values } = input;
   return (await db.insert(bots).values({ ...values, tokenEncrypted: encryptSecret(token.trim()) }).returning())[0];
 }
-export async function updateBot(id: string, input: { name?: string; token?: string; clientId?: string | null; guildIds?: string[]; isEnabled?: boolean; connectionStatus?: string; lastError?: string | null; lastConnectedAt?: Date }) {
+export async function updateBot(id: string, input: { name?: string; token?: string; clientId?: string | null; guildIds?: string[]; profileId?: string | null; isEnabled?: boolean; connectionStatus?: string; lastError?: string | null; lastConnectedAt?: Date }) {
   const { token, ...values } = input;
   const update: Record<string, any> = { ...values, updatedAt: new Date() };
   if (token !== undefined) {
@@ -95,4 +100,15 @@ export async function listAllActiveBots() {
 export async function deleteBot(id: string) {
   // Keep historical usage/conversation linkage; disabled bots are retained as tombstones.
   await db.update(bots).set({ isEnabled: false, connectionStatus: "deleted", tokenEncrypted: "", updatedAt: new Date() }).where(eq(bots.id, id));
+}
+
+export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[] };
+export async function getGuildConfig(botId: string, guildId: string) {
+  return (await db.select().from(guildConfigs).where(and(eq(guildConfigs.botId, botId), eq(guildConfigs.guildId, guildId))).limit(1))[0] || null;
+}
+export async function upsertGuildConfig(tenantId: string, botId: string, guildId: string, input: GuildConfigInput) {
+  const values = { ...input, updatedAt: new Date() };
+  const existing = await getGuildConfig(botId, guildId);
+  if (existing) return (await db.update(guildConfigs).set(values).where(eq(guildConfigs.id, existing.id)).returning())[0];
+  return (await db.insert(guildConfigs).values({ tenantId, botId, guildId, ...values }).returning())[0];
 }

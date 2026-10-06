@@ -20,32 +20,47 @@ import { randomUUID } from "crypto";
 const defaultUuid = () => randomUUID();
 const defaultNow = () => new Date();
 
+export const apiKeys = sqliteTable("api_keys", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid),
+  keyPrefix: text("key_prefix").notNull(), keyHash: text("key_hash").notNull(),
+  name: text("name").notNull().default("API Key"), scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull().default([]),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }), revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("api_keys_hash_idx").on(t.keyHash)]);
+
 export const tenants = sqliteTable("tenants", {
   id: text("id").primaryKey().$defaultFn(defaultUuid),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  apiKeyId: text("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
   status: text("status").notNull().default("active"),
   platformMetadata: text("platform_metadata", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 });
 
-export const apiKeys = sqliteTable("api_keys", {
+export const profiles = sqliteTable("profiles", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  keyPrefix: text("key_prefix").notNull(), keyHash: text("key_hash").notNull(),
-  name: text("name").notNull().default("API Key"), scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull().default([]),
-  lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }), revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
-}, (t) => [index("api_keys_tenant_idx").on(t.tenantId), uniqueIndex("api_keys_hash_idx").on(t.keyHash)]);
+  name: text("name").notNull(), provider: text("provider").notNull(), model: text("model").notNull(), baseUrl: text("base_url"), apiKeyEncrypted: text("api_key_encrypted"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [index("profiles_tenant_idx").on(t.tenantId)]);
 
 export const bots = sqliteTable("bots", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   name: text("name").notNull().default("Discord Bot"), platform: text("platform").notNull().default("discord"),
   tokenEncrypted: text("token_encrypted").notNull(), clientId: text("client_id"), guildIds: text("guild_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
   isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true), connectionStatus: text("connection_status").notNull().default("disconnected"),
+  profileId: text("profile_id").references(() => profiles.id, { onDelete: "set null" }),
   lastConnectedAt: integer("last_connected_at", { mode: "timestamp_ms" }), lastError: text("last_error"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [index("bots_tenant_idx").on(t.tenantId), uniqueIndex("bots_tenant_id_idx").on(t.tenantId, t.id)]);
+
+export const guildConfigs = sqliteTable("guild_configs", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  botId: text("bot_id").notNull().references(() => bots.id, { onDelete: "cascade" }), guildId: text("guild_id").notNull(),
+  systemPrompt: text("system_prompt"), useThreads: integer("use_threads", { mode: "boolean" }).notNull().default(true), alwaysChannelIds: text("always_channel_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 
 export const usageEvents = sqliteTable("usage_events", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),
@@ -178,6 +193,9 @@ export type NewTenant = typeof tenants.$inferInsert;
 
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;
+
+export type Profile = typeof profiles.$inferSelect;
+export type NewProfile = typeof profiles.$inferInsert;
 
 export type Bot = typeof bots.$inferSelect;
 export type NewBot = typeof bots.$inferInsert;

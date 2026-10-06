@@ -66,7 +66,8 @@ export class SkillRegistry {
     const rows = await db.select({ definition: skillsTable, state: tenantSkills }).from(tenantSkills)
       .innerJoin(skillsTable, eq(tenantSkills.skillId, skillsTable.id))
       .where(and(eq(tenantSkills.tenantId, tenantId), eq(tenantSkills.isEnabled, true)));
-    return rows.flatMap(({ definition }: any) => this.skills.get(definition.id)?.tools || definition.toolDefinitions);
+    // Sorted so the tool list, which leads the provider's cached prefix, never depends on row order.
+    return rows.flatMap(({ definition }: any) => this.skills.get(definition.id)?.tools || definition.toolDefinitions).sort((a: ToolDefinition, b: ToolDefinition) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
   /**

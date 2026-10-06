@@ -1,5 +1,6 @@
-import { db, conversations, messages as messagesTable } from "@pachiware/db";
-import { eq, desc, and } from "drizzle-orm";
+import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
+import { eq, and, sql } from "drizzle-orm";
+import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
 import { skillRegistry, type ToolCall, type ToolResult, type SkillContext } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage } from "../llm/types.js";
@@ -56,21 +57,24 @@ export class AgentReActLoop {
     if (!convId) throw new Error("Conversation creation failed");
 
     // 2. Build dynamic system prompt
-    const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId });
+    const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId, botId: input.botId });
 
-    // 3. Load previous messages from DB
-    const existingDbMessages = await db
+    // 3. Load previous messages from DB (windowed in steps so the prompt prefix stays cacheable)
+    const scope = and(eq(messagesTable.conversationId, convId), eq(messagesTable.tenantId, input.tenantId));
+    const [{ n: total }] = await db.select({ n: sql<number>`count(*)` }).from(messagesTable).where(scope);
+    const existingDbMessages = dropLeadingOrphans<Message>(await db
       .select()
       .from(messagesTable)
-      .where(and(eq(messagesTable.conversationId, convId), eq(messagesTable.tenantId, input.tenantId)))
-      .orderBy(desc(messagesTable.createdAt))
-      .limit(30);
+      .where(scope)
+      .orderBy(messagesTable.createdAt)
+      .offset(historyOffset(Number(total)))
+      .limit(HISTORY_SIZE + HISTORY_STEP) as Message[]);
 
     const messageHistory: ChatMessage[] = [
       { role: "system", content: systemPrompt },
     ];
 
-    for (const msg of existingDbMessages.reverse()) {
+    for (const msg of existingDbMessages) {
       messageHistory.push({
         role: msg.role as any,
         content: msg.content,
@@ -84,6 +88,8 @@ export class AgentReActLoop {
       role: "user",
       content: input.message,
     });
+    // Per-turn context is a separate trailing message that is never stored, so the stored history re-reads identically next turn and the cached prefix survives.
+    messageHistory.push({ role: "user", content: `[Context for this turn, not written by the user]\n${await SystemPromptBuilder.buildDynamic({ ...input.context, tenantId: input.tenantId, botId: input.botId })}` });
 
     await db.insert(messagesTable).values({
       tenantId: input.tenantId,
@@ -118,6 +124,7 @@ export class AgentReActLoop {
       const response = await llmRouter.complete(messageHistory, {
         tenantId: input.tenantId,
         botId: input.botId,
+        cacheKey: convId,
         tools: activeTools,
       });
 

@@ -39,6 +39,13 @@ class InMemoryCache {
     }
   }
 
+  // ponytail: approximates bytes via JSON length; not exact heap usage.
+  size(): number {
+    let n = 0;
+    for (const [k, e] of this.store) n += k.length + JSON.stringify(e.value ?? null).length;
+    return n;
+  }
+
   checkRateLimit(
     identifier: string,
     limit: number = 20,

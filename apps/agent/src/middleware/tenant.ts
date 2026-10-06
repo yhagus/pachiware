@@ -1,23 +1,29 @@
 import { createMiddleware } from "hono/factory";
-import { getTenantByApiKey, touchApiKeyLastUsed, type Tenant, type ApiKey } from "@pachiware/db";
+import { getApiKeyByRaw, getTenantForApiKey, touchApiKeyLastUsed, type Tenant, type ApiKey } from "@pachiware/db";
 
 export type TenantEnv = { Variables: { tenant: Tenant; tenantId: string; apiKey: ApiKey } };
+// Keys are global: every request authenticates the key, then (except key-level routes) picks a tenant under it via X-Tenant-Id (id or slug).
 export const tenantMiddleware = createMiddleware<TenantEnv>(async (c, next) => {
-  const header = c.req.header("Authorization");
-  const match = header?.match(/^Bearer\s+(\S+)$/i);
-  if (!match) return c.json({ success: false, error: "Tenant API key required" }, 401);
-  const resolved = await getTenantByApiKey(match[1], true);
-  if (!resolved) return c.json({ success: false, error: "Invalid or revoked API key" }, 401);
-  if (resolved.tenant.status !== "active") return c.json({ success: false, error: "Tenant is suspended" }, 403);
-  c.set("tenant", resolved.tenant);
-  c.set("tenantId", resolved.tenant.id);
-  c.set("apiKey", resolved.apiKey);
-  const scopes = resolved.apiKey.scopes;
+  const match = c.req.header("Authorization")?.match(/^Bearer\s+(\S+)$/i);
+  if (!match) return c.json({ success: false, error: "API key required" }, 401);
+  const apiKey = await getApiKeyByRaw(match[1]);
+  if (!apiKey) return c.json({ success: false, error: "Invalid or revoked API key" }, 401);
+  const scopes = apiKey.scopes;
+  const resource = c.req.path.split("/")[3];
   if (scopes.length && !scopes.includes("*")) {
-    const resource = c.req.path.split("/")[3];
     const action = c.req.method === "GET" ? "read" : "write";
     if (!scopes.includes(`${resource}:${action}`)) return c.json({ success: false, error: "API key scope does not allow this operation" }, 403);
   }
-  void touchApiKeyLastUsed(resolved.apiKey.id).catch(() => {});
+  c.set("apiKey", apiKey);
+  if (resource !== "tenants") {
+    const ref = c.req.header("X-Tenant-Id")?.trim();
+    if (!ref) return c.json({ success: false, error: "X-Tenant-Id header required" }, 400);
+    const tenant = await getTenantForApiKey(apiKey.id, ref);
+    if (!tenant) return c.json({ success: false, error: "Tenant not found for this API key" }, 404);
+    if (tenant.status !== "active") return c.json({ success: false, error: "Tenant is suspended" }, 403);
+    c.set("tenant", tenant);
+    c.set("tenantId", tenant.id);
+  }
+  void touchApiKeyLastUsed(apiKey.id).catch(() => {});
   await next();
 });

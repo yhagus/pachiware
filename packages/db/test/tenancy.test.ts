@@ -36,36 +36,33 @@ function errorOutput(result: ReturnType<typeof Bun.spawnSync>): string {
 }
 
 describe("tenant persistence helpers", () => {
-  test("issue, lookup, revoke, suspend, and soft-delete API keys", () => {
+  test("global keys: issue, ownership lookup, revoke, list counts, soft-delete", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { createTenant, issueApiKey, getTenantByApiKey, revokeApiKey, updateTenant, deleteTenant, listApiKeysForTenant } from ${JSON.stringify(join(source, "tenancy.ts"))};
+      import { createTenant, issueApiKey, getApiKeyByRaw, getTenantForApiKey, listTenantsForApiKey, revokeApiKey, listApiKeys, deleteTenant } from ${JSON.stringify(join(source, "tenancy.ts"))};
       import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
-      const tenant = await createTenant({ name: "Acme", slug: "acme" });
-      const issued = await issueApiKey(tenant.id, "deploy", ["tasks:read"]);
-      const active = await getTenantByApiKey(issued.raw);
-      const listed = await listApiKeysForTenant(tenant.id);
+      const issued = await issueApiKey("deploy"), other = await issueApiKey("other");
+      const owned = await createTenant({ name: "Acme", slug: "acme", apiKeyId: issued.keyId });
+      const loose = await createTenant({ name: "Loose", slug: "loose" });
+      const found = await getApiKeyByRaw(issued.raw);
+      const bySlug = (await getTenantForApiKey(issued.keyId, "acme"))?.id === owned.id;
+      const byId = (await getTenantForApiKey(issued.keyId, owned.id))?.id === owned.id;
+      const foreign = await getTenantForApiKey(other.keyId, "acme");
+      const unowned = await getTenantForApiKey(issued.keyId, "loose");
+      const listedOwned = (await listTenantsForApiKey(issued.keyId)).map((t) => t.slug);
+      const listed = await listApiKeys();
+      await deleteTenant(owned.id);
+      const afterDelete = await getTenantForApiKey(issued.keyId, "acme");
       await revokeApiKey(issued.keyId);
-      const revoked = await getTenantByApiKey(issued.raw);
-      const second = await issueApiKey(tenant.id);
-      await updateTenant(tenant.id, { status: "suspended" });
-      const suspended = await getTenantByApiKey(second.raw);
-      const suspendedIncluded = await getTenantByApiKey(second.raw, true);
-      await deleteTenant(tenant.id);
-      const deleted = await getTenantByApiKey(second.raw, true);
+      const revoked = await getApiKeyByRaw(issued.raw);
       const stored = queryClient.query("SELECT key_hash FROM api_keys WHERE id = ?").get(issued.keyId);
-      console.log(JSON.stringify({ active: active?.tenant.slug, listed, revoked, suspended, suspendedIncluded: suspendedIncluded?.tenant.status, deleted, hash: stored.key_hash }));
+      console.log(JSON.stringify({ found: found?.name, scopes: found?.scopes, bySlug, byId, foreign, unowned, listedOwned, counts: Object.fromEntries(listed.map((k) => [k.name, k.tenantCount])), looseOwner: loose.apiKeyId, afterDelete, revoked, hash: stored.key_hash }));
     `);
     try {
       expect(result.exitCode, errorOutput(result)).toBe(0);
       const value = JSON.parse(output(result).split("\n").at(-1)!);
-      expect(value.active).toBe("acme");
-      expect(value.listed).toEqual([{ id: expect.any(String), tenantId: expect.any(String), name: "deploy", keyPrefix: expect.any(String), scopes: ["tasks:read"], lastUsedAt: null, revokedAt: null, createdAt: expect.any(String) }]);
-      expect(value.revoked).toBeNull();
-      expect(value.suspended).toBeNull();
-      expect(value.suspendedIncluded).toBe("suspended");
-      expect(value.deleted).toBeNull();
+      expect(value).toMatchObject({ found: "deploy", scopes: ["*"], bySlug: true, byId: true, foreign: null, unowned: null, listedOwned: ["acme"], counts: { deploy: 1, other: 0 }, looseOwner: null, afterDelete: null, revoked: null });
       expect(value.hash).toMatch(/^[a-f0-9]{64}$/);
     } finally {
       rmSync(directory, { recursive: true, force: true });

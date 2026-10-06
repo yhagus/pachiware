@@ -3,7 +3,7 @@ import { queryClient } from "./index.js";
 import { activeDialect } from "./schema/index.js";
 import { encryptSecret, generateApiKey, hashApiKey } from "./crypto.js";
 
-const tables = ["tenants", "api_keys", "bots", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events"] as const;
+const tables = ["api_keys", "tenants", "profiles", "bots", "guild_configs", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events"] as const;
 
 function definitions(pg: boolean): Record<string, string> {
   const time = pg ? "TIMESTAMPTZ" : "INTEGER";
@@ -15,9 +15,11 @@ function definitions(pg: boolean): Record<string, string> {
   const tenant = "tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE";
   const dates = `created_at ${time} NOT NULL DEFAULT ${now}, updated_at ${time} NOT NULL DEFAULT ${now}`;
   return {
-    tenants: `id ${id}, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'active', platform_metadata ${json} NOT NULL DEFAULT '{}', ${dates}`,
-    api_keys: `id ${id}, ${tenant}, key_prefix TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT 'API Key', scopes ${json} NOT NULL DEFAULT '[]', last_used_at ${time}, revoked_at ${time}, created_at ${time} NOT NULL DEFAULT ${now}`,
-    bots: `id ${id}, ${tenant}, name TEXT NOT NULL DEFAULT 'Discord Bot', platform TEXT NOT NULL DEFAULT 'discord', token_encrypted TEXT NOT NULL, client_id TEXT, guild_ids ${json} NOT NULL DEFAULT '[]', is_enabled ${bool} NOT NULL DEFAULT ${yes}, connection_status TEXT NOT NULL DEFAULT 'disconnected', last_connected_at ${time}, last_error TEXT, ${dates}, UNIQUE(tenant_id,id)`,
+    tenants: `id ${id}, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL, status TEXT NOT NULL DEFAULT 'active', platform_metadata ${json} NOT NULL DEFAULT '{}', ${dates}`,
+    api_keys: `id ${id}, key_prefix TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT 'API Key', scopes ${json} NOT NULL DEFAULT '[]', last_used_at ${time}, revoked_at ${time}, created_at ${time} NOT NULL DEFAULT ${now}`,
+    profiles: `id ${id}, ${tenant}, name TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, base_url TEXT, api_key_encrypted TEXT, ${dates}`,
+    bots: `id ${id}, ${tenant}, name TEXT NOT NULL DEFAULT 'Discord Bot', platform TEXT NOT NULL DEFAULT 'discord', token_encrypted TEXT NOT NULL, client_id TEXT, guild_ids ${json} NOT NULL DEFAULT '[]', is_enabled ${bool} NOT NULL DEFAULT ${yes}, connection_status TEXT NOT NULL DEFAULT 'disconnected', profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL, last_connected_at ${time}, last_error TEXT, ${dates}, UNIQUE(tenant_id,id)`,
+    guild_configs: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, guild_id TEXT NOT NULL, system_prompt TEXT, use_threads ${bool} NOT NULL DEFAULT ${yes}, always_channel_ids ${json} NOT NULL DEFAULT '[]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id)`,
     agents_config: `tenant_id TEXT PRIMARY KEY NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL DEFAULT 'Pachiware Agent', system_prompt TEXT NOT NULL DEFAULT 'You are Pachiware Agent, a helpful and precise assistant.', default_provider TEXT NOT NULL DEFAULT 'openai', default_model TEXT NOT NULL DEFAULT 'gpt-4o', temperature REAL NOT NULL DEFAULT 0.7, max_tokens INTEGER NOT NULL DEFAULT 4096, openai_api_key_encrypted TEXT, openai_base_url TEXT, openai_model TEXT, anthropic_api_key_encrypted TEXT, anthropic_base_url TEXT, anthropic_model TEXT, custom_api_key_encrypted TEXT, custom_base_url TEXT, custom_model TEXT, settings ${json} NOT NULL DEFAULT '{}', updated_at ${time} NOT NULL DEFAULT ${now}`,
     skills: `id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, default_enabled ${bool} NOT NULL DEFAULT ${yes}, tool_definitions ${json} NOT NULL DEFAULT '[]', handler_type TEXT NOT NULL DEFAULT 'builtin', config ${json} NOT NULL DEFAULT '{}', ${dates}`,
     tenant_skills: `id ${id}, ${tenant}, skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE, is_enabled ${bool} NOT NULL DEFAULT ${yes}, config ${json} NOT NULL DEFAULT '{}', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(tenant_id,skill_id)`,
@@ -54,6 +56,23 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   const ddl = definitions(pg);
   // PostgreSQL legacy tables remain in place until their columns have been backfilled.
   for (const table of tables) await exec(`CREATE TABLE IF NOT EXISTS ${table} (${ddl[table]})`);
+  const botCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='bots'" : "PRAGMA table_info(bots)");
+  if (!botCols.some((c) => c.name === "profile_id")) await exec("ALTER TABLE bots ADD COLUMN profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL");
+  // Keys used to belong to one tenant; they are now global and tenants point back at the key that created them.
+  const tenantCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='tenants'" : "PRAGMA table_info(tenants)");
+  if (!tenantCols.some((c) => c.name === "api_key_id")) await exec("ALTER TABLE tenants ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL");
+  const keyCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='api_keys'" : "PRAGMA table_info(api_keys)");
+  if (keyCols.some((c) => c.name === "tenant_id")) {
+    await exec("UPDATE tenants SET api_key_id = (SELECT k.id FROM api_keys k WHERE k.tenant_id = tenants.id ORDER BY (k.revoked_at IS NOT NULL), k.created_at, k.id LIMIT 1) WHERE api_key_id IS NULL");
+    await exec("DROP INDEX IF EXISTS api_keys_tenant_idx");
+    if (pg) await exec("ALTER TABLE api_keys DROP COLUMN tenant_id");
+    else {
+      await exec(`CREATE TABLE api_keys_new (${ddl.api_keys})`);
+      await exec("INSERT INTO api_keys_new (id,key_prefix,key_hash,name,scopes,last_used_at,revoked_at,created_at) SELECT id,key_prefix,key_hash,name,scopes,last_used_at,revoked_at,created_at FROM api_keys");
+      await exec("DROP TABLE api_keys");
+      await exec("ALTER TABLE api_keys_new RENAME TO api_keys");
+    }
+  }
   const tenants = await exec("SELECT id FROM tenants LIMIT 1");
   const legacyConfig = snapshots.agents_config?.find((r) => r.id === "default") || snapshots.agents_config?.[0];
   const hasEnv = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CUSTOM_LLM_API_KEY", "DISCORD_BOT_TOKEN"].some((k) => Boolean(process.env[k]));
@@ -67,9 +86,9 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   };
   if (!tenantId && (legacy || hasEnv)) {
     tenantId = randomUUID();
-    await insert("tenants", { id: tenantId, name: "Default Tenant", slug: "default", platform_metadata: JSON.stringify({ bootstrap: true }) });
-    const key = generateApiKey();
-    await insert("api_keys", { id: randomUUID(), tenant_id: tenantId, key_prefix: key.keyPrefix, key_hash: hashApiKey(key.raw), name: "Bootstrap Key" });
+    const key = generateApiKey(), keyId = randomUUID();
+    await insert("api_keys", { id: keyId, key_prefix: key.keyPrefix, key_hash: hashApiKey(key.raw), name: "Bootstrap Key", scopes: JSON.stringify(["*"]) });
+    await insert("tenants", { id: tenantId, name: "Default Tenant", slug: "default", api_key_id: keyId, platform_metadata: JSON.stringify({ bootstrap: true }) });
     bootstrapKey = key.raw;
   }
   if (legacy && pg) {
@@ -134,8 +153,9 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
     for (const row of snapshots.skills || []) await insert("tenant_skills", { id: randomUUID(), tenant_id: tenantId, skill_id: row.id, is_enabled: row.is_enabled, config: typeof row.config === "string" ? row.config : JSON.stringify(row.config || {}) });
   }
   for (const table of ["tasks", "conversations", "messages"]) await exec(`CREATE INDEX IF NOT EXISTS ${table}_tenant_created_idx ON ${table}(tenant_id,created_at)`);
-  await exec("CREATE INDEX IF NOT EXISTS api_keys_tenant_idx ON api_keys(tenant_id)");
+  await exec("CREATE INDEX IF NOT EXISTS tenants_api_key_idx ON tenants(api_key_id)");
   await exec("CREATE INDEX IF NOT EXISTS bots_tenant_idx ON bots(tenant_id)");
+  await exec("CREATE INDEX IF NOT EXISTS profiles_tenant_idx ON profiles(tenant_id)");
   await exec("CREATE INDEX IF NOT EXISTS usage_tenant_created_idx ON usage_events(tenant_id,created_at)");
   return bootstrapKey;
 }
@@ -165,7 +185,7 @@ export async function runMigrations(): Promise<void> {
       queryClient.exec("PRAGMA foreign_keys = ON");
     }
   }
-  if (key) console.log(`Bootstrap tenant API key (shown once): ${key}`);
+  if (key) console.log(`Bootstrap API key (shown once): ${key}`);
   console.log(`Database schema migrated successfully (${activeDialect}).`);
 }
 

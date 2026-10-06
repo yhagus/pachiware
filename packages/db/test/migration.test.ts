@@ -68,7 +68,7 @@ describe("SQLite tenancy migration", () => {
       `;
       const result = run(database, script, { OPENAI_API_KEY: undefined, ANTHROPIC_API_KEY: undefined, CUSTOM_LLM_API_KEY: undefined, DISCORD_BOT_TOKEN: undefined });
       expect(result.exitCode, stderr(result)).toBe(0);
-      expect(stdout(result).match(/Bootstrap tenant API key/g)).toBeNull();
+      expect(stdout(result).match(/Bootstrap API key/g)).toBeNull();
       expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual({ tenants: 0, tables: 4 });
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -95,10 +95,11 @@ describe("SQLite tenancy migration", () => {
         const skill = queryClient.query("SELECT default_enabled, config FROM skills WHERE id = 'legacy-skill'").get();
         const tenantSkill = queryClient.query("SELECT is_enabled FROM tenant_skills WHERE skill_id = 'legacy-skill'").get();
         const keyCount = queryClient.query("SELECT COUNT(*) AS count FROM api_keys").get().count;
-        console.log(JSON.stringify({ tenant, config: { ...config, openai_api_key_encrypted: decryptSecret(config.openai_api_key_encrypted) }, bot: { ...bot, token_encrypted: decryptSecret(bot.token_encrypted) }, task, conversation, message, skill, tenantSkill, keyCount }));
+        const owner = queryClient.query("SELECT t.api_key_id AS key, k.name FROM tenants t JOIN api_keys k ON k.id = t.api_key_id").get();
+        console.log(JSON.stringify({ tenant, config: { ...config, openai_api_key_encrypted: decryptSecret(config.openai_api_key_encrypted) }, bot: { ...bot, token_encrypted: decryptSecret(bot.token_encrypted) }, task, conversation, message, skill, tenantSkill, keyCount, owner }));
       `);
       expect(migrate.exitCode, stderr(migrate)).toBe(0);
-      expect(stdout(migrate).match(/Bootstrap tenant API key \(shown once\): pk_live_[A-Za-z0-9_-]+/g)).toHaveLength(1);
+      expect(stdout(migrate).match(/Bootstrap API key \(shown once\): pk_live_[A-Za-z0-9_-]+/g)).toHaveLength(1);
       const migrated = JSON.parse(stdout(migrate).split("\n").at(-1)!);
       expect(migrated.tenant).toMatchObject({ slug: "default", platform_metadata: JSON.stringify({ bootstrap: true }) });
       expect(migrated.config).toMatchObject({ name: "Legacy Agent", system_prompt: "legacy prompt", openai_api_key_encrypted: "openai-secret", settings: "{\"mode\":\"legacy\"}" });
@@ -109,10 +110,11 @@ describe("SQLite tenancy migration", () => {
       expect(migrated.skill).toEqual({ default_enabled: 0, config: "{\"colour\":\"blue\"}" });
       expect(migrated.tenantSkill).toEqual({ is_enabled: 0 });
       expect(migrated.keyCount).toBe(1);
+      expect(migrated.owner.name).toBe("Bootstrap Key");
 
       const rerun = run(database, `import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))}; await runMigrations();`);
       expect(rerun.exitCode, stderr(rerun)).toBe(0);
-      expect(stdout(rerun)).not.toContain("Bootstrap tenant API key");
+      expect(stdout(rerun)).not.toContain("Bootstrap API key");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -134,7 +136,35 @@ describe("SQLite tenancy migration", () => {
       expect(JSON.parse(stdout(inspect))).toEqual({ legacy: true, tenants: 0 });
       const recovered = run(database, `import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))}; await runMigrations();`);
       expect(recovered.exitCode, stderr(recovered)).toBe(0);
-      expect(stdout(recovered)).toContain("Bootstrap tenant API key");
+      expect(stdout(recovered)).toContain("Bootstrap API key");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("upgrades per-tenant API keys to global keys, linking each tenant to its first live key", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-keys-"));
+    const database = join(directory, "keys.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+        await runMigrations();
+        // Rebuild the pre-global shape: keys carried tenant_id and tenants had no owner column.
+        queryClient.exec("PRAGMA foreign_keys = OFF");
+        queryClient.exec("DROP TABLE api_keys; ALTER TABLE tenants DROP COLUMN api_key_id; DROP INDEX IF EXISTS tenants_api_key_idx");
+        queryClient.exec("CREATE TABLE api_keys (id TEXT PRIMARY KEY NOT NULL, tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, key_prefix TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT 'API Key', scopes TEXT NOT NULL DEFAULT '[]', last_used_at INTEGER, revoked_at INTEGER, created_at INTEGER NOT NULL DEFAULT 0)");
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one'),('t2','Two','two'),('t3','Three','three')");
+        queryClient.exec("INSERT INTO api_keys (id,tenant_id,key_prefix,key_hash,name,revoked_at,created_at) VALUES ('k1-old','t1','pk_live_a','h1','revoked first',5,1),('k1-new','t1','pk_live_b','h2','live second',NULL,2),('k2','t2','pk_live_c','h3','only',NULL,1)");
+        queryClient.exec("PRAGMA foreign_keys = ON");
+        await runMigrations();
+        await runMigrations();
+        const owners = Object.fromEntries(queryClient.query("SELECT slug, api_key_id AS key FROM tenants").all().map((r) => [r.slug, r.key]));
+        const cols = queryClient.query("PRAGMA table_info(api_keys)").all().map((c) => c.name);
+        console.log(JSON.stringify({ owners, hasTenantId: cols.includes("tenant_id"), keys: queryClient.query("SELECT COUNT(*) AS n FROM api_keys").get().n }));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual({ owners: { one: "k1-new", two: "k2", three: null }, hasTenantId: false, keys: 3 });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

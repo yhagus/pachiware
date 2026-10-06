@@ -53,9 +53,16 @@ export let apiKeys = active.apiKeys;
 export type ApiKey = typeof pgSchema.apiKeys.$inferSelect;
 export type NewApiKey = typeof pgSchema.apiKeys.$inferInsert;
 
+export let profiles = active.profiles;
+export type Profile = typeof pgSchema.profiles.$inferSelect;
+export type NewProfile = typeof pgSchema.profiles.$inferInsert;
+
 export let bots = active.bots;
 export type Bot = typeof pgSchema.bots.$inferSelect;
 export type NewBot = typeof pgSchema.bots.$inferInsert;
+
+export let guildConfigs = active.guildConfigs;
+export type GuildConfig = typeof pgSchema.guildConfigs.$inferSelect;
 
 export let usageEvents = active.usageEvents;
 export type UsageEvent = typeof pgSchema.usageEvents.$inferSelect;
@@ -68,5 +75,5 @@ export type NewTenantSkill = typeof pgSchema.tenantSkills.$inferInsert;
 export function switchSchema(dialect: DbDialect) {
   activeDialect = dialect;
   const next = dialect === "postgres" ? pgSchema : sqliteSchema;
-  ({ agentsConfig, skills, tasks, conversations, messages, tenants, apiKeys, bots, usageEvents, tenantSkills } = next);
+  ({ agentsConfig, skills, tasks, conversations, messages, tenants, apiKeys, profiles, bots, guildConfigs, usageEvents, tenantSkills } = next);
 }
