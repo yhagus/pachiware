@@ -12,6 +12,55 @@
 
 ---
 
+### Verification Evidence
+
+- `bun run typecheck` -&gt; pass.
+- `bun test` -&gt; 24 passed, 0 failed, 141 assertions.
+- `bun run build` -&gt; Vite 6.4.3, 1,601 modules, exit 0.
+- PostgreSQL 18.6 -&gt; `PostgreSQL 18.6 on aarch64-unknown-linux-musl`, fresh migration twice and legacy bootstrap migration plus rerun passed.
+- Disposable PostgreSQL 18.6 verification container and volume were removed after the migration checks.
+
+### Security and Architecture Decisions
+
+- Encryption uses a versioned AES-256-GCM envelope with fresh 12-byte nonce and 16-byte tag. Production requires `PLATFORM_ENCRYPTION_KEY`; development can derive from `AGENT_SECRET_KEY`.
+- API keys use 192 bits of entropy, SHA-256 storage, 12-character display prefixes, and optional `resource:read/write` scopes.
+- Bot deletion retains an inactive tombstone and erases its token to preserve historical foreign-key references.
+- Provider and bot credentials are database-only at runtime. Legacy env variables are consulted only during the first bootstrap migration.
+- SQLite tenant creation is synchronous inside a transaction; PostgreSQL uses async transactions. Bootstrap keys print only after commit.
+
+### Post-Phase 13 UX Follow-up
+
+- [x] First-run database choice is explicit in `pachiware init`, `install.sh`, and the web Setup Wizard: SQLite, external PostgreSQL, or PostgreSQL 18 Docker.
+- [x] Non-interactive curl installs default safely to SQLite and accept `PACHIWARE_DATABASE` / `PACHIWARE_POSTGRES_URL` overrides.
+
+### CLI-to-Web Setup Completion
+
+- [x] CLI initialization now runs migrations, seeds platform skills, creates/reuses the default tenant, and persists encrypted local console access with mode 0600.
+- [x] Installer invokes the same CLI workflow, rejects unsupported Bun versions, and keeps the lockfile frozen.
+- [x] Web console automatically connects through a localhost-only server endpoint before rendering tenant data.
+- [x] Verify fresh/rerun/revoked-key CLI setup and handoff access controls: all 30 tests / 171 assertions pass.
+- [x] Independent typecheck, web build, compiled CLI/help checks, installer syntax, and runtime handoff/API checks pass.
+- [x] Verify complete operator setup twice on disposable PostgreSQL 18.6: one default tenant, stable operator key, healthy agent, and cleanup completed.
+
+Regression note: an early CLI fixture exposed inherited `PACHIWARE_DIR` pointing setup at the development database. Setup now forces its requested workspace; regression fixtures use temporary directories, and the development database was preserved. No LLM/bot credentials were present in that database.
+
+### README Installation Guide
+
+- [x] Rewrite README in Indonesian around the project overview, one-command/clone installation, database selection, and localhost dashboard access.
+- [x] Document end-to-end LLM setup, chat/task verification, optional Discord connection, daily commands, and backup guidance.
+- [x] Move tenant provisioning examples and endpoint reference to `docs/api.md`.
+- [x] Check documented commands and dashboard labels against source; verify the moved API reference is preserved and `git diff --check` passes. Documentation-only change; runtime code unchanged.
+
+### Bilingual README
+
+- [x] Provide the English guide in `README.md` and preserve the Indonesian guide in `README.id.md` with reciprocal language links.
+- [x] Keep installation, database selection, dashboard setup, LLM/Discord usage, and daily commands equivalent in both languages.
+- [x] Verify matching shell examples, valid local documentation links, and clean `git diff --check`. Documentation-only change.
+
+- [x] shadcn/ui installed in `apps/web` (new-york, slate base, indigo theme via CSS vars, `@/` alias, `button` added); shadcn MCP server configured in `.mcp.json`.
+
+---
+
 ## 🏗 System Architecture
 
 ```text
@@ -76,6 +125,7 @@ pachiware-agent/
 - **Phase 11: Completed ✅** (Linux/Ubuntu Global Path Resolution, Absolute Script Spawning, and install.sh Hardening)
 - **Phase 12: Completed ✅** (SQLite as zero-config default; dual-dialect schemas, driver switching, dialect-aware migrations/CLI/health; `bun:sqlite` native, all tests green on SQLite)
 - **Phase 13: Completed ✅** (Multi-tenant / SaaS-compatible)
+- **Phase 14: In progress 🚧** (Console: apps/web rebuilt as platform-admin UI on React 19 + Tailwind v4 + shadcn + react-router)
 
 ---
 
@@ -344,47 +394,67 @@ pachiware-agent/
 
 ---
 
-### Verification Evidence
+## Phase 14: ADMIN PORTAL (apps/web rebuild)
 
-- `bun run typecheck` -&gt; pass.
-- `bun test` -&gt; 24 passed, 0 failed, 141 assertions.
-- `bun run build` -&gt; Vite 6.4.3, 1,601 modules, exit 0.
-- PostgreSQL 18.6 -&gt; `PostgreSQL 18.6 on aarch64-unknown-linux-musl`, fresh migration twice and legacy bootstrap migration plus rerun passed.
-- Disposable PostgreSQL 18.6 verification container and volume were removed after the migration checks.
+`apps/web` is the **platform console**, not a tenant/client console. Auth is the platform key only (`X-Platform-Key`, `/api/admin/*`); tenants have no UI access.
 
-### Security and Architecture Decisions
+- [x] Stack: React 19, Tailwind v4 (`@tailwindcss/vite`, CSS-first), latest shadcn, react-router 8
+- [x] Shell: shadcn Sidebar + routes (`/`, `/tenants`, `/tenants/:id/bots`)
+- [x] Overview: DB engine, Redis mode, runtime, encryption key, Discord gateway, tenant count
+- [x] Tenants: list, create, detail, suspend/activate
+- [x] Tenant → Integrations (Discord is the first platform; create/edit/enable/restart/delete via admin routes)
+- [x] Overview storage sizes: DB (SQLite file+WAL, or `pg_database_size`) and cache (Redis `used_memory`, or approximate in-memory JSON size) via `/api/admin/stats` → `storage`
+- [x] Row/header actions are icon-only with tooltips (`components/IconButton.tsx`); route changes fade/slide in (`AppShell`, respects reduced motion)
+- [x] Status badges show readable labels; instant actions (suspend/activate, restart, disable, delete) require confirmation via `components/ConfirmAction.tsx`, destructive ones styled red
+- [x] New tenant form: slug auto-fills from name until edited by hand; duplicate slug blocked in the form and by a 409 from `POST /api/admin/tenants` (DB column is already unique)
+- [x] Integrations page: card gallery, server-side pagination (12/page), search, platform select filter (always shown); platform-agnostic via registry `apps/web/src/lib/platforms.ts` (add an entry for a new platform). `GET /api/admin/tenants/:id/bots` takes `page`, `pageSize`, `q`, `platform` and returns `total`
+- [x] API keys are global (not per tenant): sidebar **API Keys** page (create show-once, list with tenant count, revoke). Removed the per-tenant tab and `/api/admin/tenants/:id/api-keys`
+- [x] `tenants.api_key_id` (nullable, `ON DELETE SET NULL`) = key that owns the tenant; a key acts only on its own tenants. `/api/v1/*` takes `X-Tenant-Id` (id or slug); `POST/GET /api/v1/tenants` for key-level create/list. Migration moves old per-tenant keys to global and links each tenant to its first live key. Keys default to scope `*`; custom scopes deferred
+- [x] Operator console handoff (`operator-access.json`) now only carries the platform key; no tenant key is issued at setup
+- [x] Tenant detail: only the tab content animates, the header stays still
+- [x] Add integration is a two-step wizard: pick a platform (cards from the registry), then that platform's form; editing skips to the form
+- [x] Global `cursor-pointer` for buttons, switches, tabs, selects, menu items and links (`index.css` base layer); disabled ones get `not-allowed`
+- [x] Integration detail page (`/tenants/:id/integrations/:botId`): header + right sub-sidebar driven by `Platform.sections` in `lib/platforms.ts`. Discord has one section, **Servers** (guilds and channels from the live gateway cache via `GET /api/admin/bots/:id/guilds`, only while connected). `GET /api/admin/bots/:id` added
+- [x] Servers: click a channel to open its conversations in a side sheet (list → chat transcript; only bot-handled conversations are stored). Channel ID is a click-to-copy button with a toast (`components/CopyId.tsx`). Admin routes `GET /api/admin/bots/:id/conversations?channelId=` and `.../conversations/:cid/messages`
+- [x] Tenant → **Profiles** tab (after Integrations): a profile is one model from one provider, either OpenAI (ChatGPT) or a Custom provider (base URL required), with an optional write-only API key. `profiles` table, `bots.profile_id` (nullable, `ON DELETE SET NULL`), admin routes `/api/admin/tenants/:id/profiles` and `/api/admin/profiles/:id`
+- [x] Profile form order: Name, Provider, Base URL, API key, then Model. A fetch button lists models from `<base URL>/models` using the typed key (or the saved one) via `POST /api/admin/profiles/models`; the key never reaches the browser. Model stays a free-text field with the fetched list as suggestions
+- [x] Each integration picks a profile in its form (default: Tenant default). `LLMRouter.complete` uses the bot's profile (provider, model, base URL, key) for that bot only; profiles cannot be attached across tenants. Anthropic stays in the router for the tenant default but is not selectable in profiles
+- [x] Removed old single-tenant pages (personality, skills, tasks, LLM router, playground, infra editor) — recoverable from git history
+- [x] **Console UI phase complete** with Profiles as its last tab
+- [ ] Later phases (not started): usage, tenant default LLM config, skills, tasks, infrastructure editing, custom API key scopes
+- [ ] Manual browser verification of the flows above
 
-- Encryption uses a versioned AES-256-GCM envelope with fresh 12-byte nonce and 16-byte tag. Production requires `PLATFORM_ENCRYPTION_KEY`; development can derive from `AGENT_SECRET_KEY`.
-- API keys use 192 bits of entropy, SHA-256 storage, 12-character display prefixes, and optional `resource:read/write` scopes.
-- Bot deletion retains an inactive tombstone and erases its token to preserve historical foreign-key references.
-- Provider and bot credentials are database-only at runtime. Legacy env variables are consulted only during the first bootstrap migration.
-- SQLite tenant creation is synchronous inside a transaction; PostgreSQL uses async transactions. Bootstrap keys print only after commit.
+**Product framing (important):** Pachiware is a general-purpose AI assistant platform, **not a Discord project**. Discord is just one of several integrations (WhatsApp, Telegram, Slack are planned). Admin UI copy must stay platform-neutral: use "Integrations", not "Discord Bots", in nav, tab, metrics and card actions. Name Discord only inside the integration's own screen, as one platform among others. Route is `/tenants/:id/integrations`. Backend names (`bots`, `/api/admin/.../bots`) are unchanged for now.
 
-### Post-Phase 13 UX Follow-up
+Decisions: no admin "test bot token" route yet (restart reports status); dark theme default.
 
-- [x] First-run database choice is explicit in `pachiware init`, `install.sh`, and the web Setup Wizard: SQLite, external PostgreSQL, or PostgreSQL 18 Docker.
-- [x] Non-interactive curl installs default safely to SQLite and accept `PACHIWARE_DATABASE` / `PACHIWARE_POSTGRES_URL` overrides.
+---
 
-### CLI-to-Web Setup Completion
+## Phase 15: DISCORD CONVERSATIONS + PER-SERVER INSTRUCTIONS
 
-- [x] CLI initialization now runs migrations, seeds platform skills, creates/reuses the default tenant, and persists encrypted local console access with mode 0600.
-- [x] Installer invokes the same CLI workflow, rejects unsupported Bun versions, and keeps the lockfile frozen.
-- [x] Web console automatically connects through a localhost-only server endpoint before rendering tenant data.
-- [x] Verify fresh/rerun/revoked-key CLI setup and handoff access controls: all 30 tests / 171 assertions pass.
-- [x] Independent typecheck, web build, compiled CLI/help checks, installer syntax, and runtime handoff/API checks pass.
-- [x] Verify complete operator setup twice on disposable PostgreSQL 18.6: one default tenant, stable operator key, healthy agent, and cleanup completed.
+- [x] `guild_configs` table (both dialects, idempotent migration): `system_prompt`, `use_threads`, `always_channel_ids`, unique per `(bot_id, guild_id)`; helpers `getGuildConfig` / `upsertGuildConfig`
+- [x] `discord/routing.ts`: `respondReason` (DM, owned thread, always-channel, mention or reply to bot; ignores bots and disallowed servers), `threadName`, `speakerTurn`
+- [x] `handleMessage`: mention opens a thread when the server allows it (falls back to the channel without permission); conversations are keyed by channel/thread and shared by all participants; turns are serialized per conversation
+- [x] `SystemPromptBuilder` appends "Server instructions" from the guild config (120 s cache, invalidated on save)
+- [x] Admin routes `GET/PUT /api/admin/bots/:botId/guilds/:guildId/config`; documented in `docs/api.md`
+- [x] Console: **Instructions** sheet per server in Integration → Servers (prompt, reply-in-threads switch, always-respond channels)
+- [x] Tests: `apps/agent/test/conversations.test.ts`
+- [x] `bun test`: 33 pass, 1 fail (`packages/cli/test/setup.test.ts` expects `keyId`, gets `platformKeyEncrypted`; from the earlier operator-handoff change, not this phase). Web `tsc` and `vite build` pass
+- [ ] Manual check on a real Discord server (thread creation, shared context, server prompt)
+- Out of scope: slash commands, loading channel history for threads the bot did not start, long-term memory/summaries, per-channel prompt overrides, attachments/images
+- Known limit: existing conversations stored per `(channel, user)` are no longer matched; the first message after upgrade in a shared channel starts a fresh conversation
 
-Regression note: an early CLI fixture exposed inherited `PACHIWARE_DIR` pointing setup at the development database. Setup now forces its requested workspace; regression fixtures use temporary directories, and the development database was preserved. No LLM/bot credentials were present in that database.
+### 15.1 LLM prompt-cache hits (OpenAI + Custom provider)
 
-### README Installation Guide
+Provider-side prompt caching only hits when the request starts with an identical prefix. Before this, the prefix changed on every turn.
 
-- [x] Rewrite README in Indonesian around the project overview, one-command/clone installation, database selection, and localhost dashboard access.
-- [x] Document end-to-end LLM setup, chat/task verification, optional Discord connection, daily commands, and backup guidance.
-- [x] Move tenant provisioning examples and endpoint reference to `docs/api.md`.
-- [x] Check documented commands and dashboard labels against source; verify the moved API reference is preserved and `git diff --check` passes. Documentation-only change; runtime code unchanged.
-
-### Bilingual README
-
-- [x] Provide the English guide in `README.md` and preserve the Indonesian guide in `README.id.md` with reciprocal language links.
-- [x] Keep installation, database selection, dashboard setup, LLM/Discord usage, and daily commands equivalent in both languages.
-- [x] Verify matching shell examples, valid local documentation links, and clean `git diff --check`. Documentation-only change.
+- [x] System prompt is now static per tenant/server: user, channel, platform and active tasks moved out into `SystemPromptBuilder.buildDynamic`, sent as a trailing, never-stored `[Context ...]` user message after the real one
+- [x] Tool list sorted by name in `skillRegistry.getActiveTools` (it leads the cached prefix and used to follow DB row order)
+- [x] History window advances in steps of 10 (`loop/history.ts`) instead of sliding every turn; a leading orphan tool result is dropped so the window never starts mid tool-call
+- [x] `cachedTokens` read from `prompt_tokens_details.cached_tokens` (OpenAI), `prompt_cache_hit_tokens` (DeepSeek-style), `cache_read_input_tokens` and `cached_tokens` (`llm/usage.ts`), stored in `usage_events.metadata.cachedTokens` for both OpenAI and Custom
+- [x] `prompt_cache_key` = conversation id, sent only when the base URL host is `api.openai.com` (unknown hosts may reject the field)
+- [x] Tests: `apps/agent/test/cache.test.ts`
+- [ ] Measure the real hit rate on a live provider (`cachedTokens / promptTokens` from `usage_events`); not verified yet
+- [ ] **Anthropic (deferred, own phase):** add `cache_control: { type: "ephemeral" }` on the system block and the last tool in `callAnthropic`, read `cache_read_input_tokens` / `cache_creation_input_tokens`. Anthropic stays out of Profiles for now, so this only matters for the tenant default
+- Decision: cache behaviour for a Custom endpoint depends on that endpoint (automatic prefix caching on OpenAI-compatible servers, DeepSeek, vLLM, etc.). We only keep the prefix stable and report what it returns; we send no provider-specific cache parameters to hosts we do not know.
+- Known limit: the window shifts by 10 messages at a time, so a conversation can carry up to 40 history messages instead of a strict 30.
