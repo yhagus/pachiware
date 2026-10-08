@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useParams, useLocation } from "react-router";
-import { Brain, ChevronLeft, Pause, Play, Plug } from "lucide-react";
+import { Brain, ChevronLeft, GitBranch, Pause, Play, FolderTree, Plug, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmAction } from "@/components/ConfirmAction";
@@ -8,8 +8,8 @@ import { label } from "@/lib/utils";
 import { IconButton } from "@/components/IconButton";
 import { api, type Tenant } from "@/lib/api";
 
-// Add future tenant sections (skills, tasks, …) here.
-const SECTIONS = [{ path: "integrations", label: "Integrations", icon: Plug }, { path: "profiles", label: "Profiles", icon: Brain }];
+// Add future tenant sections (tasks, …) here.
+const SECTIONS = [{ path: "integrations", label: "Integrations", icon: Plug }, { path: "profiles", label: "Profiles", icon: Brain }, { path: "git-accounts", label: "Git accounts", icon: GitBranch }, { path: "skills", label: "Skills", icon: Wrench }, { path: "workspace", label: "Workspace", icon: FolderTree }];
 
 export function TenantDetail() {
   const { id = "" } = useParams();
@@ -44,9 +44,9 @@ export function TenantDetail() {
           description={tenant.status === "active" ? "Its integrations stop responding until it is activated again." : "Its integrations resume."}
           confirmLabel={tenant.status === "active" ? "Suspend" : "Activate"} danger={tenant.status === "active"} onConfirm={toggle} />
       </div>
-      <nav className="flex gap-1 border-b">
+      <nav className="flex gap-1 overflow-x-auto border-b">
         {SECTIONS.map(({ path, label, icon: Icon }) => (
-          <NavLink key={path} to={path} className={({ isActive }) => `-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm ${isActive ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+          <NavLink key={path} to={path} className={({ isActive }) => `-mb-px flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2 text-sm ${isActive ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
             <Icon className="size-4" /> {label}
           </NavLink>
         ))}

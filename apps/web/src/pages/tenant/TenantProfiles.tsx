@@ -91,7 +91,7 @@ export function TenantProfiles() {
                 <SelectContent>{PROVIDERS.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
               </Select></div>
             <div className="space-y-2"><Label htmlFor="pb">Base URL{custom ? "" : " (optional)"}</Label><Input id="pb" type="url" required={custom} placeholder={custom ? "https://your-provider.example/v1" : "https://api.openai.com/v1"} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} /></div>
-            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" autoComplete="off" placeholder={editing !== "new" && editing?.hasApiKey ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} /></div>
+            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" placeholder={editing !== "new" && editing?.hasApiKey ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pm">Model</Label>
               <div className="flex gap-2">
                 <Input id="pm" required list="profile-models" className="flex-1" placeholder={custom ? "Model name from your provider" : "gpt-4o"} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />

@@ -30,15 +30,29 @@ export const profiles = pgTable("profiles", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [index("profiles_tenant_idx").on(t.tenantId)]);
 
+export const gitAccounts = pgTable("git_accounts", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), provider: text("provider").notNull(), baseUrl: text("base_url"), username: text("username").notNull(), tokenEncrypted: text("token_encrypted").notNull(),
+  authType: text("auth_type").notNull().default("token"), refreshTokenEncrypted: text("refresh_token_encrypted"), tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [uniqueIndex("git_accounts_tenant_name_idx").on(t.tenantId, t.name), uniqueIndex("git_accounts_tenant_id_idx").on(t.tenantId, t.id)]);
+
+export const gitOauthApps = pgTable("git_oauth_apps", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`), provider: text("provider").notNull(), baseUrl: text("base_url").notNull().default(""),
+  clientId: text("client_id").notNull(), clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [uniqueIndex("git_oauth_apps_host_idx").on(t.provider, t.baseUrl)]);
+
 export const bots = pgTable("bots", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   name: text("name").notNull().default("Discord Bot"), platform: text("platform").notNull().default("discord"),
   tokenEncrypted: text("token_encrypted").notNull(), clientId: text("client_id"), guildIds: jsonb("guild_ids").$type<string[]>().notNull().default([]),
   isEnabled: boolean("is_enabled").notNull().default(true), connectionStatus: text("connection_status").notNull().default("disconnected"),
   profileId: text("profile_id").references(() => profiles.id, { onDelete: "set null" }),
+  gitAccountId: text("git_account_id"),
   lastConnectedAt: timestamp("last_connected_at", { withTimezone: true }), lastError: text("last_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (t) => [index("bots_tenant_idx").on(t.tenantId), uniqueIndex("bots_tenant_id_idx").on(t.tenantId, t.id)]);
+}, (t) => [index("bots_tenant_idx").on(t.tenantId), uniqueIndex("bots_tenant_id_idx").on(t.tenantId, t.id), foreignKey({ columns: [t.tenantId, t.gitAccountId], foreignColumns: [gitAccounts.tenantId, gitAccounts.id] })]);
 
 export const guildConfigs = pgTable("guild_configs", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
@@ -46,6 +60,19 @@ export const guildConfigs = pgTable("guild_configs", {
   systemPrompt: text("system_prompt"), useThreads: boolean("use_threads").notNull().default(true), alwaysChannelIds: jsonb("always_channel_ids").$type<string[]>().notNull().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
+
+export const botGitAccounts = pgTable("bot_git_accounts", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  botId: text("bot_id").notNull().references(() => bots.id, { onDelete: "cascade" }), gitAccountId: text("git_account_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [uniqueIndex("bot_git_accounts_idx").on(t.botId, t.gitAccountId), foreignKey({ columns: [t.tenantId, t.gitAccountId], foreignColumns: [gitAccounts.tenantId, gitAccounts.id] })]);
+
+export const gitScopes = pgTable("git_scopes", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  botId: text("bot_id").notNull(), guildId: text("guild_id").notNull(), channelId: text("channel_id").notNull().default(""), gitAccountId: text("git_account_id").notNull(),
+  repoPatterns: jsonb("repo_patterns").$type<string[]>().notNull().default(["*"]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [uniqueIndex("git_scopes_idx").on(t.botId, t.guildId, t.channelId, t.gitAccountId), foreignKey({ columns: [t.botId, t.gitAccountId], foreignColumns: [botGitAccounts.botId, botGitAccounts.gitAccountId] }).onDelete("cascade")]);
 
 export const usageEvents = pgTable("usage_events", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),
@@ -207,6 +234,9 @@ export type NewApiKey = typeof apiKeys.$inferInsert;
 
 export type Profile = typeof profiles.$inferSelect;
 export type NewProfile = typeof profiles.$inferInsert;
+export type GitAccount = typeof gitAccounts.$inferSelect;
+export type NewGitAccount = typeof gitAccounts.$inferInsert;
+export type GitOauthApp = typeof gitOauthApps.$inferSelect;
 
 export type Bot = typeof bots.$inferSelect;
 export type NewBot = typeof bots.$inferInsert;

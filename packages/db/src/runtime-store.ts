@@ -70,6 +70,27 @@ export function getInfraConfig(): InfraConfig {
   };
 }
 
+/** Hosts self-hosted git accounts may point at (platform-wide). Empty means no restriction. */
+export function getGitAllowedHosts(): string[] {
+  try {
+    const hosts = JSON.parse(fs.readFileSync(findRuntimeConfigFile(), "utf-8")).gitAllowedHosts;
+    return Array.isArray(hosts) ? hosts.filter((h): h is string => typeof h === "string") : [];
+  } catch { return []; }
+}
+export function saveGitAllowedHosts(hosts: string[]): string[] {
+  const filePath = findRuntimeConfigFile();
+  // Merge into the raw file so saving hosts never pins env-derived database/redis URLs into it.
+  let stored: Record<string, unknown> = {};
+  try { stored = JSON.parse(fs.readFileSync(filePath, "utf-8")); } catch { /* new file */ }
+  fs.writeFileSync(filePath, JSON.stringify({ ...stored, gitAllowedHosts: hosts }, null, 2), "utf-8");
+  return hosts;
+}
+export function assertGitHostAllowed(baseUrl: string | null): void {
+  const allowed = getGitAllowedHosts();
+  if (!baseUrl || allowed.length === 0) return;
+  if (!allowed.includes(new URL(baseUrl).host.toLowerCase())) throw new Error(`Host ${new URL(baseUrl).host} is not in the allowed git hosts`);
+}
+
 export function saveInfraConfig(updates: { databaseUrl?: string; redisUrl?: string }): InfraConfig {
   const filePath = findRuntimeConfigFile();
   const current = getInfraConfig();

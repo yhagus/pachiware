@@ -75,8 +75,9 @@ describe("pachiware init", () => {
       expect(envFile).toContain('DATABASE_URL="sqlite:./data/pachiware.db"');
       expect(envFile).toMatch(/^PLATFORM_ADMIN_KEY="[a-f0-9]{64}"$/m);
       expect(envFile).toMatch(/^PLATFORM_ENCRYPTION_KEY="[A-Za-z0-9+/]{43}="$/m);
-      expect(access).toMatchObject({ tenantId: expect.any(String), keyId: expect.any(String) });
-      expect(access.apiKeyEncrypted).toMatch(/^v1:/);
+      expect(access).toMatchObject({ tenantId: expect.any(String) });
+      expect(access.keyId).toBeUndefined();
+      expect(access.apiKeyEncrypted).toBeUndefined();
       expect(access.platformKeyEncrypted).toMatch(/^v1:/);
       expect(lstatSync(join(target, "operator-access.json")).mode & 0o777).toBe(0o600);
       expect(existsSync(join(target, "data/pachiware.db"))).toBe(true);

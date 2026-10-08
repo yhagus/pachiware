@@ -45,15 +45,29 @@ export const profiles = sqliteTable("profiles", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [index("profiles_tenant_idx").on(t.tenantId)]);
 
+export const gitAccounts = sqliteTable("git_accounts", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), provider: text("provider").notNull(), baseUrl: text("base_url"), username: text("username").notNull(), tokenEncrypted: text("token_encrypted").notNull(),
+  authType: text("auth_type").notNull().default("token"), refreshTokenEncrypted: text("refresh_token_encrypted"), tokenExpiresAt: integer("token_expires_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("git_accounts_tenant_name_idx").on(t.tenantId, t.name), uniqueIndex("git_accounts_tenant_id_idx").on(t.tenantId, t.id)]);
+
+export const gitOauthApps = sqliteTable("git_oauth_apps", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), provider: text("provider").notNull(), baseUrl: text("base_url").notNull().default(""),
+  clientId: text("client_id").notNull(), clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("git_oauth_apps_host_idx").on(t.provider, t.baseUrl)]);
+
 export const bots = sqliteTable("bots", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   name: text("name").notNull().default("Discord Bot"), platform: text("platform").notNull().default("discord"),
   tokenEncrypted: text("token_encrypted").notNull(), clientId: text("client_id"), guildIds: text("guild_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
   isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true), connectionStatus: text("connection_status").notNull().default("disconnected"),
   profileId: text("profile_id").references(() => profiles.id, { onDelete: "set null" }),
+  gitAccountId: text("git_account_id"),
   lastConnectedAt: integer("last_connected_at", { mode: "timestamp_ms" }), lastError: text("last_error"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
-}, (t) => [index("bots_tenant_idx").on(t.tenantId), uniqueIndex("bots_tenant_id_idx").on(t.tenantId, t.id)]);
+}, (t) => [index("bots_tenant_idx").on(t.tenantId), uniqueIndex("bots_tenant_id_idx").on(t.tenantId, t.id), foreignKey({ columns: [t.tenantId, t.gitAccountId], foreignColumns: [gitAccounts.tenantId, gitAccounts.id] })]);
 
 export const guildConfigs = sqliteTable("guild_configs", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
@@ -61,6 +75,19 @@ export const guildConfigs = sqliteTable("guild_configs", {
   systemPrompt: text("system_prompt"), useThreads: integer("use_threads", { mode: "boolean" }).notNull().default(true), alwaysChannelIds: text("always_channel_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
+
+export const botGitAccounts = sqliteTable("bot_git_accounts", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  botId: text("bot_id").notNull().references(() => bots.id, { onDelete: "cascade" }), gitAccountId: text("git_account_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("bot_git_accounts_idx").on(t.botId, t.gitAccountId), foreignKey({ columns: [t.tenantId, t.gitAccountId], foreignColumns: [gitAccounts.tenantId, gitAccounts.id] })]);
+
+export const gitScopes = sqliteTable("git_scopes", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  botId: text("bot_id").notNull(), guildId: text("guild_id").notNull(), channelId: text("channel_id").notNull().default(""), gitAccountId: text("git_account_id").notNull(),
+  repoPatterns: text("repo_patterns", { mode: "json" }).$type<string[]>().notNull().default(["*"]),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("git_scopes_idx").on(t.botId, t.guildId, t.channelId, t.gitAccountId), foreignKey({ columns: [t.botId, t.gitAccountId], foreignColumns: [botGitAccounts.botId, botGitAccounts.gitAccountId] }).onDelete("cascade")]);
 
 export const usageEvents = sqliteTable("usage_events", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),
@@ -196,6 +223,8 @@ export type NewApiKey = typeof apiKeys.$inferInsert;
 
 export type Profile = typeof profiles.$inferSelect;
 export type NewProfile = typeof profiles.$inferInsert;
+export type GitAccount = typeof gitAccounts.$inferSelect;
+export type NewGitAccount = typeof gitAccounts.$inferInsert;
 
 export type Bot = typeof bots.$inferSelect;
 export type NewBot = typeof bots.$inferInsert;

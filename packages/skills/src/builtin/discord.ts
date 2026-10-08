@@ -4,6 +4,14 @@ export const discordManagementSkill: SkillModule = {
   id: "discord_management",
   name: "Discord Management",
   description: "Manage Discord guild channels, topics, archiving, and permissions.",
+  capabilities: ["discord_channels"],
+  allowedScopes: ["tenant", "guild", "channel", "user"],
+  requiredPermissions: ["ManageChannels"],
+  toolPolicy: {
+    createChannel: { risk: "write", requiresConfirmation: true },
+    archiveChannel: { risk: "destructive", requiresConfirmation: true },
+    setChannelTopic: { risk: "write", requiresConfirmation: false },
+  },
   tools: [
     {
       name: "createChannel",

@@ -3,7 +3,7 @@ import { queryClient } from "./index.js";
 import { activeDialect } from "./schema/index.js";
 import { encryptSecret, generateApiKey, hashApiKey } from "./crypto.js";
 
-const tables = ["api_keys", "tenants", "profiles", "bots", "guild_configs", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events"] as const;
+const tables = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events"] as const;
 
 function definitions(pg: boolean): Record<string, string> {
   const time = pg ? "TIMESTAMPTZ" : "INTEGER";
@@ -18,8 +18,12 @@ function definitions(pg: boolean): Record<string, string> {
     tenants: `id ${id}, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL, status TEXT NOT NULL DEFAULT 'active', platform_metadata ${json} NOT NULL DEFAULT '{}', ${dates}`,
     api_keys: `id ${id}, key_prefix TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT 'API Key', scopes ${json} NOT NULL DEFAULT '[]', last_used_at ${time}, revoked_at ${time}, created_at ${time} NOT NULL DEFAULT ${now}`,
     profiles: `id ${id}, ${tenant}, name TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, base_url TEXT, api_key_encrypted TEXT, ${dates}`,
-    bots: `id ${id}, ${tenant}, name TEXT NOT NULL DEFAULT 'Discord Bot', platform TEXT NOT NULL DEFAULT 'discord', token_encrypted TEXT NOT NULL, client_id TEXT, guild_ids ${json} NOT NULL DEFAULT '[]', is_enabled ${bool} NOT NULL DEFAULT ${yes}, connection_status TEXT NOT NULL DEFAULT 'disconnected', profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL, last_connected_at ${time}, last_error TEXT, ${dates}, UNIQUE(tenant_id,id)`,
+    git_accounts: `id ${id}, ${tenant}, name TEXT NOT NULL, provider TEXT NOT NULL, base_url TEXT, username TEXT NOT NULL, token_encrypted TEXT NOT NULL, auth_type TEXT NOT NULL DEFAULT 'token', refresh_token_encrypted TEXT, token_expires_at ${time}, ${dates}, UNIQUE(tenant_id,name), UNIQUE(tenant_id,id)`,
+    git_oauth_apps: `id ${id}, provider TEXT NOT NULL, base_url TEXT NOT NULL DEFAULT '', client_id TEXT NOT NULL, client_secret_encrypted TEXT NOT NULL, ${dates}, UNIQUE(provider,base_url)`,
+    bots: `id ${id}, ${tenant}, name TEXT NOT NULL DEFAULT 'Discord Bot', platform TEXT NOT NULL DEFAULT 'discord', token_encrypted TEXT NOT NULL, client_id TEXT, guild_ids ${json} NOT NULL DEFAULT '[]', is_enabled ${bool} NOT NULL DEFAULT ${yes}, connection_status TEXT NOT NULL DEFAULT 'disconnected', profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL, git_account_id TEXT, last_connected_at ${time}, last_error TEXT, ${dates}, UNIQUE(tenant_id,id), FOREIGN KEY(tenant_id,git_account_id) REFERENCES git_accounts(tenant_id,id)`,
     guild_configs: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, guild_id TEXT NOT NULL, system_prompt TEXT, use_threads ${bool} NOT NULL DEFAULT ${yes}, always_channel_ids ${json} NOT NULL DEFAULT '[]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id)`,
+    bot_git_accounts: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, git_account_id TEXT NOT NULL, created_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,git_account_id), FOREIGN KEY(tenant_id,git_account_id) REFERENCES git_accounts(tenant_id,id)`,
+    git_scopes: `id ${id}, ${tenant}, bot_id TEXT NOT NULL, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL DEFAULT '', git_account_id TEXT NOT NULL, repo_patterns ${json} NOT NULL DEFAULT '["*"]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id,channel_id,git_account_id), FOREIGN KEY(bot_id,git_account_id) REFERENCES bot_git_accounts(bot_id,git_account_id) ON DELETE CASCADE`,
     agents_config: `tenant_id TEXT PRIMARY KEY NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL DEFAULT 'Pachiware Agent', system_prompt TEXT NOT NULL DEFAULT 'You are Pachiware Agent, a helpful and precise assistant.', default_provider TEXT NOT NULL DEFAULT 'openai', default_model TEXT NOT NULL DEFAULT 'gpt-4o', temperature REAL NOT NULL DEFAULT 0.7, max_tokens INTEGER NOT NULL DEFAULT 4096, openai_api_key_encrypted TEXT, openai_base_url TEXT, openai_model TEXT, anthropic_api_key_encrypted TEXT, anthropic_base_url TEXT, anthropic_model TEXT, custom_api_key_encrypted TEXT, custom_base_url TEXT, custom_model TEXT, settings ${json} NOT NULL DEFAULT '{}', updated_at ${time} NOT NULL DEFAULT ${now}`,
     skills: `id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, default_enabled ${bool} NOT NULL DEFAULT ${yes}, tool_definitions ${json} NOT NULL DEFAULT '[]', handler_type TEXT NOT NULL DEFAULT 'builtin', config ${json} NOT NULL DEFAULT '{}', ${dates}`,
     tenant_skills: `id ${id}, ${tenant}, skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE, is_enabled ${bool} NOT NULL DEFAULT ${yes}, config ${json} NOT NULL DEFAULT '{}', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(tenant_id,skill_id)`,
@@ -58,6 +62,19 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   for (const table of tables) await exec(`CREATE TABLE IF NOT EXISTS ${table} (${ddl[table]})`);
   const botCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='bots'" : "PRAGMA table_info(bots)");
   if (!botCols.some((c) => c.name === "profile_id")) await exec("ALTER TABLE bots ADD COLUMN profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL");
+  // ponytail: SQLite cannot add a composite FK via ALTER, so upgraded SQLite DBs rely on the API's tenant check; fresh DBs and PostgreSQL enforce it.
+  if (!botCols.some((c) => c.name === "git_account_id")) {
+    await exec("ALTER TABLE bots ADD COLUMN git_account_id TEXT");
+    if (pg) await exec("ALTER TABLE bots ADD CONSTRAINT bots_git_account_fk FOREIGN KEY (tenant_id, git_account_id) REFERENCES git_accounts(tenant_id, id)");
+  }
+  // bots.git_account_id is superseded by bot_git_accounts; the column stays but is no longer read.
+  await exec(`INSERT INTO bot_git_accounts (id, tenant_id, bot_id, git_account_id) SELECT ${pg ? "gen_random_uuid()::text" : "lower(hex(randomblob(16)))"}, tenant_id, id, git_account_id FROM bots WHERE git_account_id IS NOT NULL AND connection_status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM bot_git_accounts b WHERE b.bot_id = bots.id AND b.git_account_id = bots.git_account_id)`);
+  const gitCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='git_accounts'" : "PRAGMA table_info(git_accounts)");
+  if (!gitCols.some((c) => c.name === "auth_type")) {
+    await exec("ALTER TABLE git_accounts ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'token'");
+    await exec("ALTER TABLE git_accounts ADD COLUMN refresh_token_encrypted TEXT");
+    await exec(`ALTER TABLE git_accounts ADD COLUMN token_expires_at ${pg ? "TIMESTAMPTZ" : "INTEGER"}`);
+  }
   // Keys used to belong to one tenant; they are now global and tenants point back at the key that created them.
   const tenantCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='tenants'" : "PRAGMA table_info(tenants)");
   if (!tenantCols.some((c) => c.name === "api_key_id")) await exec("ALTER TABLE tenants ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL");
@@ -80,7 +97,7 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   let tenantId = tenants[0]?.id;
   const insert = async (table: string, row: Record<string, any>) => {
     const entries = Object.entries(row).filter(([, v]) => v !== undefined);
-    const jsonFields = new Set(["platform_metadata", "scopes", "guild_ids", "settings", "tool_definitions", "config", "metadata", "tool_calls"]);
+    const jsonFields = new Set(["platform_metadata", "scopes", "guild_ids", "settings", "repo_patterns", "tool_definitions", "config", "metadata", "tool_calls"]);
     const params = entries.map(([key, value]) => pg && jsonFields.has(key) && value !== null && typeof value !== "string" ? JSON.stringify(value) : value);
     await exec(`INSERT INTO ${table} (${entries.map(([k]) => k).join(",")}) VALUES (${entries.map((_, i) => pg ? `$${i + 1}` : "?").join(",")})`, params);
   };

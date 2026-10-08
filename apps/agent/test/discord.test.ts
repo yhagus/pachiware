@@ -33,8 +33,9 @@ describe("DiscordBotManager tenant isolation", () => {
         async login(token) { if (token === "bad-token") throw new Error("bad token"); this.emit("ready"); return token; }
         async destroy() { this.destroyed++; }
       }
-      class FakeEmbed { setTitle() { return this; } setColor() { return this; } addFields() { return this; } }
-      mock.module("discord.js", () => ({ Client: FakeClient, GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4, DirectMessages: 8 }, Partials: { Channel: 1, Message: 2 }, Events: { ClientReady: "ready", Error: "error", MessageCreate: "message" }, EmbedBuilder: FakeEmbed, ChannelType: { GuildText: 0, GuildVoice: 2, GuildAnnouncement: 5, GuildCategory: 4 }, PermissionFlagsBits: {} }));
+      class FakeEmbed { setTitle() { return this; } setColor() { return this; } addFields() { return this; } setDescription() { return this; } setFooter() { return this; } }
+      class FakeBuilder { addComponents() { return this; } setCustomId() { return this; } setLabel() { return this; } setStyle() { return this; } }
+      mock.module("discord.js", () => ({ Client: FakeClient, GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4, DirectMessages: 8 }, Partials: { Channel: 1, Message: 2 }, Events: { ClientReady: "ready", Error: "error", MessageCreate: "message", InteractionCreate: "interaction" }, EmbedBuilder: FakeEmbed, ActionRowBuilder: FakeBuilder, ButtonBuilder: FakeBuilder, ButtonStyle: { Success: 3, Secondary: 2 }, ChannelType: { GuildText: 0, GuildVoice: 2, GuildAnnouncement: 5, GuildCategory: 4 }, PermissionFlagsBits: {} }));
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))});
       const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
       const { db, bots, usageEvents, eq } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
@@ -52,12 +53,12 @@ describe("DiscordBotManager tenant isolation", () => {
       const status = manager.getStatus(); assert(status.length === 2 && status.every((row) => row.connected), "enabled tenants did not receive separate ready clients");
       const [badRow] = await db.select().from(bots).where(eq(bots.id, badBot.id)); assert(badRow.connectionStatus === "error", "failed login did not isolate its status");
       let runs = []; agentReActLoop.run = async (input) => { runs.push(input); return { conversationId: "conversation", reply: "x".repeat(3801), iterations: 1, toolCallsExecuted: [{ call: { name: "createTask" }, result: { success: true } }] }; };
-      const makeMessage = ({ guildId = "guild-a", mentioned = true, thread = false } = {}) => { const replies = []; const sends = []; const channel = { ownerId: thread ? "bot-user" : "other", isThread: () => thread, isSendable: () => true, sendTyping: async () => {}, send: async (value) => sends.push(value) }; return { author: { id: "user-1", username: "Operator", bot: false }, guildId, guild: { name: "Guild" }, channelId: "channel-1", channel, mentions: { users: { has: () => mentioned } }, content: "<@bot-user> do work", reply: async (value) => replies.push(value), replies, sends }; };
-      const direct = makeMessage(); await manager.handleMessage(alphaBot.id, direct); assert(runs.length === 1 && runs[0].tenantId === alpha.id && runs[0].botId === alphaBot.id, "message dispatched outside tenant context");
+      const makeMessage = ({ guildId = "guild-a", mentioned = true, thread = false } = {}) => { const replies = []; const sends = []; const reacts = []; const channel = { ownerId: thread ? "bot-user" : "other", isThread: () => thread, isSendable: () => true, sendTyping: async () => {}, send: async (value) => sends.push(value), messages: { fetch: async () => ({ first: () => ({ author: { id: "bot-user" } }) }) } }; return { author: { id: "user-1", username: "Operator", bot: false }, guildId, guild: { name: "Guild" }, channelId: "channel-1", channel, mentions: { users: { has: () => mentioned, keys: () => [] } }, attachments: { size: 0 }, react: async (e) => reacts.push(e), reacts, content: "<@bot-user> do work", reply: async (value) => replies.push(value), replies, sends }; };
+      const direct = makeMessage(); await manager.handleMessage(alphaBot.id, direct); await new Promise((r) => setTimeout(r, 2800)); assert(runs.length === 1 && runs[0].tenantId === alpha.id && runs[0].botId === alphaBot.id, "message dispatched outside tenant context");
       assert(direct.replies.filter((reply) => typeof reply === "object" && reply.content).length === 3 && direct.replies.every((reply) => typeof reply !== "object" || reply.content.length <= 2000), "long reply was not safely chunked"); assert(direct.sends.length === 1, "tool action embed absent");
-      const thread = makeMessage({ mentioned: false, thread: true }); await manager.handleMessage(alphaBot.id, thread); assert(runs.length === 2, "owned thread was not processed");
+      const thread = makeMessage({ mentioned: false, thread: true }); await manager.handleMessage(alphaBot.id, thread); await new Promise((r) => setTimeout(r, 2800)); assert(runs.length === 2, "owned thread was not processed");
       const foreignGuild = makeMessage({ guildId: "foreign" }); await manager.handleMessage(alphaBot.id, foreignGuild); assert(runs.length === 2, "unconfigured guild was processed");
-      const oldRate = CacheService.checkRateLimit; CacheService.checkRateLimit = async () => ({ allowed: false, remaining: 0, resetIn: 60 }); const limited = makeMessage(); await manager.handleMessage(alphaBot.id, limited); CacheService.checkRateLimit = oldRate; assert(limited.replies[0] === "Please wait before sending another request." && runs.length === 2, "rate-limited message dispatched");
+      const oldRate = CacheService.checkRateLimit; CacheService.checkRateLimit = async () => ({ allowed: false, remaining: 0, resetIn: 60 }); const limited = makeMessage(); await manager.handleMessage(alphaBot.id, limited); CacheService.checkRateLimit = oldRate; assert(limited.reacts[0] === "⏳" && limited.replies.length === 0 && runs.length === 2, "rate-limited message dispatched");
       const usage = await db.select().from(usageEvents).where(eq(usageEvents.tenantId, alpha.id)); assert(usage.filter((row) => row.type === "discord_message").length === 2, "Discord usage was not tenant-scoped");
       await Promise.all([manager.restartBot(alphaBot.id), manager.stopBot(alphaBot.id)]); assert(manager.getStatus(alphaBot.id) === null, "serialized lifecycle did not finish stopped");
       await manager.startBot(alphaBot.id); await manager.stopTenant(alpha.id); assert(manager.getStatus(alphaBot.id) === null, "stopTenant retained tenant runtime");
@@ -72,5 +73,5 @@ describe("DiscordBotManager tenant isolation", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  });
+  }, 15000);
 });

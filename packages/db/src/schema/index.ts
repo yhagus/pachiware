@@ -57,12 +57,25 @@ export let profiles = active.profiles;
 export type Profile = typeof pgSchema.profiles.$inferSelect;
 export type NewProfile = typeof pgSchema.profiles.$inferInsert;
 
+export let gitAccounts = active.gitAccounts;
+export type GitAccount = typeof pgSchema.gitAccounts.$inferSelect;
+export type NewGitAccount = typeof pgSchema.gitAccounts.$inferInsert;
+
+export let gitOauthApps = active.gitOauthApps;
+export type GitOauthApp = typeof pgSchema.gitOauthApps.$inferSelect;
+
 export let bots = active.bots;
 export type Bot = typeof pgSchema.bots.$inferSelect;
 export type NewBot = typeof pgSchema.bots.$inferInsert;
 
 export let guildConfigs = active.guildConfigs;
 export type GuildConfig = typeof pgSchema.guildConfigs.$inferSelect;
+
+export let botGitAccounts = active.botGitAccounts;
+export type BotGitAccount = typeof pgSchema.botGitAccounts.$inferSelect;
+
+export let gitScopes = active.gitScopes;
+export type GitScope = typeof pgSchema.gitScopes.$inferSelect;
 
 export let usageEvents = active.usageEvents;
 export type UsageEvent = typeof pgSchema.usageEvents.$inferSelect;
@@ -75,5 +88,5 @@ export type NewTenantSkill = typeof pgSchema.tenantSkills.$inferInsert;
 export function switchSchema(dialect: DbDialect) {
   activeDialect = dialect;
   const next = dialect === "postgres" ? pgSchema : sqliteSchema;
-  ({ agentsConfig, skills, tasks, conversations, messages, tenants, apiKeys, profiles, bots, guildConfigs, usageEvents, tenantSkills } = next);
+  ({ agentsConfig, skills, tasks, conversations, messages, tenants, apiKeys, profiles, gitAccounts, gitOauthApps, bots, guildConfigs, botGitAccounts, gitScopes, usageEvents, tenantSkills } = next);
 }

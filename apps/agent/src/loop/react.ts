@@ -1,7 +1,7 @@
 import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
 import { eq, and, sql } from "drizzle-orm";
 import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
-import { skillRegistry, type ToolCall, type ToolResult, type SkillContext } from "@pachiware/skills";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
@@ -12,7 +12,7 @@ export interface ReActInput {
   message: string;
   conversationId?: string;
   context: PromptContext & {
-    skillContext?: Partial<SkillContext>;
+    skillContext?: Partial<SkillContext> & { member?: MemberAuth };
   };
   maxIterations?: number;
   onStep?: (step: { type: "thought" | "tool_call" | "tool_result"; payload: any }) => void;
@@ -25,12 +25,14 @@ export interface ReActOutput {
   iterations: number;
 }
 
+const MAX_TOOL_RESULT = 12000;
+
 export class AgentReActLoop {
   /**
    * Executes the ReAct cycle (Thought -> Action -> Observation -> Answer).
    */
   async run(input: ReActInput): Promise<ReActOutput> {
-    const requestedIterations = Number(input.maxIterations) || 8;
+    const requestedIterations = Number(input.maxIterations) || 12;
     const maxIterations = Math.min(32, Math.max(1, requestedIterations));
     const toolCallsExecuted: { call: ToolCall; result: ToolResult }[] = [];
 
@@ -49,12 +51,22 @@ export class AgentReActLoop {
           platform: input.context.platform,
           channelId: input.context.channelId || null,
           userId: input.context.userId || null,
+          metadata: { parentChannelId: input.context.skillContext?.parentChannelId ?? null },
         })
         .returning();
       convId = newConv.id;
     }
 
     if (!convId) throw new Error("Conversation creation failed");
+
+    // Guardrail before the loop: refuse oversized or rule-rewriting messages and actions no active skill can serve, answer the rest.
+    const verdict = GuardrailService.classify(input.message, await skillRegistry.getActiveSkills(input.tenantId));
+    if (!verdict.decision.allow && isEnforced(verdict.decision.kind)) {
+      const auditCtx = { db, tenantId: input.tenantId, botId: input.botId };
+      await audit(auditCtx, verdict.decision.kind === "prompt_injection" ? "prompt_injection_detected" : "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", platform: input.context.platform });
+      return { conversationId: convId, reply: verdict.decision.message, toolCallsExecuted, iterations: 0 };
+    }
+    if (!verdict.decision.allow) await audit({ db, tenantId: input.tenantId, botId: input.botId }, "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", observed: true });
 
     // 2. Build dynamic system prompt
     const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId, botId: input.botId });
@@ -109,8 +121,17 @@ export class AgentReActLoop {
       discord: input.context.skillContext?.discord,
       guildId: input.context.guildId,
       channelId: input.context.channelId,
+      guildName: input.context.guildName,
+      channelName: input.context.channelName,
+      userName: input.context.userName,
+      parentChannelId: input.context.skillContext?.parentChannelId,
       userId: input.context.userId,
       metadata: input.context.skillContext?.metadata,
+      auth: {
+        tenantId: input.tenantId, botId: input.botId, userId: input.context.userId, guildId: input.context.guildId, channelId: input.context.channelId,
+        parentChannelId: input.context.skillContext?.parentChannelId,
+        roleIds: input.context.skillContext?.member?.roleIds ?? [], permissions: input.context.skillContext?.member?.permissions ?? [],
+      },
     };
 
     let iterations = 0;
@@ -150,7 +171,7 @@ export class AgentReActLoop {
 
       // If no tool calls, this is the final answer!
       if (!response.toolCalls || response.toolCalls.length === 0) {
-        finalReply = response.content || "I have processed your request.";
+        finalReply = redact(response.content || "I have processed your request.");
         break;
       }
 
@@ -163,7 +184,12 @@ export class AgentReActLoop {
 
         input.onStep?.({ type: "tool_result", payload: result });
 
-        const toolResultContent = JSON.stringify(result.data || { error: result.error });
+        // Tool output is data: clean of secrets and paths, flagged if it tries to give orders, and wrapped so the model reads it as data.
+        const cleaned = redact(JSON.stringify(result.data || { error: result.error }));
+        if (looksLikeInjection(cleaned)) await audit(skillContext, "prompt_injection_detected", { source: "tool_result", tool: toolCall.name });
+        const raw = cleaned;
+        // A big listing would crowd out the rest of the conversation; the model can page or narrow instead.
+        const toolResultContent = asUntrusted(`tool:${toolCall.name}`, raw.length > MAX_TOOL_RESULT ? `${raw.slice(0, MAX_TOOL_RESULT)}\n[truncated ${raw.length - MAX_TOOL_RESULT} characters; ask for a narrower query or the next page]` : raw);
 
         // Observation Step: Feed result back into conversation
         messageHistory.push({
@@ -185,6 +211,7 @@ export class AgentReActLoop {
 
     if (iterations >= maxIterations && !finalReply) {
       finalReply = "I completed several actions, but reached the maximum reasoning iterations.";
+      await audit(skillContext, "guardrail_denied", { kind: "limit", source: "iterations" });
     }
 
     return {

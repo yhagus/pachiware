@@ -1,140 +1,60 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { object } from "../validation.js";
-import { db, tasks, type Task } from "@pachiware/db";
-import { eq, desc, and, like } from "drizzle-orm";
-
+import { loadAllTasks, parseTask, PRIORITIES, render, slug, STATUSES, type Task, WorkspaceConflict, workspaceStore } from "@pachiware/skills";
 import type { TenantEnv } from "../../middleware/tenant.js";
+
 export const taskRoutes = new Hono<TenantEnv>();
+const taskFile = (task: Task) => `shared/tasks/${slug(task.title)}-${task.id.replace(/-/g, "").slice(0, 8).toLowerCase()}.md`;
+async function ensureLabel(tenantId: string, path: string, label: string) {
+  const store = workspaceStore();
+  try { if (!(await store.read(tenantId, `${path}/.name`))) await store.write(tenantId, `${path}/.name`, label); } catch {}
+}
+async function tenantTasks(tenantId: string) { return loadAllTasks(workspaceStore(), tenantId); }
+async function findTask(tenantId: string, id: string) { return (await tenantTasks(tenantId)).find((f) => f.task.id === id); }
 
-// List all tasks with optional filtering
 taskRoutes.get("/", async (c) => {
-  const status = c.req.query("status");
-  const priority = c.req.query("priority");
-  const search = c.req.query("search");
+  const status = c.req.query("status"), priority = c.req.query("priority"), search = c.req.query("search")?.toLowerCase();
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "50", 10) || 50));
-
-  let query = db.select().from(tasks).$dynamic();
-  const conditions = [eq(tasks.tenantId, c.get("tenantId"))];
-
-  if (status && status !== "all") {
-    conditions.push(eq(tasks.status, status));
-  }
-
-  if (priority && priority !== "all") {
-    conditions.push(eq(tasks.priority, priority));
-  }
-
-  if (search) {
-    conditions.push(like(tasks.title, `%${search}%`));
-  }
-
-  if (conditions.length > 0) {
-    query = query.where(and(...conditions));
-  }
-
-  const results = await query.orderBy(desc(tasks.createdAt)).limit(limit);
-
-  // Group counts for dashboard summary
-  const allTasks = await db.select().from(tasks).where(eq(tasks.tenantId, c.get("tenantId")));
-  const counts = {
-    total: allTasks.length,
-    pending: allTasks.filter((t: Task) => t.status === "pending").length,
-    in_progress: allTasks.filter((t: Task) => t.status === "in_progress").length,
-    completed: allTasks.filter((t: Task) => t.status === "completed").length,
-  };
-
-  return c.json({
-    success: true,
-    counts,
-    tasks: results,
-  });
+  const all = (await tenantTasks(c.get("tenantId"))).map((f) => f.task);
+  const filtered = all.filter((task) => (!status || status === "all" || task.status === status) && (!priority || priority === "all" || task.priority === priority) && (!search || task.title.toLowerCase().includes(search))).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return c.json({ success: true, counts: { total: all.length, pending: all.filter((t) => t.status === "pending").length, in_progress: all.filter((t) => t.status === "in_progress").length, completed: all.filter((t) => t.status === "completed").length }, tasks: filtered.slice(0, limit) });
 });
 
-// Create task
 taskRoutes.post("/", async (c) => {
   const body = object(await c.req.json(), "body");
   validateTask(body);
-  const { title, description, priority, assignedTo, discordChannelId } = body;
-
-  if (typeof title !== "string" || !title.trim()) {
-    return c.json({ success: false, error: "Task title is required." }, 400);
-  }
-
-  const [newTask] = await db
-    .insert(tasks)
-    .values({
-      tenantId: c.get("tenantId"),
-      title: title.trim(),
-      description: description || null,
-      priority: priority || "medium",
-      assignedTo: assignedTo || null,
-      discordChannelId: discordChannelId || null,
-    })
-    .returning();
-
-  return c.json({
-    success: true,
-    message: "Task created successfully.",
-    task: newTask,
-  }, 201);
+  if (typeof body.title !== "string" || !body.title.trim()) return c.json({ success: false, error: "Task title is required." }, 400);
+  const now = new Date().toISOString();
+  const task: Task = { id: crypto.randomUUID(), title: body.title.trim(), description: body.description?.trim() || null, status: "pending", priority: body.priority || "medium", assignedTo: body.assignedTo?.trim() || null, createdAt: now, updatedAt: now };
+  const tenantId = c.get("tenantId"), store = workspaceStore();
+  await store.write(tenantId, taskFile(task), render(task));
+  await ensureLabel(tenantId, "shared", "Shared"); await ensureLabel(tenantId, "shared/tasks", "Tasks");
+  return c.json({ success: true, message: "Task created successfully.", task }, 201);
 });
 
-// Update task
 taskRoutes.patch("/:id", async (c) => {
-  const id = c.req.param("id");
-  const body = object(await c.req.json(), "body");
+  const id = c.req.param("id"), body = object(await c.req.json(), "body");
   validateTask(body);
-
-  const existing = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, c.get("tenantId")))).limit(1);
-  if (existing.length === 0) {
-    return c.json({ success: false, error: "Task not found." }, 404);
-  }
-
-  if (body.status !== undefined && !["pending", "in_progress", "completed"].includes(body.status)) return c.json({ error: "Invalid task status" }, 400);
-  const updatePayload: Record<string, any> = {
-    updatedAt: new Date(),
-  };
-
-  if (body.title !== undefined) updatePayload.title = body.title;
-  if (body.description !== undefined) updatePayload.description = body.description;
-  if (body.status !== undefined) updatePayload.status = body.status;
-  if (body.priority !== undefined) updatePayload.priority = body.priority;
-  if (body.assignedTo !== undefined) updatePayload.assignedTo = body.assignedTo;
-  if (body.discordChannelId !== undefined) updatePayload.discordChannelId = body.discordChannelId;
-
-  const [updated] = await db
-    .update(tasks)
-    .set(updatePayload)
-    .where(and(eq(tasks.id, id), eq(tasks.tenantId, c.get("tenantId"))))
-    .returning();
-
-  return c.json({
-    success: true,
-    message: "Task updated successfully.",
-    task: updated,
-  });
+  const tenantId = c.get("tenantId"), hit = await findTask(tenantId, id);
+  if (!hit) return c.json({ success: false, error: "Task not found." }, 404);
+  const current = await workspaceStore().read(tenantId, hit.path), parsed = current && parseTask(current.content);
+  if (!current || !parsed) return c.json({ success: false, error: "Task not found." }, 404);
+  const next: Task = { ...parsed, ...(body.title === undefined ? {} : { title: body.title.trim() }), ...(body.description === undefined ? {} : { description: body.description }), ...(body.status === undefined ? {} : { status: body.status }), ...(body.priority === undefined ? {} : { priority: body.priority }), ...(body.assignedTo === undefined ? {} : { assignedTo: body.assignedTo }), updatedAt: new Date().toISOString() };
+  try { await workspaceStore().write(tenantId, hit.path, render(next), current.version); } catch (e) { if (e instanceof WorkspaceConflict) return c.json({ success: false, error: e.message }, 409); throw e; }
+  return c.json({ success: true, message: "Task updated successfully.", task: next });
 });
 
-// Delete task
 taskRoutes.delete("/:id", async (c) => {
-  const id = c.req.param("id");
-  const existing = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, c.get("tenantId")))).limit(1);
-
-  if (existing.length === 0) {
-    return c.json({ success: false, error: "Task not found." }, 404);
-  }
-
-  await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, c.get("tenantId"))));
-
-  return c.json({
-    success: true,
-    message: "Task deleted successfully.",
-  });
+  const tenantId = c.get("tenantId"), hit = await findTask(tenantId, c.req.param("id"));
+  if (!hit) return c.json({ success: false, error: "Task not found." }, 404);
+  await workspaceStore().remove(tenantId, hit.path);
+  return c.json({ success: true, message: "Task deleted successfully." });
 });
 
 function validateTask(body: Record<string, any>) {
   if (body.title !== undefined && (typeof body.title !== "string" || !body.title.trim())) throw new HTTPException(400, { message: "Task title must be non-empty" });
-  if (body.priority !== undefined && !["low", "medium", "high", "urgent"].includes(body.priority)) throw new HTTPException(400, { message: "Invalid task priority" });
+  if (body.priority !== undefined && !PRIORITIES.includes(body.priority)) throw new HTTPException(400, { message: "Invalid task priority" });
+  if (body.status !== undefined && !STATUSES.includes(body.status)) throw new HTTPException(400, { message: "Invalid task status" });
   for (const field of ["description", "assignedTo", "discordChannelId"]) if (body[field] !== undefined && body[field] !== null && typeof body[field] !== "string") throw new HTTPException(400, { message: `${field} must be a string or null` });
 }

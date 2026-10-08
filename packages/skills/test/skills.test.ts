@@ -28,7 +28,7 @@ describe("tenant-aware skill registry", () => {
       const context = { db, tenantId: alpha.id };
       const created = await skillRegistry.executeTool({ id: "create", name: "createTask", arguments: { title: "Alpha only" } }, context);
       assert(created.success, "createTask failed"); const taskId = created.data.task.id;
-      const cross = await skillRegistry.executeTool({ id: "cross", name: "updateTaskStatus", arguments: { taskId, status: "completed" } }, { db, tenantId: beta.id });
+      const cross = await skillRegistry.executeTool({ id: "cross", name: "updateTaskStatus", arguments: { taskId, status: "completed" } }, { db, tenantId: beta.id, confirmed: true });
       assert(!cross.success && cross.error.includes("not found"), "cross-tenant mutation accepted");
       await db.update(tenantSkills).set({ isEnabled: false }).where(eq(tenantSkills.tenantId, alpha.id));
       const active = await skillRegistry.getActiveTools(alpha.id);
@@ -51,7 +51,7 @@ describe("tenant-aware skill registry", () => {
       const { db } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))}); const { createTenant } = await import(${JSON.stringify(join(workspace, "packages/db/src/tenancy.ts"))}); const { skillRegistry } = await import(${JSON.stringify(join(workspace, "packages/skills/src/registry.ts"))});
       await runMigrations(); await runSeed(); const tenant = await createTenant({ name: "Discord", slug: "discord" });
       const adapter = { createChannel: async (args) => ({ id: "channel-1", name: args.channelName }), archiveChannel: async () => ({ id: "channel-1", message: "archived" }), listChannels: async () => [], setChannelTopic: async () => ({ id: "channel-1", topic: "topic" }) };
-      const result = await skillRegistry.executeTool({ id: "discord", name: "createChannel", arguments: { channelName: "ops" } }, { db, tenantId: tenant.id, discord: adapter });
+      const result = await skillRegistry.executeTool({ id: "discord", name: "createChannel", arguments: { channelName: "ops" } }, { db, tenantId: tenant.id, discord: adapter, confirmed: true, userId: "u", guildId: "g", channelId: "c", auth: { tenantId: tenant.id, userId: "u", guildId: "g", channelId: "c", roleIds: [], permissions: ["Administrator"] } });
       assert(result.success && result.data.channel.id === "channel-1" && !result.data.simulated, "adapter result was not used"); console.log(JSON.stringify({ ok: true }));
     `);
     try {

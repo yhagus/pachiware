@@ -1,0 +1,145 @@
+import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
+
+export const MAX_FILE_BYTES = 256 * 1024;
+export const MAX_LIST_ENTRIES = 500;
+
+export class WorkspaceConflict extends Error {}
+
+export interface WorkspaceEntry { path: string; type: "file" | "dir"; size?: number }
+
+/** What every storage driver offers. Paths are tenant-relative and already validated by resolvePath; a driver adds the tenant prefix and refuses anything that would leave it. */
+export interface WorkspaceStore {
+  read(tenantId: string, path: string): Promise<{ content: string; version: string } | null>;
+  readFrontmatter(tenantId: string, path: string): Promise<{ content: string; version: string } | null>;
+  /** Replacing an existing file needs the version last read; a file that changed since is refused (WorkspaceConflict). */
+  write(tenantId: string, path: string, content: string, expectedVersion?: string): Promise<{ version: string }>;
+  list(tenantId: string, path: string): Promise<WorkspaceEntry[]>;
+  /** Refuses to overwrite. */
+  move(tenantId: string, from: string, to: string): Promise<void>;
+  /** A file, or a folder only when empty. */
+  remove(tenantId: string, path: string): Promise<void>;
+}
+
+const versionOf = (stat: { mtimeMs: number; size: number }) => `${stat.mtimeMs}-${stat.size}`;
+
+/** Local-disk driver. ponytail: one instance only; the s3 driver replaces it for several, behind the same contract. */
+export class LocalWorkspaceStore implements WorkspaceStore {
+  constructor(private root: string) {}
+  // Per-file queue so the version check and the rename of two turns never interleave in this process.
+  private locks = new Map<string, Promise<unknown>>();
+  private serial<T>(key: string, job: () => T): Promise<Awaited<T>> {
+    const run = (this.locks.get(key) ?? Promise.resolve()).then(job, job) as Promise<Awaited<T>>;
+    const tail = run.catch(() => {}); this.locks.set(key, tail);
+    void tail.then(() => { if (this.locks.get(key) === tail) this.locks.delete(key); });
+    return run;
+  }
+
+  /** Absolute path under the tenant folder; refuses anything whose real location (symlinks followed) is outside it. */
+  private locate(tenantId: string, path: string) {
+    const base = resolve(this.root, tenantId);
+    mkdirSync(base, { recursive: true });
+    const realBase = realpathSync(base), target = resolve(base, path);
+    let probe = target;
+    while (true) {
+      try { var real = realpathSync(probe); break; } catch { const up = dirname(probe); if (up === probe) throw new Error("Path is outside the workspace"); probe = up; }
+    }
+    if (real !== realBase && !real.startsWith(realBase + sep)) throw new Error("Path is outside the workspace");
+    return { base: realBase, target: join(real, relative(probe, target)) };
+  }
+
+  async read(tenantId: string, path: string) {
+    const { target } = this.locate(tenantId, path);
+    try {
+      const stat = statSync(target);
+      if (!stat.isFile()) return null;
+      if (stat.size > MAX_FILE_BYTES) throw new Error("File is too large to read");
+      return { content: readFileSync(target, "utf8"), version: versionOf(stat) };
+    } catch (e: any) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return null; throw e; }
+  }
+
+  async write(tenantId: string, path: string, content: string, expectedVersion?: string) {
+    if (Buffer.byteLength(content) > MAX_FILE_BYTES) throw new Error(`File is too large (max ${MAX_FILE_BYTES / 1024} KB)`);
+    return this.serial(`${tenantId}/${path}`, () => {
+      const { target } = this.locate(tenantId, path);
+      let current: ReturnType<typeof statSync> | null = null;
+      try { current = statSync(target); } catch {}
+      if (current?.isDirectory()) throw new Error("A folder with that name exists");
+      if (current && expectedVersion === undefined) throw new WorkspaceConflict("File already exists. Read it first and pass its version to replace it.");
+      if (current && versionOf(current) !== expectedVersion) throw new WorkspaceConflict("File changed since you read it. Read it again and redo your edit.");
+      if (!current && expectedVersion !== undefined) throw new WorkspaceConflict("File no longer exists.");
+      mkdirSync(dirname(target), { recursive: true });
+      const final = this.locate(tenantId, path).target; // a symlinked parent swapped in meanwhile is caught here
+      const temp = join(dirname(final), `.${basename(final)}.${crypto.randomUUID().slice(0, 8)}.tmp`);
+      try { writeFileSync(temp, content); renameSync(temp, final); } finally { rmSync(temp, { force: true }); }
+      return { version: versionOf(statSync(final)) };
+    });
+  }
+
+  async readFrontmatter(tenantId: string, path: string) {
+    const { target } = this.locate(tenantId, path);
+    if (!existsSync(target)) return null;
+    const stat = statSync(target);
+    if (!stat.isFile()) return null;
+    const fd = openSync(target, "r");
+    try {
+      const buffer = Buffer.alloc(1024);
+      let header = "";
+      while (Buffer.byteLength(header) < 16 * 1024) {
+        const count = readSync(fd, buffer, 0, buffer.length, null);
+        if (!count) break;
+        header += buffer.subarray(0, count).toString("utf8");
+        const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n/.exec(header);
+        if (match) return { content: match[0], version: versionOf(stat) };
+        if (!header.startsWith("---")) return null;
+      }
+      return null;
+    } finally { closeSync(fd); }
+  }
+
+  async list(tenantId: string, path: string) {
+    const { base, target } = this.locate(tenantId, path);
+    let names: string[];
+    try { names = readdirSync(target); } catch (e: any) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return []; throw e; }
+    if (names.filter((name) => !name.startsWith(".")).length > MAX_LIST_ENTRIES) throw new Error(`Folder has too many entries (max ${MAX_LIST_ENTRIES})`);
+    return names.sort().flatMap((name) => {
+      const full = join(target, name);
+      try {
+        const stat = statSync(full), real = realpathSync(full);
+        if (real !== base && !real.startsWith(base + sep)) return [];
+        return [{ path: relative(base, full).split(sep).join("/"), type: stat.isDirectory() ? "dir" as const : "file" as const, ...(stat.isFile() ? { size: stat.size } : {}) }];
+      } catch { return []; }
+    });
+  }
+
+  async move(tenantId: string, from: string, to: string) {
+    const a = this.locate(tenantId, from), b = this.locate(tenantId, to);
+    return this.serial(`${tenantId}/${to}`, () => {
+      if (!existsSync(a.target)) throw new Error(`"${from}" not found`);
+      if (existsSync(b.target)) throw new Error(`"${to}" already exists`);
+      mkdirSync(dirname(b.target), { recursive: true });
+      this.locate(tenantId, to);
+      renameSync(a.target, b.target);
+    });
+  }
+
+  async remove(tenantId: string, path: string) {
+    const { base, target } = this.locate(tenantId, path);
+    if (target === base) throw new Error("Cannot delete the workspace root");
+    return this.serial(`${tenantId}/${path}`, () => {
+      const stat = statSync(target, { throwIfNoEntry: false });
+      if (!stat) throw new Error(`"${path}" not found`);
+      if (stat.isDirectory()) { if (readdirSync(target).some((n) => !n.startsWith(".name"))) throw new Error("Folder is not empty"); rmSync(target, { recursive: true }); }
+      else rmSync(target);
+    });
+  }
+}
+
+let store: WorkspaceStore | null = null;
+/** The configured driver. Local disk is the default; WORKSPACE_DRIVER=s3 is reserved for a later release. */
+export function workspaceStore(): WorkspaceStore {
+  if (store) return store;
+  const driver = process.env.WORKSPACE_DRIVER || "local";
+  if (driver !== "local") throw new Error(`Workspace driver "${driver}" is not available yet`);
+  return (store = new LocalWorkspaceStore(process.env.WORKSPACE_DIR || "./data/workspace"));
+}

@@ -9,8 +9,14 @@ import { TenantDetail } from "@/pages/TenantDetail";
 import { TenantBots } from "@/pages/tenant/TenantBots";
 import { IntegrationDetail } from "@/pages/tenant/IntegrationDetail";
 import { IntegrationServers } from "@/pages/tenant/IntegrationServers";
+import { TenantSkills } from "@/pages/tenant/TenantSkills";
+import { TenantWorkspace } from "@/pages/tenant/TenantWorkspace";
+import { IntegrationGitAccess } from "@/pages/tenant/IntegrationGitAccess";
 import { TenantProfiles } from "@/pages/tenant/TenantProfiles";
+import { TenantGitAccounts } from "@/pages/tenant/TenantGitAccounts";
+import { GitRepos, GitRepoDetail } from "@/pages/tenant/GitBrowse";
 import { ApiKeys } from "@/pages/ApiKeys";
+import { Settings } from "@/pages/Settings";
 import { Toaster } from "@/components/ui/sonner";
 import { api, connectLocalConsole, getPlatformKey, type HealthResponse } from "@/lib/api";
 
@@ -42,12 +48,19 @@ export default function App() {
             <Route index element={<Navigate to="integrations" replace />} />
             <Route path="integrations" element={<TenantBots />} />
             <Route path="profiles" element={<TenantProfiles />} />
+            <Route path="git-accounts" element={<TenantGitAccounts />} />
+            <Route path="skills" element={<TenantSkills />} />
+            <Route path="workspace" element={<TenantWorkspace />} />
+            <Route path="git-accounts/:accountId" element={<GitRepos />} />
+            <Route path="git-accounts/:accountId/repo" element={<GitRepoDetail />} />
             <Route path="integrations/:botId" element={<IntegrationDetail />}>
               <Route index element={<Navigate to="servers" replace />} />
               <Route path="servers" element={<IntegrationServers />} />
+              <Route path="git-access" element={<IntegrationGitAccess />} />
             </Route>
           </Route>
           <Route path="api-keys" element={<ApiKeys />} />
+          <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

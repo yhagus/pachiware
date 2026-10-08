@@ -458,3 +458,203 @@ Provider-side prompt caching only hits when the request starts with an identical
 - [ ] **Anthropic (deferred, own phase):** add `cache_control: { type: "ephemeral" }` on the system block and the last tool in `callAnthropic`, read `cache_read_input_tokens` / `cache_creation_input_tokens`. Anthropic stays out of Profiles for now, so this only matters for the tenant default
 - Decision: cache behaviour for a Custom endpoint depends on that endpoint (automatic prefix caching on OpenAI-compatible servers, DeepSeek, vLLM, etc.). We only keep the prefix stable and report what it returns; we send no provider-specific cache parameters to hosts we do not know.
 - Known limit: the window shifts by 10 messages at a time, so a conversation can carry up to 40 history messages instead of a strict 30.
+
+## Phase 15.2 — Quieter Discord replies in shared threads
+
+- [x] `isNoise` (`discord/routing.ts`): emoji-only, custom-emoji-only and punctuation-only messages are ignored unless they carry an attachment
+- [x] Owned threads no longer answer everything: reply only on mention, reply-to-bot, or when the bot sent the previous message; skip messages that mention other users or reply to a human. Always-on channels answer everything not aimed elsewhere. DMs unchanged
+- [x] Burst coalescing in guild channels (2.5 s debounce, `BURST_MS`): one reply for a batch, speakers kept as `Name: text` lines. Threads and DMs still reply per message
+- [x] Rate-limit hit now reacts with ⏳ instead of replying
+- [x] Tests: `conversations.test.ts` (routing, noise), `discord.test.ts` (mock updated, waits out the debounce)
+- [ ] Verify on a live server: emoji in thread, two humans talking, 5 rapid messages
+- Known limit: the "previous message is the bot's" check costs one Discord API fetch per thread message. Thread messages are not debounced, so a spammer's burst there still gets one reply per message that follows a bot message (only the first, since the next one's previous message is a human).
+
+## Phase 16 — Git accounts for repository access
+
+Bots can read and change repositories (GitHub, GitLab, self-hosted GitLab) when a project name comes up in chat.
+
+- [x] `git_accounts` table (tenant master data) + `bots.gitAccountId`, composite FK `(tenantId, gitAccountId)` so a bot can only use its own tenant's account (`schema/{pg,sqlite}`, `migrate.ts`)
+- [x] Admin API: `/tenants/:id/git-accounts`, `/git-accounts/:id` (token checked against the provider `/user` endpoint, encrypted, never returned; provider immutable; delete blocked while bots use it)
+- [x] Bots take `gitAccountId` on create/patch (`assertGitAccount` tenant check)
+- [x] Skill `git_repositories` (`repoList`, `repoReadFile`, `repoWriteFile`, `repoOpenPullRequest`), default off per tenant; account resolved from the conversation's bot, never from model input; writes refuse the default branch (branch + PR only)
+- [x] Platform-wide allowed git hosts (`runtime-config.json` `gitAllowedHosts`, `/api/admin/infrastructure/git-hosts`, editable in the Git accounts page); checked on save and again at tool-call time
+- [x] Web: Git accounts section, "Git account" select in the integration form
+- [x] Tests: `packages/db/test/git-accounts.test.ts`, `apps/agent/test/git-accounts.test.ts`, `packages/skills/test/git.test.ts`
+- [x] Antislop audit 002 (`anti-slop/audit-002-2026-10-07.md`): all 6 findings closed
+- [ ] Run `bun run db:seed`, then enable `git_repositories` per tenant (existing tenants are not auto-enabled)
+- [ ] Verify against a real GitHub/GitLab token and a self-hosted GitLab
+- Decision: account lives on the tenant (master data), the bot holds one nullable pointer. One column makes "two accounts per bot" unrepresentable; several bots may share an account so rotating a token is one edit.
+- Known limit: upgraded SQLite databases cannot add the composite FK via ALTER, so the tenant check there relies on the API; new SQLite and PostgreSQL enforce it in the DB.
+- Known limit: the bot can do whatever its token can; scope tokens to the repositories needed. An empty allowlist accepts any https host, including private IPs.
+- Known limit: `repoReadFile` returns at most 20,000 characters.
+
+## Phase 17 — One-click OAuth for git accounts
+
+"Continue with GitHub / GitLab" buttons on the Git accounts page, including self-hosted hosts. The access-token form stays as a fallback.
+
+- [x] `git_oauth_apps` table (provider, host, client id, encrypted client secret; one app per host) and `git_accounts.authType / refreshTokenEncrypted / tokenExpiresAt` (`schema/{pg,sqlite}`, `migrate.ts`, upgrade path for existing DBs)
+- [x] Admin API `/git-oauth-apps` (secret never returned), `POST /tenants/:id/git-accounts/oauth/start` (authorize URL with state + PKCE S256), public `GET /api/oauth/git/callback` (single-use state, creates the account named after the provider login)
+- [x] `packages/skills/src/gitOAuth.ts`: `getGitToken` refreshes expiring tokens (GitLab ~2h) before the git skill uses them; GitLab OAuth tokens sent as Bearer
+- [x] Web: OAuth buttons inside the Connect account dialog (host field above them); success/error toast on return. Allowed git hosts and OAuth apps (with callback URL) moved to a new platform-wide Settings page (`/settings`, sidebar), since they are not per tenant
+- [x] Env: `PUBLIC_URL` (callback base), optional `CONSOLE_URL` (where to land after login) in `.env.example`
+- [x] Test: `apps/agent/test/git-oauth.test.ts`
+- [ ] Verify with real OAuth apps on github.com, gitlab.com and a self-hosted GitLab
+- Decision: OAuth apps are platform data in the DB, not env vars, because self-hosted hosts each need their own app.
+- Known limit: pending OAuth states are in memory, so a restart during login (or several agent instances) invalidates them; the user just clicks again.
+- Known limit: scopes are broad (`repo` / `api`). Editing an OAuth account's token by hand converts it to a token account.
+- Known limit: `bun run typecheck` at the root already reports `@/` alias errors from `apps/web`; the web build itself passes.
+- Known limit: `packages/cli` setup test (`platformKeyEncrypted` vs `keyId`) was already failing before this phase.
+
+## Phase 18 — Browse repositories of a git account
+
+Click a git account card to see its repositories (grouped by owner/namespace), then a repository for Members, Issues, Merge/Pull requests and Branches. Read-only.
+
+- [x] `browseRepos / browseMembers / browseIssues / browseMergeRequests / browseBranches` in `packages/skills/src/git.ts`: one shape for GitHub and GitLab, 30 per page, `hasMore` when a page is full
+- [x] Admin API: `GET /git-accounts/:id/repos` and `/git-accounts/:id/repo/:tab?repo=&page=&state=`; uses `getGitToken` (OAuth refresh), re-checks the host allowlist, provider errors come back as 502 with the message
+- [x] Web: `pages/tenant/GitBrowse.tsx` (`GitRepos`, `GitRepoDetail`), routes `git-accounts/:accountId` and `.../repo`, account cards are links, "Load more" paging, loading / empty / error states
+- [x] Tests: `packages/skills/test/git-browse.test.ts`
+- [x] Antislop audit 003 (`anti-slop/audit-003-2026-10-07.md`): 7 findings, all closed; layout checked in headless Chrome at 360 / 768 / 1280 px against a faked GitHub
+- [ ] Try it with a real GitHub and GitLab account (layout and states were checked only against faked provider data)
+- Known limit: GitHub members need push access to list collaborators; otherwise contributors are shown. Counts and totals are not shown, only loaded pages.
+- [x] Repo search is now server-side: `browseRepos(c, page, q)` uses GitLab `/projects?search=` and GitHub `/search/repositories` (`user:<login>`); the picker debounces 400 ms and sends `?q=`. Known limit: GitHub search covers the account's own repos, not org repos. Not yet tried against real providers.
+
+## Phase 19 — Many git accounts per bot, git scope per server and channel (data + API)
+
+Plan: `~/.claude/plans/calm-dazzling-quokka.md`. Phases 20 (resolver, read tools, prompt), 21 (write confirmation), 22 (web UI) follow.
+
+- [x] Tables `bot_git_accounts` (bot ↔ account, many) and `git_scopes` (bot, guild, channel `""` = server, account, `repoPatterns`) in `schema/{pg,sqlite}`, `migrate.ts`; existing `bots.git_account_id` is backfilled into the join table and no longer read
+- [x] `tenancy.ts`: `setBotGitAccounts`, `listBotGitAccounts`, `botsUsingGitAccount`, `listGitScopes`, `replaceGitScopes`, `patternCovers`. Rules: only attached accounts can be scoped; channel rules must sit inside the server rule; narrowing a server rule prunes channel rules; detaching an account removes its scopes; patterns lowercased, `*` is the only wildcard
+- [x] API: bots take and return `gitAccountIds` (`v1/bots.ts`, `admin/bots.ts`); `GET/PUT /bots/:botId/guilds/:guildId/git` and `PUT .../channels/:channelId/git`; git account delete blocked by the join table
+- [x] Tests: `packages/db/test/git-accounts.test.ts` and `apps/agent/test/git-accounts.test.ts` rewritten for many-to-many, backfill, scopes
+- Decision: default is none. A server without rules has git off; channels can only narrow.
+- Known limit: until Phase 20 the git skill (`builtin/git.ts`) still reads `bots.gitAccountId`, so it finds no account for bots configured after this phase. Until Phase 22 the web UI still sends `gitAccountId`, which the API now ignores.
+- Known limit: SQLite upgraded DBs have no composite FKs on the new tables beyond what `CREATE TABLE` gives fresh ones; cascades are done in code.
+- [x] Checked on a real PostgreSQL 16 (throwaway cluster, since removed): upgrade from the old schema, idempotent backfill, composite FK, JSONB patterns, subset rules, pruning, and `ON DELETE CASCADE` from `bot_git_accounts` to `git_scopes` at the DB level all pass.
+
+## Phase 20 — Resolver, git read tools, prompt
+
+The LLM can now browse git from Discord. Account and repo come from the server/channel scope of Phase 19.
+
+- [x] `packages/skills/src/gitScope.ts`: `computeAccess` (pure: server rule on, channel or thread-parent rule narrows, none = closed), `repoAllowed`, `pickAccess`, `loadGitAccess`, `connectionOf` (re-checks the host allowlist)
+- [x] `SkillContext.parentChannelId`, filled in `discord/client.ts` (thread → its parent channel) and `loop/react.ts`
+- [x] Tools in `builtin/git.ts`: `gitAccounts`, `repoList` (paged, filtered by scope), `repoMergeRequests`, `repoMergeRequest`, `repoIssues`, `repoBranches`, `repoCommits`, `repoMembers`, `repoReadFile`, plus the existing `repoWriteFile` / `repoOpenPullRequest`. All take optional `account`; every repo is checked against the account's patterns before any provider call
+- [x] `git.ts`: `browseCommits`, `getMergeRequest` (description + changed files, no patches)
+- [x] Loop: tool results capped at 12k characters with a truncation note; default iterations 8 → 12
+- [x] Prompt rules for git (find repos with `repoList`, follow `hasMore`, pass `account` when several, closed git is an admin task)
+- [x] Tests: `packages/skills/test/git-scope.test.ts`, `apps/agent/test/git-tools.test.ts` (scripted LLM: list repos → MRs of the first; scope hides other repos; no rule = closed), commits/MR cases in `packages/skills/test/git.test.ts`
+- [ ] Try it in Discord with a real GitHub/GitLab account (provider calls are faked in tests)
+- Known limit: `repoWriteFile` and `repoOpenPullRequest` still run without confirmation until Phase 21; they only write to non-default branches.
+- Known limit: `repoList` filters a page after fetching it, so a page can hold fewer than 30 items; with narrow patterns the model may need several pages.
+- Known limit: `browseRepos` with a search term on GitHub covers the account's own repos, not org repos (Phase 18 limit).
+- Known limit: the seed leaves `git_repositories` off by default, so a tenant still has to enable the skill.
+- Known limit: the web chat (`/v1/chat`) has no guild, so git tools return "only work in a Discord server channel".
+
+## Phase 21 — Confirmation for git write actions
+
+- [x] Write tools (`repoWriteFile`, `repoOpenPullRequest`, new `repoComment`, `repoCreateIssue`, `repoMergeMergeRequest`, `repoCloseItem`) no longer run on the model's call: they validate account, scope and arguments, queue the action and return `pending` (`builtin/git.ts` `confirmable`)
+- [x] `packages/skills/src/gitConfirm.ts`: in-memory pending store, 10 min TTL, capped at 200
+- [x] `SkillContext.confirmed` is set only by the host (never copied from model arguments or `input.context`); the confirmed run re-resolves scope, so a rule narrowed after queueing blocks it
+- [x] `apps/agent/src/discord/gitConfirm.ts`: Confirm/Cancel buttons posted after the reply; only the asker can press them; single use; result edited into the message. Wired through `Events.InteractionCreate` in `discord/client.ts`
+- [x] `git.ts`: `commentOn`, `createIssue`, `mergeMergeRequest`, `closeItem` (GitHub and GitLab); prompt rule that pending means "awaiting confirmation"
+- [x] Tests: `apps/agent/test/git-confirm.test.ts` (queue, argument bypass attempt, out-of-scope, wrong user, once only, cancel, narrowed scope); `discord.test.ts` fake extended for the new discord.js imports
+- Known limit: pending actions are lost on restart; the user asks again.
+- Known limit: only the person who asked can confirm, not an admin. Web chat cannot confirm, so write tools fail there.
+- Known limit: merge uses the provider's default merge method; no choice of squash/rebase. Closing and commenting by number only, no labels, assignees or reviews.
+
+## Phase 22 — Web UI for many git accounts and git access per server/channel
+
+- [x] `lib/api.ts`: `Bot.gitAccountIds`, `BotInput.gitAccountIds`, `getGuildGit`, `saveGuildGit`
+- [x] `TenantBots.tsx`: the single Git account select is now a checklist; cards list all attached accounts
+- [x] `pages/tenant/GuildGit.tsx` (new), shown in the server Settings sheet (`GuildInstructions.tsx`, button renamed from Instructions to Settings): per server, switch accounts on and set repository patterns; per channel, narrow further or follow the server
+- [x] Docs: `GLOSSARY.md` (Git account rewritten, Git scope and Git write confirmation added, relationships), `docs/adr/0002-bot-has-many-git-accounts-scoped-per-guild-and-channel.md`
+- [x] Web typecheck and `vite build` pass; full test run: 48 pass, 1 fail (the `packages/cli` setup test, failing before this work)
+- [x] Antislop audit 004 (`anti-slop/audit-004-2026-10-07.md`, mode AFTER): 11 findings, #9 closed by measurement, the rest waiting for the numbers to fix
+- [x] New screens run in headless Chrome at 360 and 1280 px against the real agent API: no overflow, long names wrap, rules and channel narrowing load and save (audit 004 has the measurements and one more finding)
+- [ ] Try the whole flow in Discord with a real bot and a real GitHub and GitLab account (needs credentials only the owner has; Discord and the providers were faked)
+- [x] Channel narrowing takes several channels at once: tick channels, set accounts and patterns once, one button saves them all (one API call per channel); starts from the server's patterns because a channel can only narrow them. Verified in headless Chrome against the real API (two channels saved, "own rule" badges, 44 px rows at 360 px)
+- [x] Attaching a git account to a bot now turns the `git_repositories` skill on for that tenant (`setBotGitAccounts` in `tenancy.ts`). Before this the skill stayed off and the console had no switch, so the bot answered that it had no git tools. Detaching an account does not turn it off again. The git rules in the system prompt only appear while the skill is on. Test: `apps/agent/test/git-accounts.test.ts`
+- Known limit: bots that already had accounts attached before this change keep the skill off until an account is attached again (or `tenant_skills.is_enabled` is set to 1 by hand); nothing backfills them. There is still no Skills switch in the console.
+- Known limit: the server and channel save buttons write immediately; the sheet's bottom Save only saves instructions (audit 004 #1).
+- Known limit: UI never runs against the live API in tests; the API side is covered by `apps/agent/test/git-accounts.test.ts`.
+
+## Phase 23 — PR and issue management tools (rows 18–30)
+
+- [x] PR/MR updates: `repoUpdateMergeRequest`, `repoReopenItem`, `repoReviewMergeRequest`, `repoRequestReviewers`, `repoMergeRequestDiff`, `repoChecks`, `repoRebaseMergeRequest`
+- [x] Issue management: `repoUpdateIssue`, `repoAssign`, `repoLabels`, `repoSetLabels`, `repoLockItem`, `repoEditComment`, `repoDeleteComment`
+- [x] All mutating tools reuse channel repository scope and Discord Confirm; comment deletion uses the danger/owner guard
+- [x] GitHub and GitLab request/response normalization added in `packages/skills/src/git.ts`
+- [x] Provider helper regression tests added to `packages/skills/test/git.test.ts` (22 assertions pass)
+- Known limit: GitHub rebase is rejected because the REST API has no general rebase endpoint; GitLab lock is rejected because the selected API surface has no equivalent lock endpoint
+- Known limit: GitLab request-changes is represented by a note; GitLab labels are replaced through the issue/MR update endpoint
+
+## Phase 24 — Remaining repository, CI/CD, access, org, and utility tools
+
+- [x] Repository lifecycle: create, settings, rename, archive, delete, fork, transfer
+- [x] Branch/tag/release: delete/protect/read protection, create/delete tags, create/delete releases
+- [x] Code writes: delete/move files, multi-file commits, guarded default-branch writes
+- [x] CI/CD: run/cancel pipelines, artifacts, schedules, variables, secrets, runners
+- [x] Access/security: members and roles, invitations, deploy keys, webhooks, security alerts
+- [x] Org/group: list orgs, members, teams/subgroups, group creation, team/member management
+- [x] Other: wiki, snippets/gists, packages, notifications/to-dos, contributor/language/traffic stats
+- [x] All remaining tool definitions are registered in `git_repositories`; total registered Git tools: 83
+- [x] Existing Git and confirmation suites: 11 tests / 50 assertions pass
+- Known limit: GitHub secret writes require public-key encryption and are rejected until that key exchange is added; secret values are never returned
+- Known limit: GitHub wiki and organization creation, GitLab lock/traffic stats, and GitHub general rebase remain explicit provider capability errors
+- Known limit: provider-specific package, runner, artifact, and schedule APIs expose different shapes; handlers normalize the common fields and preserve provider payloads where needed
+- [x] Final verifier follow-up: Git tool type errors in default-branch guard and file move narrowing fixed; remaining root typecheck failures are existing `apps/web` alias/implicit-any errors
+
+## Phase 25 — Guardrails and anti-abuse
+
+Three layers: conversation policy (prompt), capability/authorization gate (code), execution safety (confirmation, limits, audit). The prompt only steers; code decides.
+
+- [x] 1. Plan and checklist recorded here
+- [x] 2. Types: `SkillRisk`, `ToolPolicy`, skill metadata (`capabilities`, `risk`, `requiresConfirmation`, `allowedScopes`, `requiredPermissions`), `AuthorizationContext`; `packages/skills/src/guardrails.ts` (`GuardrailDecision`, `GuardrailService`)
+- [x] 3. Gate in `SkillRegistry.executeTool` (active tool, scope, role, size, rate, confirmation, idempotency) and `auth` on `SkillContext`
+- [x] 4. Generic confirmation store (tenant, bot, user, channel, payload hash, expiry, single use) and Discord handler
+- [x] 5. System prompt policy block; tool results labelled `<untrusted_data>`; secrets/paths redacted
+- [x] 6. Rate, idempotency and audit events (`guardrail_denied`, `tool_denied`, `confirmation_*`, `prompt_injection_detected` in `usage_events`)
+- [x] 7. Tests and full verification
+- [x] 8. Rollout via `GUARDRAIL_MODE`: `observe` (log only) → `write` (enforce confirmation) → `enforce` (default; also scope, role, injection)
+
+- Done: `SkillModule` gained `capabilities`, `risk`, `requiresConfirmation`, `allowedScopes`, `requiredPermissions`, `toolPolicy`, `confirmsInternally`; `SkillContext.auth` (`AuthorizationContext`) is filled by the ReAct loop from the Discord member's roles and permissions, and the registry refuses it when its ids disagree with the context
+- Done: `packages/skills/src/guardrails.ts` (decisions, classify, checkTool, redact, `asUntrusted`, rate, duplicate, audit). Gate lives in `SkillRegistry.executeTool`; classification runs before the ReAct loop
+- Done: tasks `updateTaskStatus`/`assignTask` and Discord `createChannel`/`archiveChannel` now return `pending` and need the asker's Confirm button; `createTask` and `setChannelTopic` do not. Discord channel writes need the `ManageChannels` permission (or `Administrator`). Git keeps its own queue and scope (`confirmsInternally`) but now shares the store, so payload hash and audit apply
+- Done: confirmation is bound to tenant, bot, user, guild and channel (the store), payload hash, 10 min expiry and single use; the confirmed run gets the Discord adapter again (`handleConfirmButton(i, botId, discordFor)`)
+- Done: tool results go to the model inside `<untrusted_data>` with secrets, env values and internal paths redacted; replies are redacted too; injection phrases in messages and tool results are audited (`prompt_injection_detected`), and in messages refused before the model runs
+- Done: audit rows are `usage_events` of type `guardrail_denied`, `tool_denied`, `confirmation_requested`, `confirmation_accepted`, `prompt_injection_detected`; they hold categories and ids only. Limits: 30 calls/min per user, 120 per tenant, 10 per write tool per user, args 8000 chars, message 4000 chars, same action blocked for 60 s
+- Rollout: `GUARDRAIL_MODE=observe|write|enforce` (default enforce); see `.env.example`
+- Tests: `apps/agent/test/guardrails.test.ts` (3 tests); `git-confirm`, `git-tools` and `skills` tests updated for the new wrapper, titles and confirmation. Full run: all pass except `packages/cli` setup (failing before this work)
+- Known limit: classification and injection detection are regex (English and Indonesian), so a rephrased attack gets through to the model; the code gates on tools still hold. No external moderation model.
+- Known limit: counters, duplicate guard and pending confirmations are in memory, per process, and reset on restart
+- Known limit: `confirmation_expired` is not written to the audit table (an expired click carries no tenant after the sweep); the user only sees "expired"
+- Known limit: the web chat has no guild or user, so tools needing a confirmer (and the Discord tools) fail there
+- Known limit: attachments are not read by the bot, so there is no attachment-specific scan
+
+## Phase 26 — Workspace: tasks, notes and memory as Markdown files (issue #1, tickets #2–#9)
+Spec: GitHub issue #1. Decision: `docs/adr/0003-agent-data-lives-in-workspace-files-not-the-database.md`. Term: **Workspace** in `GLOSSARY.md`.
+
+- [x] 2. Storage contract + local driver (`WORKSPACE_DRIVER`, `WORKSPACE_DIR`), path rules, `listFiles`/`readFile`/`writeFile`
+- [x] 3. Visibility: own channel (thread → parent), guild `shared/`, tenant `shared/`, DM; name files for guild and channel folders
+- [x] 4. Atomic writes + version check, `moveFile`, `deleteFile` (needs confirmation), `searchFiles`
+- [x] 5. Task Management stored as `<slug>-<short-id>.md` with frontmatter; same four tool names and confirmation rules
+- [x] 6. `MEMORY.md` of tenant, guild and channel loads into the per-turn context (4000 chars each); active tasks read from files
+- [x] 7. Admin routes `/api/admin/tenants/:id/workspace/{tree,file,move}` + read-only browser in the tenant page
+- [x] 8. Web editor: create, edit, rename/move, delete; stale edit refused with a conflict banner
+- [x] 9. One-off export of the `tasks` table: `bun run export-tasks` in `packages/skills`; rerunnable, leaves the table in place
+- Also done this session: Discord channel conversations now include threads (parent channel stored in conversation metadata); Git access is its own tab per integration; tenant Skills tab with on/off switches.
+- Tests: `packages/skills/test/workspace.test.ts`, `apps/agent/test/workspace-admin.test.ts`; `cache` and `guardrails` tests seed tasks through the tool now. Full run: all pass except `packages/cli` setup (fails on a clean checkout too: `keyId` vs `platformKeyEncrypted`).
+- [x] `/api/v1/tasks` now reads and writes tenant Workspace task files; the legacy `tasks` table remains only for the one-off export and rollback window.
+- [x] The seed no longer creates a demo row in the legacy `tasks` table; the task tool still accepts the legacy `discordChannelId` argument for compatibility while the current turn determines file visibility.
+- Known gap: a task file that cannot be read (over 256 KB) is skipped silently; listing stops at 500 files.
+- [x] DM folders, Web UI-created folders, exported task folders, and REST-created task folders receive hidden `.name` labels.
+- Known limit: local disk, one instance only. The `s3` driver is designed against the same contract and not built.
+- Known limit: the version check is modified time + size, which can miss two same-size writes inside one clock tick.
+- Web UI uses `window.prompt` for new file, new folder and rename; replace with a dialog.
+
+## GitHub Issue Audit — 2026-10-08
+
+- GitHub currently has 9 open issues: the Workspace parent spec `#1` and tickets `#2`–`#9`; all are labelled `ready-for-agent` and unassigned.
+- The ticketed Workspace implementation is present in this working tree and the focused verification passes: 9 tests across `packages/skills/test/workspace.test.ts`, `packages/skills/test/skills.test.ts`, and `apps/agent/test/workspace-admin.test.ts`.
+- The issues have not been closed or marked complete on GitHub, so the tracker still reports the entire spec as outstanding.
+- Remaining implementation gap found locally: real-provider/real-Discord validation is still pending and requires credentials and live services; S3 remains explicitly out of scope for this release.
+- Ticket #9 is blocked by #5; #8 by #4 and #7; #7 and #6 by #3; #5 and #3 by #2; #4 by #2. The implementation currently exists despite those tracker dependencies remaining open.

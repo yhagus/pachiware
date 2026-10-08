@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getInfraConfig, saveInfraConfig, testDatabaseConnection, reconnectDatabase, runMigrations, runSeed, activeDialect } from "@pachiware/db";
+import { getInfraConfig, saveInfraConfig, getGitAllowedHosts, saveGitAllowedHosts, testDatabaseConnection, reconnectDatabase, runMigrations, runSeed, activeDialect } from "@pachiware/db";
 import { discordBotManager } from "../../discord/client.js";
 import { object } from "../validation.js";
 import { redis, reconnectRedis } from "../../cache/redis.js";
@@ -8,6 +8,21 @@ function maskConnectionUrl(url: string): string {
   try { const parsed = new URL(url); if (parsed.password) parsed.password = "••••••••"; return parsed.toString(); }
   catch { return url; }
 }
+// Platform-wide allowlist for self-hosted git hosts (empty = unrestricted).
+infrastructureRoutes.get("/git-hosts", (c) => c.json({ success: true, hosts: getGitAllowedHosts() }));
+infrastructureRoutes.put("/git-hosts", async (c) => {
+  const body = object(await c.req.json(), "body");
+  if (!Array.isArray(body.hosts) || body.hosts.length > 50) return c.json({ error: "hosts must be an array of at most 50 entries" }, 400);
+  const hosts: string[] = [];
+  for (const raw of body.hosts) {
+    const host = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    // host or host:port only; no scheme, path, or credentials.
+    if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{1,5})?$/.test(host)) return c.json({ error: `Invalid host "${raw}". Use host or host:port, without https://` }, 400);
+    if (!hosts.includes(host)) hosts.push(host);
+  }
+  return c.json({ success: true, hosts: saveGitAllowedHosts(hosts) });
+});
+
 // Get infrastructure configuration
 infrastructureRoutes.get("/", async (c) => {
   const infra = getInfraConfig();

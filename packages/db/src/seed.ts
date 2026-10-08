@@ -1,5 +1,5 @@
-import { db, agentsConfig, skills, tenantSkills, tenants, tasks } from "./index.js";
-import { eq, and } from "drizzle-orm";
+import { db, agentsConfig, skills, tenantSkills, tenants } from "./index.js";
+import { eq } from "drizzle-orm";
 
 export async function seedTenant(tenantId: string, store = db) {
   await store.insert(agentsConfig).values({ tenantId, settings: { maxReActIterations: 8 } }).onConflictDoNothing();
@@ -14,13 +14,13 @@ export async function runSeed() {
   const taskManagementSkill = {
     id: "task_management",
     name: "Task Management",
-    description: "Create, view, update status, and assign tasks stored in PostgreSQL.",
+    description: "Create, view, update status, and assign tasks stored in the Workspace.",
     defaultEnabled: true,
     handlerType: "builtin",
     toolDefinitions: [
       {
         name: "createTask",
-        description: "Creates a new task in the database.",
+        description: "Creates a new task in the current Workspace folder.",
         parameters: {
           type: "object",
           properties: {
@@ -152,7 +152,30 @@ export async function runSeed() {
     config: {},
   };
 
-  for (const skill of [taskManagementSkill, discordManagementSkill]) {
+  // Tool definitions come from the registry (packages/skills/src/builtin/git.ts) whenever the skill is registered, so none are duplicated here.
+  // Off by default: it only does something once a git account is bound to a bot.
+  const gitRepositorySkill = {
+    id: "git_repositories",
+    name: "Git Repositories",
+    description: "Read and change repositories on the git account connected to this bot (GitHub, GitLab, self-hosted GitLab).",
+    defaultEnabled: false,
+    handlerType: "builtin",
+    toolDefinitions: [],
+    config: {},
+  };
+
+  // Tool definitions come from the registry (packages/skills/src/builtin/workspace.ts).
+  const workspaceSkill = {
+    id: "workspace",
+    name: "Workspace",
+    description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
+    defaultEnabled: true,
+    handlerType: "builtin",
+    toolDefinitions: [],
+    config: {},
+  };
+
+  for (const skill of [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill]) {
     const existing = await db.select().from(skills).where(eq(skills.id, skill.id)).limit(1);
     if (existing.length === 0) {
       await db.insert(skills).values(skill);
@@ -174,11 +197,6 @@ export async function runSeed() {
   const allTenants = await db.select().from(tenants);
   for (const tenant of allTenants) {
     await seedTenant(tenant.id);
-    if (tenant.platformMetadata?.bootstrap !== true) continue;
-    const existingTasks = await db.select().from(tasks).where(eq(tasks.tenantId, tenant.id)).limit(1);
-    if (!existingTasks.length) {
-      await db.insert(tasks).values({ tenantId: tenant.id, title: "Configure your tenant agent", description: "Set your LLM credentials and connect a Discord bot in the operator console." });
-    }
   }
   console.log("Platform skills and tenant defaults seeded.");
 }

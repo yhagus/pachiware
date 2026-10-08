@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { respondReason, speakerTurn, threadName, type Trigger } from "../src/discord/routing";
+import { respondReason, isNoise, speakerTurn, threadName, type Trigger } from "../src/discord/routing";
 
-const base: Trigger = { authorIsBot: false, guildId: "g1", allowedGuildIds: [], mentioned: false, repliedToBot: false, inOwnThread: false, channelId: "c1", alwaysChannelIds: [] };
+const base: Trigger = { authorIsBot: false, guildId: "g1", allowedGuildIds: [], mentioned: false, repliedToBot: false, inOwnThread: false, channelId: "c1", alwaysChannelIds: [], lastMessageFromBot: false, addressesOthers: false };
 const reason = (o: Partial<Trigger>) => respondReason({ ...base, ...o });
 
 describe("respondReason", () => {
@@ -12,12 +12,21 @@ describe("respondReason", () => {
     expect(reason({ guildId: null })).toBe("direct");
     expect(reason({ mentioned: true })).toBe("mention");
     expect(reason({ repliedToBot: true })).toBe("mention");
-    expect(reason({ inOwnThread: true })).toBe("direct");
+    expect(reason({ inOwnThread: true })).toBeNull();
+    expect(reason({ inOwnThread: true, lastMessageFromBot: true })).toBe("direct");
+    expect(reason({ inOwnThread: true, lastMessageFromBot: true, addressesOthers: true })).toBeNull();
+    expect(reason({ inOwnThread: true, addressesOthers: true, mentioned: true })).toBe("direct");
+    expect(reason({ alwaysChannelIds: ["c1"], addressesOthers: true })).toBeNull();
     expect(reason({ alwaysChannelIds: ["c1"] })).toBe("direct");
     expect(reason({})).toBeNull();
     expect(reason({ mentioned: true, authorIsBot: true })).toBeNull();
     expect(reason({ mentioned: true, allowedGuildIds: ["other"] })).toBeNull();
     expect(reason({ guildId: null, authorIsBot: true })).toBeNull();
+  });
+  test("ignores noise", () => {
+    for (const t of ["😂", "<:pog:123456789>", "👍🏽 !!", "  ", "..."]) expect(isNoise(t)).toBe(true);
+    expect(isNoise("ok 😂")).toBe(false);
+    expect(isNoise("😂", true)).toBe(false);
   });
   test("formats turns and thread names", () => {
     expect(speakerTurn("g1", "Ana", "hi")).toBe("Ana: hi");

@@ -2,6 +2,10 @@ import { db, skills as skillsTable, tenantSkills, usageEvents } from "@pachiware
 import { eq, and } from "drizzle-orm";
 import { taskManagementSkill } from "./builtin/tasks.js";
 import { discordManagementSkill } from "./builtin/discord.js";
+import { gitRepositorySkill } from "./builtin/git.js";
+import { workspaceSkill } from "./builtin/workspace.js";
+import { GuardrailService, audit, isEnforced, policyOf, actionKey, markDone, redact, guardrailMode } from "./guardrails.js";
+import { queueAction } from "./gitConfirm.js";
 import type {
   SkillModule,
   ToolDefinition,
@@ -19,6 +23,8 @@ export class SkillRegistry {
     // Register built-in skills by default
     this.registerSkill(taskManagementSkill);
     this.registerSkill(discordManagementSkill);
+    this.registerSkill(gitRepositorySkill);
+    this.registerSkill(workspaceSkill);
   }
 
   /**
@@ -70,6 +76,12 @@ export class SkillRegistry {
     return rows.flatMap(({ definition }: any) => this.skills.get(definition.id)?.tools || definition.toolDefinitions).sort((a: ToolDefinition, b: ToolDefinition) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
+  /** Skills enabled for the tenant, in registry terms (used to classify a request before the loop starts). */
+  public async getActiveSkills(tenantId: string): Promise<SkillModule[]> {
+    const names = new Set((await this.getActiveTools(tenantId)).map((t) => this.toolToSkillMap.get(t.name)));
+    return this.getAllSkills().filter((s) => names.has(s.id));
+  }
+
   /**
    * Converts ToolDefinitions into OpenAI function calling format:
    * [ { type: "function", function: { name, description, parameters } } ]
@@ -110,43 +122,58 @@ export class SkillRegistry {
     toolCall: ToolCall,
     context: SkillContext
   ): Promise<ToolResult> {
-    const { id: toolCallId, name, arguments: args } = toolCall;
+    const { id: toolCallId, name } = toolCall;
+    // "confirmed" is a host flag on the context; the same word in model arguments is dropped so it can neither skip the gate nor split the duplicate key.
+    const { confirmed: _ignored, ...args } = (toolCall.arguments ?? {}) as Record<string, any>;
     if (!context.tenantId) return { toolCallId, name, success: false, error: "Tenant context required" };
     const allowed = await this.getActiveTools(context.tenantId);
-    if (!allowed.some((tool) => tool.name === name)) return { toolCallId, name, success: false, error: "Tool is disabled or unavailable for this tenant" };
+    if (!allowed.some((tool) => tool.name === name)) {
+      await audit(context, "tool_denied", { tool: name, reason: "disabled_or_unavailable" });
+      return { toolCallId, name, success: false, error: "Tool is disabled or unavailable for this tenant" };
+    }
     const skillId = this.toolToSkillMap.get(name);
 
     if (!skillId) {
-      return {
-        toolCallId,
-        name,
-        success: false,
-        error: `Unknown tool "${name}". No skill registered to handle this action.`,
-      };
+      await audit(context, "tool_denied", { tool: name, reason: "unknown" });
+      return { toolCallId, name, success: false, error: `Unknown tool "${name}". No skill registered to handle this action.` };
     }
 
     const skill = this.skills.get(skillId);
     if (!skill) {
-      return {
-        toolCallId,
-        name,
-        success: false,
-        error: `Skill "${skillId}" not found for tool "${name}".`,
-      };
+      return { toolCallId, name, success: false, error: `Skill "${skillId}" not found for tool "${name}".` };
     }
 
     const handler = skill.handlers[name];
     if (!handler) {
-      return {
-        toolCallId,
-        name,
-        success: false,
-        error: `Handler for tool "${name}" not implemented in skill "${skillId}".`,
-      };
+      return { toolCallId, name, success: false, error: `Handler for tool "${name}" not implemented in skill "${skillId}".` };
+    }
+
+    // Guardrail: scope, role, size, rate, duplicate and confirmation, decided here and not by the model.
+    const decision = GuardrailService.checkTool(skill, name, args, context);
+    if (!decision.allow) {
+      const enforced = isEnforced(decision.kind);
+      if (decision.kind === "confirmation_required") {
+        if (enforced) {
+          const { botId, userId, guildId, channelId } = context;
+          if (!botId || !userId || !guildId || !channelId) {
+            await audit(context, "guardrail_denied", { tool: name, kind: "no_confirmer" });
+            return { toolCallId, name, success: false, error: "This action needs a person to confirm it, which only works in a Discord channel." };
+          }
+          const summary = `${name} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`;
+          const q = queueAction({ tenantId: context.tenantId, botId, userId, guildId, channelId, parentChannelId: context.parentChannelId, tool: name, args: args ?? {}, summary, auth: context.auth });
+          await audit(context, "confirmation_requested", { tool: name, risk: policyOf(skill, name).risk, confirmationId: q.id });
+          return { toolCallId, name, success: true, data: { pending: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the user to press Confirm or Cancel on the message that appears in the channel. Do not call this tool again." } };
+        }
+        await audit(context, "guardrail_denied", { tool: name, kind: decision.kind, observed: true });
+      } else {
+        await audit(context, "guardrail_denied", { tool: name, kind: decision.kind, observed: !enforced });
+        if (enforced) return { toolCallId, name, success: false, error: decision.message };
+      }
     }
 
     try {
       const data = await handler(args, context);
+      if (policyOf(skill, name).risk !== "read" && !skill.confirmsInternally && guardrailMode() !== "observe") markDone(actionKey(name, args, context));
       return {
         toolCallId,
         name,

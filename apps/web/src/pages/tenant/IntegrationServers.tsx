@@ -62,7 +62,7 @@ export function IntegrationServers() {
                 {!g.allowed && <Badge variant="outline">Ignored</Badge>}
                 <ChevronRight className="size-4 text-muted-foreground transition-transform group-open:rotate-90" />
               </summary>
-              <div className="flex justify-end border-t px-4 py-2"><Button variant="outline" size="sm" onClick={() => setEditing(g)}><SlidersHorizontal /> Instructions</Button></div>
+              <div className="flex justify-end border-t px-4 py-2"><Button variant="outline" size="sm" onClick={() => setEditing(g)}><SlidersHorizontal /> Settings</Button></div>
               <Channels channels={g.channels} onOpen={setChannel} />
             </details>
           </CardContent>

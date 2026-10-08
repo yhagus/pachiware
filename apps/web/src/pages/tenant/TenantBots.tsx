@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { api, type Bot, type Profile, type Tenant } from "@/lib/api";
+import { api, type Bot, type GitAccount, type Profile, type Tenant } from "@/lib/api";
 import { PLATFORMS, emptyValues, platformOf, toInput, valuesOf, type Platform } from "@/lib/platforms";
 import { label } from "@/lib/utils";
 
@@ -24,7 +24,7 @@ const statusVariant = (s: string) => (s === "connected" ? "secondary" : s === "e
 // platform is null on the wizard's first step (picking a platform); editing an existing integration skips straight to its form.
 type Editing = { platform: Platform | null; bot?: Bot };
 
-function IntegrationCard({ bot, profileName, onEdit, onDelete, run }: { bot: Bot; profileName?: string; onEdit: () => void; onDelete: () => void; run: (op: () => Promise<unknown>, ok: string) => void }) {
+function IntegrationCard({ bot, profileName, gitNames, onEdit, onDelete, run }: { bot: Bot; profileName?: string; gitNames: string[]; onEdit: () => void; onDelete: () => void; run: (op: () => Promise<unknown>, ok: string) => void }) {
   const p = platformOf(bot.platform);
   const Icon = p.icon;
   const scopes = bot.guildIds.length || "All";
@@ -41,6 +41,7 @@ function IntegrationCard({ bot, profileName, onEdit, onDelete, run }: { bot: Bot
         </div>
         <div className="min-h-9 space-y-1 text-xs text-muted-foreground">
           <div>Profile: {profileName ?? "Tenant default"}</div>
+          <div>Git accounts: {gitNames.length ? gitNames.join(", ") : "None"}</div>
           {p.fields.some((f) => f.key === "guildIds") && <div>{scopes} {p.scopeLabel}</div>}
           {bot.lastError && <div className="line-clamp-2 text-destructive">{bot.lastError}</div>}
         </div>
@@ -73,6 +74,8 @@ export function TenantBots() {
   const [enabled, setEnabled] = useState(true);
   const [profileId, setProfileId] = useState("default");
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [gitAccountIds, setGitAccountIds] = useState<string[]>([]);
+  const [gitAccounts, setGitAccounts] = useState<GitAccount[]>([]);
   const [deleting, setDeleting] = useState<Bot | null>(null);
   const seq = useRef(0);
 
@@ -90,9 +93,10 @@ export function TenantBots() {
   useEffect(() => { void load(); const t = setInterval(() => !document.hidden && void load(), 10000); return () => clearInterval(t); }, [load]);
 
   useEffect(() => { api.listProfiles(tenant.id).then((r) => setProfiles(r.profiles)).catch(() => {}); }, [tenant.id]);
+  useEffect(() => { api.listGitAccounts(tenant.id).then((r) => setGitAccounts(r.gitAccounts)).catch(() => {}); }, [tenant.id]);
 
   const openEdit = (p: Platform, bot?: Bot) => {
-    setForm(bot ? valuesOf(p, bot) : emptyValues(p)); setName(bot?.name ?? ""); setEnabled(bot?.isEnabled ?? true); setProfileId(bot?.profileId ?? "default"); setEditing({ platform: p, bot });
+    setForm(bot ? valuesOf(p, bot) : emptyValues(p)); setName(bot?.name ?? ""); setEnabled(bot?.isEnabled ?? true); setProfileId(bot?.profileId ?? "default"); setGitAccountIds(bot?.gitAccountIds ?? []); setEditing({ platform: p, bot });
   };
   const run = async (op: () => Promise<unknown>, ok: string) => {
     try { await op(); toast.success(ok); await load(); return true; } catch (e: any) { toast.error(e.message); return false; }
@@ -102,7 +106,7 @@ export function TenantBots() {
     if (!editing) return;
     const { platform: p, bot } = editing;
     if (!p) return;
-    const body = { name, isEnabled: enabled, profileId: profileId === "default" ? null : profileId, ...toInput(p, form) };
+    const body = { name, isEnabled: enabled, profileId: profileId === "default" ? null : profileId, gitAccountIds, ...toInput(p, form) };
     const ok = bot ? await run(() => api.updateBot(bot.id, body), "Integration updated") : await run(() => api.createBot(tenant.id, { ...body, platform: p.id }), "Integration created");
     if (ok) setEditing(null);
   };
@@ -133,7 +137,7 @@ export function TenantBots() {
         : data.bots.length === 0
           ? <p className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">{filtered ? "No integrations match your filters." : "No integrations yet. Add one to connect this tenant to a platform."}</p>
           : <div className="grid gap-3.75 sm:grid-cols-2 xl:grid-cols-3">
-              {data.bots.map((b) => <IntegrationCard key={b.id} bot={b} profileName={profiles.find((x) => x.id === b.profileId)?.name} run={run} onEdit={() => openEdit(platformOf(b.platform), b)} onDelete={() => setDeleting(b)} />)}
+              {data.bots.map((b) => <IntegrationCard key={b.id} bot={b} profileName={profiles.find((x) => x.id === b.profileId)?.name} gitNames={b.gitAccountIds.map((id) => gitAccounts.find((x) => x.id === id)?.name).filter((n): n is string => !!n)} run={run} onEdit={() => openEdit(platformOf(b.platform), b)} onDelete={() => setDeleting(b)} />)}
             </div>}
 
       {total > PAGE_SIZE && (
@@ -172,7 +176,7 @@ export function TenantBots() {
               <div className="space-y-2"><Label htmlFor="in">Name</Label><Input id="in" required value={name} onChange={(e) => setName(e.target.value)} /></div>
               {editing.platform.fields.map((f) => (
                 <div key={f.key} className="space-y-2"><Label htmlFor={`f-${f.key}`}>{f.label}</Label>
-                  <Input id={`f-${f.key}`} type={f.secret ? "password" : "text"} required={f.secret && !editing.bot} autoComplete="off"
+                  <Input id={`f-${f.key}`} type={f.secret ? "password" : "text"} required={f.secret && !editing.bot}
                     placeholder={f.secret && editing.bot ? "Leave blank to keep current" : f.placeholder} value={form[f.key] ?? ""} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} /></div>
               ))}
               <div className="space-y-2"><Label htmlFor="ipf">Profile</Label>
@@ -180,6 +184,20 @@ export function TenantBots() {
                   <SelectTrigger id="ipf" className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="default">Tenant default</SelectItem>{profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name} · {p.model}</SelectItem>)}</SelectContent>
                 </Select></div>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">Git accounts</legend>
+                {gitAccounts.length === 0 ? <p className="text-sm text-muted-foreground">No git accounts yet. Connect one under Git accounts.</p> : (
+                  <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+                    {gitAccounts.map((a) => (
+                      <li key={a.id}><label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
+                        <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={gitAccountIds.includes(a.id)}
+                          onChange={(e) => setGitAccountIds(e.target.checked ? [...gitAccountIds, a.id] : gitAccountIds.filter((x) => x !== a.id))} />{a.name} · {a.username}
+                      </label></li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-xs text-muted-foreground">Attached accounts are off everywhere until you enable them per server under Servers. Removing one also removes its server and channel settings.</p>
+              </fieldset>
               <div className="flex items-center gap-2"><Switch id="ie" checked={enabled} onCheckedChange={setEnabled} /><Label htmlFor="ie">Enabled</Label></div>
               <DialogFooter className="sm:justify-between">
                 {editing.bot ? <span /> : <Button type="button" variant="ghost" onClick={() => setEditing({ platform: null })}><ArrowLeft /> Back</Button>}
