@@ -125,7 +125,21 @@ pachiware-agent/
 - **Phase 11: Completed ✅** (Linux/Ubuntu Global Path Resolution, Absolute Script Spawning, and install.sh Hardening)
 - **Phase 12: Completed ✅** (SQLite as zero-config default; dual-dialect schemas, driver switching, dialect-aware migrations/CLI/health; `bun:sqlite` native, all tests green on SQLite)
 - **Phase 13: Completed ✅** (Multi-tenant / SaaS-compatible)
-- **Phase 14: In progress 🚧** (Console: apps/web rebuilt as platform-admin UI on React 19 + Tailwind v4 + shadcn + react-router)
+- **Phase 14: Awaiting verification 🚧** (Platform admin portal implemented; manual browser verification pending)
+- **Phase 15: Awaiting verification 🚧** (Discord shared conversations and per-server instructions implemented; live Discord verification pending)
+- **Phase 15.1: Awaiting verification 🚧** (OpenAI/Custom prompt-cache support implemented; live hit-rate measurement pending; Anthropic support deferred)
+- **Phase 15.2: Awaiting verification 🚧** (Quieter shared-thread replies and burst coalescing implemented; live Discord verification pending)
+- **Phase 16: Awaiting verification 🚧** (Git accounts and repository access implemented; live-provider verification and existing-tenant activation pending)
+- **Phase 17: Awaiting verification 🚧** (Git OAuth and token refresh implemented; real OAuth application verification pending)
+- **Phase 18: Awaiting verification 🚧** (Repository browsing and search implemented; live-provider verification pending)
+- **Phase 19: Completed ✅** (Multiple git accounts per bot, server/channel scopes, and PostgreSQL verification)
+- **Phase 20: Awaiting verification 🚧** (Git scope resolver, read tools, and prompt integration implemented; live Discord/provider verification pending)
+- **Phase 21: Completed ✅** (Confirmation for git write actions)
+- **Phase 22: Awaiting verification 🚧** (Git account and scope UI implemented and browser checks passed; live Discord/provider flow pending)
+- **Phase 23: Completed ✅** (Pull request and issue management tools)
+- **Phase 24: Completed ✅** (Repository, CI/CD, access, organization, and utility tools; existing root typecheck failures remain documented)
+- **Phase 25: Completed ✅** (Guardrails, confirmation, rate limits, redaction, and audit events)
+- **Phase 26: Completed ✅** (Workspace file storage, task tools and REST API, Markdown memory, admin editor, and legacy task export)
 
 ---
 
@@ -185,6 +199,23 @@ pachiware-agent/
   - [x] `GET/POST/PATCH/DELETE /api/tasks`
   - [x] `POST /api/agent/chat` (Direct testing endpoint)
   - [x] `GET /api/agent/status` &amp; `/api/health` (Health, Redis, DB, Discord status)
+
+#### Diagnosis: ReAct iteration-limit reply (2026-10-09)
+
+- [x] Locate the exact fallback in `apps/agent/src/loop/react.ts` and reproduce through `AgentReActLoop.run` with isolated database, model, and tool dependencies.
+- [x] Verify default 12 rounds, configured 3/8 rounds, upper clamp 32, a final answer on the last round, and an answer requiring one additional round.
+- Confirmed cause of the reply: every allowed model round requested tools, so the loop exhausted its budget before receiving a response without tool calls. Last-round tools execute, but their results get no further model round. The fallback does not check whether tool actions succeeded.
+- Discord reads tenant `settings.maxReActIterations`; tenant creation and seeding initialize it to 8. Web chat omits the setting and uses 12. Limits count model rounds, not individual tool calls or reasoning tokens.
+- [ ] Determine why the reported live conversation kept requesting tools; its message/tool-result history is needed to distinguish a long task from repetition or retries after failures.
+- Initial diagnosis phase completed before the long-horizon continuation change below; the original reproduction harness remains temporary and outside the repository.
+
+#### Long-horizon ReAct continuation (2026-10-09)
+
+- [x] Raise the default action budget to 32 rounds and the hard configurable ceiling to 128.
+- [x] Treat legacy tenant values below 32 as the old default, so existing tenants receive the longer budget without a manual migration.
+- [x] On budget exhaustion, run one tool-free synthesis turn so the user receives completed-work and next-step context rather than an opaque limit message.
+- [x] Mark the boundary event in the guardrail audit with `synthesized: true`.
+- [ ] Update the existing tenant settings UI/help text if it exposes the old default or ceiling.
 
 ### Phase 4: Discord Gateway Integration (`apps/agent/src/discord`)
 
@@ -444,6 +475,12 @@ Decisions: no admin "test bot token" route yet (restart reports status); dark th
 - Out of scope: slash commands, loading channel history for threads the bot did not start, long-term memory/summaries, per-channel prompt overrides, attachments/images
 - Known limit: existing conversations stored per `(channel, user)` are no longer matched; the first message after upgrade in a shared channel starts a fresh conversation
 
+### Thread memory after reconnect (2026-10-09)
+
+- [x] Confirmed conversation identity and persistence: messages are stored in the database and resumed by the same Discord thread/channel ID after gateway reconnect.
+- [x] Confirmed context-window limit: the ReAct loop loads a stepped window of roughly the latest 30–40 stored messages, so very old messages may be omitted from the next prompt even though they remain persisted.
+- Known operational caveat: a new Discord thread ID creates a new conversation; reconnecting the same bot on the same thread does not.
+
 ### 15.1 LLM prompt-cache hits (OpenAI + Custom provider)
 
 Provider-side prompt caching only hits when the request starts with an identical prefix. Before this, the prefix changed on every turn.
@@ -630,8 +667,8 @@ Three layers: conversation policy (prompt), capability/authorization gate (code)
 - Known limit: the web chat has no guild or user, so tools needing a confirmer (and the Discord tools) fail there
 - Known limit: attachments are not read by the bot, so there is no attachment-specific scan
 
-## Phase 26 — Workspace: tasks, notes and memory as Markdown files (issue #1, tickets #2–#9)
-Spec: GitHub issue #1. Decision: `docs/adr/0003-agent-data-lives-in-workspace-files-not-the-database.md`. Term: **Workspace** in `GLOSSARY.md`.
+## Phase 26 — Workspace: tasks, notes and memory as Markdown files
+Decision: `docs/adr/0003-agent-data-lives-in-workspace-files-not-the-database.md`. Term: **Workspace** in `GLOSSARY.md`.
 
 - [x] 2. Storage contract + local driver (`WORKSPACE_DRIVER`, `WORKSPACE_DIR`), path rules, `listFiles`/`readFile`/`writeFile`
 - [x] 3. Visibility: own channel (thread → parent), guild `shared/`, tenant `shared/`, DM; name files for guild and channel folders
@@ -650,12 +687,20 @@ Spec: GitHub issue #1. Decision: `docs/adr/0003-agent-data-lives-in-workspace-fi
 - Known limit: local disk, one instance only. The `s3` driver is designed against the same contract and not built.
 - Known limit: the version check is modified time + size, which can miss two same-size writes inside one clock tick.
 - Web UI uses `window.prompt` for new file, new folder and rename; replace with a dialog.
-
-## GitHub Issue Audit — 2026-10-08
-
-- GitHub currently has 9 open issues: the Workspace parent spec `#1` and tickets `#2`–`#9`; all are labelled `ready-for-agent` and unassigned.
-- The ticketed Workspace implementation is present in this working tree and the focused verification passes: 9 tests across `packages/skills/test/workspace.test.ts`, `packages/skills/test/skills.test.ts`, and `apps/agent/test/workspace-admin.test.ts`.
-- The issues have not been closed or marked complete on GitHub, so the tracker still reports the entire spec as outstanding.
-- Remaining implementation gap found locally: real-provider/real-Discord validation is still pending and requires credentials and live services; S3 remains explicitly out of scope for this release.
-- Ticket #9 is blocked by #5; #8 by #4 and #7; #7 and #6 by #3; #5 and #3 by #2; #4 by #2. The implementation currently exists despite those tracker dependencies remaining open.
 - Follow-up fixes completed after review: task listing now reads frontmatter only, renamed task files remain discoverable by UUID frontmatter, malformed IDs/timestamps are rejected, Workspace listings over 500 entries are refused, DM/guild/task labels are created consistently, and the Web UI can initialize folders from the Workspace root.
+
+## Phase 27 — Session-scoped approval and concise Discord action responses
+
+- [ ] Clarify whether one owner approval covers all sensitive tools in a Discord thread or only a narrower command/category scope
+- [ ] Clarify approval lifetime: thread lifetime, idle timeout, or persistent across restarts
+- [ ] Clarify canonical owner identity: `GIT_OWNER_DISCORD_IDS` versus tenant/bot owner records
+- [ ] Decide approval UX and wording for the one-time thread grant
+- [ ] Replace generic Discord action alerts (`Actions executed`, `Action done`) with concise assistant-style result text
+- [x] Owner decisions captured: thread-wide grant, thread lifetime, `GIT_OWNER_DISCORD_IDS`, one-time grant UX, concise text results
+- [x] Wayfinder map created: https://github.com/yhagus/pachiware/issues/10
+- [x] Decision tickets created: #11 state model, #12 owner interaction/lifecycle, #13 response contract
+- [x] Implementation specification published as ready-for-agent issue: https://github.com/yhagus/pachiware/issues/14
+- [x] Implemented on integration branch feat/thread-scoped-approval: thread grant state, owner-only grant button, guardrail/Git integration, concise Discord responses
+- [x] Verification: full Bun suite 65 pass / 0 fail; production build passes; typecheck has pre-existing apps/web alias and implicit-any failures
+- [x] Spec and decision issues closed: #10, #11, #12, #13, #14
+- Status: implementation complete; integration branch is ready for review.
