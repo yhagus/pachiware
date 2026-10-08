@@ -162,6 +162,7 @@ export class SkillRegistry {
           const summary = `${name} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`;
           const q = queueAction({ tenantId: context.tenantId, botId, userId, guildId, channelId, parentChannelId: context.parentChannelId, tool: name, args: args ?? {}, summary, auth: context.auth });
           await audit(context, "confirmation_requested", { tool: name, risk: policyOf(skill, name).risk, confirmationId: q.id });
+          await audit(context, "thread_approval_requested", { tool: name, confirmationId: q.id });
           return { toolCallId, name, success: true, data: { pending: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the user to press Confirm or Cancel on the message that appears in the channel. Do not call this tool again." } };
         }
         await audit(context, "guardrail_denied", { tool: name, kind: decision.kind, observed: true });
