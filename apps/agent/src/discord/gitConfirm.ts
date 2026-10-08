@@ -20,23 +20,28 @@ export function confirmMessage(p: { confirmationId: string; summary: string }, u
 export interface ButtonLike {
   customId: string; user: { id: string };
   reply(o: { content: string; ephemeral: boolean }): Promise<unknown>;
-  update(o: { content?: string; embeds: unknown[]; components: unknown[] }): Promise<unknown>;
+  update(o: { content?: string; embeds?: unknown[]; components: unknown[] }): Promise<unknown>;
+}
+
+function resultText(summary: string, success: boolean, detail: string) {
+  const status = success ? "Completed" : "I couldn't complete that";
+  return `${summary.slice(0, 700)}\n\n${status}.\n${detail.slice(0, 1100)}`.slice(0, 1900);
 }
 /** Returns true when the click belonged to a confirmation (handled or refused). */
 export async function handleConfirmButton(i: ButtonLike, botId: string, discordFor?: (guildId: string) => unknown): Promise<boolean> {
   const [prefix, verb, id] = i.customId.split(":");
   if (prefix !== PREFIX || !id) return false;
   const action = peekAction(id);
-  if (!action || action.botId !== botId) { takeExpired(id); await i.update({ embeds: [new EmbedBuilder().setTitle("Action expired").setColor(0x99aab5).setDescription("Ask again if you still want it.")], components: [] }); return true; }
+  if (!action || action.botId !== botId) { takeExpired(id); await i.update({ content: "That request has expired. Ask again if you still want it.", components: [] }); return true; }
   if (i.user.id !== action.userId) { await i.reply({ content: "Only the person who asked for this can confirm or cancel it.", ephemeral: true }); return true; }
   dropAction(id); // single use: a double click cannot run it twice
   const base = { db, tenantId: action.tenantId, botId: action.botId };
-  if (!payloadIntact(action)) { await audit(base, "tool_denied", { tool: action.tool, reason: "payload_changed" }); await i.update({ content: "", embeds: [new EmbedBuilder().setTitle("Action refused").setColor(0xed4245).setDescription("The request changed after it was queued. Ask again.")], components: [] }); return true; }
-  if (verb !== "ok") { await i.update({ content: "", embeds: [new EmbedBuilder().setTitle("Action cancelled").setColor(0x99aab5).setDescription(action.summary.slice(0, 3500))], components: [] }); return true; }
+  if (!payloadIntact(action)) { await audit(base, "tool_denied", { tool: action.tool, reason: "payload_changed" }); await i.update({ content: "I couldn't run that because the request changed after it was queued. Ask again.", components: [] }); return true; }
+  if (verb !== "ok") { await i.update({ content: `Cancelled: ${action.summary.slice(0, 1800)}`, components: [] }); return true; }
   await audit(base, "confirmation_accepted", { tool: action.tool, confirmationId: id });
   const result = await skillRegistry.executeTool({ id: `confirm-${id}`, name: action.tool, arguments: action.args },
     { db, tenantId: action.tenantId, botId: action.botId, guildId: action.guildId, channelId: action.channelId, parentChannelId: action.parentChannelId, userId: action.userId, auth: action.auth, discord: discordFor?.(action.guildId) as any, confirmed: true });
   const detail = redact(result.success ? JSON.stringify(result.data) : String(result.error)).slice(0, 1500);
-  await i.update({ content: "", embeds: [new EmbedBuilder().setTitle(result.success ? "Action done" : "Action failed").setColor(result.success ? 0x57f287 : 0xed4245).setDescription(`${action.summary.slice(0, 1800)}\n\n\`\`\`json\n${detail}\n\`\`\``)], components: [] });
+  await i.update({ content: resultText(action.summary, result.success, detail), components: [] });
   return true;
 }

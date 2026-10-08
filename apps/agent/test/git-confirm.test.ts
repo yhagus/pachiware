@@ -52,7 +52,7 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         assert(other.handled && other.replies.length === 1 && other.updates.length === 0 && calls.length === 0, "wrong user confirmed");
         // 5. The asker confirms: runs exactly once.
         const ok = await click("ok", p.confirmationId, "alice");
-        assert(ok.handled && ok.updates.length === 1 && calls.join().includes("POST https://api.github.com/repos/acme/api/issues/3/comments"), "confirm did not run: " + calls);
+        assert(ok.handled && ok.updates.length === 1 && !ok.updates[0].embeds && ok.updates[0].content.includes("Completed") && calls.join().includes("POST https://api.github.com/repos/acme/api/issues/3/comments"), "confirm did not run as assistant text: " + calls);
         const n = calls.length;
         const again = await click("ok", p.confirmationId, "alice");
         assert(calls.length === n && again.updates.length === 1, "ran twice");
@@ -65,7 +65,7 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         const q3 = pendingOf((await run("repoCreateIssue", { repo: "acme/web", title: "T" })).data);
         await replaceGitScopes(t.id, bot.id, "g1", "", [{ gitAccountId: acc.id, repoPatterns: ["acme/api"] }]);
         const late = await click("ok", q3.confirmationId, "alice");
-        assert(late.updates[0].embeds[0].data.title === "Action failed" && !calls.join().includes("/repos/acme/web/issues"), "narrowed scope not re-checked");
+        assert(late.updates[0].content.includes("couldn't complete") && !late.updates[0].embeds && !calls.join().includes("/repos/acme/web/issues"), "narrowed scope not re-checked");
         // 8. Not a git button: left alone.
         const foreign = await handleConfirmButton({ customId: "other:ok:1", user: { id: "alice" }, reply: async () => {}, update: async () => {} }, bot.id);
         assert(foreign === false, "foreign button handled");

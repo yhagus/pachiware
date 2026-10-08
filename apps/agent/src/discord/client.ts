@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Message, type ThreadChannel, EmbedBuilder } from "discord.js";
+import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Message, type ThreadChannel } from "discord.js";
 import { db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, getTenantById, updateBot, eq } from "@pachiware/db";
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
@@ -156,9 +156,6 @@ export class DiscordBotManager {
       const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: msg.author.id, userName: speaker, skillContext: { member: { roleIds: msg.member ? [...msg.member.roles.cache.keys()] : [], permissions: msg.member?.permissions?.toArray?.() ?? [] }, discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
       for (const chunk of output.reply.match(/[^]{1,1900}/g) || ["Done."]) await send(chunk);
       if (output.toolCallsExecuted.length && target.isSendable()) {
-        const embed = new EmbedBuilder().setTitle("Actions executed").setColor(0x5865f2);
-        for (const { call, result } of output.toolCallsExecuted.slice(0, 5)) embed.addFields({ name: call.name, value: pendingOf(result.data) ? "Waiting for confirmation" : result.success ? "Completed" : "Failed" });
-        await target.send({ embeds: [embed] });
         // Git write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.
         for (const { result } of output.toolCallsExecuted) {
           const p = result.success ? pendingOf(result.data) : null;

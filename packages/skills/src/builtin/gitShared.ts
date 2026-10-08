@@ -1,6 +1,7 @@
 import type { SkillContext } from "../types.js";
 import type { GitConn, GitState, ItemKind } from "../git.js";
 import { queueAction } from "../gitConfirm.js";
+import { hasThreadApproval, isThreadApprovalOwner } from "../threadApproval.js";
 import { loadGitAccess, pickAccess, connectionOf, repoAllowed, orgAllowed } from "../gitScope.js";
 
 export const str = (v: unknown, name: string) => { if (typeof v !== "string" || !v.trim()) throw new Error(`${name} is required`); return v.trim(); };
@@ -24,7 +25,7 @@ export type Risk = "read" | "write" | "danger";
 export type Scope = "repo" | "org" | "account";
 /** Discord user ids allowed to request and confirm "danger" actions. Empty means nobody, so those tools stay locked by default. */
 // ponytail: env list for now; move to a per-bot owner list in the console when more than one deployment needs different owners.
-export const isOwner = (ctx: SkillContext) => !!ctx.userId && (process.env.GIT_OWNER_DISCORD_IDS ?? "").split(",").map((x) => x.trim()).filter(Boolean).includes(ctx.userId);
+export const isOwner = (ctx: SkillContext) => isThreadApprovalOwner(ctx);
 
 export async function useScope(a: any, ctx: SkillContext, scope: Scope) {
   if (scope === "repo") { const { access, repo, conn } = await useRepo(a, ctx); return { access, conn, target: repo }; }
@@ -43,7 +44,7 @@ export async function guard(tool: string, a: any, ctx: SkillContext, risk: "writ
   const { access, conn, target } = await useScope(a, ctx, scope);
   const p = prep(target, access.account.name);
   const summary = `${risk === "danger" ? "⚠️ DANGEROUS: " : ""}${p.summary} [account ${access.account.name}]`;
-  if (ctx.confirmed) return p.run(conn);
+  if (ctx.confirmed || hasThreadApproval(ctx)) return p.run(conn);
   if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error("Write actions need a person to confirm them, which only works in a Discord channel");
   const q = queueAction({ tenantId: ctx.tenantId, botId: ctx.botId, userId: ctx.userId, guildId: ctx.guildId, channelId: ctx.channelId, parentChannelId: ctx.parentChannelId, tool, args: a, summary });
   return { pending: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the user to press Confirm or Cancel on the message that appears in the channel. Do not call this tool again." };
