@@ -39,7 +39,7 @@ export async function handleConfirmButton(i: ButtonLike, botId: string, discordF
   const [prefix, verb, id] = i.customId.split(":");
   if (prefix !== PREFIX || !id) return false;
   const action = peekAction(id);
-  if (!action || action.botId !== botId) { takeExpired(id); await i.update({ content: "That request has expired. Ask again if you still want it.", components: [] }); return true; }
+  if (!action || action.botId !== botId) { const expired = takeExpired(id); if (expired) await audit(actionContext(expired), "thread_approval_expired", { tool: expired.tool, confirmationId: id }); await i.update({ content: "That request has expired. Ask again if you still want it.", components: [] }); return true; }
   if (verb === "grant") {
     if ((i.channelId && i.channelId !== action.channelId) || (i.guildId && i.guildId !== action.guildId)) {
       await i.reply({ content: "This approval belongs to a different conversation. Ask again in the current thread.", ephemeral: true }); return true;
