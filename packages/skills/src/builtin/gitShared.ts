@@ -44,8 +44,8 @@ export async function guard(tool: string, a: any, ctx: SkillContext, risk: "writ
   const { access, conn, target } = await useScope(a, ctx, scope);
   const p = prep(target, access.account.name);
   const summary = `${risk === "danger" ? "⚠️ DANGEROUS: " : ""}${p.summary} [account ${access.account.name}]`;
-  if (ctx.confirmed || hasThreadApproval(ctx)) return p.run(conn);
   if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error("Write actions need a person to confirm them, which only works in a Discord channel");
+  if (ctx.confirmed || hasThreadApproval(ctx)) return p.run(conn);
   const q = queueAction({ tenantId: ctx.tenantId, botId: ctx.botId, userId: ctx.userId, guildId: ctx.guildId, channelId: ctx.channelId, parentChannelId: ctx.parentChannelId, tool, args: a, summary });
   return { pending: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the user to press Confirm or Cancel on the message that appears in the channel. Do not call this tool again." };
 }
