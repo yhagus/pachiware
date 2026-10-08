@@ -69,6 +69,19 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         // 8. Not a git button: left alone.
         const foreign = await handleConfirmButton({ customId: "other:ok:1", user: { id: "alice" }, reply: async () => {}, update: async () => {} }, bot.id);
         assert(foreign === false, "foreign button handled");
+        // 9. A configured owner can grant the current thread once; the waiting action runs and the grant is reusable.
+        process.env.GIT_OWNER_DISCORD_IDS = "owner";
+        await replaceGitScopes(t.id, bot.id, "g1", "", [{ gitAccountId: acc.id, repoPatterns: ["acme/*"] }]);
+        const grantQueued = pendingOf((await run("repoComment", { repo: "acme/api", number: 7, kind: "issue", body: "grant me" })).data);
+        const deniedGrant = await click("grant", grantQueued.confirmationId, "alice");
+        assert(deniedGrant.replies.length === 1 && deniedGrant.updates.length === 0 && calls.length === n, "non-owner grant was accepted");
+        const granted = await click("grant", grantQueued.confirmationId, "owner");
+        assert(granted.updates.length === 1 && granted.updates[0].content.includes("Approved for this thread"), "owner grant did not execute waiting action");
+        const beforeGrantedFollowup = calls.length;
+        const followup = await run("repoComment", { repo: "acme/api", number: 8, kind: "issue", body: "already approved" });
+        assert(followup.success && !pendingOf(followup.data) && calls.length === beforeGrantedFollowup + 1, "thread grant did not apply to follow-up action");
+        const differentThread = await run("repoComment", { repo: "acme/api", number: 9, kind: "issue", body: "new thread" }, { ...ctx, channelId: "c2" });
+        assert(pendingOf(differentThread.data), "grant leaked into another thread");
         // 9. Write tools without a Discord user cannot queue.
         const noUser = await run("repoComment", { repo: "acme/api", number: 1, kind: "issue", body: "x" }, { db, tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1" });
         assert(!noUser.success, "queued without a user");
