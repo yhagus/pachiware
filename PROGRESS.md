@@ -658,3 +658,4 @@ Spec: GitHub issue #1. Decision: `docs/adr/0003-agent-data-lives-in-workspace-fi
 - The issues have not been closed or marked complete on GitHub, so the tracker still reports the entire spec as outstanding.
 - Remaining implementation gap found locally: real-provider/real-Discord validation is still pending and requires credentials and live services; S3 remains explicitly out of scope for this release.
 - Ticket #9 is blocked by #5; #8 by #4 and #7; #7 and #6 by #3; #5 and #3 by #2; #4 by #2. The implementation currently exists despite those tracker dependencies remaining open.
+- Follow-up fixes completed after review: task listing now reads frontmatter only, renamed task files remain discoverable by UUID frontmatter, malformed IDs/timestamps are rejected, Workspace listings over 500 entries are refused, DM/guild/task labels are created consistently, and the Web UI can initialize folders from the Workspace root.
