@@ -41,6 +41,7 @@ const stable = (v: any): string => v && typeof v === "object" ? (Array.isArray(v
 export const payloadHash = (tool: string, args: unknown) => createHash("sha256").update(`${tool}\n${stable(args)}`).digest("hex");
 /** Same person, same place, same call: what "the same action" means for the duplicate guard. */
 export const actionKey = (tool: string, args: unknown, c: SkillContext) => payloadHash(`${c.tenantId}|${c.userId ?? ""}|${c.guildId ?? ""}|${c.channelId ?? ""}|${tool}`, args);
+export const isDone = (key: string) => { const until = done.get(key); return !!until && until > Date.now(); };
 export const markDone = (key: string) => { done.set(key, Date.now() + COOLDOWN_MS); if (done.size > 2000) for (const [k, t] of done) if (t <= Date.now()) done.delete(k); };
 
 export const policyOf = (skill: SkillModule, tool: string): Required<ToolPolicy> => {

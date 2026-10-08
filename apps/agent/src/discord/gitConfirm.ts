@@ -44,10 +44,11 @@ export async function handleConfirmButton(i: ButtonLike, botId: string, discordF
     if ((i.channelId && i.channelId !== action.channelId) || (i.guildId && i.guildId !== action.guildId)) {
       await i.reply({ content: "This approval belongs to a different conversation. Ask again in the current thread.", ephemeral: true }); return true;
     }
-    if (!isThreadApprovalOwner({ userId: i.user.id })) { await i.reply({ content: "Only a configured owner can approve sensitive actions for this thread.", ephemeral: true }); return true; }
-    if (!grantThreadApproval({ ...actionContext(action), userId: i.user.id })) { await i.reply({ content: "This approval belongs to a different conversation. Ask again in the current thread.", ephemeral: true }); return true; }
+    if (!isThreadApprovalOwner({ userId: i.user.id })) { await audit(actionContext(action), "thread_approval_denied", { tool: action.tool, reason: "not_owner" }); await i.reply({ content: "Only a configured owner can approve sensitive actions for this thread.", ephemeral: true }); return true; }
+    if (!payloadIntact(action)) { await audit(actionContext(action), "thread_approval_denied", { tool: action.tool, reason: "payload_changed" }); await i.update({ content: "The request changed before approval. Ask again in this thread.", components: [] }); return true; }
+    if (!grantThreadApproval({ ...actionContext(action), userId: i.user.id })) { await audit(actionContext(action), "thread_approval_denied", { tool: action.tool, reason: "context_mismatch" }); await i.reply({ content: "This approval belongs to a different conversation. Ask again in the current thread.", ephemeral: true }); return true; }
     dropAction(id);
-    if (!payloadIntact(action)) { await audit(actionContext(action), "tool_denied", { tool: action.tool, reason: "payload_changed" }); await i.update({ content: "The request changed before approval. Ask again in this thread.", components: [] }); return true; }
+    await audit(actionContext(action), "thread_approval_granted", { tool: action.tool, confirmationId: id });
     await audit(actionContext(action), "confirmation_accepted", { tool: action.tool, confirmationId: id, kind: "thread_grant" });
     const result = await skillRegistry.executeTool({ id: `confirm-${id}`, name: action.tool, arguments: action.args },
       { ...actionContext(action), discord: discordFor?.(action.guildId) as any, confirmed: true });

@@ -2,6 +2,7 @@ import type { SkillContext } from "../types.js";
 import type { GitConn, GitState, ItemKind } from "../git.js";
 import { queueAction } from "../gitConfirm.js";
 import { hasThreadApproval, isThreadApprovalOwner } from "../threadApproval.js";
+import { actionKey, isDone, markDone } from "../guardrails.js";
 import { loadGitAccess, pickAccess, connectionOf, repoAllowed, orgAllowed } from "../gitScope.js";
 
 export const str = (v: unknown, name: string) => { if (typeof v !== "string" || !v.trim()) throw new Error(`${name} is required`); return v.trim(); };
@@ -45,7 +46,13 @@ export async function guard(tool: string, a: any, ctx: SkillContext, risk: "writ
   const p = prep(target, access.account.name);
   const summary = `${risk === "danger" ? "⚠️ DANGEROUS: " : ""}${p.summary} [account ${access.account.name}]`;
   if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error("Write actions need a person to confirm them, which only works in a Discord channel");
-  if (ctx.confirmed || hasThreadApproval(ctx)) return p.run(conn);
+  const key = actionKey(tool, a, ctx);
+  if (isDone(key)) throw new Error("That exact action just ran. It was not repeated.");
+  if (ctx.confirmed || hasThreadApproval(ctx)) {
+    const result = await p.run(conn);
+    markDone(key);
+    return result;
+  }
   const q = queueAction({ tenantId: ctx.tenantId, botId: ctx.botId, userId: ctx.userId, guildId: ctx.guildId, channelId: ctx.channelId, parentChannelId: ctx.parentChannelId, tool, args: a, summary });
   return { pending: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the user to press Confirm or Cancel on the message that appears in the channel. Do not call this tool again." };
 }
