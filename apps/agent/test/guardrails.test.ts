@@ -82,12 +82,12 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         const q2 = pendingOf((await run("archiveChannel", { channelId: "c1" }, mk(["ManageChannels"]))).data);
         peekAction(q2.confirmationId).args.channelId = "other";
         const tampered = await click("ok", q2.confirmationId, "alice");
-        assert(tampered.updates[0].embeds[0].data.title === "Action refused" && !adapterCalls.includes("archive"), "changed payload ran");
+        assert(tampered.updates[0].content.includes("request changed") && !adapterCalls.includes("archive"), "changed payload ran");
         // expired
         const q3 = pendingOf((await run("archiveChannel", { channelId: "c2" }, mk(["ManageChannels"]))).data);
         peekAction(q3.confirmationId).expires = Date.now() - 1;
         const late = await click("ok", q3.confirmationId, "alice");
-        assert(late.updates[0].embeds[0].data.title === "Action expired" && !adapterCalls.includes("archive"), "expired ran");
+        assert(late.updates[0].content.includes("expired") && !adapterCalls.includes("archive"), "expired ran");
         // cancel
         const q4 = pendingOf((await run("archiveChannel", { channelId: "c3" }, mk(["ManageChannels"]))).data);
         await click("no", q4.confirmationId, "alice"); assert(!adapterCalls.includes("archive"), "cancel ran");
@@ -179,7 +179,7 @@ test("ReAct loop: refusals before the model, injected tool results stay data, se
         // iteration cap
         script = () => ({ content: null, finishReason: "tool_calls", toolCalls: [{ id: "n" + Math.random(), name: "listTasks", arguments: {} }] });
         const capped = await ask("list tasks", { maxIterations: 3 });
-        assert(capped.iterations === 3 && capped.reply.includes("maximum"), "iteration cap not applied");
+        assert(capped.iterations === 3 && capped.reply.includes("available actions"), "iteration cap did not produce a boundary summary: " + capped.reply);
 
         // observe mode: would-be refusals are logged, not enforced
         process.env.GUARDRAIL_MODE = "observe"; script = () => ({ content: "ok", finishReason: "stop", toolCalls: [] });
