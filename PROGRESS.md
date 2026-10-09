@@ -663,3 +663,5 @@ Spec: GitHub issue #1. Decision: `docs/adr/0003-agent-data-lives-in-workspace-fi
 ## Follow-up - Thread-scoped Git write confirmation terminology
 
 - [x] Issue #15: terminology aligned with the glossary, action context construction centralized, and unrelated progress churn restored.
+
+- [x] Kedua branch baru digabungkan ke main melalui fast-forward; seluruh commit feature dan terminology sudah tercakup, perubahan lokal sebelumnya dipertahankan.
