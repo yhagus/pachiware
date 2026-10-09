@@ -1,7 +1,7 @@
 import type { SkillContext } from "../types.js";
 import type { GitConn, GitState, ItemKind } from "../git.js";
 import { queueAction } from "../gitConfirm.js";
-import { hasThreadApproval, isThreadApprovalOwner } from "../threadApproval.js";
+import { hasThreadConfirmation, isGitWriteConfirmationOwner } from "../threadConfirmation.js";
 import { actionKey, isDone, markDone } from "../guardrails.js";
 import { loadGitAccess, pickAccess, connectionOf, repoAllowed, orgAllowed } from "../gitScope.js";
 
@@ -26,7 +26,7 @@ export type Risk = "read" | "write" | "danger";
 export type Scope = "repo" | "org" | "account";
 /** Discord user ids allowed to request and confirm "danger" actions. Empty means nobody, so those tools stay locked by default. */
 // ponytail: env list for now; move to a per-bot owner list in the console when more than one deployment needs different owners.
-export const isOwner = (ctx: SkillContext) => isThreadApprovalOwner(ctx);
+export const isOwner = (ctx: SkillContext) => isGitWriteConfirmationOwner(ctx);
 
 export async function useScope(a: any, ctx: SkillContext, scope: Scope) {
   if (scope === "repo") { const { access, repo, conn } = await useRepo(a, ctx); return { access, conn, target: repo }; }
@@ -48,7 +48,7 @@ export async function guard(tool: string, a: any, ctx: SkillContext, risk: "writ
   if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error("Write actions need a person to confirm them, which only works in a Discord channel");
   const key = actionKey(tool, a, ctx);
   if (isDone(key)) throw new Error("That exact action just ran. It was not repeated.");
-  if (ctx.confirmed || hasThreadApproval(ctx)) {
+  if (ctx.confirmed || hasThreadConfirmation(ctx)) {
     const result = await p.run(conn);
     markDone(key);
     return result;

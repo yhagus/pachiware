@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { usageEvents } from "@pachiware/db";
 import type { SkillContext, SkillModule, ToolPolicy } from "./types.js";
-import { hasThreadApproval } from "./threadApproval.js";
+import { hasThreadConfirmation } from "./threadConfirmation.js";
 
 /**
  * observe: nothing is refused, would-be refusals are only logged.
@@ -14,7 +14,7 @@ export const guardrailMode = (): GuardrailMode => (process.env.GUARDRAIL_MODE ==
 export type GuardrailKind = "out_of_scope" | "unauthorized" | "prompt_injection" | "confirmation_required" | "limit" | "duplicate" | "no_capability";
 export type GuardrailDecision = { allow: true } | { allow: false; kind: GuardrailKind; message: string };
 
-export type AuditEvent = "guardrail_denied" | "tool_denied" | "confirmation_requested" | "confirmation_accepted" | "confirmation_expired" | "prompt_injection_detected" | "thread_approval_requested" | "thread_approval_granted" | "thread_approval_denied" | "thread_approval_expired";
+export type AuditEvent = "guardrail_denied" | "tool_denied" | "confirmation_requested" | "confirmation_accepted" | "confirmation_expired" | "prompt_injection_detected" | "thread_confirmation_requested" | "thread_confirmation_granted" | "thread_confirmation_denied" | "thread_confirmation_expired";
 
 export const MAX_INPUT = 4000;
 export const MAX_ARGS = 8000;
@@ -126,7 +126,7 @@ export const GuardrailService = {
     if (policy.risk !== "read" && !skill.confirmsInternally) {
       const until = done.get(actionKey(tool, args, ctx));
       if (until && until > Date.now()) return deny("duplicate", "That exact action just ran. It was not repeated.");
-      if (policy.requiresConfirmation && !ctx.confirmed && !hasThreadApproval(ctx)) return this.requireConfirmation(`${tool} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`);
+      if (policy.requiresConfirmation && !ctx.confirmed && !hasThreadConfirmation(ctx)) return this.requireConfirmation(`${tool} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`);
     }
     return this.allowTool();
   },

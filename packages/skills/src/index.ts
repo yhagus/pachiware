@@ -10,7 +10,7 @@ export * from "./git.js";
 export * from "./gitScope.js";
 export * from "./gitConfirm.js";
 export * from "./guardrails.js";
-export * from "./threadApproval.js";
+export * from "./threadConfirmation.js";
 export * from "./gitOAuth.js";
 export * from "./registry.js";
 export * from "./builtin/git.js";
