@@ -42,4 +42,3 @@ test("generic guarded writes use the thread grant while retaining scope checks",
   const sibling = { ...context, channelId: "sibling", auth: { ...context.auth, channelId: "sibling" } };
   expect(GuardrailService.checkTool(skill, "writeThing", {}, sibling)).toMatchObject({ allow: false, kind: "confirmation_required" });
 });
-
