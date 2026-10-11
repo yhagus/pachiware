@@ -14,6 +14,16 @@ export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
   private operations = new Map<string, Promise<any>>();
   private bursts = new Map<string, { items: { msg: Message; text: string }[]; timer: ReturnType<typeof setTimeout> }>();
+  private inflight = new Set<Promise<unknown>>();
+  constructor(private burstMs = BURST_MS) {}
+  private track(work: Promise<unknown>) {
+    const tracked = work.catch(() => {}).finally(() => this.inflight.delete(tracked));
+    this.inflight.add(tracked);
+  }
+  /** Resolves once no gateway event, burst, or reply is still being handled. */
+  async idle() {
+    while (this.inflight.size || this.bursts.size || this.operations.size) await new Promise((r) => setTimeout(r, 5));
+  }
 
   private serialize<T>(id: string, operation: () => Promise<T>): Promise<T> {
     const pending = (this.operations.get(id) || Promise.resolve()).catch(() => {}).then(operation);
@@ -61,8 +71,8 @@ export class DiscordBotManager {
     client.on(Events.ShardDisconnect, () => { runtime.connected = false; void updateBot(id, { connectionStatus: "disconnected" }).catch(() => {}); });
     client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
     client.on(Events.Error, () => { void updateBot(id, { lastError: "Discord gateway error" }).catch(() => {}); });
-    client.on(Events.InteractionCreate, (i) => { if (i.isButton()) void handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId)).catch(() => {}); });
-    client.on(Events.MessageCreate, (msg) => { void this.handleMessage(id, msg).catch(() => {}); });
+    client.on(Events.InteractionCreate, (i) => { if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId))); });
+    client.on(Events.MessageCreate, (msg) => { this.track(this.handleMessage(id, msg)); });
     try {
       await client.login(token);
       return { success: true, message: "Bot gateway started." };
@@ -140,7 +150,7 @@ export class DiscordBotManager {
       this.bursts.delete(key);
       const last = burst.items[burst.items.length - 1].msg;
       void run(last, burst.items.map((i) => speakerTurn(i.msg.guildId, speakerOf(i.msg), i.text)).join("\n")).catch(() => {});
-    }, BURST_MS);
+    }, this.burstMs);
     this.bursts.set(key, burst);
   }
   private async reply(runtime: BotRuntime, botId: string, msg: Message, turn: string, channelId: string, thread: ThreadChannel | null) {
