@@ -1,6 +1,7 @@
 import type { SkillContext, SkillModule } from "../types.js";
 import { resolvePath, visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, type WorkspaceStore } from "../workspace/store.js";
+import { readPlaybookFile } from "../playbooks.js";
 
 const pathArg = { type: "string", description: 'Path starting with a folder name, e.g. "channel/notes/ideas.md"' };
 
@@ -12,13 +13,19 @@ export async function labelFolder(ctx: SkillContext, root: string) {
   try { if (!(await workspaceStore().read(ctx.tenantId, file))) await workspaceStore().write(ctx.tenantId, file, label.slice(0, 100)); } catch {}
 }
 
+/** Playbooks are the agent's rules, so chat cannot rewrite them; people edit them in the console. Case-folded for case-insensitive disks. */
+function writable(path: unknown) {
+  if (typeof path === "string" && path.split("/")[1]?.toLowerCase() === "playbooks") throw new Error("Files under playbooks/ cannot be changed from chat. Playbooks are edited in the console.");
+  return path;
+}
+
 export const workspaceSkill: SkillModule = {
   id: "workspace",
   name: "Workspace",
   description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
   capabilities: ["workspace"],
   allowedScopes: ["tenant"],
-  toolPolicy: { listFiles: { risk: "read" }, readFile: { risk: "read" }, searchFiles: { risk: "read" }, writeFile: { risk: "write", requiresConfirmation: false }, moveFile: { risk: "write", requiresConfirmation: false }, deleteFile: { risk: "destructive", requiresConfirmation: true } },
+  toolPolicy: { listFiles: { risk: "read" }, readFile: { risk: "read" }, searchFiles: { risk: "read" }, readPlaybookFile: { risk: "read" }, writeFile: { risk: "write", requiresConfirmation: false }, moveFile: { risk: "write", requiresConfirmation: false }, deleteFile: { risk: "destructive", requiresConfirmation: true } },
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "readFile", description: "Reads a Markdown file from the Workspace.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
@@ -26,6 +33,7 @@ export const workspaceSkill: SkillModule = {
     { name: "moveFile", description: "Moves or renames a file or folder. Refuses to overwrite.", parameters: { type: "object", properties: { from: pathArg, to: pathArg }, required: ["from", "to"] } },
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "searchFiles", description: "Finds files by name or text, case-insensitive, under a folder.", parameters: { type: "object", properties: { query: { type: "string", description: "Text to find" }, path: pathArg }, required: ["query", "path"] } },
+    { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
   ],
   handlers: {
     listFiles: async (args, ctx) => {
@@ -40,18 +48,24 @@ export const workspaceSkill: SkillModule = {
     },
     writeFile: async (args, ctx) => {
       if (typeof args.content !== "string") throw new Error("content is required");
-      const path = resolvePath(ctx, args.path);
+      const path = resolvePath(ctx, writable(args.path));
       const { version } = await workspaceStore().write(ctx.tenantId, path, args.content, typeof args.version === "string" ? args.version : undefined);
       await labelFolder(ctx, String(args.path).split("/")[0]!);
       return { success: true, path: args.path, version };
     },
     moveFile: async (args, ctx) => {
-      await workspaceStore().move(ctx.tenantId, resolvePath(ctx, args.from), resolvePath(ctx, args.to));
+      await workspaceStore().move(ctx.tenantId, resolvePath(ctx, writable(args.from)), resolvePath(ctx, writable(args.to)));
       return { success: true, from: args.from, to: args.to };
     },
     deleteFile: async (args, ctx) => {
-      await workspaceStore().remove(ctx.tenantId, resolvePath(ctx, args.path));
+      await workspaceStore().remove(ctx.tenantId, resolvePath(ctx, writable(args.path)));
       return { success: true, path: args.path };
+    },
+    readPlaybookFile: async (args, ctx) => {
+      if (typeof args.playbook !== "string" || typeof args.path !== "string") throw new Error("playbook and path are required");
+      const content = await readPlaybookFile(ctx.tenantId, args.playbook, args.path);
+      if (content === null) throw new Error(`Playbook file "${args.playbook}/${args.path}" not found.`);
+      return { content };
     },
     searchFiles: async (args, ctx) => {
       const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";

@@ -13,5 +13,6 @@ export * from "./guardrails.js";
 export * from "./threadConfirmation.js";
 export * from "./gitOAuth.js";
 export * from "./registry.js";
+export * from "./playbooks.js";
 export * from "./builtin/git.js";
 export * from "./git.js";
