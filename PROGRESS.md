@@ -675,5 +675,11 @@ Planning only for now. The decisions are worked on the wayfinder map [#16](https
 - [x] Map and 12 tickets created (#17–#28), with blocking edges wired.
 - [x] Out-of-scope bug filed: #29, thread messages debounced against Phase 15.2.
 - [x] Research #17–#20 resolved; findings are on `research/*` branches (never merged) and gisted in the map
-- [ ] Grilling #21–#28, one ticket per session
+- [x] Grilled and closed: #21 Anatomy, #22 Clarifying round, #24 Playbook form, #23 Grounding, #25 When the bot speaks, #26 Reply style, #27 Image handling, #28 Eval harness, #30 Minutes playbook, #31 Creating issues. Glossary gained Clarifying round.
+  - [x] #21 Anatomy of an issue draft: the sections and footer are settled, along with the gap checklist, `*(added)*` tags, the Context used permalinks, existing-label proposals, and the size budget. The gap about the issue and its labels needing one confirmed action was closed in #31 (labels go in the create call).
+- [x] Fog graduated into new tickets: #30 Minutes playbook and #31 Creating a brief's issues.
+- [x] Grilling finished: no open tickets and Not yet specified is empty (the images fog was settled in #27). Map #16 is clear; next is /to-spec.
+- [x] Spec published: #32 (ready-for-agent), collapsing the map's 14 decisions. Test seams: the Discord bot (fake client, real agent loop, scripted model), the LLM router's HTTP boundary, and an offline git provider for evals.
+- [x] Tickets published as sub-issues of #32 with native blocking: #33-#48 ready-for-agent, #49 judge calibration ready-for-human (label created). Starting frontier: #33 and #36.
+- [ ] Implementation: run /implement-spec on #32.
 - [x] Removed 9router: the project has no tie to it. The custom provider has no default base URL anymore, and both the call and the connection test refuse to run without one. Docs, the map and research #17 were updated to match. `bun test apps/agent` passes 19/19. `bun run typecheck` still reports only the errors that were already there (`apps/web`, `apps/agent/src/discord/gitConfirm.ts`).

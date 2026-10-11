@@ -44,6 +44,10 @@ _Avoid_: Notes, todo list
 A proposed issue the agent builds from one point of a brief: the point made detailed, with what the author likely missed and the questions still open. It belongs to no git platform until it is created, and creating it is a git change.
 _Avoid_: Ticket, issue template
 
+**Clarifying round**:
+One batch of numbered questions the agent asks the author of a brief, each with its recommended answer. Only the author's answers decide; anyone else's answers are input.
+_Avoid_: Q&A, interview, questionnaire
+
 **Minutes**:
 The record of a discussion: what was decided, what is still open, and who does what next. Its action items can become issue drafts.
 _Avoid_: Notulen (in English text), summary, recap
@@ -72,4 +76,5 @@ _Avoid_: Server, channel group
 
 - A **Tenant** owns many **Bots**, **Profiles**, and **Git accounts**, and exactly one **Workspace**.
 - A **Bot** has zero or one **Profile** and many **Git accounts**; all must belong to the bot's **Tenant**.
+- A **Brief** becomes one or more **Issue drafts** through **Clarifying rounds** held in one thread; only its author decides.
 - A **Git scope** narrows a **Bot**'s **Git accounts** per **Guild** and per channel; it can never add an account the bot does not have.
