@@ -7,7 +7,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn } from "./ro
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, draftsWrittenOf, briefState, draftEmbed, draftsFile, recordDraftMessages, revisionNote, DRAFTS_FILE_NOTE, type BindingPlace, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, draftsWrittenOf, briefState, draftEmbed, draftsFile, recordDraftMessages, revisionNote, DRAFTS_FILE_NOTE, recordBriefImages, unseeBriefImages, type BindingPlace, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { prepareReply, MESSAGE_LIMIT, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, withPlaceholders, BLIND_ONLY_NOTE, REJECTED_NOTE } from "./attachments.js";
 import { llmRouter } from "../llm/router.js";
@@ -312,8 +312,12 @@ export class DiscordBotManager {
       const brief = opts.binding && { place: { guildId: opts.binding.guildId, channelId: opts.binding.channelId, threadId: opts.binding.threadId }, authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
       if (brief?.outsider) turn = outsiderTurn(turn);
       else if (brief) { const input = await takeBriefInput(runtime.tenantId, brief.place).catch(() => null); if (input) turn = inputTurn(input, turn); }
+      const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
+      const shots = place && !brief?.outsider ? media.shots : [];
+      if (shots.length) await recordBriefImages(runtime.tenantId, place!, shots).catch(() => null);
       const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
       output.reply = [output.reply, ...(output.imagesRejected ? [REJECTED_NOTE] : []), ...media.notes].join("\n");
+      if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       // A posted round or draft is the reply: its layout is decided in code, so the model's own text does not go out with it.
       const round = roundMessagesOf(output.toolCallsExecuted), written = draftsWrittenOf(output.toolCallsExecuted);
       const plan: ReplyPlan = round.length || written.length ? { messages: round } : prepareReply(output.reply, { addressed: direct });
@@ -323,7 +327,6 @@ export class DiscordBotManager {
       }
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       for (const chunk of plan.messages) await send(chunk);
-      const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
       if (written.length && place && target.isSendable()) await this.showDrafts(runtime.tenantId, target, place, written);
       if (output.toolCallsExecuted.length && target.isSendable()) {
         // Git write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.

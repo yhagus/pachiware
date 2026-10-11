@@ -16,9 +16,12 @@ export const BLIND_ONLY_NOTE = `${BLIND_NOTE} Describe the image in words and I'
 export const REJECTED_NOTE = "This profile rejected the image; an admin can turn image input off for it.";
 
 type Attachment = { id: string; name: string; url: string; contentType?: string | null; size: number; width?: number | null; height?: number | null };
-export type TurnImages = { images: ImagePart[]; context: string; notes: string[]; blind: boolean };
+/** An image of the turn and the message holding it; `sent` when its bytes went to the model. */
+export type TurnShot = { id: string; name: string; link: string; sent: boolean };
+export type TurnImages = { images: ImagePart[]; context: string; notes: string[]; blind: boolean; shots: TurnShot[] };
 
 const attachmentsOf = (m: Message | null | undefined): Attachment[] => (m?.attachments?.size ? [...m.attachments.values()] as Attachment[] : []);
+const linkOf = (m: Message) => `https://discord.com/channels/${m.guildId ?? "@me"}/${m.channelId}/${m.id}`;
 const isImage = (a: Attachment) => !!a.contentType?.startsWith("image/") || IMAGE_NAME.test(a.name);
 const isSupported = (a: Attachment) => a.contentType ? /^image\/(png|jpeg|webp|gif)$/.test(a.contentType) : SUPPORTED_NAME.test(a.name);
 const placeholder = (a: Attachment, label: string) => `[${label}: ${a.name}${a.width && a.height ? `, ${a.width}×${a.height}` : ""}]`;
@@ -33,24 +36,28 @@ export function withPlaceholders(text: string, msg: Message) {
  * metadata, downloaded, and reduced to provider limits. Whatever is not sent is named in `notes`.
  */
 export async function gatherTurnImages(messages: Message[], acceptsImages: () => Promise<boolean>): Promise<TurnImages> {
-  const own = messages.flatMap(attachmentsOf);
+  const holding = new Map<string, Message>();
+  const of = (m: Message | null) => attachmentsOf(m).map((a) => (holding.set(a.id, holding.get(a.id) ?? m!), a));
+  const own = messages.flatMap(of);
   const referenced = (await Promise.all(messages.filter((m) => m.reference?.messageId).map((m) => m.fetchReference().catch(() => null))))
-    .flatMap(attachmentsOf).filter(isImage);
+    .flatMap(of).filter(isImage);
   const seen = new Set<string>();
   const candidates = [...own, ...referenced].filter((a) => !seen.has(a.id) && !!seen.add(a.id));
   const context = referenced.map((a) => placeholder(a, "image in the replied-to message")).join(" ");
-  const result: TurnImages = { images: [], context, notes: [], blind: false };
+  const result: TurnImages = { images: [], context, notes: [], blind: false, shots: [] };
   if (!candidates.length) return result;
   const blind = candidates.some(isImage) && !(await acceptsImages());
   const skipped: string[] = [];
   for (const a of candidates) {
+    const shot = isImage(a) ? { id: a.id, name: a.name, link: linkOf(holding.get(a.id)!), sent: false } : null;
+    if (shot) result.shots.push(shot);
     if (blind && isImage(a)) { result.blind = true; continue; }
     if (!isSupported(a)) { skipped.push(`${a.name} (not a PNG, JPEG, WebP or GIF)`); continue; }
     if (result.images.length >= MAX_IMAGES) { skipped.push(`${a.name} (over the ${MAX_IMAGES}-image limit)`); continue; }
     if (a.size > MAX_DOWNLOAD) { skipped.push(`${a.name} (too large to download)`); continue; }
     const fitted = await download(a.url).then((bytes) => bytes ? fit(bytes) : "could not be downloaded");
     if (typeof fitted === "string") skipped.push(`${a.name} (${fitted})`);
-    else result.images.push(fitted);
+    else { result.images.push(fitted); if (shot) shot.sent = true; }
   }
   if (result.blind) result.notes.push(BLIND_NOTE);
   if (skipped.length) result.notes.push(`Skipped ${skipped.join(", ")}.`);

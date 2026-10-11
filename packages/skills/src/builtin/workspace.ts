@@ -4,6 +4,7 @@ import { workspaceStore, type WorkspaceStore } from "../workspace/store.js";
 import { readPlaybookFile } from "../playbooks.js";
 import { postBriefRound, postBriefRoundTool } from "../brief.js";
 import { recordBriefAnswers, recordBriefAnswersTool, writeIssueDraft, writeIssueDraftTool } from "../issueDrafts.js";
+import { describeBriefImages, describeBriefImagesTool } from "../briefImages.js";
 
 const pathArg = { type: "string", description: 'Path starting with a folder name, e.g. "channel/notes/ideas.md"' };
 
@@ -27,7 +28,7 @@ export const workspaceSkill: SkillModule = {
   description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
   capabilities: ["workspace"],
   allowedScopes: ["tenant"],
-  toolPolicy: { listFiles: { risk: "read" }, readFile: { risk: "read" }, searchFiles: { risk: "read" }, readPlaybookFile: { risk: "read" }, postBriefRound: { risk: "write", requiresConfirmation: false }, recordBriefAnswers: { risk: "write", requiresConfirmation: false }, writeIssueDraft: { risk: "write", requiresConfirmation: false }, writeFile: { risk: "write", requiresConfirmation: false }, moveFile: { risk: "write", requiresConfirmation: false }, deleteFile: { risk: "destructive", requiresConfirmation: true } },
+  toolPolicy: { listFiles: { risk: "read" }, readFile: { risk: "read" }, searchFiles: { risk: "read" }, readPlaybookFile: { risk: "read" }, postBriefRound: { risk: "write", requiresConfirmation: false }, recordBriefAnswers: { risk: "write", requiresConfirmation: false }, writeIssueDraft: { risk: "write", requiresConfirmation: false }, describeBriefImages: { risk: "write", requiresConfirmation: false }, writeFile: { risk: "write", requiresConfirmation: false }, moveFile: { risk: "write", requiresConfirmation: false }, deleteFile: { risk: "destructive", requiresConfirmation: true } },
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "readFile", description: "Reads a Markdown file from the Workspace.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
@@ -39,6 +40,7 @@ export const workspaceSkill: SkillModule = {
     postBriefRoundTool,
     recordBriefAnswersTool,
     writeIssueDraftTool,
+    describeBriefImagesTool,
   ],
   handlers: {
     listFiles: async (args, ctx) => {
@@ -75,6 +77,7 @@ export const workspaceSkill: SkillModule = {
     postBriefRound,
     recordBriefAnswers,
     writeIssueDraft,
+    describeBriefImages,
     searchFiles: async (args, ctx) => {
       const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
       if (!query) throw new Error("query is required");
