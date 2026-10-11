@@ -12,11 +12,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type Profile, type Tenant } from "@/lib/api";
+import { Switch } from "@/components/ui/switch";
+import { api, type Profile, type ProfileProbe, type Tenant } from "@/lib/api";
 
-export const PROVIDERS = [{ id: "openai", name: "OpenAI (ChatGPT)" }, { id: "custom", name: "Custom provider" }] as const;
+export const PROVIDERS = [{ id: "openai", name: "OpenAI (ChatGPT)" }, { id: "anthropic", name: "Anthropic (Claude)" }, { id: "custom", name: "Custom provider" }] as const;
 export const providerName = (id: string) => PROVIDERS.find((p) => p.id === id)?.name ?? id;
-const EMPTY = { name: "", provider: "openai", model: "", baseUrl: "", apiKey: "" };
+const DEFAULT_URL: Record<string, string> = { openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1" };
+const MODEL_HINT: Record<string, string> = { openai: "gpt-4o", anthropic: "claude-sonnet-5-5", custom: "Model name from your provider" };
+const EMPTY = { name: "", provider: "openai", model: "", baseUrl: "", apiKey: "", acceptsImages: false };
 
 export function TenantProfiles() {
   const tenant = useOutletContext<Tenant>();
@@ -25,12 +28,23 @@ export function TenantProfiles() {
   const [form, setForm] = useState(EMPTY);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
-  const load = useCallback(() => api.listProfiles(tenant.id).then((r) => setProfiles(r.profiles)).catch((e) => toast.error(e.message)), [tenant.id]);
+  const [probe, setProbe] = useState<{ text: ProfileProbe; image: ProfileProbe } | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const load = useCallback(() => api.listProfiles(tenant.id).then((r) => { setProfiles(r.profiles); setLoadError(null); }).catch((e) => setLoadError(e.message)), [tenant.id]);
   useEffect(() => { void load(); }, [load]);
 
   const open = (p: Profile | "new") => {
-    setForm(p === "new" ? EMPTY : { name: p.name, provider: p.provider, model: p.model, baseUrl: p.baseUrl ?? "", apiKey: "" });
-    setModels([]); setEditing(p);
+    setForm(p === "new" ? EMPTY : { name: p.name, provider: p.provider, model: p.model, baseUrl: p.baseUrl ?? "", apiKey: "", acceptsImages: p.acceptsImages });
+    setModels([]); setProbe(null); setEditing(p);
+  };
+  // A Test result describes the connection it ran with, so changing that connection clears it.
+  const edit = (patch: Partial<typeof EMPTY>) => { setForm({ ...form, ...patch }); setProbe(null); };
+  const runTest = async () => {
+    setTesting(true);
+    try {
+      setProbe(await api.testProfile({ provider: form.provider, model: form.model.trim(), baseUrl: form.baseUrl.trim() || undefined, apiKey: form.apiKey || undefined, profileId: editing !== "new" ? editing?.id : undefined }));
+    } catch (e: any) { toast.error(e.message); } finally { setTesting(false); }
   };
   const fetchModels = async () => {
     setLoadingModels(true);
@@ -41,7 +55,7 @@ export function TenantProfiles() {
   };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    const body = { name: form.name.trim(), provider: form.provider, model: form.model.trim(), baseUrl: form.baseUrl.trim() || null, ...(form.apiKey ? { apiKey: form.apiKey.trim() } : {}) };
+    const body = { name: form.name.trim(), provider: form.provider, model: form.model.trim(), baseUrl: form.baseUrl.trim() || null, acceptsImages: form.acceptsImages, ...(form.apiKey ? { apiKey: form.apiKey.trim() } : {}) };
     try {
       if (editing === "new") await api.createProfile(tenant.id, body); else await api.updateProfile((editing as Profile).id, body);
       toast.success(editing === "new" ? "Profile created" : "Profile updated"); setEditing(null); await load();
@@ -58,7 +72,9 @@ export function TenantProfiles() {
         <p className="text-sm text-muted-foreground">A profile is one model from one provider. Integrations pick the profile they answer with.</p>
         <Button onClick={() => open("new")}><Plus /> New profile</Button>
       </div>
-      {!profiles
+      {loadError && !profiles
+        ? <div role="alert" className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">Profiles could not be loaded: {loadError}<Button variant="outline" onClick={() => void load()}>Retry</Button></div>
+        : !profiles
         ? <div className="grid gap-3.75 sm:grid-cols-2 xl:grid-cols-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-32" />)}</div>
         : profiles.length === 0
           ? <p className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">No profiles yet. Integrations use the tenant default model until you add one.</p>
@@ -67,7 +83,7 @@ export function TenantProfiles() {
                 <Card key={p.id} className="py-5"><CardContent className="flex h-full flex-col gap-3">
                   <div className="flex items-start gap-3">
                     <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted"><Brain className="size-5" /></div>
-                    <div className="min-w-0 flex-1"><div className="truncate font-medium">{p.name}</div><div className="text-xs text-muted-foreground">{providerName(p.provider)}</div></div>
+                    <div className="min-w-0 flex-1"><div className="truncate font-medium">{p.name}</div><div className="text-xs text-muted-foreground">{providerName(p.provider)}{p.acceptsImages ? " · accepts images" : ""}</div></div>
                     {!p.hasApiKey && <Badge variant="outline">No key</Badge>}
                   </div>
                   <code className="truncate font-mono text-xs">{p.model}</code>
@@ -86,20 +102,36 @@ export function TenantProfiles() {
             <DialogHeader><DialogTitle>{editing === "new" ? "New profile" : "Edit profile"}</DialogTitle><DialogDescription className="sr-only">Model profile settings</DialogDescription></DialogHeader>
             <div className="space-y-2"><Label htmlFor="pn">Name</Label><Input id="pn" required placeholder="e.g. Support bot" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pp">Provider</Label>
-              <Select value={form.provider} onValueChange={(v) => setForm({ ...form, provider: v })}>
+              <Select value={form.provider} onValueChange={(v) => { edit({ provider: v }); setModels([]); }}>
                 <SelectTrigger id="pp" className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>{PROVIDERS.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
               </Select></div>
-            <div className="space-y-2"><Label htmlFor="pb">Base URL{custom ? "" : " (optional)"}</Label><Input id="pb" type="url" required={custom} placeholder={custom ? "https://your-provider.example/v1" : "https://api.openai.com/v1"} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} /></div>
-            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" placeholder={editing !== "new" && editing?.hasApiKey ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} /></div>
+            <div className="space-y-2"><Label htmlFor="pb">Base URL{custom ? "" : " (optional)"}</Label><Input id="pb" type="url" required={custom} placeholder={DEFAULT_URL[form.provider] ?? "https://your-provider.example/v1"} value={form.baseUrl} onChange={(e) => edit({ baseUrl: e.target.value })} /></div>
+            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" placeholder={editing !== "new" && editing?.hasApiKey ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => edit({ apiKey: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pm">Model</Label>
               <div className="flex gap-2">
-                <Input id="pm" required list="profile-models" className="flex-1" placeholder={custom ? "Model name from your provider" : "gpt-4o"} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                <Input id="pm" required list="profile-models" className="flex-1" placeholder={MODEL_HINT[form.provider]} value={form.model} onChange={(e) => edit({ model: e.target.value })} />
                 <IconButton label="Fetch models" variant="outline" type="button" disabled={loadingModels || (custom && !form.baseUrl.trim())} onClick={fetchModels}><RefreshCw className={loadingModels ? "animate-spin" : ""} /></IconButton>
               </div>
               <datalist id="profile-models">{models.map((m) => <option key={m} value={m} />)}</datalist>
               <p className="text-xs text-muted-foreground">Fetch lists models from the base URL and API key above. You can also type one.</p></div>
-            <DialogFooter><Button>Save</Button></DialogFooter>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="pi">Accepts images</Label>
+                <p className="text-xs text-muted-foreground">Turn on only for a model that can see images. Test sends a small image to check.</p>
+              </div>
+              <Switch id="pi" checked={form.acceptsImages} onCheckedChange={(v) => setForm({ ...form, acceptsImages: v })} />
+            </div>
+            {probe && (
+              <dl role="status" className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-sm">
+                <dt className="font-medium">Text</dt><dd className={probe.text.ok ? "" : "text-destructive"}>{probe.text.message}</dd>
+                <dt className="font-medium">Image</dt><dd className={probe.image.ok ? "" : "text-destructive"}>{probe.image.message}</dd>
+              </dl>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={testing || !form.model.trim() || (custom && !form.baseUrl.trim())} onClick={runTest}>{testing ? "Testing…" : "Test"}</Button>
+              <Button>Save</Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

@@ -474,9 +474,9 @@ export class LLMRouter {
       } catch { return "the provider could not be reached"; }
     };
     const textError = await send(false);
-    if (textError) return { text: { ok: false, message: `Text failed (${textError}). Check the model, base URL, and API key.` }, image: { ok: false, message: "Not tried, because text failed." } };
+    if (textError) return { text: { ok: false, message: `Failed (${textError}). Check the model, base URL, and API key.` }, image: { ok: false, message: "Not tried, because text failed." } };
     const imageError = await send(true);
-    return { text: { ok: true, message: "Text works." }, image: imageError ? { ok: false, message: `The model rejected the image (${imageError}).` } : { ok: true, message: "The model accepted the image." } };
+    return { text: { ok: true, message: "Works." }, image: imageError ? { ok: false, message: `Rejected (${imageError}).` } : { ok: true, message: "Accepted." } };
   }
 
   static async testOpenAI(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string; modelCount?: number }> {
