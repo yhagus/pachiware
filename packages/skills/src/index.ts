@@ -18,5 +18,6 @@ export * from "./brief.js";
 export * from "./issueDrafts.js";
 export * from "./briefImages.js";
 export * from "./draftChecker.js";
+export * from "./grounding.js";
 export * from "./builtin/git.js";
 export * from "./git.js";

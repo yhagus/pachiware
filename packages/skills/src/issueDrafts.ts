@@ -3,6 +3,7 @@ import { readBinding, writeBinding, type BindingPlace, type PlaybookBinding } fr
 import { briefState, placeOf, updateBrief, undescribedImages, type BriefDraft, type BriefQuestion, type BriefState, type DraftCategory } from "./brief.js";
 import { checkDraft, type DraftViolation } from "./draftChecker.js";
 import { describedByAnswers, screenshotLines } from "./briefImages.js";
+import { contextUsed, groundingOf, proposedLabels, uncheckedQuestion } from "./grounding.js";
 
 /**
  * The second half of a brief: the author's answers settle the round, then each breakdown draft is written out in
@@ -73,13 +74,15 @@ export function draftBody(state: BriefState, binding: PlaybookBinding, n: number
   const d = state.drafts[n - 1]!;
   const author = typeof binding.authorName === "string" && binding.authorName ? binding.authorName : "the author";
   const bot = typeof binding.botName === "string" && binding.botName ? binding.botName : "the bot";
-  const qs = placed(state, d);
+  const qs = placed(state, d), grounding = groundingOf(binding), unchecked = uncheckedQuestion(grounding, d);
   const established = [...(d.established ?? []).map((e) => `- ${e}`), ...qs.filter((q) => q.status === "assumed").map((q) => `${ask(q)} *(assumed)*`)];
-  const need = [...(d.openQuestions ?? []).map((q) => ask({ text: q.question, recommendation: q.recommendation })), ...qs.filter((q) => q.status === "open").map(ask)];
+  const need = [...(d.openQuestions ?? []), ...(unchecked ? [unchecked] : [])].map((q) => ask({ text: q.question, recommendation: q.recommendation })).concat(qs.filter((q) => q.status === "open").map(ask));
   const open = [established.length ? `**Established so far:**\n${established.join("\n")}` : "", need.length ? `**Still need from @${author}:**\n${need.join("\n")}` : ""].filter(Boolean).join("\n\n");
   const section = (name: string, text: string | undefined) => (text ? `## ${name}\n${text}` : "");
   const list = (items: string[] | undefined, prefix = "- ") => (items?.length ? items.map((i) => `${prefix}${i}`).join("\n") : "");
   const repo = d.repo ? "" : " without repository context";
+  const used = contextUsed(grounding, d), sha = d.repo && grounding.repos[d.repo]?.sha;
+  const evidence = used.length ? `\n\n**Context used** (${d.repo} at \`${sha!.slice(0, 7)}\`):\n${used.map((u) => `- [${u.title}](${u.url})`).join("\n")}` : "";
   // Screenshots sit with what they show: the current behaviour when there is one, else the desired.
   const shots = screenshotLines(state, d), withShots = (text?: string) => (text && shots ? `${text}\n\n${shots}` : text);
   return [
@@ -90,15 +93,16 @@ export function draftBody(state: BriefState, binding: PlaybookBinding, n: number
     section("Out of scope", list(d.outOfScope)),
     section("Open questions", open),
     section("Blocked by", d.blockedBy.map((b) => `- ${blocker(state.drafts[b - 1]!)}`).join("\n")),
-    `---\n[Drafted by ${bot} from a brief by ${author}](${sourceLink(binding)})${repo}.`,
+    `---\n[Drafted by ${bot} from a brief by ${author}](${sourceLink(binding)})${repo}.${evidence}`,
   ].filter(Boolean).join("\n\n");
 }
 
-/** Draft `n` as a Discord embed: the body as description, repository and Category as fields. */
+/** Draft `n` as a Discord embed: the body as description; repository, Category and Proposed labels as fields. Labels stay out of the body. */
 export function draftEmbed(state: BriefState, binding: PlaybookBinding, n: number) {
-  const d = state.drafts[n - 1]!;
-  const repo = d.repo ?? "None";
-  return { title: `${d.n}. ${d.title}`, description: draftBody(state, binding, n), fields: [{ name: "Repository", value: repo, inline: true }, { name: "Category", value: d.category ?? "feature", inline: true }] };
+  const d = state.drafts[n - 1]!, labels = proposedLabels(groundingOf(binding), d);
+  const fields = [{ name: "Repository", value: d.repo ?? "None", inline: true }, { name: "Category", value: d.category ?? "feature", inline: true }];
+  if (d.repo) fields.push({ name: "Proposed labels", value: labels.join(", ") || "None", inline: true });
+  return { title: `${d.n}. ${d.title}`, description: draftBody(state, binding, n), fields };
 }
 
 /** drafts.md, every written draft's Markdown to paste by hand; null once every draft has a target repository. */
@@ -142,6 +146,21 @@ export function applyDraft(current: BriefState, binding: PlaybookBinding, args: 
     if (raw.some((b) => !Number.isInteger(b) || b === n || (b as number) < 1 || (b as number) > Math.max(count, n))) problems.push(`blockedBy must name other drafts by number.`);
     else blockedBy = raw as number[];
   }
+  // A draft targets a repository read for this brief, and proposes only labels that repository already has.
+  const grounding = groundingOf(binding);
+  let repo = before ? before.repo : state.drafts.find((x) => x.point === args.point)?.repo ?? grounding.single;
+  if (args.repo !== undefined) repo = line(args.repo) || undefined;
+  if (repo && !grounding.repos[repo]) problems.push(`Read ${repo} with briefRead (step "repository") before drafting for it, or pass repo "" to draft without repository context.`);
+  let labels = repo === before?.repo ? before?.labels : undefined;
+  if (args.labels !== undefined) {
+    const known = (repo && grounding.repos[repo]?.labels) || [], find = (l: string) => known.find((k) => k.toLowerCase() === l.toLowerCase());
+    const raw = Array.isArray(args.labels) ? args.labels.map(line).filter(Boolean) : null;
+    const unknown = raw?.filter((l) => !find(l)) ?? [];
+    if (!raw) problems.push("labels must be a list.");
+    else if (!repo && raw.length) problems.push("A draft without a repository carries only its Category: leave labels out.");
+    else if (unknown.length) problems.push(`${unknown.join(", ")} ${unknown.length > 1 ? "are not labels" : "is not a label"} of ${repo}. Propose only labels it has: ${known.slice(0, 40).join(", ") || "it has none"}.`);
+    else labels = [...new Set(raw.map((l) => find(l)!))];
+  }
 
   const changes = Object.fromEntries(Object.entries({
     title: args.title === undefined ? undefined : line(args.title), summary: text("summary"), current: text("current"), desired: text("desired"),
@@ -149,6 +168,8 @@ export function applyDraft(current: BriefState, binding: PlaybookBinding, args: 
   }).filter(([, v]) => v !== undefined));
   const draft: BriefDraft = { ...(before ?? { n, point: args.point as number, title: "", summary: "" }), ...changes, n, blockedBy, writtenAt: new Date().toISOString(), ...(before?.messageId ? { revisions: (before.revisions ?? 0) + 1 } : {}) };
   if (!draft.current) delete draft.current;
+  if (repo) draft.repo = repo; else delete draft.repo;
+  if (labels?.length) draft.labels = labels; else delete draft.labels;
   for (const [key, ok] of [["category", !!draft.category], ["desired", !!draft.desired], ["acceptance", !!draft.acceptance?.length], ["outOfScope", !!draft.outOfScope?.length], ["summary", !!draft.summary]] as const)
     if (!ok) problems.push(`Draft ${n} needs ${key}.`);
   if (problems.length) throw new Error(problems.join("\n"));
@@ -228,6 +249,8 @@ export const writeIssueDraftTool: ToolDefinition = {
       established: { type: "array", items: { type: "string" }, description: "What the author settled that a reader of the open questions needs" },
       openQuestions: { type: "array", description: "Your own questions still open. Unanswered round questions are added for you", items: { type: "object", properties: { question: { type: "string" }, recommendation: { type: "string" } }, required: ["question", "recommendation"] } },
       blockedBy: { type: "array", items: { type: "integer" }, description: "Numbers of drafts that must land first" },
+      repo: { type: "string", description: "Target repository, read with briefRead; defaults to the breakdown's. \"\" drafts without repository context" },
+      labels: { type: "array", items: { type: "string" }, description: "Proposed labels, only from the repository's existing labels. The Category's own label is added for you" },
       note: { type: "string", description: "Revisions only: one line on what changed, at most 200 characters" },
     },
     required: ["n"],

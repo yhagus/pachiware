@@ -31,4 +31,26 @@ export async function briefFields(s: Scenario, record: string) {
   return parseFrontmatter((await s.workspace.read(record))!)!.fields as Record<string, any>;
 }
 
-export const embedsIn = (s: Scenario, threadId: string) => s.discord.botMessages.filter((m) => m.channelId === threadId && m.embeds.length);
+export const HEAD = "c0ffee1234567890abcdef1234567890abcdef12";
+/**
+ * Serves one GitHub repository at commit HEAD on its default branch "main". `files` maps a path to its text, or to
+ * a directory's entry names; any other path is missing. `issues` are open issues found by every issue search.
+ */
+export function stubRepo(s: Scenario, o: { repo?: string; files?: Record<string, string | string[]>; labels?: string[]; issues?: { number: number; title: string }[]; code?: string[] } = {}) {
+  const repo = o.repo ?? "acme/api", api = `GET api.github.com/repos/${repo}`;
+  const issues = (o.issues ?? []).map((i) => ({ ...i, state: "open", html_url: `https://github.com/${repo}/issues/${i.number}` }));
+  s.http.on(api, () => ({ full_name: repo, default_branch: "main" }));
+  s.http.on(`${api}/contents/`, () => new Response("", { status: 404 }));
+  for (const [path, value] of Object.entries(o.files ?? {}))
+    s.http.on(`${api}/contents/${path}?ref=${HEAD}`, () => (Array.isArray(value) ? value.map((name) => ({ name, type: "file" })) : { content: Buffer.from(value).toString("base64") }));
+  s.http.on(`${api}/commits/main`, () => ({ sha: HEAD, commit: { message: "head", author: { name: "a", date: "d" } }, html_url: `https://github.com/${repo}/commit/${HEAD}`, files: [] }));
+  s.http.on(`${api}/labels`, () => (o.labels ?? []).map((name) => ({ name, color: "ffffff" })));
+  s.http.on(`${api}/issues/`, (req) => {
+    const found = issues.find((i) => req.url.endsWith(`/issues/${i.number}`));
+    return found ? { ...found, body: "Same problem.", user: { login: "bob" }, labels: [], assignees: [] } : new Response("", { status: 404 });
+  });
+  s.http.on("GET api.github.com/search/issues", () => ({ items: issues }));
+  s.http.on("GET api.github.com/search/code", () => ({ items: (o.code ?? []).map((path) => ({ path, html_url: `https://github.com/${repo}/blob/main/${path}` })) }));
+}
+
+export const embedsIn =(s: Scenario, threadId: string) => s.discord.botMessages.filter((m) => m.channelId === threadId && m.embeds.length);

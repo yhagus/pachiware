@@ -46,7 +46,7 @@ export const markDone = (key: string) => { done.set(key, Date.now() + COOLDOWN_M
 
 export const policyOf = (skill: SkillModule, tool: string): Required<ToolPolicy> => {
   const p = skill.toolPolicy?.[tool], risk = p?.risk ?? skill.risk ?? "read";
-  return { risk, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? risk !== "read" };
+  return { risk, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? risk !== "read", metered: p?.metered ?? false };
 };
 
 // Phrases that try to rewrite the rules or pull out hidden material. Matching text is flagged, never obeyed.
@@ -122,7 +122,7 @@ export const GuardrailService = {
       if (!perms.includes("Administrator") && !skill.requiredPermissions.some((p) => perms.includes(p))) return this.denyUnauthorized(`You need one of these Discord permissions to ask for this: ${skill.requiredPermissions.join(", ")}.`);
     }
     const who = ctx.userId ?? "anon";
-    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user) || (policy.risk !== "read" && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", "Too many requests right now. Wait a minute and try again.");
+    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.risk !== "read" && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", "Too many requests right now. Wait a minute and try again.");
     if (policy.risk !== "read" && !skill.confirmsInternally) {
       const until = done.get(actionKey(tool, args, ctx));
       if (until && until > Date.now()) return deny("duplicate", "That exact action just ran. It was not repeated.");

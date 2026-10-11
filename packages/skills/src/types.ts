@@ -76,7 +76,11 @@ export interface AuthorizationContext extends MemberAuth {
   tenantId: string; botId?: string; userId?: string; guildId?: string; channelId?: string; parentChannelId?: string;
 }
 
-export interface ToolPolicy { risk: SkillRisk; /** Default: true for write and destructive. */ requiresConfirmation?: boolean }
+export interface ToolPolicy {
+  risk: SkillRisk;
+  /** Default: true for write and destructive. */ requiresConfirmation?: boolean;
+  /** Calls are capped by a playbook's own read budget, so they skip the per-user rate limit (the tenant limit still applies). */ metered?: boolean;
+}
 
 export interface SkillContext {
   tenantId: string;

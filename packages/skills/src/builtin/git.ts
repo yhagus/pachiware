@@ -2,6 +2,7 @@ import type { SkillModule, SkillContext, ToolDefinition } from "../types.js";
 import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, browseCommits, getMergeRequest, readFile, writeFile, openPullRequest, commentOn, createIssue, mergeMergeRequest, closeItem, browsePipelines, pipelineJobs, jobLog, retryPipeline, createBranch, browseTags, browseReleases, getCommit, compareRefs, getIssue, itemComments, searchCode, updateMergeRequest, reopenItem, reviewMergeRequest, requestReviewers, mergeRequestDiff, repoChecks, rebaseMergeRequest, updateIssue, assignItem, listLabels, setLabels, lockItem, editComment, deleteComment, createRepo, updateRepoSettings, renameRepo, archiveRepo, deleteRepo, forkRepo, transferRepo, deleteBranch, protectBranch, getBranchProtection, createTag, deleteTag, createRelease, deleteRelease, deleteFile, moveFile, commitFiles, defaultBranch, runPipeline, cancelPipeline, listArtifacts, downloadArtifact, schedules, variables, secrets, runners, member, invitations, deployKeys, webhooks, securityAlerts, orgList, orgMembers, orgTeams, createGroup, manageTeam, wiki, snippets, packages, notifications, stats, type GitState, type GitConn, type ItemKind } from "../git.js";
 import { loadGitAccess, pickAccess, connectionOf, repoAllowed, type GitAccess } from "../gitScope.js";
 import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, state, num, str, kindOf, clip, confirmable, guard } from "./gitShared.js";
+import { briefGroundingTools, briefGroundingHandlers } from "./briefGrounding.js";
 
 export const gitTools: ToolDefinition[] = [
   { name: "gitAccounts", description: "Lists the git accounts you may use in this channel, with the repository patterns each is limited to. Call it first when unsure which account to use.",
@@ -122,11 +123,13 @@ export const gitRepositorySkill: SkillModule = {
   id: "git_repositories",
   name: "Git Repositories",
   description: "Browse and change repositories on the git accounts enabled for this server and channel (GitHub, GitLab, self-hosted GitLab).",
-  tools: gitTools,
+  tools: [...gitTools, ...briefGroundingTools],
   capabilities: ["git"],
   // Git queues, scopes and confirms every write itself (gitShared.guard), per account and repository pattern.
   confirmsInternally: true,
+  toolPolicy: { briefRead: { risk: "read", metered: true } },
   handlers: {
+    ...briefGroundingHandlers,
     gitAccounts: async (_a, ctx) => ({ accounts: (await loadGitAccess(ctx)).map((a) => ({ name: a.account.name, provider: a.account.provider, host: a.account.baseUrl ?? a.account.provider, repositories: patternsOf(a) })) }),
     repoList: async (a, ctx) => {
       const access = pickAccess(await loadGitAccess(ctx), a?.account);

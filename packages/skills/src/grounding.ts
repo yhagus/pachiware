@@ -28,11 +28,10 @@ export const groundingOf = (b: PlaybookBinding): BriefGrounding => {
 /** Repositories a draft may target: those found open to the thread, plus any already read. */
 export const openRepos = (g: BriefGrounding) => [...new Set([...g.candidates.map((c) => c.repo), ...Object.keys(g.repos)])];
 
-/** How many more point reads the budget allows for `point`. */
-export function readsLeft(g: BriefGrounding, point: number) {
-  const counted = g.reads.filter((r) => r.point > 0);
-  return Math.max(0, Math.min(READ_BUDGET.point - counted.filter((r) => r.point === point).length, READ_BUDGET.brief - counted.length));
-}
+export const briefReadsLeft = (g: BriefGrounding) => Math.max(0, READ_BUDGET.brief - g.reads.filter((r) => r.point > 0).length);
+/** How many more reads the budget allows for `point`. */
+export const readsLeft = (g: BriefGrounding, point: number) =>
+  Math.max(0, Math.min(READ_BUDGET.point - g.reads.filter((r) => r.point === point).length, briefReadsLeft(g)));
 
 const ORDER: Record<ReadStep, ReadStep | null> = { duplicates: null, issue: "duplicates", code: "duplicates", files: "code" };
 /** The step that has to come first for this point in this repository, or null when `step` may run now. */
