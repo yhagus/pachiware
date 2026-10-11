@@ -24,6 +24,17 @@ discordScenario("with a text-only profile, round 1 asks the author to describe e
   expect(fields.images).toMatchObject([{ name: "login.png", link: brief.url, description: "The sign-in form reloads empty after submitting." }]);
 });
 
+discordScenario("a screenshot-only brief on a text-only profile still reaches round 1, which asks the author to describe it", async (s) => {
+  const { image } = await import(process.cwd() + "/apps/agent/test/support/images.ts");
+  const shot = await image(s, "checkout.png", 390, 844);
+  s.model.script({ tool: "postBriefRound", args: { points: ["the checkout screen in the screenshot"], drafts: [{ point: 1, title: "Fix the checkout screen", summary: "What the screenshot shows works again." }], questions: [] } }, "ok");
+  const brief = await s.discord.send("", { attachments: [shot] });
+  await s.discord.contextMenu("Draft issues", brief);
+  const round = s.discord.botMessages.filter((m) => m.channelId === brief.thread!.id).map((m) => m.content).join("\n");
+  expect(round).toContain(`❓ **Q1** What does [checkout.png](<${brief.url}>) show?`);
+  expect(round).not.toContain("Describe the image in words");
+});
+
 discordScenario("describeBriefImages refuses a screenshot the model was never shown", async (s) => {
   const { ROUND_1, briefFields } = await import(process.cwd() + "/apps/agent/test/support/briefs.ts");
   const { image } = await import(process.cwd() + "/apps/agent/test/support/images.ts");

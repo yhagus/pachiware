@@ -307,7 +307,9 @@ export class DiscordBotManager {
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const playbook = opts.playbook && { name: opts.playbook.name, body: opts.playbook.body };
       const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId));
-      if (media.blind && !items.some((i) => i.text)) { await send(BLIND_ONLY_NOTE); return; }
+      // The brief's author still gets a round: it asks them to describe the screenshot.
+      const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);
+      if (media.blind && !briefAuthor && !items.some((i) => i.text)) { await send(BLIND_ONLY_NOTE); return; }
       let turn = [items.map((i) => speakerTurn(i.msg.guildId, i.msg.member?.displayName || i.msg.author.username, withPlaceholders(i.text, i.msg))).join("\n"), media.context].filter(Boolean).join("\n");
       const brief = opts.binding && { place: { guildId: opts.binding.guildId, channelId: opts.binding.channelId, threadId: opts.binding.threadId }, authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
       if (brief?.outsider) turn = outsiderTurn(turn);
