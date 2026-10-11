@@ -10,7 +10,7 @@ How do OpenAI Chat Completions, the Anthropic Messages API, and OpenAI-compatibl
 ## Where pachiware stands today
 
 - `ChatMessage.content` is `string | null` (`apps/agent/src/llm/types.ts`). Nothing in the type can carry an image part yet.
-- `apps/agent/src/llm/router.ts` has three raw-`fetch` adapters. `callOpenAI` posts to `{base}/chat/completions`. `callAnthropic` posts to `{base}/messages`, folds `system` messages into the top-level `system` field, and builds assistant `text`/`tool_use` blocks. `callCustomOpenAI` posts to `{customBaseUrl}/chat/completions` and defaults the base to `https://api.9router.com/v1`. Each adapter maps `content` straight through as a string.
+- `apps/agent/src/llm/router.ts` has three raw-`fetch` adapters. `callOpenAI` posts to `{base}/chat/completions`. `callAnthropic` posts to `{base}/messages`, folds `system` messages into the top-level `system` field, and builds assistant `text`/`tool_use` blocks. `callCustomOpenAI` posts to `{customBaseUrl}/chat/completions`; it has no default base URL and refuses to run without one. Each adapter maps `content` straight through as a string.
 - `testOpenAI` and `testCustom` call `GET {base}/models` but only count the models.
 
 ## OpenAI Chat Completions
