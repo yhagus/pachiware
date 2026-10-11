@@ -9,9 +9,12 @@ import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
 import { listPlaybooks, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, type Playbook } from "@pachiware/skills";
 import { prepareReply } from "./replyStyle.js";
+import { gatherTurnImages, withPlaceholders, BLIND_ONLY_NOTE, REJECTED_NOTE } from "./attachments.js";
+import { llmRouter } from "../llm/router.js";
 
 const BURST_MS = 2500;
 const MESSAGE_COMMAND = 3; // ApplicationCommandType.Message
+type TurnItem = { msg: Message; text: string; direct?: boolean };
 type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[] };
 /** Who a turn acts for: the message author, or the person who ran a command on someone else's message. */
 type Actor = { id: string; name: string; member: any };
@@ -22,7 +25,7 @@ const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
   private operations = new Map<string, Promise<any>>();
-  private bursts = new Map<string, { items: { msg: Message; text: string; direct: boolean }[]; timer: ReturnType<typeof setTimeout> }>();
+  private bursts = new Map<string, { items: TurnItem[]; timer: ReturnType<typeof setTimeout> }>();
   private inflight = new Set<Promise<unknown>>();
   constructor(private burstMs = BURST_MS) {}
   private track(work: Promise<unknown>) {
@@ -154,7 +157,7 @@ export class DiscordBotManager {
     if (isNoise(text, msg.attachments.size > 0)) { if (direct) await msg.react("👀").catch(() => {}); return; }
     const rate = await CacheService.checkRateLimit(tenantKey(runtime.tenantId, `ratelimit:discord:user:${msg.author.id}`), 10, 60);
     if (!rate.allowed) { await msg.react("⏳").catch(() => {}); return; }
-    if (!text) return;
+    if (!text && !msg.attachments.size) return;
     await db.insert(usageEvents).values({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
     if (trigger.mentioned && msg.guildId && !bound && await this.triggerPlaybook(runtime, botId, msg, text)) return;
     // A mention in a plain text channel opens a thread so the follow-ups need no mention; without permission it falls back to the channel.
@@ -164,18 +167,17 @@ export class DiscordBotManager {
     }
     const channelId = thread?.id ?? msg.channelId;
     // One turn at a time per conversation, so concurrent messages do not interleave history.
-    const run = (m: Message, turn: string, direct: boolean) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, turn, channelId, thread, { playbook: bound?.playbook, direct }));
-    const speakerOf = (m: Message) => m.member?.displayName || m.author.username;
-    if (!msg.guildId || thread) { await run(msg, speakerTurn(msg.guildId, speakerOf(msg), text), direct); return; }
+    const run = (m: Message, items: TurnItem[]) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, items, channelId, thread, { playbook: bound?.playbook, direct: items.some((i) => i.direct !== false) }));
+    if (!msg.guildId || thread) { await run(msg, [{ msg, text, direct }]); return; }
     // Burst of messages in a shared channel: wait for a pause, then answer once with all of them.
     const key = `${botId}:${channelId}`;
-    const burst = this.bursts.get(key) ?? { items: [] as { msg: Message; text: string; direct: boolean }[], timer: undefined as any };
+    const burst = this.bursts.get(key) ?? { items: [] as TurnItem[], timer: undefined as any };
     burst.items.push({ msg, text, direct });
     clearTimeout(burst.timer);
     burst.timer = setTimeout(() => {
       this.bursts.delete(key);
       const last = burst.items[burst.items.length - 1].msg;
-      void run(last, burst.items.map((i) => speakerTurn(i.msg.guildId, speakerOf(i.msg), i.text)).join("\n"), burst.items.some((i) => i.direct)).catch(() => {});
+      void run(last, burst.items).catch(() => {});
     }, this.burstMs);
     this.bursts.set(key, burst);
   }
@@ -218,10 +220,9 @@ export class DiscordBotManager {
     if (previous?.binding.status === "active") return { error: `This thread already follows the ${previous.binding.playbook} playbook.` };
     const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, sourceMessageId: source.id, startedAt: new Date().toISOString() }, `${brief}\n`, previous?.version).catch(() => null);
     if (!saved) return { error: "I couldn't save this thread to the Workspace, so the playbook did not start. Try again in a moment." };
-    const turn = speakerTurn(source.guildId, source.member?.displayName || source.author.username, brief);
-    return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, turn, thread.id, thread, { actor, playbook })) };
+    return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, [{ msg: source, text: brief }], thread.id, thread, { actor, playbook })) };
   }
-  private async reply(runtime: BotRuntime, botId: string, msg: Message, turn: string, channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; direct?: boolean } = {}) {
+  private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; direct?: boolean } = {}) {
     const target = thread ?? msg.channel;
     const typing = async () => { try { if ("sendTyping" in target) await target.sendTyping(); } catch {} };
     await typing();
@@ -232,7 +233,11 @@ export class DiscordBotManager {
       const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const playbook = opts.playbook && { name: opts.playbook.name, body: opts.playbook.body };
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
+      const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId));
+      if (media.blind && !items.some((i) => i.text)) { await send(BLIND_ONLY_NOTE); return; }
+      const turn = [items.map((i) => speakerTurn(i.msg.guildId, i.msg.member?.displayName || i.msg.author.username, withPlaceholders(i.text, i.msg))).join("\n"), media.context].filter(Boolean).join("\n");
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
+      output.reply = [output.reply, ...(output.imagesRejected ? [REJECTED_NOTE] : []), ...media.notes].join("\n");
       const plan = prepareReply(output.reply, { addressed: direct });
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       for (const chunk of plan.messages) await send(chunk);
