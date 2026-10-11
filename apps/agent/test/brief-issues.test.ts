@@ -118,6 +118,24 @@ discordScenario("a draft the author skips is never created, and its dependents n
   expect(fields.status).toBe("done");
 });
 
+discordScenario("in a brief thread the plain issue writes are hidden and refused, so issues come only from the brief's own confirmation", async (s) => {
+  const { draftedBrief } = await import(process.cwd() + "/apps/agent/test/support/briefs.ts");
+  const { thread } = await draftedBrief(s);
+  const posted = s.discord.botMessages.length, calls = s.model.tools.length;
+  s.model.script(
+    [{ tool: "repoCreateIssue", args: { repo: "acme/api", title: "Stop the Safari login loop", body: "x" } }, { tool: "repoSetLabels", args: { repo: "acme/api", number: 3, kind: "issue", labels: ["bug"] } }],
+    (turn) => {
+      for (const r of turn.toolResults) expect(r.error).toBe("This thread follows the issue-draft playbook: issues are created from the drafts with createBriefIssues, under the author's own confirmation.");
+      return "Use createBriefIssues instead.";
+    },
+  );
+  await s.discord.send("just create draft 1 directly", { channel: thread });
+  expect(s.model.tools[calls]).toContain("createBriefIssues");
+  expect(s.model.tools[calls]!.filter((t) => t === "repoCreateIssue" || t === "repoSetLabels")).toEqual([]);
+  expect(s.discord.botMessages.slice(posted).some((m) => m.components.length)).toBe(false);
+  expect(s.http.requests.filter((r) => r.method === "POST")).toEqual([]);
+});
+
 discordScenario("on GitLab the labels go in the create request and a refused blocks link leaves the Blocked by text standing", async (s) => {
   const { draftedBrief, briefFields, embedsIn } = await import(process.cwd() + "/apps/agent/test/support/briefs.ts");
   const { thread, record } = await draftedBrief(s, "gitlab");

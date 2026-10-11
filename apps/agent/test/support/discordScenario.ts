@@ -54,7 +54,7 @@ export interface Scenario {
   bot: { id: string };
   db: any;
   /** `live()` hands every later model call to the real router instead of the script. */
-  model: { script(...steps: ModelStep[]): void; calls: ChatMessage[][]; live(): void };
+  model: { script(...steps: ModelStep[]): void; calls: ChatMessage[][]; /** Tool names offered on each call. */ tools: string[][]; live(): void };
   /** `passthrough` sends matching requests to the network. */
   http: { on(match: string | RegExp, respond: (req: HttpRequest) => unknown): void; passthrough(match: string | RegExp): void; requests: HttpRequest[] };
   /** Attaches a git account to the bot and opens these repositories in the guild. */
@@ -212,7 +212,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const bot = await createBot({ tenantId: tenant.id, token: "scenario-token", guildIds: [GUILD.id] });
 
   const steps: ModelStep[] = [];
-  const calls: ChatMessage[][] = [];
+  const calls: ChatMessage[][] = [], offered: string[][] = [];
   let callId = 0;
   const toResponse = (step: ModelStep, turn: ModelTurn): LLMResponse => {
     if (typeof step === "function") return toResponse(step(turn), turn);
@@ -221,8 +221,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     return { content: null, finishReason: "tool_calls", toolCalls: list.map((c) => ({ id: `call-${++callId}`, name: c.tool, arguments: c.args ?? {} })) };
   };
   const realComplete = llmRouter.complete.bind(llmRouter);
-  (llmRouter as any).complete = async (messages: ChatMessage[]) => {
+  (llmRouter as any).complete = async (messages: ChatMessage[], options?: { tools?: { name: string }[] }) => {
     calls.push(messages.map((m) => ({ ...m })));
+    offered.push((options?.tools ?? []).map((t) => t.name));
     const step = steps.shift();
     if (step === undefined) throw fail(`The model was called with no scripted step left (call ${calls.length}).`);
     const lastUser = messages.findLastIndex((m) => m.role === "user");
@@ -276,7 +277,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
 
   return {
     tenant, bot, db,
-    model: { script: (...more) => { steps.push(...more); }, calls, live: () => { (llmRouter as any).complete = realComplete; } },
+    model: { script: (...more) => { steps.push(...more); }, calls, tools: offered, live: () => { (llmRouter as any).complete = realComplete; } },
     http: { on: (match, respond) => { routes.push({ match, respond }); }, passthrough: (match) => { routes.push({ match, respond: () => null, passthrough: true }); }, requests },
     git: async ({ provider = "github", repos = ["acme/*"] } = {}) => {
       await db.update(tenantSkills).set({ isEnabled: true }).where(and(eq(tenantSkills.tenantId, tenant.id), eq(tenantSkills.skillId, "git_repositories")));
