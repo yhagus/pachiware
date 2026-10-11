@@ -21,7 +21,7 @@ A chat identity a tenant connects so the agent can listen and reply on a platfor
 _Avoid_: Agent (the agent is the reasoning loop behind every bot, not the identity)
 
 **Profile**:
-A named choice of provider, model, and key that a bot answers with. A bot without one uses the tenant default.
+A named choice of provider, model, and key that a bot answers with. A bot without one uses the tenant default. It declares which kinds of input its model accepts: text always, images only when the model can see them.
 _Avoid_: Model config, preset
 
 **Git account**:
@@ -36,6 +36,18 @@ _Avoid_: Git permissions, repo ACL
 The Confirm/Cancel buttons shown in Discord before any git change (commit, pull request, comment, issue, merge, close). Only the person who asked can press them. Reading never needs it.
 _Avoid_: Approval, git approval
 
+**Brief**:
+A short list of points a person writes in chat, each meant to become an issue.
+_Avoid_: Notes, todo list
+
+**Issue draft**:
+A proposed issue the agent builds from one point of a brief: the point made detailed, with what the author likely missed and the questions still open. It belongs to no git platform until it is created, and creating it is a git change.
+_Avoid_: Ticket, issue template
+
+**Minutes**:
+The record of a discussion: what was decided, what is still open, and who does what next. Its action items can become issue drafts.
+_Avoid_: Notulen (in English text), summary, recap
+
 **Allowed git hosts**:
 The platform-wide list of self-hosted git servers that git accounts may point at. Empty means unrestricted.
 _Avoid_: Whitelist
@@ -43,6 +55,10 @@ _Avoid_: Whitelist
 **Skill**:
 A bundle of tools the agent may call. Enabled or disabled per tenant. The git skill turns on by itself when a git account is first attached to a bot.
 _Avoid_: Plugin, extension
+
+**Playbook**:
+Written guidance the agent follows for one kind of work, such as turning a brief into issue drafts or writing minutes. It says how to think and in what steps; the tools it uses come from skills.
+_Avoid_: Skill (a skill is tools), prompt, template
 
 **Workspace**:
 A tenant's tree of folders and Markdown files where the agent keeps its tasks, notes, and memory. It is the agent's own store, separate from the platform's configuration. Folders follow the tenant's guilds and channels, and the agent may add subfolders below them.

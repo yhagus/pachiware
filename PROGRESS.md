@@ -7,7 +7,7 @@
 - **No heavy frameworks:** Lightweight, explicit ReAct agent execution loop with native tool calling.
 - **Multi-channel integration:** Modular messaging gateway (Discord active; WhatsApp, Telegram, Slack planned) providing chat interaction, task creation, conversation channels, and status tracking.
 - **Management Web GUI (`apps/web`):** Clean, modern dashboard (Vite + React + Tailwind CSS + Lucide) for managing agent prompts, personality, active skills, tasks (Kanban/List), and LLM routing.
-- **LLM Router Adapter:** Direct integration with OpenAI, Anthropic, and custom OpenAI-compatible proxies (such as `9router`).
+- **LLM Router Adapter:** Direct integration with OpenAI, Anthropic, and custom OpenAI-compatible proxies.
 - **Robust Persistence &amp; Performance:** PostgreSQL for persistent entities (agents, skills, tasks, conversations, messages) via Drizzle ORM, with Redis for low-latency session caching, rate-limiting, and state synchronization. Runs with external instances by default or optional bundled local containers.
 
 ---
@@ -82,7 +82,7 @@ Regression note: an early CLI fixture exposed inherited `PACHIWARE_DIR` pointing
                              v                                       v
                  +-----------+-----------+               +-----------+-----------+
                  |   Tool & Skill Harness|               |   LLM Router Adapter  |
-                 |   (packages/skills)   |               | (OpenAI/Claude/9router|
+                 |   (packages/skills)   |               | (OpenAI/Claude/custom |
                  +-----------+-----------+               +-----------------------+
                              |
                              v
@@ -114,7 +114,7 @@ pachiware-agent/
 
 - **Phase 1: Completed ✅** (PostgreSQL 18, Redis, Drizzle Schema, Docker Compose)
 - **Phase 2: Completed ✅** (Skill &amp; Tool Harness: Tasks, Discord, Simulation Mode)
-- **Phase 3: Completed ✅** (Agent Engine, LLM Router for OpenAI/Claude/9router, ReAct Loop, Caching)
+- **Phase 3: Completed ✅** (Agent Engine, LLM Router for OpenAI/Claude/custom, ReAct Loop, Caching)
 - **Phase 4: Completed ✅** (Discord.js Gateway, Mentions, Typing Feedback, Action Embeds)
 - **Phase 5: Completed ✅** (Web Management GUI, Vite + React + Tailwind, Dark Console)
 - **Phase 6: Completed ✅** (E2E Integration Testing with 10 passing tests, Monorepo Verification, Documentation)
@@ -165,7 +165,7 @@ pachiware-agent/
 
 - [x] Bun + Hono HTTP server scaffold
 - [x] LLM Router Adapter:
-  - [x] Provider support: OpenAI, Anthropic, Custom/9router (OpenAI-compatible)
+  - [x] Provider support: OpenAI, Anthropic, Custom (OpenAI-compatible)
   - [x] Unified tool call translation and streaming/non-streaming response format
 - [x] Redis client &amp; cache layer:
   - [x] Session caching for active conversations
@@ -208,7 +208,7 @@ pachiware-agent/
   - [x] Quick task summary stats
 - [x] Agent Personality &amp; Prompts:
   - [x] Live System Prompt editor
-  - [x] Temperature, Top-P, Model selector (GPT-4o, Claude 3.5 Sonnet, Custom 9router)
+  - [x] Temperature, Top-P, Model selector (GPT-4o, Claude 3.5 Sonnet, Custom)
   - [x] LLM Router configuration (Base URL, API keys)
 - [x] Skills &amp; Harnesses Manager:
   - [x] Interactive toggle switch for enabling/disabling skills live
@@ -665,3 +665,15 @@ Spec: GitHub issue #1. Decision: `docs/adr/0003-agent-data-lives-in-workspace-fi
 - [x] Issue #15: terminology aligned with the glossary, action context construction centralized, and unrelated progress churn restored.
 
 - [x] Kedua branch baru digabungkan ke main melalui fast-forward; seluruh commit feature dan terminology sudah tercakup, perubahan lokal sebelumnya dipertahankan.
+
+## Phase 27 — Brief-to-issue-draft Discord assistant (planning, map #16)
+
+Planning only for now. The decisions are worked on the wayfinder map [#16](https://github.com/yhagus/pachiware/issues/16). Implementation issues come after the spec is complete.
+
+- [x] Destination set: a spec for turning a brief into detailed issue drafts with clarifying rounds, grounded in the repository. It also covers when the bot speaks, its reply style, and image input for each profile.
+- [x] Glossary: added Brief, Issue draft, Minutes, Playbook; Profile now declares which inputs it accepts.
+- [x] Map and 12 tickets created (#17–#28), with blocking edges wired.
+- [x] Out-of-scope bug filed: #29, thread messages debounced against Phase 15.2.
+- [x] Research #17–#20 resolved; findings are on `research/*` branches (never merged) and gisted in the map
+- [ ] Grilling #21–#28, one ticket per session
+- [x] Removed 9router: the project has no tie to it. The custom provider has no default base URL anymore, and both the call and the connection test refuse to run without one. Docs, the map and research #17 were updated to match. `bun test apps/agent` passes 19/19. `bun run typecheck` still reports only the errors that were already there (`apps/web`, `apps/agent/src/discord/gitConfirm.ts`).
