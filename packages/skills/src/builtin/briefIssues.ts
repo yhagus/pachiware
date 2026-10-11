@@ -76,6 +76,8 @@ export interface BriefIssuesResult {
   failed?: { n: number; title: string; error: string };
   notCreated: { n: number; title: string }[];
   skipped: { n: number; title: string }[];
+  /** Blocked by links this batch could not set natively; the issue's text still names the blocker. */
+  unlinked?: { issue: number; blocker: number }[];
   done: boolean;
 }
 
@@ -105,6 +107,7 @@ async function runBatch(ctx: SkillContext, place: BindingPlace, order: number[],
   if (skip.length) await updateBrief(ctx.tenantId, place, (s) => ({ state: { ...s, drafts: s.drafts.map((d) => (skip.includes(d.n) && !d.issue ? { ...d, skipped: true } : d)) }, value: true }));
   const conns = new Map<string, GitConn>();
   let failed: BriefIssuesResult["failed"];
+  const unlinked: { issue: number; blocker: number }[] = [];
   for (const n of order) {
     const found = await readBinding(ctx.tenantId, place);
     if (!found) break;
@@ -121,17 +124,17 @@ async function runBatch(ctx: SkillContext, place: BindingPlace, order: number[],
       // A native link is a convenience: where the platform has none, the Blocked by text stands alone.
       for (const b of d.blockedBy) {
         const blocker = state.drafts[b - 1];
-        if (blocker?.issue && blocker.repo === repo) await linkBlockedBy(conn, repo, blocker.issue, issue.number).catch(() => {});
+        if (blocker?.issue && blocker.repo === repo) await linkBlockedBy(conn, repo, blocker.issue, issue.number).catch(() => unlinked.push({ issue: issue.number, blocker: blocker.issue!.number }));
       }
     } catch (e: any) {
       failed = { n, title: d.title, error: String(e?.message ?? e).slice(0, 300) };
       break;
     }
   }
-  return finish(ctx.tenantId, place, failed);
+  return finish(ctx.tenantId, place, failed, unlinked);
 }
 
-async function finish(tenantId: string, place: BindingPlace, failed: BriefIssuesResult["failed"]): Promise<BriefIssuesResult> {
+async function finish(tenantId: string, place: BindingPlace, failed: BriefIssuesResult["failed"], unlinked: { issue: number; blocker: number }[]): Promise<BriefIssuesResult> {
   for (let attempt = 0; ; attempt++) {
     const found = await readBinding(tenantId, place);
     const drafts = found ? briefState(found.binding).drafts : [];
@@ -141,6 +144,7 @@ async function finish(tenantId: string, place: BindingPlace, failed: BriefIssues
       ...(failed ? { failed } : {}),
       notCreated: drafts.filter((d) => !d.issue && !d.skipped).map((d) => ({ n: d.n, title: d.title })),
       skipped: drafts.filter((d) => d.skipped).map((d) => ({ n: d.n, title: d.title })),
+      ...(unlinked.length ? { unlinked } : {}),
       done: false,
     };
     result.done = !!found && !result.notCreated.length;
@@ -161,12 +165,14 @@ export const createdEmbed = (c: CreatedIssue) => ({ title: `${c.n}. ${c.title}`,
 export function issuesReport(r: BriefIssuesResult): string {
   const links = r.created.map((c) => `${c.n}. ${c.title}: <${c.url}>`);
   const skipped = r.skipped.length ? [`Skipped: ${r.skipped.map((d) => `${d.n}. ${d.title}`).join("; ")}`] : [];
-  if (!r.failed) return [`Created ${r.created.length} issue${r.created.length === 1 ? "" : "s"} from this brief:`, ...links, ...skipped, ...(r.done ? ["-# This brief is done. Messages here are ordinary chat from now on."] : [])].join("\n");
+  const unlinked = r.unlinked?.length ? [`-# Could not link ${r.unlinked.map((u) => `#${u.issue} as blocked by #${u.blocker}`).join(", ")}, so ${r.unlinked.length > 1 ? "their Blocked by sections say" : "its Blocked by section says"} it in text.`] : [];
+  if (!r.failed) return [`Created ${r.created.length} issue${r.created.length === 1 ? "" : "s"} from this brief:`, ...links, ...skipped, ...unlinked, ...(r.done ? ["-# This brief is done. Messages here are ordinary chat from now on."] : [])].join("\n");
   return [
     `Stopped at draft ${r.failed.n}, ${r.failed.title}: ${r.failed.error}`,
     ...(links.length ? ["**Created**", ...links] : ["Nothing was created."]),
     "**Not created**", ...r.notCreated.map((d) => `${d.n}. ${d.title}`),
     ...skipped,
+    ...unlinked,
     `Say "continue the rest" to create the drafts not created yet, under a new confirmation. drafts.md has them to paste by hand.`,
   ].join("\n");
 }

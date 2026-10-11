@@ -46,6 +46,7 @@ discordScenario("one confirmation from the author creates every draft on GitHub,
   const report = s.discord.botMessages.at(-1)!;
   expect(report.channelId).toBe(thread.id);
   expect(report.content).toContain("1. Stop the Safari login loop: <https://github.com/acme/api/issues/101>\n2. Stream CSV exports: <https://github.com/acme/api/issues/102>");
+  expect(report.content).not.toContain("Could not link");
   expect(confirmation.content).toBe("Created 2 issues. The links are in the thread.");
   expect(confirmation.components).toEqual([]);
 
@@ -157,6 +158,7 @@ discordScenario("on GitLab the labels go in the create request and a refused blo
 
   expect(embedsIn(s, thread.id).map((m: any) => m.embeds[0].description)).toEqual(["Created: https://gitlab.com/acme/api/-/issues/41", "Created: https://gitlab.com/acme/api/-/issues/42"]);
   expect(s.discord.botMessages.at(-1)!.content).toContain("2. Stream CSV exports: <https://gitlab.com/acme/api/-/issues/42>");
+  expect(s.discord.botMessages.at(-1)!.content).toContain("-# Could not link #42 as blocked by #41, so its Blocked by section says it in text.");
   const fields = await briefFields(s, record);
   expect(fields.status).toBe("done");
   expect(fields.drafts.map((d: any) => d.issue)).toEqual([{ number: 41, url: "https://gitlab.com/acme/api/-/issues/41" }, { number: 42, url: "https://gitlab.com/acme/api/-/issues/42" }]);
