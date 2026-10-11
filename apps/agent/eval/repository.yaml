@@ -1,0 +1,29 @@
+# The repository every eval brief targets: pachiware itself, read from a local checkout of `commit`.
+# Labels and open issues are GitHub data a checkout lacks; they are a snapshot taken when the commit was pinned.
+repo: yhagus/pachiware
+branch: main
+commit: 74a06a07dd20518acfd50f1dd23c3ea625472d72
+labels:
+  - bug
+  - accessibility
+  - documentation
+  - duplicate
+  - enhancement
+  - good first issue
+  - help wanted
+  - invalid
+  - question
+  - wontfix
+  - ready-for-agent
+  - ready-for-human
+  - needs-triage
+issues:
+  - number: 16
+    title: "Wayfinder: Brief-to-issue-draft Discord assistant"
+    body: Decision map for turning a short brief in Discord into issue drafts.
+  - number: 29
+    title: Thread messages are debounced, contrary to Phase 15.2
+    body: |-
+      In `apps/agent/src/discord/client.ts` (around lines 134-144), burst coalescing (`BURST_MS`, 2.5 s) is skipped only for DMs and for a thread opened on that same turn. Messages in an existing thread are therefore debounced and merged into `Name: text` lines.
+
+      PROGRESS Phase 15.2 says threads "still reply per message". Either the code or the documented behaviour is wrong.

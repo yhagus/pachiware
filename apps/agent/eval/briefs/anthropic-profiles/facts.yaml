@@ -1,0 +1,14 @@
+# A one-line brief. Source: #36.
+language: en
+mustCover:
+  - A tenant admin can create a profile on the Anthropic provider and attach it to a bot
+  - The bot then answers with that profile's model
+  - The admin API and the Web GUI profiles page both offer the Anthropic provider
+  - A profile declares whether it accepts images, off by default
+knownGaps:
+  - Which Anthropic models a profile may pick, and how the model list is fetched
+  - Whether the profile Test action must cover Anthropic
+repoFacts:
+  - The admin profiles route accepts only the openai and custom providers
+  - The LLM router throws "Unsupported profile provider" for any other profile provider
+  - The Web GUI profiles page lists OpenAI and Custom provider only

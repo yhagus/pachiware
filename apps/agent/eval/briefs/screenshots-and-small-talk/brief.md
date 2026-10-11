@@ -1,0 +1,2 @@
+- bot ignores screenshots people post
+- in always-on channels it replies to everything, even small talk between people

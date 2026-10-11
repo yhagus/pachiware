@@ -1,0 +1,55 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "fixture": "reply-language-mixed",
+  "repo": "yhagus/pachiware",
+  "commit": "74a06a07dd20518acfd50f1dd23c3ea625472d72",
+  "transcript": [
+    {
+      "from": "bot",
+      "text": "**Breakdown** · 2 drafts\n**1. Bot menjawab dalam bahasa pesan yang dijawab** · point 1 · yhagus/pachiware\nBahasa jawaban mengikuti bahasa pesan.\n\n**2. Buang kalimat pembuka dan penutup basa-basi** · point 2 · yhagus/pachiware\nKode membuang filler di awal dan akhir jawaban.\n\n**Round 1**\n**Point 1** · Bot menjawab dalam bahasa Inggris untuk pertanyaan berbahasa Indonesia\n❓ **Q1** Kalau pesan mencampur dua bahasa, bot memakai bahasa yang mana?\n➡️ Bahasa yang paling banyak dipakai di pesan itu.\n\n**Point 2** · Jawaban ditutup dengan \"semoga membantu\"\n❓ **Q2** Apakah instruksi server boleh mematikan aturan ini?\n➡️ Tidak, instruksi server hanya boleh mengubah gaya.\n\nOnly <@user-alice> decides here. Reply \"yes\" to take every ➡️, or answer by number, e.g. \"yes, except Q2: …\"."
+    },
+    {
+      "from": "author",
+      "text": "Ikuti bahasa pesan yang dijawab, kalau campur pakai yang paling dominan. Filler di awal dan akhir dibuang oleh kode, jangan cuma lewat prompt. Instruksi server boleh ganti gaya, tapi tidak boleh melonggarkan aturan ini."
+    },
+    {
+      "from": "bot",
+      "text": "Terima kasih, saya catat."
+    },
+    {
+      "from": "author",
+      "text": "draft now"
+    },
+    {
+      "from": "bot",
+      "text": "1. Bot menjawab dalam bahasa pesan yang dijawab\n\n## Summary\nBot kadang menjawab dalam bahasa Inggris walaupun pertanyaan ditulis dalam bahasa Indonesia.\n\n## Desired behaviour\nBot selalu menjawab dalam bahasa pesan yang dijawab. Kalau pesan mencampur dua bahasa, bot memakai bahasa yang paling banyak dipakai.\n\n## Acceptance criteria\n- [ ] Pertanyaan dalam bahasa Indonesia dijawab dalam bahasa Indonesia\n- [ ] Pesan campuran dijawab dalam bahasa yang dominan\n\n## Out of scope\n- Menerjemahkan pesan lama\n\n---\n[Drafted by Pachiware from a brief by Alice](https://discord.com/channels/guild-1/channel-1/1000).\n\n**Context used** (yhagus/pachiware at `74a06a0`):\n- [README.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/README.md)\n- [GLOSSARY.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/GLOSSARY.md)"
+    },
+    {
+      "from": "bot",
+      "text": "2. Buang kalimat pembuka dan penutup basa-basi\n\n## Summary\nJawaban bot sering ditutup dengan kalimat basa-basi seperti salam penutup yang tidak perlu.\n\n## Desired behaviour\nKode membuang kalimat pembuka dan penutup basa-basi, dalam bahasa Indonesia dan Inggris, sebelum jawaban dikirim.\n\n## Acceptance criteria\n- [ ] Kalimat penutup basa-basi tidak pernah sampai ke Discord\n- [ ] Isi jawaban yang lain tetap utuh\n\n## Out of scope\n- Menerjemahkan pesan lama\n\n## Open questions\n**Still need from @Alice:**\n- Apakah instruksi server boleh mematikan aturan ini? ➡️ Tidak, instruksi server hanya boleh mengubah gaya.\n\n---\n[Drafted by Pachiware from a brief by Alice](https://discord.com/channels/guild-1/channel-1/1000).\n\n**Context used** (yhagus/pachiware at `74a06a0`):\n- [README.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/README.md)\n- [GLOSSARY.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/GLOSSARY.md)"
+    }
+  ],
+  "drafts": [
+    {
+      "n": 1,
+      "title": "Bot menjawab dalam bahasa pesan yang dijawab",
+      "body": "## Summary\nBot kadang menjawab dalam bahasa Inggris walaupun pertanyaan ditulis dalam bahasa Indonesia.\n\n## Desired behaviour\nBot selalu menjawab dalam bahasa pesan yang dijawab. Kalau pesan mencampur dua bahasa, bot memakai bahasa yang paling banyak dipakai.\n\n## Acceptance criteria\n- [ ] Pertanyaan dalam bahasa Indonesia dijawab dalam bahasa Indonesia\n- [ ] Pesan campuran dijawab dalam bahasa yang dominan\n\n## Out of scope\n- Menerjemahkan pesan lama\n\n---\n[Drafted by Pachiware from a brief by Alice](https://discord.com/channels/guild-1/channel-1/1000).\n\n**Context used** (yhagus/pachiware at `74a06a0`):\n- [README.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/README.md)\n- [GLOSSARY.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/GLOSSARY.md)",
+      "repo": "yhagus/pachiware",
+      "labels": [
+        "enhancement"
+      ]
+    },
+    {
+      "n": 2,
+      "title": "Buang kalimat pembuka dan penutup basa-basi",
+      "body": "## Summary\nJawaban bot sering ditutup dengan kalimat basa-basi seperti salam penutup yang tidak perlu.\n\n## Desired behaviour\nKode membuang kalimat pembuka dan penutup basa-basi, dalam bahasa Indonesia dan Inggris, sebelum jawaban dikirim.\n\n## Acceptance criteria\n- [ ] Kalimat penutup basa-basi tidak pernah sampai ke Discord\n- [ ] Isi jawaban yang lain tetap utuh\n\n## Out of scope\n- Menerjemahkan pesan lama\n\n## Open questions\n**Still need from @Alice:**\n- Apakah instruksi server boleh mematikan aturan ini? ➡️ Tidak, instruksi server hanya boleh mengubah gaya.\n\n---\n[Drafted by Pachiware from a brief by Alice](https://discord.com/channels/guild-1/channel-1/1000).\n\n**Context used** (yhagus/pachiware at `74a06a0`):\n- [README.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/README.md)\n- [GLOSSARY.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/GLOSSARY.md)",
+      "repo": "yhagus/pachiware",
+      "labels": [
+        "enhancement"
+      ]
+    }
+  ]
+}

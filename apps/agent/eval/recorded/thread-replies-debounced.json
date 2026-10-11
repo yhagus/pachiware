@@ -1,0 +1,34 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "fixture": "thread-replies-debounced",
+  "repo": "yhagus/pachiware",
+  "commit": "74a06a07dd20518acfd50f1dd23c3ea625472d72",
+  "transcript": [
+    {
+      "from": "bot",
+      "text": "**Breakdown** · 1 draft\n**1. Answer each message in an existing thread** · point 1 · yhagus/pachiware\nMessages in a thread the bot already answers get one reply each.\n\n**Round 1**\n**Point 1** · In an existing thread, quick messages are merged into one reply\n❓ **Q1** This looks like #29 *Thread messages are debounced, contrary to Phase 15.2*. Skip it, or create it anyway?\na) Skip it\nb) Create anyway\n➡️ Create it anyway and link #29.\n\nOnly <@user-alice> decides here. Reply \"yes\" to take every ➡️, or answer by number, e.g. \"yes, except Q2: …\"."
+    },
+    {
+      "from": "author",
+      "text": "It's the same problem as #29 but nobody picked that up, so create it anyway and mention #29. Only threads that already exist; channel messages can keep being merged."
+    },
+    {
+      "from": "bot",
+      "text": "1. Answer each message in an existing thread\n\n## Summary\nMessages in a thread the bot already answers are joined into one turn by the burst window. Each one should get its own reply, as #29 also reports.\n\n## Current behaviour\nQuick messages in an existing thread wait out the burst window and are answered once, as `Name: text` lines.\n\n## Desired behaviour\nEvery message in an existing thread gets its own reply. Channel messages outside threads are still joined within the burst window.\n\n## Acceptance criteria\n- [ ] Two quick messages in an existing thread get two replies\n- [ ] Two quick messages in a channel still get one reply\n- [ ] Direct messages keep one reply per message *(added)*\n\n## Out of scope\n- Changing the burst window length\n\n---\n[Drafted by Pachiware from a brief by Alice](https://discord.com/channels/guild-1/channel-1/1000).\n\n**Context used** (yhagus/pachiware at `74a06a0`):\n- [README.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/README.md)\n- [GLOSSARY.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/GLOSSARY.md)\n- [#29 Thread messages are debounced, contrary to Phase 15.2](https://github.com/yhagus/pachiware/issues/29)\n- [apps/agent/src/discord/client.ts](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/apps/agent/src/discord/client.ts)"
+    }
+  ],
+  "drafts": [
+    {
+      "n": 1,
+      "title": "Answer each message in an existing thread",
+      "body": "## Summary\nMessages in a thread the bot already answers are joined into one turn by the burst window. Each one should get its own reply, as #29 also reports.\n\n## Current behaviour\nQuick messages in an existing thread wait out the burst window and are answered once, as `Name: text` lines.\n\n## Desired behaviour\nEvery message in an existing thread gets its own reply. Channel messages outside threads are still joined within the burst window.\n\n## Acceptance criteria\n- [ ] Two quick messages in an existing thread get two replies\n- [ ] Two quick messages in a channel still get one reply\n- [ ] Direct messages keep one reply per message *(added)*\n\n## Out of scope\n- Changing the burst window length\n\n---\n[Drafted by Pachiware from a brief by Alice](https://discord.com/channels/guild-1/channel-1/1000).\n\n**Context used** (yhagus/pachiware at `74a06a0`):\n- [README.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/README.md)\n- [GLOSSARY.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/GLOSSARY.md)\n- [#29 Thread messages are debounced, contrary to Phase 15.2](https://github.com/yhagus/pachiware/issues/29)\n- [apps/agent/src/discord/client.ts](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/apps/agent/src/discord/client.ts)",
+      "repo": "yhagus/pachiware",
+      "labels": [
+        "bug"
+      ]
+    }
+  ]
+}

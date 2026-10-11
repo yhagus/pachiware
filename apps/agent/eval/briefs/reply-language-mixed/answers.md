@@ -1,0 +1,1 @@
+Ikuti bahasa pesan yang dijawab, kalau campur pakai yang paling dominan. Filler di awal dan akhir dibuang oleh kode, jangan cuma lewat prompt. Instruksi server boleh ganti gaya, tapi tidak boleh melonggarkan aturan ini.

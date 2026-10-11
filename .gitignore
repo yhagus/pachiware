@@ -16,6 +16,9 @@ build/
 .env.local
 .env.production
 
+# Live eval reports
+apps/agent/eval/results/
+
 # Logs & temp
 *.log
 npm-debug.log*

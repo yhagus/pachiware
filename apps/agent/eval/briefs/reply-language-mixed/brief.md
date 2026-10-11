@@ -1,0 +1,2 @@
+- bot kadang jawab pakai english padahal ditanya pakai bahasa indonesia
+- jawabannya suka ditutup "semoga membantu", tolong dihilangkan

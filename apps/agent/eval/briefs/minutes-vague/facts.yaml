@@ -1,0 +1,13 @@
+# A vague brief. Source: #45.
+language: en
+mustCover:
+  - Minutes list what was decided, what is still open, and action items with owners
+  - Minutes are written only on request and posted where they were asked for
+  - Nothing is invented; an owner appears only when the discussion names one
+knownGaps:
+  - Which messages a request covers (a thread, a time window, from one message on)
+  - Where minutes are kept after posting
+  - What happens when the bot or the requester cannot read the channel's history
+repoFacts:
+  - The Discord adapter has no paged history reading
+  - Agent data lives in Workspace files, not the database (ADR 0003)

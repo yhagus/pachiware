@@ -1,0 +1,1 @@
+Screenshots only when the bot's model can see images; otherwise say it can't. In always-on channels it should stay quiet unless the message is for it, and a reaction is fine when a reply adds nothing.

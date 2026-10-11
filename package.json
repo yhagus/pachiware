@@ -16,7 +16,8 @@
     "dev:web": "bun --filter @pachiware/web dev",
     "build": "bun --filter @pachiware/* build",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "eval": "bun test ./apps/agent/eval/drafts.eval.ts"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",

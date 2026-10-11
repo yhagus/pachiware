@@ -1,0 +1,13 @@
+# Mixed Indonesian and English, Indonesian dominant. Source: #34.
+language: id
+mustCover:
+  - The bot answers in the language of the message it answers
+  - A message mixing languages gets the dominant one
+  - Stock openers and closers, English and Indonesian, are removed by code at the start and end of a reply
+  - Server instructions may change tone but cannot loosen the reply rules
+knownGaps:
+  - Which phrases count as filler
+  - Whether a server may name a fixed language for its replies
+repoFacts:
+  - The system prompt is built in apps/agent/src/loop/prompt.ts
+  - No reply-style module exists at the pinned commit

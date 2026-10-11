@@ -84,10 +84,19 @@ const CLOSER = new RegExp(String.raw`(^|[.!?…)\]]\s+|\n\s*)(?:let me know if|l
 
 /** Removes stock openers and closers (English and Indonesian) from the start and end of a reply. */
 export function stripFiller(reply: string): string {
+  return strip(reply) || reply.trim();
+}
+
+/** The lines of `text` that open or close with listed filler. */
+export function fillerIn(text: string): string[] {
+  return text.split("\n").map((line) => line.trim()).filter((line) => line && strip(line) !== line);
+}
+
+function strip(reply: string) {
   let text = reply.trim();
   for (let before = ""; before !== text;) {
     before = text;
     text = text.replace(LEAD_IN, "").replace(OPENER, "").replace(CLOSER, "$1").trim();
   }
-  return text || reply.trim();
+  return text;
 }

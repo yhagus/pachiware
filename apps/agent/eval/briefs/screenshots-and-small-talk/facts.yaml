@@ -1,0 +1,13 @@
+# Two points in one brief. Sources: #37 and #35.
+language: en
+mustCover:
+  - Images attached to a message reach the model when its profile accepts images
+  - Without image support the bot says it cannot see the image instead of ignoring it
+  - In always-on channels the bot stays silent unless a message is meant for it
+  - A reaction can replace a reply that adds nothing
+knownGaps:
+  - Size and count limits for images sent to the model
+  - How the bot tells whether a message in an always-on channel is meant for it
+repoFacts:
+  - Chat message content is text only at the pinned commit
+  - In always-on channels respondReason answers every message not aimed at someone else (apps/agent/src/discord/routing.ts)

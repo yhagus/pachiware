@@ -18,6 +18,7 @@
  * from the test file. Every `send`, `click`, and `contextMenu` returns after the bot has finished handling it.
  * An unscripted model call or an unstubbed request fails the scenario.
  * Defaults: guild "guild-1", channel "channel-1", author `s.discord.alice`; the bot's user id is "bot-user".
+ * Live evals (`*.eval.ts`) call `s.model.live()` to answer with the bot's real profile, and `s.http.passthrough(...)` for its provider.
  */
 import { expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -52,8 +53,10 @@ export interface Scenario {
   tenant: { id: string };
   bot: { id: string };
   db: any;
-  model: { script(...steps: ModelStep[]): void; calls: ChatMessage[][] };
-  http: { on(match: string | RegExp, respond: (req: HttpRequest) => unknown): void; requests: HttpRequest[] };
+  /** `live()` hands every later model call to the real router instead of the script. */
+  model: { script(...steps: ModelStep[]): void; calls: ChatMessage[][]; live(): void };
+  /** `passthrough` sends matching requests to the network. */
+  http: { on(match: string | RegExp, respond: (req: HttpRequest) => unknown): void; passthrough(match: string | RegExp): void; requests: HttpRequest[] };
   /** Attaches a git account to the bot and opens these repositories in the guild. */
   git(options?: { provider?: "github" | "gitlab"; repos?: string[] }): Promise<{ id: string }>;
   guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[] }): Promise<void>;
@@ -90,8 +93,8 @@ export function discordScenario(name: string, body: (s: Scenario) => Promise<voi
 }
 
 function callerFile() {
-  const frame = new Error().stack!.split("\n").map((line) => /(\/[^\s()]+\.test\.ts)\b/.exec(line)?.[1]).find(Boolean);
-  if (!frame) throw new Error("discordScenario must be called from a *.test.ts file");
+  const frame = new Error().stack!.split("\n").map((line) => /(\/[^\s()]+\.(?:test|eval)\.ts)\b/.exec(line)?.[1]).find(Boolean);
+  if (!frame) throw new Error("discordScenario must be called from a *.test.ts or *.eval.ts file");
   return frame;
 }
 
@@ -217,6 +220,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     const list = Array.isArray(step) ? step : [step];
     return { content: null, finishReason: "tool_calls", toolCalls: list.map((c) => ({ id: `call-${++callId}`, name: c.tool, arguments: c.args ?? {} })) };
   };
+  const realComplete = llmRouter.complete.bind(llmRouter);
   (llmRouter as any).complete = async (messages: ChatMessage[]) => {
     calls.push(messages.map((m) => ({ ...m })));
     const step = steps.shift();
@@ -225,7 +229,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     return toResponse(step, { messages, toolResults: messages.slice(lastUser + 1).filter((m) => m.role === "tool").map((m) => unwrapTool(m.content)) });
   };
 
-  const routes: { match: string | RegExp; respond: (req: HttpRequest) => unknown }[] = [];
+  const routes: { match: string | RegExp; respond: (req: HttpRequest) => unknown; passthrough?: boolean }[] = [];
+  const realFetch = globalThis.fetch;
   const requests: HttpRequest[] = [];
   globalThis.fetch = (async (input: any, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input), method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
@@ -236,6 +241,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     const line = `${method} ${url}`;
     const route = routes.findLast((r) => typeof r.match === "string" ? matchesRoute(r.match, method, url) : r.match.test(line));
     if (!route) { fail(`Unstubbed request: ${line}`); return new Response("unstubbed", { status: 599 as any }); }
+    if (route.passthrough) return realFetch(input, init);
     const out = await route.respond(req);
     return out instanceof Response ? out : Response.json(out ?? null);
   }) as typeof fetch;
@@ -270,8 +276,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
 
   return {
     tenant, bot, db,
-    model: { script: (...more) => { steps.push(...more); }, calls },
-    http: { on: (match, respond) => { routes.push({ match, respond }); }, requests },
+    model: { script: (...more) => { steps.push(...more); }, calls, live: () => { (llmRouter as any).complete = realComplete; } },
+    http: { on: (match, respond) => { routes.push({ match, respond }); }, passthrough: (match) => { routes.push({ match, respond: () => null, passthrough: true }); }, requests },
     git: async ({ provider = "github", repos = ["acme/*"] } = {}) => {
       await db.update(tenantSkills).set({ isEnabled: true }).where(and(eq(tenantSkills.tenantId, tenant.id), eq(tenantSkills.skillId, "git_repositories")));
       const [account] = await db.insert(gitAccounts).values({ tenantId: tenant.id, name: provider, provider, username: "octo", tokenEncrypted: encryptSecret("git-token") }).returning();

@@ -1,0 +1,1 @@
+- in a thread the bot merges messages into one reply when people type fast, it should answer each message
