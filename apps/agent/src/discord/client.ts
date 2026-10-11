@@ -7,13 +7,16 @@ import { respondReason, isNoise, threadName, speakerTurn } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
+import { gatherTurnImages, withPlaceholders, BLIND_ONLY_NOTE, REJECTED_NOTE } from "./attachments.js";
+import { llmRouter } from "../llm/router.js";
 
 const BURST_MS = 2500;
+type TurnItem = { msg: Message; text: string };
 type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[] };
 export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
   private operations = new Map<string, Promise<any>>();
-  private bursts = new Map<string, { items: { msg: Message; text: string }[]; timer: ReturnType<typeof setTimeout> }>();
+  private bursts = new Map<string, { items: TurnItem[]; timer: ReturnType<typeof setTimeout> }>();
   private inflight = new Set<Promise<unknown>>();
   constructor(private burstMs = BURST_MS) {}
   private track(work: Promise<unknown>) {
@@ -129,7 +132,7 @@ export class DiscordBotManager {
     if (isNoise(text, msg.attachments.size > 0)) return;
     const rate = await CacheService.checkRateLimit(tenantKey(runtime.tenantId, `ratelimit:discord:user:${msg.author.id}`), 10, 60);
     if (!rate.allowed) { await msg.react("⏳").catch(() => {}); return; }
-    if (!text) return;
+    if (!text && !msg.attachments.size) return;
     await db.insert(usageEvents).values({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
     // A mention in a plain text channel opens a thread so the follow-ups need no mention; without permission it falls back to the channel.
     let thread: ThreadChannel | null = null;
@@ -138,22 +141,21 @@ export class DiscordBotManager {
     }
     const channelId = thread?.id ?? msg.channelId;
     // One turn at a time per conversation, so concurrent messages do not interleave history.
-    const run = (m: Message, turn: string) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, turn, channelId, thread));
-    const speakerOf = (m: Message) => m.member?.displayName || m.author.username;
-    if (!msg.guildId || thread) { await run(msg, speakerTurn(msg.guildId, speakerOf(msg), text)); return; }
+    const run = (m: Message, items: TurnItem[]) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, items, channelId, thread));
+    if (!msg.guildId || thread) { await run(msg, [{ msg, text }]); return; }
     // Burst of messages in a shared channel: wait for a pause, then answer once with all of them.
     const key = `${botId}:${channelId}`;
-    const burst = this.bursts.get(key) ?? { items: [] as { msg: Message; text: string }[], timer: undefined as any };
+    const burst = this.bursts.get(key) ?? { items: [] as TurnItem[], timer: undefined as any };
     burst.items.push({ msg, text });
     clearTimeout(burst.timer);
     burst.timer = setTimeout(() => {
       this.bursts.delete(key);
       const last = burst.items[burst.items.length - 1].msg;
-      void run(last, burst.items.map((i) => speakerTurn(i.msg.guildId, speakerOf(i.msg), i.text)).join("\n")).catch(() => {});
+      void run(last, burst.items).catch(() => {});
     }, this.burstMs);
     this.bursts.set(key, burst);
   }
-  private async reply(runtime: BotRuntime, botId: string, msg: Message, turn: string, channelId: string, thread: ThreadChannel | null) {
+  private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null) {
     const target = thread ?? msg.channel;
     const typing = async () => { try { if ("sendTyping" in target) await target.sendTyping(); } catch {} };
     await typing();
@@ -163,7 +165,11 @@ export class DiscordBotManager {
       const [agent] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, runtime.tenantId)).limit(1);
       const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
       const speaker = msg.member?.displayName || msg.author.username;
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: msg.author.id, userName: speaker, skillContext: { member: { roleIds: msg.member ? [...msg.member.roles.cache.keys()] : [], permissions: msg.member?.permissions?.toArray?.() ?? [] }, discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
+      const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId));
+      if (media.blind && !items.some((i) => i.text)) { await send(BLIND_ONLY_NOTE); return; }
+      const turn = [items.map((i) => speakerTurn(i.msg.guildId, i.msg.member?.displayName || i.msg.author.username, withPlaceholders(i.text, i.msg))).join("\n"), media.context].filter(Boolean).join("\n");
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: msg.author.id, userName: speaker, skillContext: { member: { roleIds: msg.member ? [...msg.member.roles.cache.keys()] : [], permissions: msg.member?.permissions?.toArray?.() ?? [] }, discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
+      output.reply = [output.reply, ...(output.imagesRejected ? [REJECTED_NOTE] : []), ...media.notes].join("\n");
       for (const chunk of output.reply.match(/[^]{1,1900}/g) || ["Done."]) await send(chunk);
       if (output.toolCallsExecuted.length && target.isSendable()) {
         // Git write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.

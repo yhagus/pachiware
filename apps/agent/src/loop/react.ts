@@ -3,13 +3,15 @@ import { eq, and, sql } from "drizzle-orm";
 import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
-import type { ChatMessage } from "../llm/types.js";
+import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
 
 export interface ReActInput {
   tenantId: string;
   botId?: string;
   message: string;
+  /** Sent with this turn only; `message` should already name them, since that text is what history keeps. */
+  images?: ImagePart[];
   conversationId?: string;
   context: PromptContext & {
     skillContext?: Partial<SkillContext> & { member?: MemberAuth };
@@ -23,6 +25,7 @@ export interface ReActOutput {
   reply: string;
   toolCallsExecuted: { call: ToolCall; result: ToolResult }[];
   iterations: number;
+  imagesRejected?: boolean;
 }
 
 const MAX_TOOL_RESULT = 12000;
@@ -96,10 +99,8 @@ export class AgentReActLoop {
     }
 
     // 4. Append current user message
-    messageHistory.push({
-      role: "user",
-      content: input.message,
-    });
+    const turn: ChatMessage = { role: "user", content: input.images?.length ? [{ type: "text", text: input.message }, ...input.images] : input.message };
+    messageHistory.push(turn);
     // Per-turn context is a separate trailing message that is never stored, so the stored history re-reads identically next turn and the cached prefix survives.
     messageHistory.push({ role: "user", content: `[Context for this turn, not written by the user]\n${await SystemPromptBuilder.buildDynamic({ ...input.context, tenantId: input.tenantId, botId: input.botId })}` });
 
@@ -136,6 +137,7 @@ export class AgentReActLoop {
 
     let iterations = 0;
     let finalReply = "";
+    let imagesRejected = false;
 
     // 7. ReAct execution cycle
     while (iterations < maxIterations) {
@@ -148,6 +150,8 @@ export class AgentReActLoop {
         cacheKey: convId,
         tools: activeTools,
       });
+
+      if (response.imagesRejected) { imagesRejected = true; turn.content = input.message; }
 
       if (response.content) {
         input.onStep?.({ type: "thought", payload: response.content });
@@ -219,6 +223,7 @@ export class AgentReActLoop {
       reply: finalReply,
       toolCallsExecuted,
       iterations,
+      imagesRejected,
     };
   }
 }
