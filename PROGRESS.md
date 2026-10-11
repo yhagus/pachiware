@@ -681,5 +681,26 @@ Planning only for now. The decisions are worked on the wayfinder map [#16](https
 - [x] Grilling finished: no open tickets and Not yet specified is empty (the images fog was settled in #27). Map #16 is clear; next is /to-spec.
 - [x] Spec published: #32 (ready-for-agent), collapsing the map's 14 decisions. Test seams: the Discord bot (fake client, real agent loop, scripted model), the LLM router's HTTP boundary, and an offline git provider for evals.
 - [x] Tickets published as sub-issues of #32 with native blocking: #33-#48 ready-for-agent, #49 judge calibration ready-for-human (label created). Starting frontier: #33 and #36.
-- [ ] Implementation: run /implement-spec on #32.
+- [x] Implementation of #32 on branch `feat/brief-to-issue-draft` (tickets #33-#48, one implementer worktree each, merged in dependency order):
+  - [x] #33 Discord scenario harness: fake client, real agent loop, scripted model, stubbed provider HTTP.
+  - [x] #34 Reply style: fixed style policy in the cached prompt, splitter that keeps code blocks whole, filler stripping, 3-message ceiling.
+  - [x] #35 Speaking rules: 👀 for addressed noise, `[[silent]]` / `[[react:…]]` markers for non-addressed messages.
+  - [x] #36 Anthropic profiles, `accepts_images` column (both dialects), profile Test with an image probe, Web GUI switch.
+  - [x] #37 Image input: download, downscale with `Bun.Image` (needs Bun ≥ 1.4), base64 per provider, placeholders in history, retry without images on 400.
+  - [x] #38 Playbooks: loader with tenant overrides, context-menu and mention triggers, thread bindings as Workspace files, `playbooks/` write refusal.
+  - [x] #39 Web GUI playbook editor: read-only built-ins, copy as override, live command re-registration.
+  - [x] #40 Brief breakdown and round 1, packed in code; author-only decisions, others' input recorded with 👀.
+  - [x] #41 Answers, carry-once, "draft now", pure draft checker, draft embeds revised in place, `drafts.md` without a repository.
+  - [x] #42 Grounding: repository choice per draft, fixed read order with a code-enforced budget, duplicate questions, existing labels, Context used pinned to HEAD.
+  - [x] #43 Batch issue creation with one confirmation (no thread grant), dependency order, native links with text fallback, duplicate-free retry.
+  - [x] #44 Screenshots in a brief described into the brief file and drafts; text-only profiles get a describe question.
+  - [x] #45 Minutes: three triggers, 500-message / 24-hour caps, permission checks, jump links, requester corrections, Workspace storage.
+  - [x] #46 Minutes action items become a brief.
+  - [x] #47 Offline eval: pinned checkout served through the fetch seam, fixtures, code checks in CI, `bun run eval`.
+  - [x] #48 Pinned judge, paired profile comparison with standard errors, latency in usage events, 20 fixtures, rejudge script.
+  - [x] Code review (Standards + Spec) fixed on the same branch: image notes survive the cut and brief threads, `repoCreateIssue`/`repoSetLabels` closed in brief threads, link failures reported, playbook turns get at least 20 iterations, current Claude model ids, English/Indonesian strings for code-written text, guardrail waiver narrowed to capability and length refusals, screenshot-only briefs reach round 1, `docs/api.md` updated, duplicates removed, brief presentation moved out of `client.ts`, one provider list.
+  - [x] Kept on purpose: at most 3 repositories per brief (budget guard, explained in the playbook); Anthropic requests omit temperature (current models reject it); long replies are cut to 3 messages with a note rather than summarised; a reaction marker may answer an addressed message.
+  - [x] Verification: `bun test` 255 pass, 1 fail. The failure is `guardrails.test.ts` "iteration cap", which also fails on the base commit and is fixed by an uncommitted local change to `react.ts` outside this branch. `bun run typecheck` reports only the existing `apps/web` and `gitConfirm.ts` errors.
+- [ ] Hand calibration of the eval judge: #49 (ready-for-human).
+- [ ] Recorded eval outputs in `apps/agent/eval/recorded/` come from scripted dry runs; replace them with a live run once a key is available.
 - [x] Removed 9router: the project has no tie to it. The custom provider has no default base URL anymore, and both the call and the connection test refuse to run without one. Docs, the map and research #17 were updated to match. `bun test apps/agent` passes 19/19. `bun run typecheck` still reports only the errors that were already there (`apps/web`, `apps/agent/src/discord/gitConfirm.ts`).
