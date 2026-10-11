@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { api, type Profile, type ProfileProbe, type Tenant } from "@/lib/api";
 
+// Mirrors PROVIDERS, DEFAULT_BASE_URLS and DEFAULT_MODELS in apps/agent/src/llm/providers.ts.
 export const PROVIDERS = [{ id: "openai", name: "OpenAI (ChatGPT)" }, { id: "anthropic", name: "Anthropic (Claude)" }, { id: "custom", name: "Custom provider" }] as const;
 export const providerName = (id: string) => PROVIDERS.find((p) => p.id === id)?.name ?? id;
 const DEFAULT_URL: Record<string, string> = { openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1" };

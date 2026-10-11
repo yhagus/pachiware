@@ -53,6 +53,20 @@ describe("Anthropic profiles and image input", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("an Anthropic tenant default with no model uses Claude Sonnet 5.5, and the connection test pings Claude Haiku 5.5", () => {
+    const { code, stderr } = scenario(`
+      const { encryptSecret } = await import(${src("packages/db/src/index.ts")});
+      const { LLMRouter } = await import(${src("apps/agent/src/llm/router.ts")});
+      await db.update(agentsConfig).set({ defaultProvider: "anthropic", defaultModel: "", anthropicModel: null, anthropicApiKeyEncrypted: encryptSecret("sk-ant-default") }).where(eq(agentsConfig.tenantId, tenant.id));
+      reply = () => json({ content: [{ type: "text", text: "hi" }] });
+      await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id });
+      assert(calls[0].body.model === "claude-sonnet-5-5", "default model wrong: " + calls[0].body.model);
+      const tested = await LLMRouter.testAnthropic("sk-ant-check");
+      assert(tested.success && calls[1].url === "https://api.anthropic.com/v1/messages" && calls[1].body.model === "claude-haiku-5-5", "connection test wrong: " + JSON.stringify(calls[1]));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("a profile's accepts-images flag is off by default and the admin API reads and writes it", () => {
     const { code, stderr } = scenario(`
       const plain = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Plain", provider: "openai", model: "gpt-x" })).json()).profile;

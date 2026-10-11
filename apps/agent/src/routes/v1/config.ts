@@ -3,6 +3,7 @@ import { db, agentsConfig, encryptSecret, decryptSecret, eq } from "@pachiware/d
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 import { LLMRouter } from "../../llm/router.js";
+import { isProvider } from "../../llm/providers.js";
 import { maskConfig, object } from "../validation.js";
 
 export const configRoutes = new Hono<TenantEnv>();
@@ -20,7 +21,7 @@ configRoutes.put("/", async (c) => {
     values[field] = body[field];
   }
   if (body.defaultProvider !== undefined) {
-    if (!["openai", "anthropic", "custom"].includes(body.defaultProvider)) return c.json({ error: "Invalid provider" }, 400);
+    if (!isProvider(body.defaultProvider)) return c.json({ error: "Invalid provider" }, 400);
     values.defaultProvider = body.defaultProvider;
   }
   if (body.temperature !== undefined) {
@@ -45,7 +46,7 @@ configRoutes.put("/", async (c) => {
 configRoutes.post("/test/llm", async (c) => {
   const body = object(await c.req.json(), "body");
   const { provider } = body;
-  if (!["openai", "anthropic", "custom"].includes(provider)) return c.json({ error: "Invalid provider" }, 400);
+  if (!isProvider(provider)) return c.json({ error: "Invalid provider" }, 400);
   const [row] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, c.get("tenantId"))).limit(1);
   const field = `${provider}ApiKeyEncrypted`;
   let key = body.apiKey;

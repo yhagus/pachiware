@@ -4,9 +4,7 @@ import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry } from "@pachiware/skills";
 import type { ChatMessage, ContentPart, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
-import { providerBaseUrl, providerHeaders } from "./providers.js";
-
-export { providerBaseUrl, providerHeaders };
+import { providerBaseUrl, providerHeaders, isProvider, PROVIDERS, DEFAULT_MODELS, ANTHROPIC_TEST_MODEL } from "./providers.js";
 
 type ProbeResult = { ok: boolean; message: string };
 // An 8x8 solid PNG, small enough for every provider's image limits.
@@ -21,7 +19,7 @@ const anthropicBlocks = (content: ChatMessage["content"]): any[] => !Array.isArr
   ...content.filter((p) => p.type === "image").map((p) => ({ type: "image", source: { type: "base64", media_type: p.mediaType, data: p.data } })),
   ...content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text"),
 ];
-const anthropicModelOf = (config: any): string => config?.anthropicModel || (config?.defaultProvider === "anthropic" && config?.defaultModel) || "claude-3-5-sonnet-20241022";
+const anthropicModelOf = (config: any): string => config?.anthropicModel || (config?.defaultProvider === "anthropic" && config?.defaultModel) || DEFAULT_MODELS.anthropic!;
 
 export class LLMRouter {
   private async getActiveTenantConfig(tenantId: string) {
@@ -40,7 +38,7 @@ export class LLMRouter {
       }
       if (!cached) throw new Error("Tenant agent configuration not found");
       const decrypted = { ...cached };
-      for (const provider of ["openai", "anthropic", "custom"]) decrypted[`${provider}ApiKey`] = cached[`${provider}ApiKeyEncrypted`] ? decryptSecret(cached[`${provider}ApiKeyEncrypted`]) : null;
+      for (const provider of PROVIDERS) decrypted[`${provider}ApiKey`] = cached[`${provider}ApiKeyEncrypted`] ? decryptSecret(cached[`${provider}ApiKeyEncrypted`]) : null;
       return decrypted;
     } catch {
       throw new Error("Unable to load tenant LLM configuration");
@@ -84,7 +82,7 @@ export class LLMRouter {
     let dbConfig = await this.getActiveTenantConfig(options.tenantId);
     const profile = options.provider ? null : await this.getBotProfile(options.tenantId, options.botId);
     if (profile) {
-      if (!["openai", "anthropic", "custom"].includes(profile.provider)) throw new Error("Unsupported profile provider");
+      if (!isProvider(profile.provider)) throw new Error("Unsupported profile provider");
       const key = profile.apiKeyEncrypted ? decryptSecret(profile.apiKeyEncrypted) : null;
       dbConfig = { ...dbConfig, defaultProvider: profile.provider, defaultModel: profile.model, [`${profile.provider}ApiKey`]: key, [`${profile.provider}BaseUrl`]: profile.baseUrl, [`${profile.provider}Model`]: profile.model };
     }
@@ -120,8 +118,8 @@ export class LLMRouter {
     dbConfig?: any
   ): Promise<LLMResponse> {
     const apiKey = dbConfig?.openaiApiKey;
-    const baseUrl = (dbConfig?.openaiBaseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
-    const model = options.model || dbConfig?.openaiModel || dbConfig?.defaultModel || "gpt-4o";
+    const baseUrl = providerBaseUrl("openai", dbConfig?.openaiBaseUrl);
+    const model = options.model || dbConfig?.openaiModel || dbConfig?.defaultModel || DEFAULT_MODELS.openai;
 
     if (!apiKey) {
       return this.handleMissingApiKey("openai", messages, options);
@@ -229,7 +227,7 @@ export class LLMRouter {
     dbConfig?: any
   ): Promise<LLMResponse> {
     const apiKey = dbConfig?.anthropicApiKey;
-    const baseUrl = (dbConfig?.anthropicBaseUrl || "https://api.anthropic.com/v1").replace(/\/+$/, "");
+    const baseUrl = providerBaseUrl("anthropic", dbConfig?.anthropicBaseUrl);
     const model = options.model || anthropicModelOf(dbConfig);
 
     if (!apiKey) {
@@ -342,7 +340,7 @@ export class LLMRouter {
     dbConfig?: any
   ): Promise<LLMResponse> {
     const apiKey = dbConfig?.customApiKey;
-    const baseUrl = (dbConfig?.customBaseUrl || "").replace(/\/+$/, "");
+    const baseUrl = providerBaseUrl("custom", dbConfig?.customBaseUrl);
     const model = options.model || dbConfig?.customModel || "gpt-4o";
 
     if (!apiKey) {
@@ -476,9 +474,8 @@ export class LLMRouter {
   static async probeProfile(provider: string, model: string, apiKey: string | null, baseUrl?: string | null): Promise<{ text: ProbeResult; image: ProbeResult }> {
     const anthropic = provider === "anthropic";
     const send = async (image: boolean): Promise<string | null> => {
-      const content = !image ? "Reply with the single word OK." : anthropic
-        ? [{ type: "image", source: { type: "base64", media_type: "image/png", data: PROBE_PNG } }, { type: "text", text: "What colour is this image? One word." }]
-        : [{ type: "text", text: "What colour is this image? One word." }, { type: "image_url", image_url: { url: `data:image/png;base64,${PROBE_PNG}` } }];
+      const parts: ContentPart[] = [{ type: "text", text: "What colour is this image? One word." }, { type: "image", mediaType: "image/png", data: PROBE_PNG }];
+      const content = !image ? "Reply with the single word OK." : anthropic ? anthropicBlocks(parts) : openAIContent(parts);
       try {
         const res = await fetch(`${providerBaseUrl(provider, baseUrl)}/${anthropic ? "messages" : "chat/completions"}`, {
           method: "POST", headers: { "Content-Type": "application/json", ...providerHeaders(provider, apiKey) },
@@ -496,7 +493,7 @@ export class LLMRouter {
   }
 
   static async testOpenAI(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string; modelCount?: number }> {
-    const url = (baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+    const url = providerBaseUrl("openai", baseUrl);
     try {
       const res = await fetch(`${url}/models`, {
         headers: { Authorization: `Bearer ${apiKey.trim()}` },
@@ -512,7 +509,7 @@ export class LLMRouter {
   }
 
   static async testAnthropic(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string }> {
-    const url = (baseUrl || "https://api.anthropic.com/v1").replace(/\/+$/, "");
+    const url = providerBaseUrl("anthropic", baseUrl);
     try {
       const res = await fetch(`${url}/messages`, {
         method: "POST",
@@ -522,7 +519,7 @@ export class LLMRouter {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "claude-3-5-haiku-20241022",
+          model: ANTHROPIC_TEST_MODEL,
           max_tokens: 1,
           messages: [{ role: "user", content: "ping" }],
         }),
@@ -537,7 +534,7 @@ export class LLMRouter {
   }
 
   static async testCustom(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string; modelCount?: number }> {
-    const url = (baseUrl || "").replace(/\/+$/, "");
+    const url = providerBaseUrl("custom", baseUrl);
     if (!url) return { success: false, message: "A custom provider needs a base URL." };
     try {
       const res = await fetch(`${url}/models`, {

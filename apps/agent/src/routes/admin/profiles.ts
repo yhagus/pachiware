@@ -3,10 +3,10 @@ import { HTTPException } from "hono/http-exception";
 import { db, profiles, getTenantById, encryptSecret, decryptSecret, eq } from "@pachiware/db";
 import { desc } from "drizzle-orm";
 import { object, string } from "../validation.js";
-import { LLMRouter, providerBaseUrl, providerHeaders } from "../../llm/router.js";
+import { LLMRouter } from "../../llm/router.js";
+import { isProvider, providerBaseUrl, providerHeaders, PROVIDER_ERROR } from "../../llm/providers.js";
 
 export const profileAdminRoutes = new Hono();
-const PROVIDERS = ["openai", "anthropic", "custom"];
 
 const publicProfile = ({ apiKeyEncrypted, ...p }: any) => ({ ...p, hasApiKey: Boolean(apiKeyEncrypted) });
 function fields(body: Record<string, any>, creating: boolean) {
@@ -15,7 +15,7 @@ function fields(body: Record<string, any>, creating: boolean) {
   if (creating || body.model !== undefined) out.model = string(body.model, "model");
   if (creating || body.provider !== undefined) {
     out.provider = string(body.provider, "provider");
-    if (!PROVIDERS.includes(out.provider)) throw new HTTPException(400, { message: "provider must be openai, anthropic, or custom" });
+    if (!isProvider(out.provider)) throw new HTTPException(400, { message: PROVIDER_ERROR });
   }
   if (body.baseUrl !== undefined) {
     out.baseUrl = body.baseUrl === null || body.baseUrl === "" ? null : string(body.baseUrl, "baseUrl");
@@ -57,7 +57,7 @@ profileAdminRoutes.delete("/profiles/:profileId", async (c) => {
 // Models and Test requests carry the form's unsaved values. The key stays server-side; a blank key reuses the saved profile's key.
 async function connection(body: Record<string, any>) {
   const provider = string(body.provider, "provider")!;
-  if (!PROVIDERS.includes(provider)) throw new HTTPException(400, { message: "provider must be openai, anthropic, or custom" });
+  if (!isProvider(provider)) throw new HTTPException(400, { message: PROVIDER_ERROR });
   const baseUrl = providerBaseUrl(provider, typeof body.baseUrl === "string" ? body.baseUrl : null);
   if (!/^https?:\/\//i.test(baseUrl)) throw new HTTPException(400, { message: "A base URL is required" });
   if (typeof body.apiKey === "string" && body.apiKey && !body.apiKey.includes("••••")) return { provider, baseUrl, key: body.apiKey.trim() };
