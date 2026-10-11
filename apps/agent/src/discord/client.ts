@@ -7,7 +7,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn } from "./ro
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, draftsWrittenOf, briefState, draftEmbed, draftsFile, recordDraftMessages, revisionNote, DRAFTS_FILE_NOTE, type BindingPlace, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { prepareReply, MESSAGE_LIMIT, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, withPlaceholders, BLIND_ONLY_NOTE, REJECTED_NOTE } from "./attachments.js";
 import { llmRouter } from "../llm/router.js";
@@ -279,7 +279,7 @@ export class DiscordBotManager {
     const place = { guildId: source.guildId, channelId: thread.parentId, threadId: thread.id };
     const previous = await readBinding(runtime.tenantId, place).catch(() => null);
     if (previous?.binding.status === "active") return { error: `This thread already follows the ${previous.binding.playbook} playbook.` };
-    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, sourceMessageId: source.id, startedAt: new Date().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
+    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, authorName: actor.name, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: new Date().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
     if (!saved) return { error: "I couldn't save this thread to the Workspace, so the playbook did not start. Try again in a moment." };
     return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, [{ msg: source, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
   }
@@ -314,15 +314,17 @@ export class DiscordBotManager {
       else if (brief) { const input = await takeBriefInput(runtime.tenantId, brief.place).catch(() => null); if (input) turn = inputTurn(input, turn); }
       const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
       output.reply = [output.reply, ...(output.imagesRejected ? [REJECTED_NOTE] : []), ...media.notes].join("\n");
-      // A posted round is the reply: its packing is decided in code, so the model's own text does not go out with it.
-      const round = roundMessagesOf(output.toolCallsExecuted);
-      const plan: ReplyPlan = round.length ? { messages: round } : prepareReply(output.reply, { addressed: direct });
+      // A posted round or draft is the reply: its layout is decided in code, so the model's own text does not go out with it.
+      const round = roundMessagesOf(output.toolCallsExecuted), written = draftsWrittenOf(output.toolCallsExecuted);
+      const plan: ReplyPlan = round.length || written.length ? { messages: round } : prepareReply(output.reply, { addressed: direct });
       if (brief?.outsider && plan.messages.length) {
         const note = authorDecidesNote(brief.authorId), last = plan.messages.length - 1;
         if (plan.messages[last]!.length + note.length < MESSAGE_LIMIT) plan.messages[last] += `\n${note}`; else plan.messages.push(note);
       }
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       for (const chunk of plan.messages) await send(chunk);
+      const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
+      if (written.length && place && target.isSendable()) await this.showDrafts(runtime.tenantId, target, place, written);
       if (output.toolCallsExecuted.length && target.isSendable()) {
         // Git write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.
         for (const { result } of output.toolCallsExecuted) {
@@ -332,6 +334,29 @@ export class DiscordBotManager {
       }
     } catch { await send("Unable to process this request. Check your tenant configuration.").catch(() => {}); }
     finally { clearInterval(interval); }
+  }
+  /** Posts each written draft as an embed, or edits its embed in place with a one-line note, then refreshes drafts.md. */
+  private async showDrafts(tenantId: string, target: any, place: BindingPlace, written: { n: number; note?: string }[]) {
+    const found = await readBinding(tenantId, place);
+    if (!found) return;
+    const state = briefState(found.binding), ids: Record<number, string> = {};
+    const fetch = (id?: string) => (id ? target.messages.fetch(id).catch(() => null) : null);
+    for (const { n, note } of written) {
+      const d = state.drafts[n - 1];
+      if (!d) continue;
+      const embed = draftEmbed(state, found.binding, n), shown = await fetch(d.messageId);
+      if (shown) await shown.edit({ embeds: [embed] });
+      else ids[n] = (await target.send({ embeds: [embed], allowedMentions: { parse: [] } })).id;
+      if (note) await target.send({ content: revisionNote(found.binding, { ...d, messageId: ids[n] ?? d.messageId }, note), allowedMentions: { parse: [] } });
+    }
+    const file = draftsFile(state, found.binding);
+    let fileMessageId: string | undefined;
+    if (file) {
+      const files = [{ attachment: Buffer.from(file.content), name: file.name }], shown = await fetch(state.draftsFileMessageId);
+      if (shown) await shown.edit({ files, attachments: [] });
+      else fileMessageId = (await target.send({ content: DRAFTS_FILE_NOTE, files, allowedMentions: { parse: [] } })).id;
+    }
+    await recordDraftMessages(tenantId, place, ids, fileMessageId);
   }
   // Servers and channels come from the live gateway cache, so they are only available while the bot is connected.
   getGuilds(id: string) {

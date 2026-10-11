@@ -16,6 +16,8 @@ Leave out an empty optional section; never write "N/A". Use only Markdown that b
 
 The body must fit one Discord embed (4096 characters). A draft that would not fit, or would need more than 7 acceptance criteria or 5 open questions, is split into several drafts.
 
+writeIssueDraft lays the body out from its fields (summary, current, desired, acceptance, outOfScope, established, openQuestions, blockedBy) and adds the footer itself. Write no headings inside a field.
+
 Open questions take this shape:
 
 ```

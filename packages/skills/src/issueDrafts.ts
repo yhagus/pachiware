@@ -78,7 +78,7 @@ export function draftBody(state: BriefState, binding: PlaybookBinding, n: number
   const open = [established.length ? `**Established so far:**\n${established.join("\n")}` : "", need.length ? `**Still need from @${author}:**\n${need.join("\n")}` : ""].filter(Boolean).join("\n\n");
   const section = (name: string, text: string | undefined) => (text ? `## ${name}\n${text}` : "");
   const list = (items: string[] | undefined, prefix = "- ") => (items?.length ? items.map((i) => `${prefix}${i}`).join("\n") : "");
-  const repo = typeof (d as any).repo === "string" ? "" : " without repository context";
+  const repo = d.repo ? "" : " without repository context";
   return [
     section("Summary", d.summary),
     section("Current behaviour", d.current),
@@ -94,14 +94,14 @@ export function draftBody(state: BriefState, binding: PlaybookBinding, n: number
 /** Draft `n` as a Discord embed: the body as description, repository and Category as fields. */
 export function draftEmbed(state: BriefState, binding: PlaybookBinding, n: number) {
   const d = state.drafts[n - 1]!;
-  const repo = typeof (d as any).repo === "string" ? (d as any).repo as string : "None";
+  const repo = d.repo ?? "None";
   return { title: `${d.n}. ${d.title}`, description: draftBody(state, binding, n), fields: [{ name: "Repository", value: repo, inline: true }, { name: "Category", value: d.category ?? "feature", inline: true }] };
 }
 
 /** drafts.md, every written draft's Markdown to paste by hand; null once every draft has a target repository. */
 export function draftsFile(state: BriefState, binding: PlaybookBinding): { name: string; content: string } | null {
   const written = state.drafts.filter((d) => d.writtenAt);
-  if (!written.length || written.every((d) => typeof (d as any).repo === "string")) return null;
+  if (!written.length || written.every((d) => d.repo)) return null;
   return { name: "drafts.md", content: `${written.map((d) => `# ${d.n}. ${d.title}\n\nCategory: ${d.category}\n\n${draftBody(state, binding, d.n)}`).join("\n\n")}\n` };
 }
 
@@ -251,5 +251,5 @@ export const recordDraftMessages = (tenantId: string, place: BindingPlace, ids: 
 
 /** The one-line note under a revised draft, linking to its embed. */
 export const revisionNote = (binding: PlaybookBinding, d: BriefDraft, note: string) =>
-  `Draft ${d.n} updated${d.messageId ? ` ([embed](https://discord.com/channels/${binding.guildId}/${binding.threadId}/${d.messageId}))` : ""}: ${note}`;
+  `${d.messageId ? `[Draft ${d.n}](https://discord.com/channels/${binding.guildId}/${binding.threadId}/${d.messageId})` : `Draft ${d.n}`} updated: ${note}`;
 export const DRAFTS_FILE_NOTE = "drafts.md has every draft's Markdown, to paste into your tracker by hand.";

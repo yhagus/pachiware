@@ -34,6 +34,8 @@ export interface BriefDraft {
   established?: string[];
   /** The model's own open questions; round questions left open or assumed are placed by point when rendering. */
   openQuestions?: { question: string; recommendation: string }[];
+  /** Target repository; none yet means the draft was written without repository context (#42 sets it). */
+  repo?: string;
   /** The thread message showing this draft as an embed. */
   messageId?: string;
   revisions?: number;
