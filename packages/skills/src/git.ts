@@ -120,10 +120,22 @@ export async function commentOn(c: GitConn, repo: string, number: number, kind: 
   const r = must(await call(c, `${itemPath(c, repo, number, kind)}/${c.provider === "github" ? "comments" : "notes"}`, { method: "POST", body: { body } }), `#${number} in ${repo}`);
   return { repo, number, url: r.html_url ?? null };
 }
-export async function createIssue(c: GitConn, repo: string, title: string, body?: string) {
-  const gh = c.provider === "github";
-  const r = must(await call(c, `${repoRef(c, repo)}/issues`, { method: "POST", body: gh ? { title, body } : { title, description: body } }), repo);
-  return { repo, number: r.number ?? r.iid, url: r.html_url ?? r.web_url };
+/** `id` is GitHub's database id, which its dependencies API takes in place of the number. */
+export async function createIssue(c: GitConn, repo: string, title: string, body?: string, labels: string[] = []) {
+  const gh = c.provider === "github", tags = labels.length ? { labels: gh ? labels : labels.join(",") } : {};
+  const r = must(await call(c, `${repoRef(c, repo)}/issues`, { method: "POST", body: gh ? { title, body, ...tags } : { title, description: body, ...tags } }), repo);
+  return { repo, number: r.number ?? r.iid, url: r.html_url ?? r.web_url, ...(gh && typeof r.id === "number" ? { id: r.id } : {}) };
+}
+/**
+ * Records that issue `blocked` waits on `blocker` in the same repository: a GitHub issue dependency, or a GitLab
+ * "blocks" link (Premium). Throws where the platform has no such link.
+ */
+export async function linkBlockedBy(c: GitConn, repo: string, blocker: { number: number; id?: number }, blocked: number) {
+  const ref = repoRef(c, repo);
+  if (c.provider === "github") {
+    if (!blocker.id) throw new Error(`#${blocker.number} has no database id to link`);
+    must(await call(c, `${ref}/issues/${blocked}/dependencies/blocked_by`, { method: "POST", body: { issue_id: blocker.id } }), `#${blocked} in ${repo}`);
+  } else must(await call(c, `${ref}/issues/${blocker.number}/links`, { method: "POST", body: { target_project_id: repo, target_issue_iid: blocked, link_type: "blocks" } }), `#${blocker.number} in ${repo}`);
 }
 export async function mergeMergeRequest(c: GitConn, repo: string, number: number) {
   const ref = repoRef(c, repo), gh = c.provider === "github";

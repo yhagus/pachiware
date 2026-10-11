@@ -54,3 +54,31 @@ export function stubRepo(s: Scenario, o: { repo?: string; files?: Record<string,
 }
 
 export const embedsIn =(s: Scenario, threadId: string) => s.discord.botMessages.filter((m) => m.channelId === threadId && m.embeds.length);
+
+/** Serves one gitlab.com project the way briefRead's "repository" step reads it: default branch, HEAD and labels, no docs. */
+export function stubGitLabRepo(s: Scenario, o: { repo?: string; labels?: string[] } = {}) {
+  const repo = o.repo ?? "acme/api", api = `GET gitlab.com/api/v4/projects/${encodeURIComponent(repo)}`;
+  s.http.on(api, () => ({ path_with_namespace: repo, default_branch: "main" }));
+  s.http.on(`${api}/repository/files/`, () => new Response("", { status: 404 }));
+  s.http.on(`${api}/repository/tree`, () => []);
+  s.http.on(`${api}/repository/commits/main`, () => ({ id: HEAD, message: "head", author_name: "a", created_at: "d", web_url: `https://gitlab.com/${repo}/-/commit/${HEAD}` }));
+  s.http.on(`${api}/repository/commits/main/diff`, () => []);
+  s.http.on(`${api}/labels`, () => (o.labels ?? []).map((name) => ({ name, color: "#ffffff" })));
+}
+
+/**
+ * A brief grounded in acme/api with both drafts written and posted: draft 1 proposes "safari" (plus "bug", its
+ * Category's label), draft 2 is blocked by draft 1. Alice is the author.
+ */
+export async function draftedBrief(s: Scenario, provider: "github" | "gitlab" = "github") {
+  await s.git({ provider, repos: ["acme/api"] });
+  if (provider === "github") stubRepo(s, { labels: ["bug", "enhancement", "safari"] });
+  else stubGitLabRepo(s, { labels: ["bug", "enhancement", "safari"] });
+  s.model.script([{ tool: "briefRepositories" }, { tool: "briefRead", args: { step: "repository", repo: "acme/api" } }], { tool: "postBriefRound", args: ROUND_1 }, "ok");
+  const brief = await s.discord.send(POINTS.map((p) => `- ${p}`).join("\n"));
+  await s.discord.contextMenu("Draft issues", brief);
+  const thread = brief.thread!;
+  s.model.script([{ tool: "recordBriefAnswers", args: { round: 1, acceptRest: true } }, { tool: "writeIssueDraft", args: draft(1, { labels: ["safari"] }) }, { tool: "writeIssueDraft", args: draft(2) }], "ok");
+  await s.discord.send("yes", { channel: thread });
+  return { brief, thread, record: `guilds/guild-1/channels/channel-1/threads/${thread.id}.md` };
+}

@@ -43,6 +43,10 @@ export interface BriefDraft {
   /** The thread message showing this draft as an embed. */
   messageId?: string;
   revisions?: number;
+  /** The issue created from this draft (#43), saved before the next draft is created so a retry never repeats it; `id` is GitHub's database id. */
+  issue?: { number: number; url: string; id?: number };
+  /** The author dropped this draft before creation; it is never created. */
+  skipped?: boolean;
 }
 export type DraftCategory = "bug" | "feature" | "chore" | "docs";
 /** open: asked, no answer yet. answered: the author settled it. carried: asked again in the next round. assumed: the recommendation was taken and is marked in the draft. */

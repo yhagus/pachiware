@@ -105,10 +105,10 @@ export function draftEmbed(state: BriefState, binding: PlaybookBinding, n: numbe
   return { title: `${d.n}. ${d.title}`, description: draftBody(state, binding, n), fields };
 }
 
-/** drafts.md, every written draft's Markdown to paste by hand; null once every draft has a target repository. */
-export function draftsFile(state: BriefState, binding: PlaybookBinding): { name: string; content: string } | null {
-  const written = state.drafts.filter((d) => d.writtenAt);
-  if (!written.length || written.every((d) => d.repo)) return null;
+/** drafts.md, every written draft's Markdown to paste by hand; null once every draft has a target repository. `only` picks drafts whatever their repository, such as those a failed batch left. */
+export function draftsFile(state: BriefState, binding: PlaybookBinding, only?: number[]): { name: string; content: string } | null {
+  const written = state.drafts.filter((d) => d.writtenAt && (!only || only.includes(d.n)));
+  if (!written.length || (!only && written.every((d) => d.repo))) return null;
   return { name: "drafts.md", content: `${written.map((d) => `# ${d.n}. ${d.title}\n\nCategory: ${d.category}\n\n${draftBody(state, binding, d.n)}`).join("\n\n")}\n` };
 }
 
@@ -121,6 +121,7 @@ export function applyDraft(current: BriefState, binding: PlaybookBinding, args: 
   const count = state.drafts.length, n = args.n as number;
   if (!Number.isInteger(n) || n < 1 || n > count + 1) throw new Error(`n must name a draft from 1 to ${count}, or be ${count + 1} to add a draft.`);
   const before = state.drafts[n - 1];
+  if (before?.issue) throw new Error(`Draft ${n} is already issue ${before.issue.url}; change it there.`);
   const fresh = !before;
   if (fresh && !(Number.isInteger(args.point) && (args.point as number) >= 1 && (args.point as number) <= state.points.length)) problems.push(`A new draft needs its point, a number from 1 to ${state.points.length}.`);
   if (before?.messageId && !line(args.note)) problems.push(`Draft ${n} is already posted: say what changed in note, one line.`);

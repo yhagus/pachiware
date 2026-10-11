@@ -10,6 +10,8 @@ export interface PendingAction {
   hash: string;
   /** Roles and permissions of the asker when the action was queued. */
   auth?: AuthorizationContext;
+  /** Only its own Confirm runs it: a thread grant neither skips it nor can be given from it. */
+  ownConfirmation?: boolean;
 }
 const TTL_MS = 10 * 60 * 1000, MAX = 200;
 // ponytail: in memory, so a restart drops waiting confirmations (the user just asks again); move to Redis or the DB if that hurts.

@@ -6,9 +6,9 @@ import { agentReActLoop } from "../loop/react.js";
 import { respondReason, addressed, isNoise, threadName, speakerTurn } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, draftsWrittenOf, briefState, draftEmbed, draftsFile, recordDraftMessages, revisionNote, DRAFTS_FILE_NOTE, recordBriefImages, unseeBriefImages, type BindingPlace, type Playbook, type PlaybookBinding } from "@pachiware/skills";
-import { prepareReply, MESSAGE_LIMIT, type ReplyPlan } from "./replyStyle.js";
+import { pendingOf, confirmMessage, handleConfirmButton, type QueuedAction } from "./gitConfirm.js";
+import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, draftsWrittenOf, briefState, draftEmbed, draftsFile, recordDraftMessages, revisionNote, DRAFTS_FILE_NOTE, recordBriefImages, unseeBriefImages, briefIssuesOf, createdEmbed, issuesReport, type BindingPlace, type Playbook, type PlaybookBinding, type ToolResult } from "@pachiware/skills";
+import { prepareReply, splitReply, MESSAGE_LIMIT, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, withPlaceholders, BLIND_ONLY_NOTE, REJECTED_NOTE } from "./attachments.js";
 import { llmRouter } from "../llm/router.js";
 import { MINUTES_PLAYBOOK, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
@@ -94,7 +94,7 @@ export class DiscordBotManager {
     client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
     client.on(Events.Error, () => { void updateBot(id, { lastError: "Discord gateway error" }).catch(() => {}); });
     client.on(Events.InteractionCreate, (i) => {
-      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId)));
+      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), (action, result) => this.afterConfirm(runtime, action, result)));
       else if (i.isMessageContextMenuCommand()) this.track(this.handleCommand(id, i));
     });
     client.on(Events.MessageCreate, (msg) => { this.track(this.handleMessage(id, msg)); });
@@ -360,6 +360,25 @@ export class DiscordBotManager {
       else fileMessageId = (await target.send({ content: DRAFTS_FILE_NOTE, files, allowedMentions: { parse: [] } })).id;
     }
     await recordDraftMessages(tenantId, place, ids, fileMessageId);
+  }
+  /** After a brief's batch: each created draft's embed becomes its link, and one message lists every link, or what is left after a failure with drafts.md. */
+  private async afterConfirm(runtime: BotRuntime, action: QueuedAction, result: ToolResult) {
+    const batch = briefIssuesOf(action.tool, result);
+    if (!batch || !action.parentChannelId) return;
+    const thread: any = await runtime.client.channels.fetch(action.channelId).catch(() => null);
+    if (!thread?.isSendable?.()) return;
+    const found = await readBinding(runtime.tenantId, { guildId: action.guildId, channelId: action.parentChannelId, threadId: action.channelId }).catch(() => null);
+    const state = found && briefState(found.binding);
+    for (const c of batch.created) {
+      const id = state?.drafts[c.n - 1]?.messageId, shown = id && await thread.messages.fetch(id).catch(() => null);
+      if (shown) await shown.edit({ embeds: [createdEmbed(c)] }).catch(() => {});
+    }
+    const file = batch.failed && state ? draftsFile(state, found!.binding, batch.notCreated.map((d) => d.n)) : null;
+    const parts = splitReply(issuesReport(batch), MESSAGE_LIMIT);
+    for (const [k, content] of parts.entries())
+      await thread.send({ content, allowedMentions: { parse: [] }, ...(file && k === parts.length - 1 ? { files: [{ attachment: Buffer.from(file.content), name: file.name }] } : {}) });
+    const count = `${batch.created.length} issue${batch.created.length === 1 ? "" : "s"}`;
+    return batch.failed ? `Stopped at draft ${batch.failed.n} with ${count} created. Details are in the thread.` : `Created ${count}. The links are in the thread.`;
   }
   // Servers and channels come from the live gateway cache, so they are only available while the bot is connected.
   getGuilds(id: string) {

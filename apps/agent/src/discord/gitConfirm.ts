@@ -1,18 +1,21 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
 import { db } from "@pachiware/db";
-import { skillRegistry, peekAction, dropAction, takeExpired, payloadIntact, audit, redact, grantThreadConfirmation, isGitWriteConfirmationOwner } from "@pachiware/skills";
+import { skillRegistry, peekAction, dropAction, takeExpired, payloadIntact, audit, redact, grantThreadConfirmation, isGitWriteConfirmationOwner, type ToolResult } from "@pachiware/skills";
 
 const PREFIX = "gitconfirm";
+type Pending = { confirmationId: string; summary: string; ownConfirmation?: boolean };
 /** The tool result shape that asks for a person's confirmation (see packages/skills/src/gitConfirm.ts). */
-export const pendingOf = (data: any): { confirmationId: string; summary: string } | null =>
-  data?.pending === true && typeof data.confirmationId === "string" ? { confirmationId: data.confirmationId, summary: String(data.summary ?? "") } : null;
+export const pendingOf = (data: any): Pending | null =>
+  data?.pending === true && typeof data.confirmationId === "string" ? { confirmationId: data.confirmationId, summary: String(data.summary ?? ""), ...(data.ownConfirmation === true ? { ownConfirmation: true } : {}) } : null;
 
-export function confirmMessage(p: { confirmationId: string; summary: string }, userId: string) {
-  const embed = new EmbedBuilder().setTitle("Sensitive action waiting").setColor(0xfee75c).setDescription(p.summary.slice(0, 3500)).setFooter({ text: "Confirm this action, or confirm sensitive Git changes for this thread. Expires in 10 minutes." });
+/** An action with its own confirmation offers no thread grant: only its asker's Confirm runs it. */
+export function confirmMessage(p: Pending, userId: string) {
+  const embed = new EmbedBuilder().setTitle("Sensitive action waiting").setColor(0xfee75c).setDescription(p.summary.slice(0, 4000))
+    .setFooter({ text: p.ownConfirmation ? "Only the person who asked can confirm this. Confirming Git changes for the thread does not cover it. Expires in 10 minutes." : "Confirm this action, or confirm sensitive Git changes for this thread. Expires in 10 minutes." });
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(`${PREFIX}:ok:${p.confirmationId}`).setLabel("Confirm").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`${PREFIX}:no:${p.confirmationId}`).setLabel("Cancel").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`${PREFIX}:grant:${p.confirmationId}`).setLabel("Confirm Git changes in this thread").setStyle(ButtonStyle.Primary),
+    ...(p.ownConfirmation ? [] : [new ButtonBuilder().setCustomId(`${PREFIX}:grant:${p.confirmationId}`).setLabel("Confirm Git changes in this thread").setStyle(ButtonStyle.Primary)]),
   );
   return { content: `<@${userId}>`, embeds: [embed], components: [row], allowedMentions: { users: [userId] } };
 }
@@ -22,9 +25,13 @@ export interface ButtonLike {
   customId: string; user: { id: string }; channelId?: string; guildId?: string | null;
   reply(o: { content: string; ephemeral: boolean }): Promise<unknown>;
   update(o: { content?: string; embeds?: unknown[]; components: unknown[] }): Promise<unknown>;
+  /** The confirmation message, edited once more when an action outlasts Discord's three seconds to answer a click. */
+  message?: { edit(o: { content: string; embeds?: unknown[]; components?: unknown[] }): Promise<unknown> };
 }
 
-type QueuedAction = NonNullable<ReturnType<typeof peekAction>>;
+export type QueuedAction = NonNullable<ReturnType<typeof peekAction>>;
+/** Runs after a confirmed action; the text it returns replaces the confirmation's default result text. */
+export type AfterConfirm = (action: QueuedAction, result: ToolResult) => Promise<string | void>;
 type ActionContextOptions = { userId?: string; discord?: unknown; confirmed?: boolean };
 
 /** Build the execution context once so audit and confirmed runs share identical scope. */
@@ -40,11 +47,12 @@ function resultText(summary: string, success: boolean, detail: string) {
   return `${summary.slice(0, 700)}\n\n${status}.\n${detail.slice(0, 1100)}`.slice(0, 1900);
 }
 /** Returns true when the click belonged to a confirmation (handled or refused). */
-export async function handleConfirmButton(i: ButtonLike, botId: string, discordFor?: (guildId: string) => unknown): Promise<boolean> {
+export async function handleConfirmButton(i: ButtonLike, botId: string, discordFor?: (guildId: string) => unknown, after?: AfterConfirm): Promise<boolean> {
   const [prefix, verb, id] = i.customId.split(":");
   if (prefix !== PREFIX || !id) return false;
   const action = peekAction(id);
   if (!action || action.botId !== botId) { const expired = takeExpired(id); if (expired) await audit(actionContext(expired), "thread_confirmation_expired", { tool: expired.tool, confirmationId: id }); await i.update({ content: "That request has expired. Ask again if you still want it.", components: [] }); return true; }
+  if (verb === "grant" && action.ownConfirmation) { await i.reply({ content: "This action needs its own Confirm; confirming Git changes for the thread does not cover it.", ephemeral: true }); return true; }
   if (verb === "grant") {
     if ((i.channelId && i.channelId !== action.channelId) || (i.guildId && i.guildId !== action.guildId)) {
       await i.reply({ content: "This confirmation belongs to a different conversation. Ask again in the current thread.", ephemeral: true }); return true;
@@ -67,9 +75,14 @@ export async function handleConfirmButton(i: ButtonLike, botId: string, discordF
   if (!payloadIntact(action)) { await audit(base, "tool_denied", { tool: action.tool, reason: "payload_changed" }); await i.update({ content: "I couldn't run that because the request changed after it was queued. Ask again.", components: [] }); return true; }
   if (verb !== "ok") { await i.update({ content: `Cancelled: ${action.summary.slice(0, 1800)}`, components: [] }); return true; }
   await audit(base, "confirmation_accepted", { tool: action.tool, confirmationId: id });
+  // A batch can outlast Discord's three seconds to answer a click, so the click is answered first.
+  const early = !!action.ownConfirmation && !!i.message;
+  if (early) await i.update({ content: `${action.summary.slice(0, 1800)}\n\nConfirmed. Working on it…`, embeds: [], components: [] });
   const result = await skillRegistry.executeTool({ id: `confirm-${id}`, name: action.tool, arguments: action.args },
     actionContext(action, { discord: discordFor?.(action.guildId) as any, confirmed: true }));
   const detail = redact(result.success ? JSON.stringify(result.data) : String(result.error)).slice(0, 1500);
-  await i.update({ content: resultText(action.summary, result.success, detail), components: [] });
+  const content = (await after?.(action, result).catch(() => undefined)) || resultText(action.summary, result.success, detail);
+  if (early) await i.message!.edit({ content, embeds: [], components: [] });
+  else await i.update({ content, components: [] });
   return true;
 }
