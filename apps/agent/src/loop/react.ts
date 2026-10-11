@@ -66,8 +66,9 @@ export class AgentReActLoop {
 
     // Guardrail before the loop: refuse oversized or rule-rewriting messages and actions no active skill can serve, answer the rest.
     const verdict = GuardrailService.classify(input.message, await skillRegistry.getActiveSkills(input.tenantId));
-    // A playbook turn was started on purpose; its brief may be long or mention a skill that is off (git is optional), so it is only logged.
-    if (!verdict.decision.allow && isEnforced(verdict.decision.kind) && !input.context.playbook) {
+    // A playbook's brief may be long or mention a skill that is off (git is optional): those two refusals are only logged there.
+    const waived = !!input.context.playbook && !verdict.decision.allow && (verdict.decision.kind === "no_capability" || verdict.decision.kind === "limit");
+    if (!verdict.decision.allow && isEnforced(verdict.decision.kind) && !waived) {
       const auditCtx = { db, tenantId: input.tenantId, botId: input.botId };
       await audit(auditCtx, verdict.decision.kind === "prompt_injection" ? "prompt_injection_detected" : "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", platform: input.context.platform });
       return { conversationId: convId, reply: verdict.decision.message, toolCallsExecuted, iterations: 0 };
