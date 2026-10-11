@@ -7,10 +7,11 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn } from "./ro
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { prepareReply, MESSAGE_LIMIT, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, withPlaceholders, BLIND_ONLY_NOTE, REJECTED_NOTE } from "./attachments.js";
 import { llmRouter } from "../llm/router.js";
+import { MINUTES_PLAYBOOK, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
 
 const BURST_MS = 2500;
 const MESSAGE_COMMAND = 3; // ApplicationCommandType.Message
@@ -22,6 +23,14 @@ const actorOf = (m: Message): Actor => ({ id: m.author.id, name: m.member?.displ
 // A guild member from the cache has a roles collection; one sent raw with an interaction has an id array.
 const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
 const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
+const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
+/** Names the skills a playbook requires that are off for the tenant, or null when it can start. */
+async function skillsRefusal(tenantId: string, playbook: Playbook) {
+  const missing = missingSkills(playbook, (await skillRegistry.getActiveSkills(tenantId)).map((s) => s.id));
+  if (!missing.length) return null;
+  const names = missing.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id).join(" and ");
+  return `The ${playbook.name} playbook needs the ${names} skill${missing.length > 1 ? "s" : ""}, which ${missing.length > 1 ? "are" : "is"} off here. An admin can turn ${missing.length > 1 ? "them" : "it"} on in the console.`;
+}
 export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
   private operations = new Map<string, Promise<any>>();
@@ -173,7 +182,15 @@ export class DiscordBotManager {
     if (!rate.allowed) { await msg.react("⏳").catch(() => {}); return; }
     if (!text && !msg.attachments.size) return;
     await db.insert(usageEvents).values({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
-    if (trigger.mentioned && msg.guildId && !bound && await this.triggerPlaybook(runtime, botId, msg, text)) return;
+    if (text && msg.guildId && msg.reference?.messageId) {
+      const ref = await msg.fetchReference().catch(() => null);
+      if (ref?.author.id === botUserId && minutesFileOf(ref)) {
+        if (await this.briefFromMinutes(runtime, botId, msg, ref, text)) return;
+        await this.serialize(`minutes:${ref.id}`, () => correctMinutes({ tenantId: runtime.tenantId, botId, guildId: msg.guildId!, minutesMessage: ref, reply: msg, text }));
+        return;
+      }
+    }
+    if (trigger.mentioned && await this.triggerPlaybook(runtime, botId, msg, text, !!bound)) return;
     if (outsider) await keepInput();
     // A mention in a plain text channel opens a thread so the follow-ups need no mention; without permission it falls back to the channel.
     let thread: ThreadChannel | null = null;
@@ -196,14 +213,34 @@ export class DiscordBotManager {
     }, this.burstMs);
     this.bursts.set(key, burst);
   }
-  /** "@bot issue: points" starts the playbook whose trigger word leads the message. */
-  private async triggerPlaybook(runtime: BotRuntime, botId: string, msg: Message, text: string) {
-    const m = TRIGGER.exec(text);
-    if (!m || !m[2]!.trim()) return false;
+  /** "@bot issue: points" starts the playbook whose trigger word leads the message; "@bot minutes" needs no points. */
+  private async triggerPlaybook(runtime: BotRuntime, botId: string, msg: Message, text: string, bound: boolean) {
+    const m = TRIGGER.exec(text) ?? WORD_ONLY.exec(text);
+    if (!m) return false;
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.words.includes(m[1]!.toLowerCase()));
     if (!playbook) return false;
+    if (playbook.name === MINUTES_PLAYBOOK) {
+      const say = (content: string) => msg.reply({ content, allowedMentions: { parse: [] } }).catch(() => {});
+      await this.runMinutes(runtime, botId, playbook, msg, msg.author.id, { skipIds: [msg.id], refuse: say, fail: say });
+      return true;
+    }
+    if (bound || !msg.guildId || !m[2]?.trim()) return false;
     const opened = await this.openPlaybook(runtime, botId, playbook, msg, m[2]!.trim(), actorOf(msg));
     if ("error" in opened) await msg.reply({ content: opened.error, allowedMentions: { parse: [] } }).catch(() => {});
+    else await opened.start();
+    return true;
+  }
+  /** "@bot turn points 2 and 3 into issues" replying to minutes: an explicit mention naming a playbook's word starts it from those action items. */
+  private async briefFromMinutes(runtime: BotRuntime, botId: string, msg: Message, minutes: Message, text: string) {
+    if (!new RegExp(`<@!?${runtime.client.user?.id}>`).test(msg.content)) return false;
+    const said = text.toLowerCase();
+    const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.name !== MINUTES_PLAYBOOK && p.words.some((w) => new RegExp(`(?<![\\p{L}\\p{N}_])${w}s?(?![\\p{L}\\p{N}_])`, "u").test(said)));
+    if (!playbook) return false;
+    const say = (content: string) => msg.reply({ content, allowedMentions: { parse: [] } }).catch(() => {});
+    const brief = await minutesBrief(runtime.tenantId, minutes, namedNumbers(text));
+    if ("error" in brief) { await say(brief.error); return true; }
+    const opened = await this.openPlaybook(runtime, botId, playbook, minutes, brief.text, actorOf(msg), brief);
+    if ("error" in opened) await say(opened.error);
     else await opened.start();
     return true;
   }
@@ -215,27 +252,48 @@ export class DiscordBotManager {
     if (!i.guildId || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say("Playbooks run only in the servers this bot is set up for.");
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.menu === i.commandName);
     if (!playbook) return say("This command is no longer available.");
-    const opened = await this.openPlaybook(runtime, botId, playbook, i.targetMessage, i.targetMessage.content.trim(), { id: i.user.id, name: (i.member as any)?.displayName || i.user.username, member: i.member });
+    if (playbook.name === MINUTES_PLAYBOOK) {
+      const target = i.targetMessage;
+      return this.runMinutes(runtime, botId, playbook, target, i.user.id, {
+        startId: target.id, refuse: say,
+        ack: () => say(target.channel.isThread() ? "Writing minutes of this whole thread." : "Writing minutes from this message to now."),
+        fail: (content) => i.followUp({ content, ephemeral: true }).catch(() => {}),
+      });
+    }
+    const target = i.targetMessage;
+    // Run on posted minutes, the brief is their action items rather than the embed's text.
+    const minutes = target.author.id === runtime.client.user?.id && minutesFileOf(target) ? await minutesBrief(runtime.tenantId, target, []) : null;
+    if (minutes && "error" in minutes) return say(minutes.error);
+    const opened = await this.openPlaybook(runtime, botId, playbook, target, minutes?.text ?? target.content.trim(), { id: i.user.id, name: (i.member as any)?.displayName || i.user.username, member: i.member }, minutes ?? undefined);
     if ("error" in opened) return say(opened.error);
     await say(`Following the ${playbook.name} playbook in <#${opened.thread.id}>.`);
     await opened.start();
   }
-  /** Checks the playbook's skills, opens or reuses the source message's thread, and binds it; `start` runs the first turn there. */
-  private async openPlaybook(runtime: BotRuntime, botId: string, playbook: Playbook, source: Message, brief: string, actor: Actor): Promise<{ error: string } | { thread: ThreadChannel; start: () => Promise<void> }> {
-    const missing = missingSkills(playbook, (await skillRegistry.getActiveSkills(runtime.tenantId)).map((s) => s.id));
-    if (missing.length) {
-      const names = missing.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id).join(" and ");
-      return { error: `The ${playbook.name} playbook needs the ${names} skill${missing.length > 1 ? "s" : ""}, which ${missing.length > 1 ? "are" : "is"} off here. An admin can turn ${missing.length > 1 ? "them" : "it"} on in the console.` };
-    }
+  /** Checks the playbook's skills, opens or reuses the source message's thread, and binds it; `start` runs the first turn there. A brief from minutes arrives with its points set. */
+  private async openPlaybook(runtime: BotRuntime, botId: string, playbook: Playbook, source: Message, brief: string, actor: Actor, fromMinutes?: MinutesBrief): Promise<{ error: string } | { thread: ThreadChannel; start: () => Promise<void> }> {
+    const refusal = await skillsRefusal(runtime.tenantId, playbook);
+    if (refusal) return { error: refusal };
     const thread = source.channel.isThread() ? source.channel as ThreadChannel
-      : source.thread ?? await source.startThread({ name: threadName(brief), autoArchiveDuration: 1440 }).catch(() => null);
+      : source.thread ?? await source.startThread({ name: threadName(fromMinutes?.title ?? brief), autoArchiveDuration: 1440 }).catch(() => null);
     if (!thread?.parentId || !source.guildId) return { error: "I couldn't open a thread for this message. Check that I can create threads in this channel." };
     const place = { guildId: source.guildId, channelId: thread.parentId, threadId: thread.id };
     const previous = await readBinding(runtime.tenantId, place).catch(() => null);
     if (previous?.binding.status === "active") return { error: `This thread already follows the ${previous.binding.playbook} playbook.` };
-    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, sourceMessageId: source.id, startedAt: new Date().toISOString() }, `${brief}\n`, previous?.version).catch(() => null);
+    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, sourceMessageId: source.id, startedAt: new Date().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
     if (!saved) return { error: "I couldn't save this thread to the Workspace, so the playbook did not start. Try again in a moment." };
-    return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, [{ msg: source, text: brief }], thread.id, thread, { actor, playbook })) };
+    return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, [{ msg: source, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
+  }
+  /** Minutes post in place, replying to `at`: no thread is opened or bound. */
+  private async runMinutes(runtime: BotRuntime, botId: string, playbook: Playbook, at: Message, requesterId: string, o: { startId?: string; skipIds?: string[]; refuse(text: string): Promise<unknown>; ack?(): Promise<unknown>; fail(text: string): Promise<unknown> }) {
+    const adapter = new DiscordJSAdapter(runtime.client, at.guildId || runtime.guildIds[0]);
+    const refusal = (at.guildId && await skillsRefusal(runtime.tenantId, playbook)) || await minutesRefusal(adapter, at.channelId, requesterId);
+    if (refusal) { await o.refuse(refusal); return; }
+    await o.ack?.();
+    if ("sendTyping" in at.channel) await at.channel.sendTyping().catch(() => {});
+    const parentId = at.channel.isThread() ? at.channel.parentId : null;
+    const error = await writeMinutes({ tenantId: runtime.tenantId, botId, adapter, playbook, guildId: at.guildId!, channelId: at.channelId, parentId, requesterId, startId: o.startId, skipIds: o.skipIds, post: (payload) => at.reply(payload) })
+      .catch(() => "I couldn't write the minutes this time. Try again in a moment.");
+    if (error) await o.fail(error);
   }
   private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean } = {}) {
     const target = thread ?? msg.channel;
