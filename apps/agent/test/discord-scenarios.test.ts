@@ -44,9 +44,9 @@ discordScenario("a git write waits for its asker's Confirm click before reaching
 
 discordScenario("a message context-menu command reaches the bot through the fake client", async (s) => {
   const brief = await s.discord.send("- login loops on Safari\n- export CSV is slow", { author: s.discord.alice });
-  const run = await s.discord.contextMenu("Draft issues", brief);
-  // No command is registered yet, so the bot leaves it unanswered.
-  expect(run.responses).toEqual([]);
+  const run = await s.discord.contextMenu("Retired command", brief);
+  // No playbook names this command any more, so the bot only tells the person privately.
+  expect(run.responses).toMatchObject([{ kind: "reply", payload: { ephemeral: true } }]);
   expect(s.model.calls).toEqual([]);
 });
 
