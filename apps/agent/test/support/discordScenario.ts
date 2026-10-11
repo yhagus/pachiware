@@ -37,7 +37,7 @@ export type HttpRequest = { method: string; url: string; body: any };
 export type Payload = { content?: string; embeds?: any[]; components?: any[]; files?: any[] };
 export type FakeUser = { id: string; name: string };
 export interface FakeMessage {
-  id: string; channelId: string; guildId: string | null; author: FakeUser & { bot: boolean };
+  id: string; channelId: string; guildId: string | null; author: FakeUser & { bot: boolean }; readonly url: string;
   content: string; embeds: any[]; components: any[]; files: any[];
   reactions: string[]; edits: Payload[]; reference?: { messageId: string }; thread?: FakeChannel;
 }

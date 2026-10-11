@@ -13,6 +13,7 @@ import { WorkspaceConflict } from "./workspace/store.js";
  *   input: BriefInput[]          messages from people other than the author, kept for the author to weigh
  *   draftNow: boolean            the author said "draft now": open questions go into the drafts instead of another round
  *   draftsFileMessageId: string  the thread message carrying drafts.md, edited when a draft changes
+ *   images: BriefImage[]         screenshots the author attached, kept as text so later turns need no image bytes (see briefImages.ts)
  *
  * The binding also keeps `authorName` and `botName` from when the brief started, for the drafts' footer.
  */
@@ -56,9 +57,23 @@ export interface BriefQuestion {
   answer?: string;
   /** Set on a question asked again because the author left it unanswered; unanswered a second time, it is assumed. */
   carriedFrom?: { round: number; n: number };
+  /** The screenshot this question asks the author to describe; the answer becomes its description. */
+  image?: string;
+}
+export interface BriefImage {
+  /** The Discord attachment id. */
+  id: string;
+  name: string;
+  /** The Discord message holding the image. */
+  link: string;
+  /** The model was sent the image's bytes; one it never saw is described by the author in the next round. */
+  seen: boolean;
+  /** 1-based point, or 0 for the whole brief; drafts of that point show the image. */
+  point?: number;
+  description?: string;
 }
 export interface BriefInput { messageId: string; userId: string; name: string; text: string; at: string; round: number; seen: boolean }
-export interface BriefState { points: string[]; drafts: BriefDraft[]; round: number; questions: BriefQuestion[]; input: BriefInput[]; draftNow?: boolean; draftsFileMessageId?: string }
+export interface BriefState { points: string[]; drafts: BriefDraft[]; round: number; questions: BriefQuestion[]; input: BriefInput[]; draftNow?: boolean; draftsFileMessageId?: string; images?: BriefImage[] }
 
 export const briefState = (b: PlaybookBinding): BriefState => ({
   points: Array.isArray(b.points) ? b.points as string[] : [],
@@ -68,6 +83,7 @@ export const briefState = (b: PlaybookBinding): BriefState => ({
   input: Array.isArray(b.input) ? b.input as BriefInput[] : [],
   ...(b.draftNow === true ? { draftNow: true } : {}),
   ...(typeof b.draftsFileMessageId === "string" ? { draftsFileMessageId: b.draftsFileMessageId } : {}),
+  ...(Array.isArray(b.images) && b.images.length ? { images: b.images as BriefImage[] } : {}),
 });
 
 /** Each field's cap keeps the largest possible question, with its point heading, well under one Discord message. */
@@ -119,16 +135,19 @@ export function applyRound(current: BriefState, args: Record<string, unknown>): 
     tooLong(`${which}'s recommendation`, recommendation, MAX.recommendation);
     if (options.length > MAX.options) problems.push(`${which} has more than ${MAX.options} options.`);
     options.forEach((o: string, j: number) => tooLong(`${which}, option ${String.fromCharCode(97 + j)}`, o, MAX.option));
-    return { point: q?.point as number, text, recommendation, ...(options.length ? { options } : {}) };
+    return { point: q?.point as number, text, recommendation, ...(options.length ? { options } : {}) } as { point: number; text: string; recommendation: string; options?: string[]; image?: string };
   });
   if (problems.length) throw new Error(problems.join("\n"));
+  // A screenshot the model could not see is described by the author, whatever questions the model wrote.
+  const asking = new Set(current.questions.map((q) => q.image));
+  for (const im of current.images ?? []) if (!im.seen && !im.description && !asking.has(im.id)) asked.push(describeQuestion(im));
 
   // What the author left unanswered last round is asked once more; left unanswered again, its recommendation is assumed.
   const carried: (typeof asked[number] & { carriedFrom: { round: number; n: number } })[] = [];
   const settled = current.questions.map((q): BriefQuestion => {
     if (q.round !== current.round || q.status !== "open") return q;
     if (q.carriedFrom) return { ...q, status: "assumed", answer: q.recommendation };
-    carried.push({ point: q.point, text: q.text, recommendation: q.recommendation, ...(q.options ? { options: q.options } : {}), carriedFrom: { round: q.round, n: q.n } });
+    carried.push({ point: q.point, text: q.text, recommendation: q.recommendation, ...(q.options ? { options: q.options } : {}), ...(q.image ? { image: q.image } : {}), carriedFrom: { round: q.round, n: q.n } });
     return { ...q, status: "carried" };
   });
   // Grouped by point (whole-brief questions first), carried questions before new ones within a point, then numbered across the round.
@@ -136,6 +155,18 @@ export function applyRound(current: BriefState, args: Record<string, unknown>): 
     .map(({ q }, i): BriefQuestion => ({ round, n: i + 1, ...q, status: "open" }));
   return { ...current, points, drafts, round, questions: [...settled, ...questions] };
 }
+
+const describeQuestion = (im: BriefImage) => ({
+  point: 0, image: im.id,
+  text: `What does [${im.name.replace(/[[\]]/g, "")}](<${im.link}>) show? I can't see images with this profile, so describe it in words for the drafts.`,
+  recommendation: "Link it in the drafts without a description.",
+});
+
+/** Screenshots the model saw but has not described yet, named in tool results so it calls describeBriefImages. */
+export const undescribedImages = (s: BriefState) => {
+  const names = (s.images ?? []).filter((im) => im.seen && !im.description).map((im) => im.name);
+  return names.length ? { describeImages: `Save what ${names.join(", ")} show${names.length > 1 ? "" : "s"} with describeBriefImages, so the drafts keep it.` } : {};
+};
 
 function hasCycle(drafts: BriefDraft[]) {
   const state = new Map<number, 1 | 2>();
@@ -228,7 +259,7 @@ export async function postBriefRound(args: Record<string, unknown>, ctx: SkillCo
   const before = briefState(found.binding);
   const next = applyRound(before, args);
   await writeBinding(ctx.tenantId, { ...found.binding, ...next }, found.body, found.version);
-  return { round: next.round, messages: renderRound(next, found.binding.authorId, args.drafts !== undefined || before.round === 0) };
+  return { round: next.round, messages: renderRound(next, found.binding.authorId, args.drafts !== undefined || before.round === 0), ...undescribedImages(next) };
 }
 
 /** The round messages a turn produced, in order; they replace the model's text reply in the thread. */

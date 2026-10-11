@@ -1,7 +1,8 @@
 import type { SkillContext, ToolDefinition, ToolResult } from "./types.js";
 import { readBinding, writeBinding, type BindingPlace, type PlaybookBinding } from "./playbooks.js";
-import { briefState, placeOf, updateBrief, type BriefDraft, type BriefQuestion, type BriefState, type DraftCategory } from "./brief.js";
+import { briefState, placeOf, updateBrief, undescribedImages, type BriefDraft, type BriefQuestion, type BriefState, type DraftCategory } from "./brief.js";
 import { checkDraft, type DraftViolation } from "./draftChecker.js";
+import { describedByAnswers, screenshotLines } from "./briefImages.js";
 
 /**
  * The second half of a brief: the author's answers settle the round, then each breakdown draft is written out in
@@ -47,7 +48,7 @@ export function applyAnswers(state: BriefState, args: Record<string, unknown>): 
     if (answer) return { ...q, status: "answered", answer };
     return q.status === "open" && args.acceptRest === true ? { ...q, status: "answered", answer: q.recommendation } : q;
   });
-  return { ...state, questions, ...(args.draftNow === true ? { draftNow: true } : {}) };
+  return describedByAnswers({ ...state, questions, ...(args.draftNow === true ? { draftNow: true } : {}) }, given);
 }
 
 /**
@@ -61,7 +62,7 @@ function settleForDrafting(state: BriefState): BriefState {
 }
 
 /** Round questions a draft shows: assumptions always, open ones after "draft now"; a whole-brief question goes in every draft. */
-const placed = (state: BriefState, d: BriefDraft) => state.questions.filter((q) => (q.status === "assumed" || (q.status === "open" && state.draftNow)) && (q.point === d.point || q.point === 0));
+const placed = (state: BriefState, d: BriefDraft) => state.questions.filter((q) => !q.image && (q.status === "assumed" || (q.status === "open" && state.draftNow)) && (q.point === d.point || q.point === 0));
 const ask = (q: Pick<BriefQuestion, "text" | "recommendation" | "options">) => `- ${q.text}${q.options?.length ? ` (${q.options.map((o, i) => `${String.fromCharCode(97 + i)}) ${o}`).join("; ")})` : ""} ➡️ ${q.recommendation}`;
 
 /** Where the brief came from: a thread started from a message shares that message's id. */
@@ -79,10 +80,12 @@ export function draftBody(state: BriefState, binding: PlaybookBinding, n: number
   const section = (name: string, text: string | undefined) => (text ? `## ${name}\n${text}` : "");
   const list = (items: string[] | undefined, prefix = "- ") => (items?.length ? items.map((i) => `${prefix}${i}`).join("\n") : "");
   const repo = d.repo ? "" : " without repository context";
+  // Screenshots sit with what they show: the current behaviour when there is one, else the desired.
+  const shots = screenshotLines(state, d), withShots = (text?: string) => (text && shots ? `${text}\n\n${shots}` : text);
   return [
     section("Summary", d.summary),
-    section("Current behaviour", d.current),
-    section("Desired behaviour", d.desired),
+    section("Current behaviour", withShots(d.current)),
+    section("Desired behaviour", d.current ? d.desired : withShots(d.desired)),
     section("Acceptance criteria", list(d.acceptance, "- [ ] ")),
     section("Out of scope", list(d.outOfScope)),
     section("Open questions", open),
@@ -203,6 +206,7 @@ export async function recordBriefAnswers(args: Record<string, unknown>, ctx: Ski
     answered: latest.filter((q) => q.status === "answered").map((q) => `Q${q.n}: ${q.answer}`),
     unanswered: latest.filter((q) => q.status === "open").map((q) => `Q${q.n}${q.carriedFrom ? " (asked twice: taken as an assumption when drafting)" : " (asked once: carried into the next round)"}`),
     draftNow: !!next.draftNow,
+    ...undescribedImages(next),
   };
 }
 
