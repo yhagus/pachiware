@@ -138,3 +138,14 @@ discordScenario("a non-author who mentions the bot gets an answer saying the aut
   expect(fields.questions).toHaveLength(1);
   expect(fields.input).toEqual([expect.objectContaining({ userId: s.discord.bob.id, text: "should we cover Firefox too?" })]);
 });
+
+discordScenario("a playbook turn gets 20 tool steps even when the tenant allows 8", async (s) => {
+  const { ROUND_1 } = await import(process.cwd() + "/apps/agent/test/support/briefs.ts");
+  const { agentsConfig, eq } = await import(process.cwd() + "/packages/db/src/index.ts");
+  await s.db.update(agentsConfig).set({ settings: { maxReActIterations: 8 } }).where(eq(agentsConfig.tenantId, s.tenant.id));
+  const read = { tool: "readPlaybookFile", args: { playbook: "issue-draft", path: "round.md" } };
+  s.model.script(...Array.from({ length: 12 }, () => read), { tool: "postBriefRound", args: ROUND_1 }, "ok");
+  const brief = await s.discord.send(ROUND_1.points.map((p: string) => `- ${p}`).join("\n"));
+  await s.discord.contextMenu("Draft issues", brief);
+  expect(s.discord.botMessages.find((m) => m.channelId === brief.thread!.id)!.content).toContain("**Round 1**");
+});

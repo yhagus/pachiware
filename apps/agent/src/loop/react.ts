@@ -29,6 +29,8 @@ export interface ReActOutput {
 }
 
 const MAX_TOOL_RESULT = 12000;
+/** A grounded brief round takes several tool steps per point, more than a tenant's usual cap. */
+export const PLAYBOOK_ITERATIONS = 20;
 
 export class AgentReActLoop {
   /**
@@ -36,7 +38,7 @@ export class AgentReActLoop {
    */
   async run(input: ReActInput): Promise<ReActOutput> {
     const requestedIterations = Number(input.maxIterations) || 12;
-    const maxIterations = Math.min(32, Math.max(1, requestedIterations));
+    const maxIterations = Math.min(32, Math.max(1, input.context.playbook ? Math.max(requestedIterations, PLAYBOOK_ITERATIONS) : requestedIterations));
     const toolCallsExecuted: { call: ToolCall; result: ToolResult }[] = [];
 
     // 1. Ensure conversation exists in PostgreSQL

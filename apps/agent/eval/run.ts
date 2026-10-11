@@ -11,9 +11,6 @@ import { gradeWithJudge, type Ask } from "./judge";
 import type { EvalProfile } from "./profiles";
 import { checkoutAt, offlineGitHub, pinnedTree, type PinnedRepo } from "./repository";
 
-/** A grounded round 1 takes several tool steps per point, more than a new tenant's default of 8. */
-export const EVAL_MAX_ITERATIONS = 20;
-
 export interface EvalOutput {
   fixture: string; repo: string; commit: string;
   /** The thread as Discord showed it, oldest first; a draft embed reads as its title and body. */
@@ -28,14 +25,11 @@ export interface EvalResult extends EvalOutput { failures: Failure[]; passed: bo
 
 const db = () => import("../../../packages/db/src/index.ts") as Promise<any>;
 
-/** Opens the pinned repository (and the fixture's stub repositories) to the guild, served offline, and lifts the tenant's tool-step limit. */
+/** Opens the pinned repository (and the fixture's stub repositories) to the guild, served offline. Playbook turns already get their own tool-step cap. */
 export async function setUpEval(s: Scenario, pin: PinnedRepo, fixture?: Fixture) {
   const stubs = fixture?.facts.alsoOpen ?? [];
   await s.git({ repos: [pin.repo, ...stubs.map((r) => r.repo)] });
   s.http.on(/^\w+ https:\/\/api\.github\.com\//, offlineGitHub(pin, checkoutAt(pin.commit), stubs));
-  const { agentsConfig, eq } = await db();
-  const [row] = await s.db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, s.tenant.id));
-  await s.db.update(agentsConfig).set({ settings: { ...row?.settings, maxReActIterations: EVAL_MAX_ITERATIONS } }).where(eq(agentsConfig.tenantId, s.tenant.id));
 }
 
 async function imagesOf(s: Scenario, fixture: Fixture) {
