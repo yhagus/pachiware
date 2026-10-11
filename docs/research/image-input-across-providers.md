@@ -5,7 +5,7 @@ Sources were read on 2026-10-11. Each claim cites the page or file it came from.
 
 ## Question
 
-How do OpenAI Chat Completions, the Anthropic Messages API, and OpenAI-compatible proxies (such as 9router) accept image input? What content-part shape do they use, do they take URLs or base64, and what size, count, and format limits apply? How is a mixed text+image message ordered? Can you reliably learn whether a model accepts images? How do tool-calling messages coexist with image parts?
+How do OpenAI Chat Completions, the Anthropic Messages API, and OpenAI-compatible proxies accept image input? What content-part shape do they use, do they take URLs or base64, and what size, count, and format limits apply? How is a mixed text+image message ordered? Can you reliably learn whether a model accepts images? How do tool-calling messages coexist with image parts?
 
 ## Where pachiware stands today
 
@@ -61,16 +61,9 @@ On Amazon Bedrock and Google Cloud, only base64 works. [Vision guide](https://pl
 
 **Detecting capability.** `GET /v1/models` returns `capabilities.image_input.supported` (and `pdf_input`) per model, documented as "Whether the model accepts image content blocks." This is a first-party, machine-readable signal. [List Models reference](https://platform.claude.com/docs/en/api/models/list)
 
-## OpenAI-compatible proxies: 9router
+## OpenAI-compatible proxies
 
-9router is an open-source Node/Next.js router (`decolua/9router`, MIT). Its README documents it as self-hosted, with the OpenAI-compatible API at `http://localhost:20128/v1`. [README](https://github.com/decolua/9router). It has no separate API reference, so the findings below come from its source code.
-
-- **Input shape.** It accepts the OpenAI `image_url` part, with `image_url.url` either an http(s) URL or a `data:` URI. Before translating, it converts Responses-API `input_image` and Claude `image` blocks into `image_url`. ([`openai-responses.js`](https://github.com/decolua/9router/blob/main/open-sse/translator/request/openai-responses.js), [`claude-to-openai.js`](https://github.com/decolua/9router/blob/main/open-sse/translator/request/claude-to-openai.js))
-- **Translation to Anthropic upstreams.** A `data:` URL becomes an Anthropic `base64` source. A remote URL becomes an Anthropic `url` source, so Anthropic does the fetching. ([`openai-to-claude.js`](https://github.com/decolua/9router/blob/main/open-sse/translator/request/openai-to-claude.js))
-- **Upstreams that need base64.** For Gemini, Vertex, Antigravity, Ollama, Kiro, and CommandCode targets, 9router fetches remote URLs itself, with a 10 MB cap, a 10 s timeout, SSRF guards, and magic-byte checks, and inlines them as base64. If that fetch fails, the function returns `null` and the URL is left in place. The Gemini translator only handles `data:` URLs, so a failed fetch there can drop the image without an error. ([`prefetch.js`](https://github.com/decolua/9router/blob/main/open-sse/translator/concerns/prefetch.js), [`image.js`](https://github.com/decolua/9router/blob/main/open-sse/translator/concerns/image.js), [`mediaConfig.js`](https://github.com/decolua/9router/blob/main/open-sse/config/mediaConfig.js))
-- **Detecting capability.** 9router's `GET /v1/models` adds a non-standard `capabilities` object per model, including `vision`. The value is resolved from hand-written overrides, then a models.dev catalog sync, then name-pattern matching. A missing value defaults to `vision: false`, but name-based detection can turn it on, so it is a heuristic rather than a guarantee from the upstream provider. ([`v1/models/route.js`](https://github.com/decolua/9router/blob/main/src/app/api/v1/models/route.js), [`capabilities.js`](https://github.com/decolua/9router/blob/main/open-sse/providers/capabilities.js))
-- **Vision adapter.** In 9router "combos", a default-on capacity adapter reroutes a request that contains images to a vision-capable model, falling back to `oc/mimo-v2.5-free`. So behind a combo, an image sent to a text-only model may get answered by a different model rather than rejected. ([CHANGELOG](https://github.com/decolua/9router/blob/main/CHANGELOG.md), v0.5.x entries "Combos: default-enable vision/audio capacity adapter" and "Capacity auto-switch")
-- **Other OpenAI-compatible proxies** (LiteLLM, OpenRouter) also use `image_url`. Capability flags, if any, are proxy-specific (`supports_vision` in LiteLLM model_info, for example). There is no shared standard. [LiteLLM vision docs](https://docs.litellm.ai/docs/completion/vision)
+- OpenAI-compatible proxies (LiteLLM, OpenRouter) use `image_url`. Capability flags, if any, are proxy-specific (`supports_vision` in LiteLLM model_info, for example). There is no shared standard. [LiteLLM vision docs](https://docs.litellm.ai/docs/completion/vision)
 
 ## Discord attachments: URL vs base64
 
@@ -78,26 +71,25 @@ On Amazon Bedrock and Google Cloud, only base64 works. [Vision guide](https://pl
 - The attachment object gives `content_type`, `size` (bytes), `width`, `height`, `url`, and `proxy_url`, so type, size, and dimension checks can run before any download. [Discord attachment object](https://docs.discord.com/developers/resources/message#attachment-object)
 - For pachiware, this means:
   - Passing the Discord URL straight to a provider works only while the signature is valid. Chat history replayed later, such as on a thread resume, will hold expired URLs, and the provider fetch will fail.
-  - The Discord CDN is a public host, so OpenAI and Anthropic can fetch it while the URL is fresh, and so can 9router's prefetch.
+  - The Discord CDN is a public host, so OpenAI and Anthropic can fetch it while the URL is fresh.
   - Downloading the attachment and sending base64 is the portable choice. It is the only form Bedrock and Vertex accept, and it removes dependence on expiry. The cost is request size, because history replays resend the bytes. Anthropic's Files API (`file_id`) avoids that but only works on Anthropic.
-  - Base64 needs a per-provider encoding: OpenAI and 9router take a `data:<mime>;base64,` URL, while Anthropic takes a bare base64 string with a separate `media_type`.
+  - Base64 needs a per-provider encoding: OpenAI and OpenAI-compatible endpoints take a `data:<mime>;base64,` URL, while Anthropic takes a bare base64 string with a separate `media_type`.
 
 ## Comparison
 
-| | OpenAI Chat Completions | Anthropic Messages | 9router (OpenAI-compatible) |
+| | OpenAI Chat Completions | Anthropic Messages | OpenAI-compatible proxy |
 |---|---|---|---|
 | Part shape | `image_url` `{url, detail}` | `image` `{source}` | `image_url` (OpenAI shape) |
-| URL | yes | yes (`source.type:"url"`) | yes; passed through or prefetched depending on upstream |
+| URL | yes | yes (`source.type:"url"`) | usually; depends on the proxy and upstream |
 | Base64 | `data:` URL in `url` | `source.type:"base64"` + `media_type` | `data:` URL |
 | File reference | Files API ID | Files API `file_id` | n/a |
 | Formats | png, jpeg, webp, static gif | jpeg, png, gif, webp | depends on upstream |
-| Per-image size | not stated; 30k-patch cap | 10 MB b64 (5 MB Bedrock/Vertex), 8000 px | 10 MB when it prefetches |
+| Per-image size | not stated; 30k-patch cap | 10 MB b64 (5 MB Bedrock/Vertex), 8000 px | depends on upstream |
 | Per-request | 512 MB, 1,500 images | 32 MB; 100 or 600 images; >20 images tightens dims | depends on upstream |
 | Image inside tool result | no (tool content is text-only) | yes (`tool_result.content` may hold `image`) | as translated |
-| Capability signal | none in API; doc pages only; 400 on use | `capabilities.image_input.supported` | non-standard `capabilities.vision` (heuristic) |
+| Capability signal | none in API; doc pages only; 400 on use | `capabilities.image_input.supported` | proxy-specific, if any |
 
 ## Open points (not answered by primary sources)
 
 - Discord's CDN URL lifetime is undocumented.
-- It is unverified whether `https://api.9router.com/v1`, the default in `router.ts`, is a real hosted 9router endpoint. The README documents only self-hosting on `localhost:20128`. An unauthenticated `GET /v1/models` there returned HTTP 404 on 2026-10-11.
 - OpenAI's exact error text for images sent to non-vision models is not in an official error catalog.
