@@ -1,0 +1,1 @@
+It's the Workspace editor in the admin portal (pachiware), not the docs site. Built-ins show read-only with a button to copy one as the tenant's override; deleting the override brings the built-in back. The admin API has to refuse writes to built-ins.

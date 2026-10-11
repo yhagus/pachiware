@@ -1,0 +1,12 @@
+# Source: #49. A one-line brief for work a person does.
+language: en
+cases: [one-line]
+mustCover:
+  - "A person hand-grades about 10 drafts against the judge's criteria and compares them with its verdicts"
+  - "Disagreements lead to rubric changes or are recorded as known limits"
+  - "The frozen rubric's version is recorded"
+knownGaps:
+  - "Where the hand grades are kept"
+  - "How much agreement is enough to freeze the rubric"
+repoFacts:
+  - "No eval harness exists at the pinned commit"

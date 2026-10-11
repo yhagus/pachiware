@@ -1,5 +1,6 @@
 # Mixed Indonesian and English, Indonesian dominant. Source: #34.
 language: id
+cases: [mixed-language]
 mustCover:
   - The bot answers in the language of the message it answers
   - A message mixing languages gets the dominant one

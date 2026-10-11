@@ -1,0 +1,13 @@
+# Source: #48 (latency in usage events). The screenshot shows which report the brief means; the text does not.
+language: en
+cases: [screenshot]
+mustCover:
+  - "Each model call records how long the provider took to answer"
+  - "The admin usage report (GET /api/admin/usage) shows latency per provider and model next to its token counts"
+  - "The report gives an average latency per model"
+knownGaps:
+  - "Whether failed or retried calls count toward latency"
+  - "Whether the Web GUI shows latency or only the API"
+repoFacts:
+  - "The admin usage route sums events, prompt and completion tokens per tenant, type, provider and model (apps/agent/src/routes/admin/usage.ts)"
+  - "Usage events record prompt, completion and cached tokens per model call, but no latency (apps/agent/src/llm/router.ts)"

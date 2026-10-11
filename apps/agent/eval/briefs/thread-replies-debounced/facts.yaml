@@ -1,5 +1,6 @@
 # A likely duplicate of an open issue. Source: #29.
 language: en
+cases: [duplicate]
 mustCover:
   - Messages in an existing thread are joined by the burst window instead of answered one by one
   - Direct messages and a thread opened on the same turn are already answered per message

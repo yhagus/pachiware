@@ -5,10 +5,6 @@ discordScenario("dry run: a scripted model takes a brief through the playbook ag
   const { runFixture, gradeRun } = await import(process.cwd() + "/apps/agent/eval/run.ts");
   const { loadFixtures } = await import(process.cwd() + "/apps/agent/eval/fixtures.ts");
   const { pinnedRepo } = await import(process.cwd() + "/apps/agent/eval/repository.ts");
-  const { writeReport } = await import(process.cwd() + "/apps/agent/eval/report.ts");
-  const { mkdtempSync, readFileSync } = await import("node:fs");
-  const { join } = await import("node:path");
-  const { tmpdir } = await import("node:os");
   const pin = pinnedRepo(), fixture = loadFixtures().find((f: any) => f.name === "thread-replies-debounced")!;
   const read = (args: Record<string, unknown>) => ({ tool: "briefRead", args: { repo: pin.repo, ...args } });
   s.model.script(
@@ -46,11 +42,7 @@ discordScenario("dry run: a scripted model takes a brief through the playbook ag
   const result = gradeRun(output, fixture, pin);
   expect(result.failures).toEqual([]);
   expect(result.passed).toBe(true);
-
-  const dir = mkdtempSync(join(tmpdir(), "eval-report-"));
-  writeReport(dir, { profile: { provider: "scripted", model: "dry run" }, repo: pin.repo, commit: pin.commit, startedAt: "2026-10-11T00:00:00.000Z" }, [result]);
-  expect(JSON.parse(readFileSync(join(dir, "report.json"), "utf8")).results[0].fixture).toBe("thread-replies-debounced");
-  expect(readFileSync(join(dir, "report.md"), "utf8")).toContain("| thread-replies-debounced | 1 | pass |");
+  expect(output.questions).toEqual([{ source: "round 1", point: "In an existing thread, quick messages are merged into one reply", text: "This looks like #29 *Thread messages are debounced, contrary to Phase 15.2*. Skip it, or create it anyway?" }]);
 });
 
 discordScenario("dry run: when the answers bring no drafts, the harness says draft now, and open questions land in the drafts", async (s) => {
@@ -80,5 +72,102 @@ discordScenario("dry run: when the answers bring no drafts, the harness says dra
   expect(output.transcript.filter((t: any) => t.from === "author").map((t: any) => t.text)).toEqual([fixture.answers, "draft now"]);
   expect(output.drafts.map((d: any) => d.n)).toEqual([1, 2]);
   expect(output.drafts[1].body).toContain("**Still need from @Alice:**\n- Apakah instruksi server boleh mematikan aturan ini? ➡️ Tidak, instruksi server hanya boleh mengubah gaya.");
+  expect(gradeRun(output, fixture, pin).failures).toEqual([]);
+});
+
+discordScenario("dry run: an ambiguous-repository brief sees both repositories, a judge over HTTP grades the trial, and the report compares two profiles", async (s) => {
+  const { runTrial } = await import(process.cwd() + "/apps/agent/eval/run.ts");
+  const { loadFixtures } = await import(process.cwd() + "/apps/agent/eval/fixtures.ts");
+  const { pinnedRepo } = await import(process.cwd() + "/apps/agent/eval/repository.ts");
+  const { judgeOverHttp, RUBRIC_VERSION } = await import(process.cwd() + "/apps/agent/eval/judge.ts");
+  const { writeReport } = await import(process.cwd() + "/apps/agent/eval/report.ts");
+  const { mkdtempSync, readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const pin = pinnedRepo(), fixture = loadFixtures().find((f: any) => f.name === "playbook-editor-ambiguous-repo")!;
+  const read = (repo: string) => ({ tool: "briefRead", args: { repo, step: "repository" } });
+  s.model.script(
+    { tool: "briefRepositories" },
+    (turn) => {
+      expect(turn.toolResults[0].repositories.map((r: any) => r.repo)).toEqual(["yhagus/pachiware", "yhagus/pachiware-docs"]);
+      return [read("yhagus/pachiware"), read("yhagus/pachiware-docs")];
+    },
+    (turn) => {
+      expect(turn.toolResults.at(-1).readme).toContain("User guides for Pachiware");
+      return { tool: "postBriefRound", args: {
+        points: ["Tenants see the built-in playbooks and change their own copy"],
+        drafts: [{ point: 1, title: "Edit playbook overrides in the Workspace editor", summary: "Built-ins show read-only; a tenant copy overrides them.", repo: "yhagus/pachiware" }],
+        questions: [{ point: 1, question: "Is this the admin portal's Workspace editor in yhagus/pachiware, or a guide in yhagus/pachiware-docs?", recommendation: "The admin portal in yhagus/pachiware.", options: ["yhagus/pachiware", "yhagus/pachiware-docs"] }],
+      } };
+    },
+    "ok",
+    [{ tool: "recordBriefAnswers", args: { round: 1, answers: [{ q: 1, answer: "The admin portal in yhagus/pachiware." }] } }, { tool: "writeIssueDraft", args: {
+      n: 1, category: "feature", labels: ["enhancement"],
+      summary: "Tenants cannot see or change the playbooks the bot follows.",
+      desired: "The Workspace editor lists built-in playbooks read-only. Copying one creates the tenant's override, and deleting the override brings the built-in back.",
+      acceptance: ["Built-in playbooks are listed and marked read-only", "Copying a built-in creates the tenant's override", "Deleting the override makes the built-in effective again", "The admin API refuses writes to built-in playbooks"],
+      outOfScope: ["Guides in yhagus/pachiware-docs"],
+    } }],
+    "ok",
+  );
+  const judged: any[] = [];
+  s.http.on("POST judge.example.test/v1/chat/completions", (req) => {
+    judged.push(req.body);
+    return { choices: [{ message: { content: 'Covered by the acceptance criteria.\n{"reasoning": "Covered by the acceptance criteria.", "verdict": "yes"}' } }] };
+  });
+  const ask = judgeOverHttp({ provider: "custom", model: "judge-model", baseUrl: "https://judge.example.test/v1", apiKey: "jk" });
+
+  const trial = await runTrial(s, fixture, pin, ask);
+  expect(trial.result.drafts).toMatchObject([{ n: 1, repo: "yhagus/pachiware", labels: ["enhancement"] }]);
+  expect(trial.result.questions).toEqual([{ source: "round 1", point: "Tenants see the built-in playbooks and change their own copy", text: "Is this the admin portal's Workspace editor in yhagus/pachiware, or a guide in yhagus/pachiware-docs?" }]);
+  expect(judged).toHaveLength(fixture.facts.mustCover.length + 1 + 1);
+  expect(judged.every((b) => b.model === "judge-model")).toBe(true);
+  expect(trial.result.failures).toEqual([]);
+  expect(trial.result).toMatchObject({ coverage: 1, questionRate: 1, passed: true, verdicts: [{ n: 1, passed: true, reasons: [] }] });
+  expect(trial.usage).toMatchObject({ calls: 0, prompt: 0 });
+
+  const weaker = { ...trial.result, coverage: 0.5, passed: false, verdicts: [{ n: 1, passed: false, reasons: ["coverage: 2 of 4 must-cover facts covered, under 80%."] }] };
+  const trials = [1, 2, 3].flatMap((n) => [{ profile: "a", trial: n, ...trial }, { profile: "b", trial: n, result: weaker, usage: trial.usage }]);
+  const dir = mkdtempSync(join(tmpdir(), "eval-report-"));
+  writeReport(dir, { judge: { provider: "custom", model: "judge-model" }, rubricVersion: RUBRIC_VERSION, trials: 3, repo: pin.repo, commit: pin.commit, startedAt: "2026-10-11T00:00:00.000Z", profiles: [{ name: "a", provider: "openai", model: "m-a" }, { name: "b", provider: "openai", model: "m-b" }] }, trials);
+  const md = readFileSync(join(dir, "report.md"), "utf8");
+  expect(md).toContain(`Judge: custom / judge-model. Rubric ${RUBRIC_VERSION}. 3 trials per brief.`);
+  expect(md).toContain("| b vs a | 1 | −1.00 |  |");
+  expect(md).toContain("- Trial 1, draft 1: fail. coverage: 2 of 4 must-cover facts covered, under 80%.");
+});
+
+discordScenario("dry run: a screenshot brief posts its committed image, and an image-capable profile sees it on the first turn", async (s) => {
+  const { runFixture, gradeRun } = await import(process.cwd() + "/apps/agent/eval/run.ts");
+  const { loadFixtures } = await import(process.cwd() + "/apps/agent/eval/fixtures.ts");
+  const { pinnedRepo } = await import(process.cwd() + "/apps/agent/eval/repository.ts");
+  const { useProfile } = await import(process.cwd() + "/apps/agent/test/support/images.ts");
+  const pin = pinnedRepo(), fixture = loadFixtures().find((f: any) => f.name === "usage-latency-screenshot")!;
+  await useProfile(s, { provider: "openai", model: "vision", acceptsImages: true }, { scripted: true });
+  const seen = "Terminal output of GET /api/admin/usage: events, prompt and completion tokens per provider and model, no latency.";
+  s.model.script(
+    (turn) => {
+      const parts = turn.messages.filter((m) => Array.isArray(m.content)).flatMap((m: any) => m.content);
+      expect(parts.filter((p: any) => p.type === "image")).toHaveLength(1);
+      return { tool: "briefRepositories" };
+    },
+    { tool: "briefRead", args: { repo: pin.repo, step: "repository" } },
+    [{ tool: "postBriefRound", args: { points: ["Show how long each model takes to answer"], drafts: [{ point: 1, title: "Record model latency in usage events", summary: "Each model call records its latency, and the usage report averages it per model." }], questions: [] } },
+      { tool: "describeBriefImages", args: { images: [{ name: "usage.png", point: 1, description: seen }] } }],
+    "ok",
+    (turn) => {
+      expect(turn.messages.some((m) => Array.isArray(m.content))).toBe(false);
+      return [{ tool: "recordBriefAnswers", args: { round: 1, draftNow: true } }, { tool: "writeIssueDraft", args: {
+        n: 1, category: "feature", labels: ["enhancement"],
+        summary: "The admin usage report shows tokens per model but not how long each model takes to answer.",
+        desired: "Every model call records its latency, and the usage report shows the average latency per provider and model next to the token counts.",
+        acceptance: ["A model call's usage event records its latency", "The usage report shows the average latency per provider and model"],
+        outOfScope: ["Showing latency in the Web GUI"],
+      } }];
+    },
+    "ok",
+  );
+  const output = await runFixture(s, fixture, pin);
+  expect(output.drafts[0].body).toContain(`Screenshot [usage.png](`);
+  expect(output.drafts[0].body).toContain(seen);
   expect(gradeRun(output, fixture, pin).failures).toEqual([]);
 });

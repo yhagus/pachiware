@@ -53,8 +53,20 @@ export function checkoutAt(commit: string): string {
 const SEARCHABLE = 384 * 1024;
 const missing = () => new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
 
+/** A repository open beside the pinned one that holds only a README, for briefs that could belong to either. */
+export interface StubRepo { repo: string; readme: string }
+
+function stubRepo(stub: StubRepo, path: string, url: URL): unknown {
+  const sha = new Bun.CryptoHasher("sha1").update(stub.repo).digest("hex"), rest = path.slice(`/repos/${stub.repo}`.length);
+  if (rest === "") return { full_name: stub.repo, default_branch: "main", private: false, html_url: `https://github.com/${stub.repo}` };
+  if (rest === "/labels") return [];
+  if (rest === "/commits/main" || rest === `/commits/${sha}`) return { sha, commit: { message: "Initial commit", author: { name: "yhagus", date: "2026-01-01T00:00:00Z" } }, html_url: `https://github.com/${stub.repo}/commit/${sha}`, files: [] };
+  if (rest === "/contents/README.md" && [sha, "main", null].includes(url.searchParams.get("ref"))) return { type: "file", path: "README.md", encoding: "base64", content: Buffer.from(stub.readme).toString("base64") };
+  return missing();
+}
+
 /** A request handler answering the GitHub endpoints a playbook run reads; `undefined` for anything else. Writes get 403. */
-export function offlineGitHub(pin: PinnedRepo, dir: string) {
+export function offlineGitHub(pin: PinnedRepo, dir: string, stubs: StubRepo[] = []) {
   const web = `https://github.com/${pin.repo}`;
   const head = git(["log", "-1", "--format=%s%x00%an%x00%aI", pin.commit]).trim().split("\0");
   const atPin = (ref: string | null) => ref === pin.commit || ref === pin.branch;
@@ -72,7 +84,11 @@ export function offlineGitHub(pin: PinnedRepo, dir: string) {
     if (req.method !== "GET") return new Response(JSON.stringify({ message: "The eval repository is read-only" }), { status: 403 });
     const path = url.pathname, q = url.searchParams.get("q") ?? "";
 
-    if (path === "/user/repos") return [{ full_name: pin.repo, default_branch: pin.branch, private: false, description: null }];
+    if (path === "/user/repos") return [pin.repo, ...stubs.map((s) => s.repo)].map((full_name) => ({ full_name, default_branch: full_name === pin.repo ? pin.branch : "main", private: false, description: null }));
+    const searched = /(?:^|\s)repo:(\S+)/.exec(q)?.[1];
+    if (searched && searched !== pin.repo && path.startsWith("/search/")) return { total_count: 0, items: [] };
+    const stub = stubs.find((s) => path === `/repos/${s.repo}` || path.startsWith(`/repos/${s.repo}/`));
+    if (stub) return stubRepo(stub, path, url);
     if (path === "/search/issues") {
       const terms = termsOf(q);
       return { items: pin.issues.filter((i) => terms.every((t) => `${i.title}\n${i.body}`.toLowerCase().includes(t))).map(issueOf) };

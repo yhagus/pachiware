@@ -1,0 +1,1 @@
+First message: the proposed drafts with one line each and what blocks what, then the questions, numbered, grouped by point, each with a recommended answer. Keep every Discord message under 2000 characters and never cut a question in half. Only the person who posted the brief answers; others can chime in and the bot just notes it.

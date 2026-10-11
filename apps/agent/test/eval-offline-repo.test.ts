@@ -53,6 +53,22 @@ test("code search finds files holding every term, linked at the pinned commit", 
   expect((await searchCode(conn, pin.repo, "BURST_MS nonexistentterm", 1)).items).toEqual([]);
 });
 
+test("a stub repository opened beside the pinned one serves only its README, so a brief can be ambiguous between them", async () => {
+  const site = { repo: "yhagus/pachiware-site", readme: "# pachiware-site\n\nThe public landing page and docs site for Pachiware." };
+  const serve = offlineGitHub(pin, checkoutAt(pin.commit), [site]);
+  const get = (path: string) => serve({ method: "GET", url: `https://api.github.com${path}` }) as any;
+  expect(get("/repos/yhagus/pachiware-site")).toMatchObject({ full_name: "yhagus/pachiware-site", default_branch: "main" });
+  const sha = get("/repos/yhagus/pachiware-site/commits/main").sha;
+  expect(sha).toMatch(/^[0-9a-f]{40}$/);
+  expect(sha).not.toBe(pin.commit);
+  expect(Buffer.from(get(`/repos/yhagus/pachiware-site/contents/README.md?ref=${sha}`).content, "base64").toString()).toBe(site.readme);
+  expect(get(`/repos/yhagus/pachiware-site/contents/GLOSSARY.md?ref=${sha}`).status).toBe(404);
+  expect(get("/repos/yhagus/pachiware-site/labels")).toEqual([]);
+  expect(get(`/search/code?q=${encodeURIComponent("BURST_MS repo:yhagus/pachiware-site")}`).items).toEqual([]);
+  expect(get(`/search/issues?q=${encodeURIComponent("thread debounced repo:yhagus/pachiware-site is:issue is:open")}`).items).toEqual([]);
+  expect(get(`/search/issues?q=${encodeURIComponent("thread debounced repo:yhagus/pachiware is:issue is:open")}`).items).toHaveLength(1);
+});
+
 test("nothing is written and nothing leaves the machine", async () => {
   await expect(createIssue(conn, pin.repo, "x")).rejects.toThrow("403");
   expect(urls.every((u) => u.includes("https://api.github.com/"))).toBe(true);

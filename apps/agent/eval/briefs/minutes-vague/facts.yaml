@@ -1,5 +1,6 @@
 # A vague brief. Source: #45.
 language: en
+cases: [vague]
 mustCover:
   - Minutes list what was decided, what is still open, and action items with owners
   - Minutes are written only on request and posted where they were asked for

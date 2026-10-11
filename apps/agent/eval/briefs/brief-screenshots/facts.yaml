@@ -1,0 +1,13 @@
+# Source: #44.
+language: en
+mustCover:
+  - "With an image-capable profile, screenshots in a brief are read during the breakdown"
+  - "Each screenshot is kept as a text description in the brief's file, so later turns send no image bytes"
+  - "The relevant draft carries the description and a link to the message holding the image"
+  - "With a text-only profile, round 1 asks the author to describe each image"
+knownGaps:
+  - "Whether screenshots posted with round answers count too"
+  - "Which draft section a description goes in"
+repoFacts:
+  - "Chat message content is text only at the pinned commit"
+  - "Profiles have no image-input flag at the pinned commit"

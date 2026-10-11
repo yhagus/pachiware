@@ -1,0 +1,16 @@
+# Source: #43. Indonesian with English terms.
+language: id
+cases: [mixed-language]
+mustCover:
+  - "One git write confirmation creates every remaining draft of the brief as an issue"
+  - "Only the brief's author can confirm, and a thread grant does not skip this confirmation"
+  - "Blockers are created first and dependents' Blocked by sections carry the real issue numbers"
+  - "Labels are set in the create request"
+  - "A failure mid-batch stops it and reports created and remaining drafts; continuing never creates duplicates"
+knownGaps:
+  - "Whether the author can drop drafts before creating"
+  - "What the draft embeds show after the issues are created"
+  - "Whether native issue dependency links are made on GitHub and GitLab"
+repoFacts:
+  - "repoCreateIssue creates one issue per git write confirmation"
+  - "An owner can grant a thread so later sensitive actions there skip confirmation (packages/skills/src/threadConfirmation.ts)"

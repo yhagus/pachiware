@@ -1,0 +1,14 @@
+# Source: #48.
+language: en
+mustCover:
+  - "The judge is configured by env and refuses to run when its model is a compared profile's model"
+  - "The judge answers yes, no or unknown with reasoning first, per must-cover fact and per question"
+  - "A draft passes on every code check, at least 80% of must-cover facts, and no invented repository fact"
+  - "Profiles run 3 trials per brief and are compared as paired differences with standard errors, alongside cost and latency"
+  - "The rubric carries a version recorded in every report"
+knownGaps:
+  - "Where model latency comes from, since usage events record only tokens"
+  - "Which edge cases the larger fixture set must cover"
+repoFacts:
+  - "Usage events record prompt, completion and cached tokens per model call, but no latency (apps/agent/src/llm/router.ts)"
+  - "The LLM router throws \"Unsupported profile provider\" for profile providers other than openai and custom"

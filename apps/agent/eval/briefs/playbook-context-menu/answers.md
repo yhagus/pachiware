@@ -1,0 +1,1 @@
+Bisa juga lewat mention pakai kata trigger. Kalau briefnya sudah di dalam thread, pakai thread itu saja. Tenant boleh override playbook bawaan lewat folder playbooks di Workspace, tapi tool tulis Workspace tidak boleh mengubah folder itu. Kalau skill yang dibutuhkan mati, tolak dan sebutkan skill-nya.

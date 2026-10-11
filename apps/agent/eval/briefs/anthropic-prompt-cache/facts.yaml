@@ -1,0 +1,13 @@
+# Source: PROGRESS Phase 15.1, which cached prompts for OpenAI and Custom only.
+language: en
+mustCover:
+  - "Requests to Anthropic mark the stable prompt prefix (system prompt and tools) as cacheable"
+  - "Cache reads from Anthropic responses are recorded as cached tokens in usage events"
+  - "It applies wherever the bot answers through Anthropic"
+knownGaps:
+  - "Which parts of the prompt stay identical between turns"
+  - "Whether the cache lifetime matters for the bot's traffic"
+repoFacts:
+  - "The router sends no cache_control to Anthropic at the pinned commit"
+  - "cachedTokensOf already reads cache_read_input_tokens (apps/agent/src/llm/usage.ts)"
+  - "History advances in steps of 10 messages so the prompt prefix stays identical between turns (apps/agent/src/loop/history.ts)"

@@ -1,0 +1,1 @@
+If the profile can see images, read them during the breakdown and keep a text description so later turns don't resend the image. The draft gets the description and a link to the Discord message with the image. If it can't see images, ask me to describe them in round 1.

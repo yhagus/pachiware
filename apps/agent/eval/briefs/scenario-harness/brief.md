@@ -1,0 +1,1 @@
+- we need tests that run the real bot in discord end to end, the current ones mock the whole agent loop

@@ -1,0 +1,1 @@
+Yang bisa confirm cuma author brief, dan grant thread tidak berlaku untuk ini. Draft yang diblok dibuat setelah blocker-nya, nomor issue-nya ditulis di bagian Blocked by. Kalau gagal di tengah, berhenti dan laporkan mana yang sudah dan belum dibuat; "lanjutkan sisanya" tidak boleh bikin duplikat. Label ikut di request create.

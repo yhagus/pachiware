@@ -18,6 +18,7 @@ build/
 
 # Live eval reports
 apps/agent/eval/results/
+apps/agent/eval/profiles.yaml
 
 # Logs & temp
 *.log

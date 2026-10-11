@@ -1,0 +1,16 @@
+# Source: #42.
+language: en
+mustCover:
+  - "With one allowed repository the bot uses it without asking"
+  - "With several, round 1 asks which repository, recommending one from the brief and earlier briefs in the channel"
+  - "Reads follow a fixed order within a budget per point and per brief"
+  - "A likely duplicate becomes a skip-or-create question"
+  - "Drafts propose only labels the repository has"
+  - "Drafts list what was read as permalinks pinned to the commit that was read"
+knownGaps:
+  - "The read budget's numbers"
+  - "What happens to points left unchecked when the budget runs out"
+  - "Whether drafts of one brief may target different repositories"
+repoFacts:
+  - "Git scope decides which repositories a guild or channel may use (packages/skills/src/gitScope.ts)"
+  - "The git functions list labels, search code and issues, and read files at a ref (packages/skills/src/git.ts)"

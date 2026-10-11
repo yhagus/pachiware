@@ -1,5 +1,6 @@
 # A one-line brief. Source: #36.
 language: en
+cases: [one-line]
 mustCover:
   - A tenant admin can create a profile on the Anthropic provider and attach it to a bot
   - The bot then answers with that profile's model

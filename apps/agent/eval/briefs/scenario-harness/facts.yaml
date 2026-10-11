@@ -1,0 +1,14 @@
+# Source: #33.
+language: en
+mustCover:
+  - "A scenario feeds messages and interactions to the bot through a fake Discord client while the real agent loop runs"
+  - "The model's replies and tool calls are scripted per scenario in place of the LLM router's completion"
+  - "Requests to GitHub and GitLab are stubbed, with no network"
+  - "Scenarios can click buttons, run message context-menu commands, and read what the bot wrote to the Workspace"
+  - "Later tests reuse the harness without copying setup code"
+knownGaps:
+  - "Whether each scenario gets its own database and Workspace"
+  - "What happens when the model is called with no scripted step left"
+repoFacts:
+  - "apps/agent/test/discord.test.ts replaces discord.js through mock.module with a fake client"
+  - "Tests run with bun test from the repository root"

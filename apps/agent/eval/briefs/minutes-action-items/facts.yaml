@@ -1,0 +1,13 @@
+# Source: #46.
+language: en
+mustCover:
+  - "\"Draft issues\" on a minutes message starts a brief whose points are its action items"
+  - "Naming item numbers includes only those items"
+  - "The person who triggers it is the brief's author"
+  - "The clarifying round runs as usual in a thread opened from the minutes message"
+knownGaps:
+  - "What happens when the minutes have no action items"
+  - "Whether the action items' owners carry into the drafts"
+repoFacts:
+  - "No minutes feature exists at the pinned commit"
+  - "The bot registers no application commands at the pinned commit"

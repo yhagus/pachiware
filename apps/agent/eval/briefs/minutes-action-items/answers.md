@@ -1,0 +1,1 @@
+Same Draft issues command on the minutes message, or "@bot turn points 2 and 3 into issues". No numbers means all of them. Whoever triggers it is the author, and the thread opens from the minutes message.

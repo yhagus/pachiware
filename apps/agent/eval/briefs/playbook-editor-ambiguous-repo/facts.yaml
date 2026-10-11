@@ -1,0 +1,18 @@
+# Source: #39. Two repositories are open; the brief fits either until the answers settle it.
+language: en
+cases: [ambiguous-repository]
+mustCover:
+  - "The Web GUI Workspace editor lists built-in playbooks and marks them read-only"
+  - "Copying a built-in creates the tenant's override in the shared playbooks folder"
+  - "Editing the override changes how the bot behaves, and deleting it makes the built-in effective again"
+  - "The admin API refuses writes to built-in playbooks"
+knownGaps:
+  - "Which repository the brief belongs to: the admin portal in yhagus/pachiware or the docs site in yhagus/pachiware-docs"
+  - "Whether text borrowed from other projects shows its licence notice"
+repoFacts:
+  - "The Web GUI has a Workspace editor page (apps/web/src/pages/tenant/TenantWorkspace.tsx)"
+  - "The Workspace admin routes live in apps/agent/src/routes/admin/workspace.ts"
+  - "yhagus/pachiware-docs holds only its README"
+alsoOpen:
+  - repo: yhagus/pachiware-docs
+    readme: "# pachiware-docs\n\nUser guides for Pachiware: setting up a bot, writing server instructions, and customising playbooks. Built with Astro.\n"

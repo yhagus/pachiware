@@ -1,0 +1,15 @@
+# Source: #47.
+language: en
+mustCover:
+  - "Each brief is a fixture folder with the brief, the author's answers, and reference facts"
+  - "Git reads are served from a local checkout of this repository at a pinned commit, with no network or token"
+  - "The live eval runs only on demand with an env flag and a key, never in plain bun test"
+  - "Code checks cover the draft limits, existing labels, Context used links at the pinned commit, filler and language"
+  - "The same checks run as unit tests over recorded drafts in CI"
+  - "Reports are written as JSON and Markdown to a gitignored folder"
+knownGaps:
+  - "How many fixtures to start with and where they come from"
+  - "How the stored answers are fed when the bot asks more than one round"
+repoFacts:
+  - "Tests run with bun test from the repository root"
+  - "apps/agent/test/git-tools.test.ts scripts the model's replies in tests"

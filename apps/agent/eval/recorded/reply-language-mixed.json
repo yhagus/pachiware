@@ -32,6 +32,18 @@
       "text": "2. Buang kalimat pembuka dan penutup basa-basi\n\n## Summary\nJawaban bot sering ditutup dengan kalimat basa-basi seperti salam penutup yang tidak perlu.\n\n## Desired behaviour\nKode membuang kalimat pembuka dan penutup basa-basi, dalam bahasa Indonesia dan Inggris, sebelum jawaban dikirim.\n\n## Acceptance criteria\n- [ ] Kalimat penutup basa-basi tidak pernah sampai ke Discord\n- [ ] Isi jawaban yang lain tetap utuh\n\n## Out of scope\n- Menerjemahkan pesan lama\n\n## Open questions\n**Still need from @Alice:**\n- Apakah instruksi server boleh mematikan aturan ini? ➡️ Tidak, instruksi server hanya boleh mengubah gaya.\n\n---\n[Drafted by Pachiware from a brief by Alice](https://discord.com/channels/guild-1/channel-1/1000).\n\n**Context used** (yhagus/pachiware at `74a06a0`):\n- [README.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/README.md)\n- [GLOSSARY.md](https://github.com/yhagus/pachiware/blob/74a06a07dd20518acfd50f1dd23c3ea625472d72/GLOSSARY.md)"
     }
   ],
+  "questions": [
+    {
+      "source": "round 1",
+      "point": "Bot menjawab dalam bahasa Inggris untuk pertanyaan berbahasa Indonesia",
+      "text": "Kalau pesan mencampur dua bahasa, bot memakai bahasa yang mana?"
+    },
+    {
+      "source": "round 1",
+      "point": "Jawaban ditutup dengan \"semoga membantu\"",
+      "text": "Apakah instruksi server boleh mematikan aturan ini?"
+    }
+  ],
   "drafts": [
     {
       "n": 1,

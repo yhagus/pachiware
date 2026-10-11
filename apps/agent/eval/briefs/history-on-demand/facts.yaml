@@ -1,0 +1,12 @@
+# Source: #19 and #45.
+language: en
+mustCover:
+  - "On request, the bot reads a channel's or thread's older messages from Discord, page by page, within a limit"
+  - "The bot reads history only when asked"
+  - "History is not read for someone who cannot read that channel's history"
+knownGaps:
+  - "How far back a request may reach"
+  - "What the bot says when it cannot read the history itself"
+repoFacts:
+  - "The agent loop keeps the last 30 messages of a conversation in the prompt (apps/agent/src/loop/history.ts)"
+  - "The Discord adapter has no paged history reading"

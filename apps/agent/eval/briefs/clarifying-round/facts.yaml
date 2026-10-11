@@ -1,0 +1,15 @@
+# Source: #40.
+language: en
+mustCover:
+  - "The bot's first message proposes the drafts, one line each, with Blocked by edges, splitting points that are too big"
+  - "Round 1 questions are numbered across the round, grouped by point, each with a recommended answer"
+  - "Messages stay under 2000 characters and no question is split across messages"
+  - "Only the author's replies answer questions; other people's messages are kept as input for the author"
+  - "The brief, its breakdown and the round state are saved in the Workspace"
+knownGaps:
+  - "How many questions one round may ask"
+  - "What the bot does when someone other than the author mentions it in the thread"
+  - "Where the brief's file lives in the Workspace"
+repoFacts:
+  - "Agent data lives in Workspace files, not the database (ADR 0003)"
+  - "Bot replies are cut into 1900-character chunks (apps/agent/src/discord/client.ts)"

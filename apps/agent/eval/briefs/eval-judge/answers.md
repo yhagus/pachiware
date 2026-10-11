@@ -1,0 +1,1 @@
+Judge model from env, and never one of the compared profiles. Yes, no or unknown per must-cover fact and per question, reasoning first. A draft passes on every code check, 80% of the facts, and nothing invented. 3 trials per brief, paired differences with standard errors, plus cost and latency. Version the rubric. Grow the fixtures to about 20 from this repo's history.

@@ -1,0 +1,1 @@
+A fake Discord client is fine, no real gateway. Script the model per test and stub the GitHub and GitLab calls. It has to cover mentions, button clicks, the message context menu, and what the bot writes to the Workspace. Leave the existing Discord tests as they are.

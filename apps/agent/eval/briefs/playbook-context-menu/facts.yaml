@@ -1,0 +1,17 @@
+# Source: #38. Indonesian with English terms.
+language: id
+cases: [mixed-language]
+mustCover:
+  - "Running the \"Draft issues\" message context-menu command opens a thread from that message, bound to the issue-draft playbook"
+  - "A mention with the playbook's trigger word starts the same playbook"
+  - "A brief already inside a thread uses that thread"
+  - "A tenant playbook in the Workspace overrides the built-in one of the same name"
+  - "Workspace write tools refuse paths under the playbooks folder"
+  - "A playbook whose required skill is off refuses and names that skill"
+knownGaps:
+  - "Whether a thread's binding to its playbook survives a bot restart"
+  - "On which turns the playbook's instructions are part of the prompt"
+  - "When the bot registers its application commands with Discord"
+repoFacts:
+  - "The bot registers no application commands at the pinned commit"
+  - "The Workspace has a tenant-wide shared folder (packages/skills/src/workspace/paths.ts)"

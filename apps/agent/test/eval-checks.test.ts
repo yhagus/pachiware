@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { checkDraftOutput, checkOutput, languageOf, type DraftOutput } from "../eval/checks";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadFixtures } from "../eval/fixtures";
 import { EVAL_DIR, pinnedRepo, pinnedTree } from "../eval/repository";
@@ -98,6 +99,31 @@ describe("fixtures and recorded drafts", () => {
       expect(f.facts.mustCover.length).toBeGreaterThan(0);
       expect(f.brief && f.answers).toBeTruthy();
     }
+  });
+
+  test("about 20 briefs cover every agreed edge case", () => {
+    expect(fixtures.length).toBeGreaterThanOrEqual(18);
+    const cases = new Set<string>(fixtures.flatMap((f) => f.facts.cases));
+    for (const c of ["one-line", "vague", "duplicate", "ambiguous-repository", "mixed-language", "screenshot"]) expect(cases).toContain(c);
+  });
+
+  test("a screenshot brief carries its image, and an ambiguous-repository brief opens a second repository", () => {
+    for (const f of fixtures.filter((f) => f.facts.cases.includes("screenshot"))) {
+      expect(f.images.length).toBeGreaterThan(0);
+      for (const image of f.images) expect(image.bytes.length).toBeGreaterThan(0);
+    }
+    for (const f of fixtures.filter((f) => f.facts.cases.includes("ambiguous-repository"))) expect(f.facts.alsoOpen.length).toBeGreaterThan(0);
+  });
+
+  test("a fixture with an unknown edge case is refused", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eval-fixtures-"));
+    mkdirSync(join(dir, "x"));
+    writeFileSync(join(dir, "x", "brief.md"), "b");
+    writeFileSync(join(dir, "x", "answers.md"), "a");
+    writeFileSync(join(dir, "x", "facts.yaml"), "language: en\ncases: [long]\nmustCover: [m]\n");
+    expect(() => loadFixtures(dir)).toThrow("Fixture x: cases are one-line, vague, duplicate, ambiguous-repository, mixed-language, screenshot");
+    writeFileSync(join(dir, "x", "facts.yaml"), "language: en\ncases: [screenshot]\nmustCover: [m]\n");
+    expect(() => loadFixtures(dir)).toThrow("Fixture x is a screenshot brief without an image");
   });
 
   test("at least one recorded run exists", () => expect(recorded.length).toBeGreaterThan(0));

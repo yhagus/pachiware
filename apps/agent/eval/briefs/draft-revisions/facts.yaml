@@ -1,0 +1,16 @@
+# Source: #41.
+language: en
+mustCover:
+  - "\"yes\" accepts every recommendation, and \"yes, except Qn: ...\" overrides single answers"
+  - "A question left unanswered twice becomes an assumption marked in the draft"
+  - "\"draft now\" moves every open question into the drafts"
+  - "Each draft is one embed, checked against the draft limits before it is posted"
+  - "A plain-text revision edits only the named draft's embed and posts a one-line note"
+  - "Without git, drafts say they were written without repository context and come with a drafts.md attachment"
+knownGaps:
+  - "The draft's limits (title length, number of acceptance criteria and open questions)"
+  - "Which language drafts are written in"
+  - "Whether drafts survive a bot restart in the middle of a brief"
+repoFacts:
+  - "Agent data lives in Workspace files, not the database (ADR 0003)"
+  - "Bot replies are cut into 1900-character chunks (apps/agent/src/discord/client.ts)"
