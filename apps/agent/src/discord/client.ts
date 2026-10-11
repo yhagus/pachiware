@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Message, type ThreadChannel } from "discord.js";
+import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
 import { db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, getTenantById, updateBot, eq } from "@pachiware/db";
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
@@ -7,10 +7,18 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn } from "./ro
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
+import { listPlaybooks, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, type Playbook } from "@pachiware/skills";
 import { prepareReply } from "./replyStyle.js";
 
 const BURST_MS = 2500;
+const MESSAGE_COMMAND = 3; // ApplicationCommandType.Message
 type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[] };
+/** Who a turn acts for: the message author, or the person who ran a command on someone else's message. */
+type Actor = { id: string; name: string; member: any };
+const actorOf = (m: Message): Actor => ({ id: m.author.id, name: m.member?.displayName || m.author.username, member: m.member });
+// A guild member from the cache has a roles collection; one sent raw with an interaction has an id array.
+const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
+const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
   private operations = new Map<string, Promise<any>>();
@@ -68,11 +76,15 @@ export class DiscordBotManager {
       if (this.clients.get(id) !== runtime) return;
       runtime.connected = true;
       void updateBot(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
+      this.track(this.registerCommands(runtime));
     });
     client.on(Events.ShardDisconnect, () => { runtime.connected = false; void updateBot(id, { connectionStatus: "disconnected" }).catch(() => {}); });
     client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
     client.on(Events.Error, () => { void updateBot(id, { lastError: "Discord gateway error" }).catch(() => {}); });
-    client.on(Events.InteractionCreate, (i) => { if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId))); });
+    client.on(Events.InteractionCreate, (i) => {
+      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId)));
+      else if (i.isMessageContextMenuCommand()) this.track(this.handleCommand(id, i));
+    });
     client.on(Events.MessageCreate, (msg) => { this.track(this.handleMessage(id, msg)); });
     try {
       await client.login(token);
@@ -83,6 +95,12 @@ export class DiscordBotManager {
       await updateBot(id, { connectionStatus: "error", lastError: "Discord login failed; verify token, intents, and connectivity." });
       return { success: false, message: "Discord login failed." };
     }
+  }
+  /** One message context-menu command per playbook that names one; Discord allows five per app. */
+  private async registerCommands(runtime: BotRuntime) {
+    if (!runtime.client.application) return;
+    const menus = [...new Set((await listPlaybooks(runtime.tenantId)).map((p) => p.menu).filter((m): m is string => !!m))].slice(0, 5);
+    await runtime.client.application.commands.set(menus.map((name) => ({ name, type: MESSAGE_COMMAND })));
   }
   static async testToken(token: string) {
     if (!token) return { success: false, error: "Bot token is empty." };
@@ -101,12 +119,16 @@ export class DiscordBotManager {
     if (tenant?.status !== "active") return;
     const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
     const channelId0 = msg.channelId;
-    const shared = msg.channel.isThread() && msg.channel.ownerId === botUserId || (guild?.alwaysChannelIds ?? []).includes(channelId0);
+    const parentId = msg.channel.isThread() ? msg.channel.parentId : null;
+    const bound = msg.guildId && parentId ? await boundPlaybook(runtime.tenantId, { guildId: msg.guildId, channelId: parentId, threadId: channelId0 }) : null;
+    // A thread bound to a playbook is the bot's to follow even when someone else opened it.
+    const ownThread = msg.channel.isThread() && (msg.channel.ownerId === botUserId || !!bound);
+    const shared = ownThread || (guild?.alwaysChannelIds ?? []).includes(channelId0);
     const others = [...msg.mentions.users.keys()].some((id) => id !== botUserId) && !msg.mentions.users.has(botUserId);
     const trigger = {
       authorIsBot: msg.author.bot, guildId: msg.guildId, allowedGuildIds: runtime.guildIds,
       mentioned: msg.mentions.users.has(botUserId), repliedToBot: false,
-      inOwnThread: msg.channel.isThread() && msg.channel.ownerId === botUserId,
+      inOwnThread: ownThread,
       channelId: channelId0, alwaysChannelIds: guild?.alwaysChannelIds ?? [],
       lastMessageFromBot: false, addressesOthers: others,
     };
@@ -134,6 +156,7 @@ export class DiscordBotManager {
     if (!rate.allowed) { await msg.react("⏳").catch(() => {}); return; }
     if (!text) return;
     await db.insert(usageEvents).values({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
+    if (trigger.mentioned && msg.guildId && !bound && await this.triggerPlaybook(runtime, botId, msg, text)) return;
     // A mention in a plain text channel opens a thread so the follow-ups need no mention; without permission it falls back to the channel.
     let thread: ThreadChannel | null = null;
     if (reason === "mention" && guild?.useThreads && "startThread" in msg && !msg.channel.isThread() && !msg.channel.isDMBased()) {
@@ -141,7 +164,7 @@ export class DiscordBotManager {
     }
     const channelId = thread?.id ?? msg.channelId;
     // One turn at a time per conversation, so concurrent messages do not interleave history.
-    const run = (m: Message, turn: string, direct: boolean) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, turn, channelId, thread, direct));
+    const run = (m: Message, turn: string, direct: boolean) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, turn, channelId, thread, { playbook: bound?.playbook, direct }));
     const speakerOf = (m: Message) => m.member?.displayName || m.author.username;
     if (!msg.guildId || thread) { await run(msg, speakerTurn(msg.guildId, speakerOf(msg), text), direct); return; }
     // Burst of messages in a shared channel: wait for a pause, then answer once with all of them.
@@ -156,7 +179,49 @@ export class DiscordBotManager {
     }, this.burstMs);
     this.bursts.set(key, burst);
   }
-  private async reply(runtime: BotRuntime, botId: string, msg: Message, turn: string, channelId: string, thread: ThreadChannel | null, direct: boolean) {
+  /** "@bot issue: points" starts the playbook whose trigger word leads the message. */
+  private async triggerPlaybook(runtime: BotRuntime, botId: string, msg: Message, text: string) {
+    const m = TRIGGER.exec(text);
+    if (!m || !m[2]!.trim()) return false;
+    const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.words.includes(m[1]!.toLowerCase()));
+    if (!playbook) return false;
+    const opened = await this.openPlaybook(runtime, botId, playbook, msg, m[2]!.trim(), actorOf(msg));
+    if ("error" in opened) await msg.reply({ content: opened.error, allowedMentions: { parse: [] } }).catch(() => {});
+    else await opened.start();
+    return true;
+  }
+  async handleCommand(botId: string, i: MessageContextMenuCommandInteraction) {
+    const runtime = this.clients.get(botId);
+    if (!runtime) return;
+    const say = (content: string) => i.reply({ content, ephemeral: true }).catch(() => {});
+    if ((await getTenantById(runtime.tenantId))?.status !== "active") return say("This bot is turned off.");
+    if (!i.guildId || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say("Playbooks run only in the servers this bot is set up for.");
+    const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.menu === i.commandName);
+    if (!playbook) return say("This command is no longer available.");
+    const opened = await this.openPlaybook(runtime, botId, playbook, i.targetMessage, i.targetMessage.content.trim(), { id: i.user.id, name: (i.member as any)?.displayName || i.user.username, member: i.member });
+    if ("error" in opened) return say(opened.error);
+    await say(`Following the ${playbook.name} playbook in <#${opened.thread.id}>.`);
+    await opened.start();
+  }
+  /** Checks the playbook's skills, opens or reuses the source message's thread, and binds it; `start` runs the first turn there. */
+  private async openPlaybook(runtime: BotRuntime, botId: string, playbook: Playbook, source: Message, brief: string, actor: Actor): Promise<{ error: string } | { thread: ThreadChannel; start: () => Promise<void> }> {
+    const missing = missingSkills(playbook, (await skillRegistry.getActiveSkills(runtime.tenantId)).map((s) => s.id));
+    if (missing.length) {
+      const names = missing.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id).join(" and ");
+      return { error: `The ${playbook.name} playbook needs the ${names} skill${missing.length > 1 ? "s" : ""}, which ${missing.length > 1 ? "are" : "is"} off here. An admin can turn ${missing.length > 1 ? "them" : "it"} on in the console.` };
+    }
+    const thread = source.channel.isThread() ? source.channel as ThreadChannel
+      : source.thread ?? await source.startThread({ name: threadName(brief), autoArchiveDuration: 1440 }).catch(() => null);
+    if (!thread?.parentId || !source.guildId) return { error: "I couldn't open a thread for this message. Check that I can create threads in this channel." };
+    const place = { guildId: source.guildId, channelId: thread.parentId, threadId: thread.id };
+    const previous = await readBinding(runtime.tenantId, place).catch(() => null);
+    if (previous?.binding.status === "active") return { error: `This thread already follows the ${previous.binding.playbook} playbook.` };
+    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, sourceMessageId: source.id, startedAt: new Date().toISOString() }, `${brief}\n`, previous?.version).catch(() => null);
+    if (!saved) return { error: "I couldn't save this thread to the Workspace, so the playbook did not start. Try again in a moment." };
+    const turn = speakerTurn(source.guildId, source.member?.displayName || source.author.username, brief);
+    return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, turn, thread.id, thread, { actor, playbook })) };
+  }
+  private async reply(runtime: BotRuntime, botId: string, msg: Message, turn: string, channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; direct?: boolean } = {}) {
     const target = thread ?? msg.channel;
     const typing = async () => { try { if ("sendTyping" in target) await target.sendTyping(); } catch {} };
     await typing();
@@ -165,8 +230,9 @@ export class DiscordBotManager {
     try {
       const [agent] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, runtime.tenantId)).limit(1);
       const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
-      const speaker = msg.member?.displayName || msg.author.username;
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: msg.author.id, userName: speaker, addressed: direct, skillContext: { member: { roleIds: msg.member ? [...msg.member.roles.cache.keys()] : [], permissions: msg.member?.permissions?.toArray?.() ?? [] }, discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
+      const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
+      const playbook = opts.playbook && { name: opts.playbook.name, body: opts.playbook.body };
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
       const plan = prepareReply(output.reply, { addressed: direct });
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       for (const chunk of plan.messages) await send(chunk);
@@ -174,7 +240,7 @@ export class DiscordBotManager {
         // Git write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.
         for (const { result } of output.toolCallsExecuted) {
           const p = result.success ? pendingOf(result.data) : null;
-          if (p) await target.send(confirmMessage(p, msg.author.id));
+          if (p) await target.send(confirmMessage(p, actor.id));
         }
       }
     } catch { await send("Unable to process this request. Check your tenant configuration.").catch(() => {}); }

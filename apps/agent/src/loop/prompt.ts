@@ -32,6 +32,8 @@ export interface PromptContext {
   addressed?: boolean;
   /** Set when channelId is a thread: the channel whose Workspace folder it uses. */
   skillContext?: { parentChannelId?: string };
+  /** The playbook this thread is bound to. Its body joins the cached prefix, which stays stable because the binding lasts for the thread. */
+  playbook?: { name: string; body: string };
 }
 
 export class SystemPromptBuilder {
@@ -105,6 +107,11 @@ ${hasGit ? `- Git tools (repo*, gitAccounts) act on repositories the admins enab
 - Git write tools (repoWriteFile, repoOpenPullRequest, repoComment, repoCreateIssue, repoMergeMergeRequest, repoCloseItem) do not run immediately: they return pending, and the user must press Confirm on a message that appears. Say what you asked for and that it awaits their confirmation; never claim it is done, and never call the tool a second time.
 ` : ""}- Do NOT fabricate tool results. Always observe the output returned by the system.
 `);
+
+    if (context.playbook) promptSections.push(`### Playbook: ${context.playbook.name}
+Follow these steps in this thread. When a step points at a reference file, read it with readPlaybookFile.
+
+${context.playbook.body}`);
 
     // 5. Active Skills Summary
     const toolNames = activeTools.map((t) => `\`${t.name}\``).join(", ");

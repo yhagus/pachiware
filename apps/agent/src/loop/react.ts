@@ -61,12 +61,13 @@ export class AgentReActLoop {
 
     // Guardrail before the loop: refuse oversized or rule-rewriting messages and actions no active skill can serve, answer the rest.
     const verdict = GuardrailService.classify(input.message, await skillRegistry.getActiveSkills(input.tenantId));
-    if (!verdict.decision.allow && isEnforced(verdict.decision.kind)) {
+    // A playbook turn was started on purpose; its brief may be long or mention a skill that is off (git is optional), so it is only logged.
+    if (!verdict.decision.allow && isEnforced(verdict.decision.kind) && !input.context.playbook) {
       const auditCtx = { db, tenantId: input.tenantId, botId: input.botId };
       await audit(auditCtx, verdict.decision.kind === "prompt_injection" ? "prompt_injection_detected" : "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", platform: input.context.platform });
       return { conversationId: convId, reply: verdict.decision.message, toolCallsExecuted, iterations: 0 };
     }
-    if (!verdict.decision.allow) await audit({ db, tenantId: input.tenantId, botId: input.botId }, "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", observed: true });
+    else if (!verdict.decision.allow) await audit({ db, tenantId: input.tenantId, botId: input.botId }, "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", observed: true });
 
     // 2. Build dynamic system prompt
     const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId, botId: input.botId });

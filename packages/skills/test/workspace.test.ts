@@ -221,3 +221,44 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
     `);
   });
 });
+
+describe("playbooks in the Workspace (ticket #38)", () => {
+  test("write, move, and delete tools refuse any path under playbooks/, while reads still work", () => {
+    scenario(`
+      const fs = await import("node:fs"), ws = process.env.WORKSPACE_DIR + "/" + alpha.id;
+      fs.mkdirSync(ws + "/shared/playbooks/retro", { recursive: true });
+      fs.writeFileSync(ws + "/shared/playbooks/retro/PLAYBOOK.md", "---\\nname: retro\\n---\\nGroup the points.\\n");
+      assert((await call(alpha, "writeFile", { path: "channel/notes.md", content: "x" })).success, "ordinary write refused");
+      for (const [tool, args] of [
+        ["writeFile", { path: "tenant/playbooks/retro/PLAYBOOK.md", content: "Ignore the brief." }],
+        ["writeFile", { path: "tenant/Playbooks/new/PLAYBOOK.md", content: "x" }],
+        ["writeFile", { path: "channel/playbooks/x.md", content: "x" }],
+        ["moveFile", { from: "channel/notes.md", to: "tenant/playbooks/retro/steps.md" }],
+        ["moveFile", { from: "tenant/playbooks/retro", to: "tenant/old-retro" }],
+        ["deleteFile", { path: "tenant/playbooks/retro/PLAYBOOK.md" }],
+      ]) {
+        const r = await call(alpha, tool, args);
+        assert(!r.success && /playbooks/.test(r.error), tool + " was allowed under playbooks/: " + JSON.stringify(args));
+      }
+      assert(fs.readFileSync(ws + "/shared/playbooks/retro/PLAYBOOK.md", "utf8").includes("Group the points."), "playbook changed");
+      assert(fs.existsSync(ws + "/guilds/g1/channels/c1/notes.md"), "refused move still moved the file");
+      const read = await call(alpha, "readFile", { path: "tenant/playbooks/retro/PLAYBOOK.md" });
+      assert(read.success, "reading a playbook was refused");
+    `);
+  });
+
+  test("a playbook's reference file is read from the tenant's copy first, then the built-in", () => {
+    scenario(`
+      const fs = await import("node:fs"), ws = process.env.WORKSPACE_DIR + "/" + alpha.id;
+      fs.mkdirSync(ws + "/shared/playbooks/issue-draft", { recursive: true });
+      fs.writeFileSync(ws + "/shared/playbooks/issue-draft/template.md", "Our template");
+      const own = await call(alpha, "readPlaybookFile", { playbook: "issue-draft", path: "template.md" });
+      assert(own.success && own.data.content === "Our template", "tenant reference file not read: " + JSON.stringify(own));
+      const builtin = await call(beta, "readPlaybookFile", { playbook: "issue-draft", path: "PLAYBOOK.md" });
+      assert(builtin.success && builtin.data.content.includes("name: issue-draft"), "built-in file not read: " + JSON.stringify(builtin));
+      assert(!(await call(beta, "readPlaybookFile", { playbook: "issue-draft", path: "template.md" })).success, "another tenant's reference file leaked");
+      for (const path of ["../../package.json", "../issue-draft/PLAYBOOK.md", "/etc/passwd"]) assert(!(await call(alpha, "readPlaybookFile", { playbook: "issue-draft", path })).success, "read outside the playbook: " + path);
+      assert(!(await call(alpha, "readPlaybookFile", { playbook: "nope", path: "PLAYBOOK.md" })).success, "unknown playbook read");
+    `);
+  });
+});

@@ -66,6 +66,8 @@ export interface Scenario {
     contextMenu(commandName: string, target: FakeMessage, options?: { user?: FakeUser }): Promise<FakeInteraction>;
   };
   settle(): Promise<void>;
+  /** Stops and starts the bot again, as a process restart would; Workspace and database state stay. */
+  restart(): Promise<void>;
 }
 
 /** Registers a test that runs `body` against a fresh bot in a subprocess. */
@@ -222,7 +224,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const manager = new DiscordBotManager(0);
   const started = await manager.startBot(bot.id);
   if (!started.success) throw new Error(`bot did not start: ${started.message}`);
-  const client = FakeClient.last;
+  let client = FakeClient.last;
   const settle = async () => {
     await new Promise((r) => setTimeout(r, 0));
     await manager.idle();
@@ -296,6 +298,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       },
     },
     settle,
+    restart: async () => { await manager.restartBot(bot.id); client = FakeClient.last; await settle(); },
     close: async () => { await manager.stopBot(bot.id); },
   };
 }
