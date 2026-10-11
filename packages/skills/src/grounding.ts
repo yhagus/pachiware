@@ -20,7 +20,13 @@ export const READ_BUDGET = { point: 6, brief: 30 } as const;
 /** Repositories one brief may read; each costs a fixed handful of requests. */
 export const MAX_BRIEF_REPOS = 3;
 
-export const groundingOf = (b: PlaybookBinding): BriefGrounding => {
+export const ISSUE_DRAFT_PLAYBOOK = "issue-draft";
+/** Repository reads briefRead stands in for; closed in the playbook's threads so no read escapes the budget. */
+const BUDGETED_READS = ["repoReadFile", "repoSearchCode", "repoIssues", "repoIssue", "repoComments", "repoLabels", "repoCommit", "repoCommits", "repoCompare", "repoMergeRequests", "repoMergeRequest", "repoMergeRequestDiff"];
+export const closedTools = (playbook?: string): string[] => (playbook === ISSUE_DRAFT_PLAYBOOK ? BUDGETED_READS : []);
+export const CLOSED_TOOL_ERROR = `This thread follows the ${ISSUE_DRAFT_PLAYBOOK} playbook: read repositories with briefRead, which keeps to the brief's reading budget.`;
+
+export const groundingOf =(b: PlaybookBinding): BriefGrounding => {
   const g = (b.grounding ?? {}) as any;
   return { candidates: Array.isArray(g.candidates) ? g.candidates : [], ...(typeof g.single === "string" ? { single: g.single } : {}), repos: g.repos && typeof g.repos === "object" ? g.repos : {}, reads: Array.isArray(g.reads) ? g.reads : [], ...(g.spent === true ? { spent: true } : {}) };
 };

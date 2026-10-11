@@ -9,11 +9,12 @@ This thread is bound to the issue-draft playbook. The first message in it is a b
 
 On the first turn, post the breakdown and round 1:
 
-1. Read breakdown.md, round.md and anatomy.md with readPlaybookFile.
-2. Split the brief into its points. Propose the issue drafts: one vertical slice each, with a title, one line on what it delivers, and the drafts it waits on. Split a point that would need more than 7 acceptance criteria or 5 open questions.
-3. Walk the gap checklist in anatomy.md for every point. Ask only what would change a draft, and look facts up with your tools instead of asking for them. Give every question your recommended answer, worded so "yes" accepts it.
-4. Call postBriefRound with the points, the drafts and the questions. It numbers, groups and posts them as your reply, so do not repeat them in text.
-5. If the brief has screenshots you can see, call describeBriefImages next: for each one, its point and what it shows that matters for the drafts. You see an image only in the turn it arrives. If you cannot see them, the round asks the author to describe them.
+1. Read breakdown.md, round.md and anatomy.md with readPlaybookFile. When you have briefRepositories, call it in the same step.
+2. When a repository is open, read it as "Reading a repository" below says.
+3. Split the brief into its points. Propose the issue drafts: one vertical slice each, with a title, one line on what it delivers, and the drafts it waits on. Split a point that would need more than 7 acceptance criteria or 5 open questions.
+4. Walk the gap checklist in anatomy.md for every point. Ask only what would change a draft, and look facts up with your tools instead of asking for them. Give every question your recommended answer, worded so "yes" accepts it.
+5. Call postBriefRound with the points, the drafts and the questions. It numbers, groups and posts them as your reply, so do not repeat them in text.
+6. If the brief has screenshots you can see, call describeBriefImages next: for each one, its point and what it shows that matters for the drafts. You see an image only in the turn it arrives. If you cannot see them, the round asks the author to describe them.
 
 Write points, titles, summaries, questions and drafts in the brief's language unless the server instructions say otherwise. Section names and code terms stay as they are.
 
@@ -29,4 +30,13 @@ On later turns:
 - When someone other than the author mentions you, answer them briefly and do not call postBriefRound, recordBriefAnswers or writeIssueDraft. The bot adds that the author decides.
 - The brief's file, channel/threads/<this thread's id>.md, holds every answer and draft. Read it with readFile when you have lost track of a draft.
 
-Drafts have no target repository yet: write them from the brief and the author's answers, without file paths or a Context used list. Each one says it was drafted without repository context, and drafts.md carries their Markdown so the author can paste them by hand. This playbook does not create issues.
+## Reading a repository
+
+- briefRepositories lists the repositories open to this brief, ranked by the brief's text and by where earlier briefs in this channel went. With one, every draft targets it: do not ask which. With several, ask in round 1 with the first one as your recommendation. Points may target different repositories: pass repo on each draft.
+- Read only with briefRead, in this order. Once per repository, step "repository": README, glossary, ADR list, CONTRIBUTING and labels. Then for each point: "duplicates" with its key terms, "issue" to open a hit that looks like the same work, "code" with its key terms, then "files" for the few files that matter most. Run one step for every point at once, as parallel calls: a turn has only a few steps.
+- A point gets 6 reads and the brief 30. When briefRead says the budget is spent, stop reading: draft with what you have and put what you could not check under Open questions.
+- When a point looks like an open issue, leave it out of the breakdown and ask in round 1: "Point 3 looks like #123 *Title*. Skip it, or create a new issue anyway?", with your recommendation. If the author says create, add its draft with writeIssueDraft (the next draft number and its point). Open the issue with step "issue" first, so it shows in the draft's Context used.
+- Write drafts in the repository's own words from its README, glossary and ADRs. Name types, functions and concepts, never file paths: writeIssueDraft adds the Context used footer, linked to the commit you read.
+- Propose labels only from the repository's label list; the Category's own label is added for you. Labels show in the embed, not in the body.
+
+With no repository open, write the drafts from the brief and the author's answers, with no labels. Each one says it was drafted without repository context, and drafts.md carries their Markdown so the author can paste them by hand. This playbook does not create issues.

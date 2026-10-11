@@ -1,7 +1,7 @@
 import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
 import { eq, and, sql } from "drizzle-orm";
 import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, CLOSED_TOOL_ERROR, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
@@ -113,7 +113,9 @@ export class AgentReActLoop {
     });
 
     // 5. Retrieve active tools
-    const activeTools = await skillRegistry.getActiveTools(input.tenantId);
+    // A playbook may close tools in its threads; a call to one is refused even when the model names it anyway.
+    const closed = new Set(closedTools(input.context.playbook?.name));
+    const activeTools = (await skillRegistry.getActiveTools(input.tenantId)).filter((t) => !closed.has(t.name));
 
     // 6. Build execution context for tools
     const skillContext: SkillContext = {
@@ -184,7 +186,9 @@ export class AgentReActLoop {
       for (const toolCall of response.toolCalls) {
         input.onStep?.({ type: "tool_call", payload: toolCall });
 
-        const result = await skillRegistry.executeTool(toolCall, skillContext);
+        const result: ToolResult = closed.has(toolCall.name)
+          ? { toolCallId: toolCall.id, name: toolCall.name, success: false, error: CLOSED_TOOL_ERROR }
+          : await skillRegistry.executeTool(toolCall, skillContext);
         toolCallsExecuted.push({ call: toolCall, result });
 
         input.onStep?.({ type: "tool_result", payload: result });

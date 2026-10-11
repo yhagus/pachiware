@@ -65,6 +65,16 @@ test("required sections, the anatomy's order, no unknown or empty sections, and 
   expect(rules({ title: "Keep filters", body: swapped })).toEqual(["order"]);
 });
 
+test("the body names concepts, not file paths or line numbers; links and the Context used footer may hold paths", () => {
+  const desired = (text: string) => body({ desired: `## Desired behaviour\n${text}` });
+  expect(rules({ title: "Keep filters", body: desired("The `SessionStore` keeps the session across the redirect.") })).toEqual([]);
+  expect(rules({ title: "Keep filters", body: desired("See [the guide](https://example.com/docs/guide.md) and and/or TCP/IP.") })).toEqual([]);
+  expect(checkDraft({ title: "Keep filters", body: desired("Change `apps/agent/src/session.ts` so the session survives.") })).toEqual([{ rule: "paths", message: "The body names the file path apps/agent/src/session.ts; name the concept (type, function, glossary term) instead." }]);
+  expect(rules({ title: "Keep filters", body: desired("The bug is at session.ts:42.") })).toEqual(["paths"]);
+  const footer = "---\n[Drafted by Pachiware from a brief by Alice](https://discord.com/channels/1/2/3).\n\n**Context used** (o/r at `abc1234`):\n- [src/session.ts](https://github.com/o/r/blob/abc/src/session.ts)";
+  expect(rules({ title: "Keep filters", body: body({ footer }) })).toEqual([]);
+});
+
 test("every violation is reported at once", () => {
   expect(rules({ title: "x".repeat(80), body: body({ out: null, footer: null }) })).toEqual(["title", "section", "footer"]);
 });

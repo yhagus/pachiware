@@ -8,10 +8,12 @@ export const DRAFT_SECTIONS = ["Summary", "Current behaviour", "Desired behaviou
 export const REQUIRED_SECTIONS = ["Summary", "Desired behaviour", "Acceptance criteria", "Out of scope"] as const;
 export const FOOTER_MARK = "Drafted by";
 
-export type DraftRule = "title" | "body" | "section" | "order" | "empty" | "acceptanceCriteria" | "openQuestions" | "footer";
+export type DraftRule = "title" | "body" | "section" | "order" | "empty" | "acceptanceCriteria" | "openQuestions" | "paths" | "footer";
 export interface DraftViolation { rule: DraftRule; message: string }
 
 const EMPTY = /^(n\/?a|none|-|tbd)\.?$/i;
+/** A slash path ending in a file extension, or a file with a line number ("session.ts:42"). */
+const PATH = /(?<![\w/.-])((?:[\w.-]+\/)+[\w-]+\.[A-Za-z]\w{0,5}(?::\d+)?|[\w-]+\.[A-Za-z]\w{0,5}:\d+)(?![\w/])/g;
 
 /** Every way the draft breaks the anatomy or the budget; empty when it is fine. */
 export function checkDraft({ title, body }: { title: string; body: string }): DraftViolation[] {
@@ -61,6 +63,11 @@ export function checkDraft({ title, body }: { title: string; body: string }): Dr
     else if (asks.length > DRAFT_LIMITS.openQuestions) add("openQuestions", `There are ${asks.length} open questions; at most ${DRAFT_LIMITS.openQuestions}.`);
     else if (asks.some((l) => !l.includes("➡️"))) add("openQuestions", "Every open question carries a recommended answer after ➡️.");
   }
+
+  // Paths go stale while an issue waits; links may hold them, and the footer's Context used lists them on purpose.
+  const prose = main.replace(/\]\([^)]*\)/g, "]").replace(/https?:\/\/\S+/g, "");
+  const paths = [...new Set([...prose.matchAll(PATH)].map((m) => m[1]!))];
+  if (paths.length) add("paths", `The body names the file path${paths.length > 1 ? "s" : ""} ${paths.join(", ")}; name the concept (type, function, glossary term) instead.`);
 
   if (!footer.includes(FOOTER_MARK)) add("footer", `The footer ("${FOOTER_MARK} … from a brief by …") is missing after a --- line.`);
   return out;

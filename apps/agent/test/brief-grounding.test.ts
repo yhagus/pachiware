@@ -22,6 +22,22 @@ discordScenario("with one allowed repository every draft of the breakdown target
   expect(fields.drafts.map((d: any) => d.repo)).toEqual(["acme/api", "acme/api"]);
 });
 
+discordScenario("in a brief thread the plain repository reads are closed, so every read goes through the budget", async (s) => {
+  const { ROUND_1 } = await import(process.cwd() + "/apps/agent/test/support/briefs.ts");
+  await s.git({ repos: ["acme/api"] });
+  s.model.script(
+    [{ tool: "repoReadFile", args: { repo: "acme/api", path: "README.md" } }, { tool: "repoSearchCode", args: { repo: "acme/api", query: "session" } }],
+    (turn) => {
+      for (const r of turn.toolResults) expect(r.error).toBe("This thread follows the issue-draft playbook: read repositories with briefRead, which keeps to the brief's reading budget.");
+      return { tool: "postBriefRound", args: ROUND_1 };
+    },
+    "ok",
+  );
+  const brief = await s.discord.send(ROUND_1.points.map((p: string) => `- ${p}`).join("\n"));
+  await s.discord.contextMenu("Draft issues", brief);
+  expect(s.http.requests.filter((r) => r.url.includes("api.github.com"))).toEqual([]);
+});
+
 discordScenario("a likely duplicate becomes a skip-or-create question, and the drafts carry existing labels and Context used pinned to HEAD", async (s) => {
   const { briefFields, embedsIn, draft, stubRepo, HEAD, ROUND_1 } = await import(process.cwd() + "/apps/agent/test/support/briefs.ts");
   const { checkDraft } = await import(process.cwd() + "/packages/skills/src/draftChecker.ts");
