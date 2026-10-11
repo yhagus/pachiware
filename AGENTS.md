@@ -21,13 +21,14 @@ To prevent context window overflow, broken builds, or lost progress across multi
 
 1. **Maintain `PROGRESS.md`:**
    - Always create and update `PROGRESS.md` in the repository root.
-   - List overall project goals, phase breakdowns, and granular task checklists (`[ ]` / `[x]`).
+   - `PROGRESS.md` may contain only phase progress and details belonging to each phase, including granular task checklists (`[ ]` / `[x]`).
+   - Never add a new category section to `PROGRESS.md`. Record task results, verification, decisions, and blockers under the relevant phase; create a new phase only when the work actually defines a new project phase.
    - Update `PROGRESS.md` **at the end of every task or phase** before concluding your response.
 2. **Modular & Incremental Development:**
    - Execute phase-by-phase. Never generate the entire codebase in a single step.
    - Verify that current code compiles cleanly before marking a step as complete.
 3. **Transparent State Logging:**
-   - Document any architectural decisions or blocking issues in `PROGRESS.md`.
+   - Document architectural decisions or blocking issues under the relevant phase in `PROGRESS.md`.
 
 ---
 
