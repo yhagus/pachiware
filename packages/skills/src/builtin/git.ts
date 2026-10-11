@@ -3,6 +3,7 @@ import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBr
 import { loadGitAccess, pickAccess, connectionOf, repoAllowed, type GitAccess } from "../gitScope.js";
 import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, state, num, str, kindOf, clip, confirmable, guard } from "./gitShared.js";
 import { briefGroundingTools, briefGroundingHandlers } from "./briefGrounding.js";
+import { briefIssuesTools, briefIssuesHandlers } from "./briefIssues.js";
 
 export const gitTools: ToolDefinition[] = [
   { name: "gitAccounts", description: "Lists the git accounts you may use in this channel, with the repository patterns each is limited to. Call it first when unsure which account to use.",
@@ -123,13 +124,14 @@ export const gitRepositorySkill: SkillModule = {
   id: "git_repositories",
   name: "Git Repositories",
   description: "Browse and change repositories on the git accounts enabled for this server and channel (GitHub, GitLab, self-hosted GitLab).",
-  tools: [...gitTools, ...briefGroundingTools],
+  tools: [...gitTools, ...briefGroundingTools, ...briefIssuesTools],
   capabilities: ["git"],
   // Git queues, scopes and confirms every write itself (gitShared.guard), per account and repository pattern.
   confirmsInternally: true,
   toolPolicy: { briefRead: { risk: "read", metered: true } },
   handlers: {
     ...briefGroundingHandlers,
+    ...briefIssuesHandlers,
     gitAccounts: async (_a, ctx) => ({ accounts: (await loadGitAccess(ctx)).map((a) => ({ name: a.account.name, provider: a.account.provider, host: a.account.baseUrl ?? a.account.provider, repositories: patternsOf(a) })) }),
     repoList: async (a, ctx) => {
       const access = pickAccess(await loadGitAccess(ctx), a?.account);

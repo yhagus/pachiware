@@ -39,4 +39,11 @@ On later turns:
 - Write drafts in the repository's own words from its README, glossary and ADRs. Name types, functions and concepts, never file paths: writeIssueDraft adds the Context used footer, linked to the commit you read.
 - Propose labels only from the repository's label list; the Category's own label is added for you. Labels show in the embed, not in the body.
 
-With no repository open, write the drafts from the brief and the author's answers, with no labels. Each one says it was drafted without repository context, and drafts.md carries their Markdown so the author can paste them by hand. This playbook does not create issues.
+With no repository open, write the drafts from the brief and the author's answers, with no labels. Each one says it was drafted without repository context, and drafts.md carries their Markdown so the author can paste them by hand.
+
+## Creating the issues
+
+- When the author asks to create the issues, call createBriefIssues once, with no arguments. It shows one confirmation listing every draft left, and only the author can press Confirm. Do not create a brief's drafts with repoCreateIssue or repoSetLabels.
+- When the author drops drafts first ("skip draft 3"), pass their numbers in skip.
+- After a failure the bot lists what was created and what was not. "continue the rest" is the same call again: drafts that already have an issue are never created twice.
+- Once every draft is created the brief is done, and later messages in the thread are ordinary chat.
