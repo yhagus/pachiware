@@ -37,8 +37,8 @@ export class AgentReActLoop {
    * Executes the ReAct cycle (Thought -> Action -> Observation -> Answer).
    */
   async run(input: ReActInput): Promise<ReActOutput> {
-    const requestedIterations = Number(input.maxIterations) || 12;
-    const maxIterations = Math.min(32, Math.max(1, input.context.playbook ? Math.max(requestedIterations, PLAYBOOK_ITERATIONS) : requestedIterations));
+    const requestedIterations = Number(input.maxIterations) || 32;
+    const maxIterations = Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, PLAYBOOK_ITERATIONS) : requestedIterations));
     const toolCallsExecuted: { call: ToolCall; result: ToolResult }[] = [];
 
     // 1. Ensure conversation exists in PostgreSQL
@@ -222,8 +222,20 @@ export class AgentReActLoop {
     }
 
     if (iterations >= maxIterations && !finalReply) {
-      finalReply = "I completed several actions, but reached the maximum reasoning iterations.";
-      await audit(skillContext, "guardrail_denied", { kind: "limit", source: "iterations" });
+      // Give the model one tool-free turn to turn completed work into a useful answer.
+      // This prevents the safety budget from surfacing as an opaque failure message.
+      messageHistory.push({
+        role: "user",
+        content: "The action budget for this turn is exhausted. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.",
+      });
+      const boundary = await llmRouter.complete(messageHistory, {
+        tenantId: input.tenantId,
+        botId: input.botId,
+        cacheKey: convId,
+        tools: [],
+      });
+      finalReply = redact(boundary.content || "I completed the available actions. Please continue this task in your next message.");
+      await audit(skillContext, "guardrail_denied", { kind: "limit", source: "iterations", synthesized: true });
     }
 
     return {

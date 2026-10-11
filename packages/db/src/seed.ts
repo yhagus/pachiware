@@ -2,7 +2,7 @@ import { db, agentsConfig, skills, tenantSkills, tenants } from "./index.js";
 import { eq } from "drizzle-orm";
 
 export async function seedTenant(tenantId: string, store = db) {
-  await store.insert(agentsConfig).values({ tenantId, settings: { maxReActIterations: 8 } }).onConflictDoNothing();
+  await store.insert(agentsConfig).values({ tenantId, settings: { maxReActIterations: 32 } }).onConflictDoNothing();
   const definitions = await store.select().from(skills);
   for (const skill of definitions) {
     await store.insert(tenantSkills).values({ tenantId, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config }).onConflictDoNothing();
