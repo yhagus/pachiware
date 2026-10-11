@@ -1,30 +1,17 @@
+/** Grounding a brief in its repositories. Every read goes through the git functions, so an offline provider serves them too. */
 import type { SkillContext, ToolDefinition } from "../types.js";
-import { readBinding, writeBinding, parseFrontmatter, type BindingPlace, type PlaybookBinding } from "../playbooks.js";
-import { placeOf, briefState } from "../brief.js";
-import { WorkspaceConflict, workspaceStore } from "../workspace/store.js";
+import { rewriteBinding, parseFrontmatter, type BindingPlace } from "../playbooks.js";
+import { authorsBrief, briefState, BRIEF_CAPS } from "../brief.js";
+import { workspaceStore } from "../workspace/store.js";
 import { loadGitAccess, connectionOf, repoAllowed } from "../gitScope.js";
 import { defaultBranch, getCommit, readFile, listLabels, listRepos, searchIssues, searchCode, getIssue, blobUrl } from "../git.js";
 import { groundingOf, readsLeft, briefReadsLeft, missingStep, READ_BUDGET, MAX_BRIEF_REPOS, type BriefGrounding, type GroundingRead, type ReadStep } from "../grounding.js";
 import { acct, useRepo, str, num } from "./gitShared.js";
 
-/** Grounding a brief in its repositories (#42). Every read goes through the git functions, so an offline provider serves them too. */
-async function authorsThread(ctx: SkillContext) {
-  const place = placeOf(ctx);
-  const found = place && await readBinding(ctx.tenantId, place);
-  if (!place || !found || found.binding.status !== "active") throw new Error("This thread does not follow a playbook, so there is no brief to read for.");
-  if (ctx.userId !== found.binding.authorId) throw new Error("Only the brief's author's turns read repositories for it. Answer this person without reading.");
-  return { place, found };
-}
+const authorsThread = (ctx: SkillContext) => authorsBrief(ctx, "Only the brief's author's turns read repositories for it. Answer this person without reading.");
 
-/** Read-modify-write of the binding's `grounding`, retried once when another write landed in between. */
-async function saveGrounding(tenantId: string, place: BindingPlace, change: (g: BriefGrounding) => BriefGrounding) {
-  for (let attempt = 0; ; attempt++) {
-    const found = await readBinding(tenantId, place);
-    if (!found) return;
-    try { await writeBinding(tenantId, { ...found.binding, grounding: change(groundingOf(found.binding)) }, found.body, found.version); return; }
-    catch (e) { if (!(e instanceof WorkspaceConflict) || attempt) throw e; }
-  }
-}
+const saveGrounding = (tenantId: string, place: BindingPlace, change: (g: BriefGrounding) => BriefGrounding) =>
+  rewriteBinding(tenantId, place, ({ binding }) => ({ binding: { ...binding, grounding: change(groundingOf(binding)) }, value: true }));
 
 /** Repositories earlier briefs in this channel drafted for, counted once per brief. */
 async function earlierBriefRepos(tenantId: string, place: BindingPlace) {
@@ -101,7 +88,7 @@ export async function briefRead(a: Record<string, unknown>, ctx: SkillContext) {
 
   const grounded = g.repos[repo];
   if (!grounded) throw new Error(`Read the repository first: briefRead with step "repository" and repo ${repo}.`);
-  const points = briefState(found.binding).points.length || 30, point = a.point as number;
+  const points = briefState(found.binding).points.length || BRIEF_CAPS.points, point = a.point as number;
   if (!Number.isInteger(point) || point < 1 || point > points) throw new Error(`point must be a number from 1 to ${points}.`);
   const before = missingStep(g, repo, point, step);
   if (before) throw new Error(`Reads for a point go in order: duplicate search, then code search, then files. Run step "${before}" for point ${point} in ${repo} first.`);

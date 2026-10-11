@@ -37,6 +37,9 @@ export function threadName(text: string) {
   return (text.replace(/\s+/g, " ").trim().slice(0, 60) || "Conversation");
 }
 
+/** The name someone goes by here: their server nickname, else their username. */
+export const speakerName = (m: { member?: { displayName?: string } | null; author: { username: string } }) => m.member?.displayName || m.author.username;
+
 // Guild conversations are shared by everyone in the channel/thread, so turns carry the speaker.
 export function speakerTurn(guildId: string | null, name: string, text: string) {
   return guildId ? `${name}: ${text}` : text;

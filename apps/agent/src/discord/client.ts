@@ -3,13 +3,14 @@ import { db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, li
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
-import { respondReason, addressed, isNoise, threadName, speakerTurn } from "./routing.js";
+import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { pendingOf, confirmMessage, handleConfirmButton, type QueuedAction } from "./gitConfirm.js";
-import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, draftsWrittenOf, briefState, draftEmbed, draftsFile, recordDraftMessages, revisionNote, DRAFTS_FILE_NOTE, recordBriefImages, unseeBriefImages, briefIssuesOf, createdEmbed, issuesReport, type BindingPlace, type Playbook, type PlaybookBinding, type ToolResult } from "@pachiware/skills";
-import { prepareReply, splitReply, withNotes, MESSAGE_LIMIT, type ReplyPlan } from "./replyStyle.js";
-import { gatherTurnImages, withPlaceholders, BLIND_ONLY_NOTE, REJECTED_NOTE } from "./attachments.js";
+import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
+import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, missingSkills, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
+import { gatherTurnImages, withPlaceholders } from "./attachments.js";
+import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
 import { llmRouter } from "../llm/router.js";
 import { MINUTES_PLAYBOOK, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
 
@@ -19,17 +20,16 @@ type TurnItem = { msg: Message; text: string; direct?: boolean };
 type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[] };
 /** Who a turn acts for: the message author, or the person who ran a command on someone else's message. */
 type Actor = { id: string; name: string; member: any };
-const actorOf = (m: Message): Actor => ({ id: m.author.id, name: m.member?.displayName || m.author.username, member: m.member });
+const actorOf = (m: Message): Actor => ({ id: m.author.id, name: speakerName(m), member: m.member });
 // A guild member from the cache has a roles collection; one sent raw with an interaction has an id array.
 const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
 const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
 /** Names the skills a playbook requires that are off for the tenant, or null when it can start. */
-async function skillsRefusal(tenantId: string, playbook: Playbook) {
+async function skillsRefusal(tenantId: string, playbook: Playbook, language?: Language) {
   const missing = missingSkills(playbook, (await skillRegistry.getActiveSkills(tenantId)).map((s) => s.id));
   if (!missing.length) return null;
-  const names = missing.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id).join(" and ");
-  return `The ${playbook.name} playbook needs the ${names} skill${missing.length > 1 ? "s" : ""}, which ${missing.length > 1 ? "are" : "is"} off here. An admin can turn ${missing.length > 1 ? "them" : "it"} on in the console.`;
+  return textIn(language).skillsOff(playbook.name, missing.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id));
 }
 export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
@@ -94,7 +94,7 @@ export class DiscordBotManager {
     client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
     client.on(Events.Error, () => { void updateBot(id, { lastError: "Discord gateway error" }).catch(() => {}); });
     client.on(Events.InteractionCreate, (i) => {
-      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), (action, result) => this.afterConfirm(runtime, action, result)));
+      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), (action, result) => afterBriefConfirm(runtime.client, runtime.tenantId, action, result)));
       else if (i.isMessageContextMenuCommand()) this.track(this.handleCommand(id, i));
     });
     client.on(Events.MessageCreate, (msg) => { this.track(this.handleMessage(id, msg)); });
@@ -155,12 +155,12 @@ export class DiscordBotManager {
       if (ref && !trigger.repliedToBot) trigger.addressesOthers = true;
     }
     // In a bound thread only the author decides: anyone else's message is kept as input for them and acknowledged, not answered.
-    const place = bound && { guildId: bound.binding.guildId, channelId: bound.binding.channelId, threadId: bound.binding.threadId };
+    const place = bound && bindingPlace(bound.binding);
     const outsider = !!bound && msg.author.id !== bound.binding.authorId;
     const keepInput = async () => {
       const said = msg.content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
       if (!place || isNoise(said, msg.attachments.size > 0)) return false;
-      return !!await recordBriefInput(runtime.tenantId, place, { messageId: msg.id, userId: msg.author.id, name: msg.member?.displayName || msg.author.username, text: said || "[attachment]" }).catch(() => null);
+      return !!await recordBriefInput(runtime.tenantId, place, { messageId: msg.id, userId: msg.author.id, name: speakerName(msg), text: said || "[attachment]" }).catch(() => null);
     };
     if (outsider && !addressed(trigger)) { if (await keepInput()) await msg.react("👀").catch(() => {}); return; }
     if (shared && !trigger.mentioned && !trigger.repliedToBot && !trigger.addressesOthers && !(guild?.alwaysChannelIds ?? []).includes(channelId0)) {
@@ -219,14 +219,14 @@ export class DiscordBotManager {
     if (!m) return false;
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.words.includes(m[1]!.toLowerCase()));
     if (!playbook) return false;
+    const say = replyQuietly(msg);
     if (playbook.name === MINUTES_PLAYBOOK) {
-      const say = (content: string) => msg.reply({ content, allowedMentions: { parse: [] } }).catch(() => {});
-      await this.runMinutes(runtime, botId, playbook, msg, msg.author.id, { skipIds: [msg.id], refuse: say, fail: say });
+      await this.runMinutes(runtime, botId, playbook, msg, msg.author.id, { skipIds: [msg.id], refuse: say, fail: say }, replyLanguage(text));
       return true;
     }
     if (bound || !msg.guildId || !m[2]?.trim()) return false;
     const opened = await this.openPlaybook(runtime, botId, playbook, msg, m[2]!.trim(), actorOf(msg));
-    if ("error" in opened) await msg.reply({ content: opened.error, allowedMentions: { parse: [] } }).catch(() => {});
+    if ("error" in opened) await say(opened.error);
     else await opened.start();
     return true;
   }
@@ -236,8 +236,8 @@ export class DiscordBotManager {
     const said = text.toLowerCase();
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.name !== MINUTES_PLAYBOOK && p.words.some((w) => new RegExp(`(?<![\\p{L}\\p{N}_])${w}s?(?![\\p{L}\\p{N}_])`, "u").test(said)));
     if (!playbook) return false;
-    const say = (content: string) => msg.reply({ content, allowedMentions: { parse: [] } }).catch(() => {});
-    const brief = await minutesBrief(runtime.tenantId, minutes, namedNumbers(text));
+    const say = replyQuietly(msg);
+    const brief = await minutesBrief(runtime.tenantId, minutes, namedNumbers(text), replyLanguage(text));
     if ("error" in brief) { await say(brief.error); return true; }
     const opened = await this.openPlaybook(runtime, botId, playbook, minutes, brief.text, actorOf(msg), brief);
     if ("error" in opened) await say(opened.error);
@@ -247,52 +247,52 @@ export class DiscordBotManager {
   async handleCommand(botId: string, i: MessageContextMenuCommandInteraction) {
     const runtime = this.clients.get(botId);
     if (!runtime) return;
+    const target = i.targetMessage, language = replyLanguage(target.content), t = textIn(language);
     const say = (content: string) => i.reply({ content, ephemeral: true }).catch(() => {});
-    if ((await getTenantById(runtime.tenantId))?.status !== "active") return say("This bot is turned off.");
-    if (!i.guildId || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say("Playbooks run only in the servers this bot is set up for.");
+    if ((await getTenantById(runtime.tenantId))?.status !== "active") return say(t.botOff);
+    if (!i.guildId || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say(t.wrongServer);
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.menu === i.commandName);
-    if (!playbook) return say("This command is no longer available.");
+    if (!playbook) return say(t.commandGone);
     if (playbook.name === MINUTES_PLAYBOOK) {
-      const target = i.targetMessage;
       return this.runMinutes(runtime, botId, playbook, target, i.user.id, {
         startId: target.id, refuse: say,
-        ack: () => say(target.channel.isThread() ? "Writing minutes of this whole thread." : "Writing minutes from this message to now."),
+        ack: () => say(target.channel.isThread() ? t.minutesOfThread : t.minutesFromHere),
         fail: (content) => i.followUp({ content, ephemeral: true }).catch(() => {}),
-      });
+      }, language);
     }
-    const target = i.targetMessage;
     // Run on posted minutes, the brief is their action items rather than the embed's text.
-    const minutes = target.author.id === runtime.client.user?.id && minutesFileOf(target) ? await minutesBrief(runtime.tenantId, target, []) : null;
+    const minutes = target.author.id === runtime.client.user?.id && minutesFileOf(target) ? await minutesBrief(runtime.tenantId, target, [], language) : null;
     if (minutes && "error" in minutes) return say(minutes.error);
     const opened = await this.openPlaybook(runtime, botId, playbook, target, minutes?.text ?? target.content.trim(), { id: i.user.id, name: (i.member as any)?.displayName || i.user.username, member: i.member }, minutes ?? undefined);
     if ("error" in opened) return say(opened.error);
-    await say(`Following the ${playbook.name} playbook in <#${opened.thread.id}>.`);
+    await say(t.following(playbook.name, opened.thread.id));
     await opened.start();
   }
   /** Checks the playbook's skills, opens or reuses the source message's thread, and binds it; `start` runs the first turn there. A brief from minutes arrives with its points set. */
   private async openPlaybook(runtime: BotRuntime, botId: string, playbook: Playbook, source: Message, brief: string, actor: Actor, fromMinutes?: MinutesBrief): Promise<{ error: string } | { thread: ThreadChannel; start: () => Promise<void> }> {
-    const refusal = await skillsRefusal(runtime.tenantId, playbook);
+    const language = replyLanguage(brief), t = textIn(language);
+    const refusal = await skillsRefusal(runtime.tenantId, playbook, language);
     if (refusal) return { error: refusal };
     const thread = source.channel.isThread() ? source.channel as ThreadChannel
       : source.thread ?? await source.startThread({ name: threadName(fromMinutes?.title ?? brief), autoArchiveDuration: 1440 }).catch(() => null);
-    if (!thread?.parentId || !source.guildId) return { error: "I couldn't open a thread for this message. Check that I can create threads in this channel." };
+    if (!thread?.parentId || !source.guildId) return { error: t.noThread };
     const place = { guildId: source.guildId, channelId: thread.parentId, threadId: thread.id };
     const previous = await readBinding(runtime.tenantId, place).catch(() => null);
-    if (previous?.binding.status === "active") return { error: `This thread already follows the ${previous.binding.playbook} playbook.` };
+    if (previous?.binding.status === "active") return { error: t.alreadyBound(previous.binding.playbook) };
     const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, authorName: actor.name, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: new Date().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
-    if (!saved) return { error: "I couldn't save this thread to the Workspace, so the playbook did not start. Try again in a moment." };
+    if (!saved) return { error: t.notSaved };
     return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, [{ msg: source, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
   }
   /** Minutes post in place, replying to `at`: no thread is opened or bound. */
-  private async runMinutes(runtime: BotRuntime, botId: string, playbook: Playbook, at: Message, requesterId: string, o: { startId?: string; skipIds?: string[]; refuse(text: string): Promise<unknown>; ack?(): Promise<unknown>; fail(text: string): Promise<unknown> }) {
+  private async runMinutes(runtime: BotRuntime, botId: string, playbook: Playbook, at: Message, requesterId: string, o: { startId?: string; skipIds?: string[]; refuse(text: string): Promise<unknown>; ack?(): Promise<unknown>; fail(text: string): Promise<unknown> }, language?: Language) {
     const adapter = new DiscordJSAdapter(runtime.client, at.guildId || runtime.guildIds[0]);
-    const refusal = (at.guildId && await skillsRefusal(runtime.tenantId, playbook)) || await minutesRefusal(adapter, at.channelId, requesterId);
+    const refusal = (at.guildId && await skillsRefusal(runtime.tenantId, playbook, language)) || await minutesRefusal(adapter, at.channelId, requesterId, language);
     if (refusal) { await o.refuse(refusal); return; }
     await o.ack?.();
     if ("sendTyping" in at.channel) await at.channel.sendTyping().catch(() => {});
     const parentId = at.channel.isThread() ? at.channel.parentId : null;
     const error = await writeMinutes({ tenantId: runtime.tenantId, botId, adapter, playbook, guildId: at.guildId!, channelId: at.channelId, parentId, requesterId, startId: o.startId, skipIds: o.skipIds, post: (payload) => at.reply(payload) })
-      .catch(() => "I couldn't write the minutes this time. Try again in a moment.");
+      .catch(() => textIn(language).minutesFailed);
     if (error) await o.fail(error);
   }
   private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean } = {}) {
@@ -301,33 +301,33 @@ export class DiscordBotManager {
     await typing();
     const interval = setInterval(() => { void typing(); }, 4000);
     const send = (content: string) => thread ? thread.send({ content, allowedMentions: { parse: [] } }) : msg.reply({ content, allowedMentions: { parse: [] } });
+    const language = replyLanguage(...items.map((i) => i.text)), t = textIn(language);
     try {
       const [agent] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, runtime.tenantId)).limit(1);
       const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const playbook = opts.playbook && { name: opts.playbook.name, body: opts.playbook.body };
-      const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId));
+      const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId), language);
       // The brief's author still gets a round: it asks them to describe the screenshot.
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);
-      if (media.blind && !briefAuthor && !items.some((i) => i.text)) { await send(BLIND_ONLY_NOTE); return; }
-      let turn = [items.map((i) => speakerTurn(i.msg.guildId, i.msg.member?.displayName || i.msg.author.username, withPlaceholders(i.text, i.msg))).join("\n"), media.context].filter(Boolean).join("\n");
-      const brief = opts.binding && { place: { guildId: opts.binding.guildId, channelId: opts.binding.channelId, threadId: opts.binding.threadId }, authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
+      if (media.blind && !briefAuthor && !items.some((i) => i.text)) { await send(`${t.blind} ${t.describeImage}`); return; }
+      let turn = [items.map((i) => speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg))).join("\n"), media.context].filter(Boolean).join("\n");
+      const brief = opts.binding && { place: bindingPlace(opts.binding), authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
       if (brief?.outsider) turn = outsiderTurn(turn);
       else if (brief) { const input = await takeBriefInput(runtime.tenantId, brief.place).catch(() => null); if (input) turn = inputTurn(input, turn); }
       const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
       const shots = place && !brief?.outsider ? media.shots : [];
       if (shots.length) await recordBriefImages(runtime.tenantId, place!, shots).catch(() => null);
       const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
-      const notes = [...(output.imagesRejected ? [REJECTED_NOTE] : []), ...media.notes];
+      const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
-      // A posted round or draft is the reply: its layout is decided in code, so the model's own text does not go out with it.
-      const round = roundMessagesOf(output.toolCallsExecuted), written = draftsWrittenOf(output.toolCallsExecuted);
-      let plan: ReplyPlan = round.length || written.length ? { messages: round } : prepareReply(output.reply, { addressed: direct });
+      const briefed = briefTurn(output.toolCallsExecuted);
+      let plan: ReplyPlan = briefed?.plan ?? prepareReply(output.reply, { addressed: direct, language });
       if (plan.messages.length || direct) plan = withNotes(plan, notes);
-      if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId)]);
+      if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       for (const chunk of plan.messages) await send(chunk);
-      if (written.length && place && target.isSendable()) await this.showDrafts(runtime.tenantId, target, place, written);
+      if (briefed?.written.length && place && target.isSendable()) await showDrafts(runtime.tenantId, target, place, briefed.written);
       if (output.toolCallsExecuted.length && target.isSendable()) {
         // Git write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.
         for (const { result } of output.toolCallsExecuted) {
@@ -335,50 +335,8 @@ export class DiscordBotManager {
           if (p) await target.send(confirmMessage(p, actor.id));
         }
       }
-    } catch { await send("Unable to process this request. Check your tenant configuration.").catch(() => {}); }
+    } catch { await send(t.failed).catch(() => {}); }
     finally { clearInterval(interval); }
-  }
-  /** Posts each written draft as an embed, or edits its embed in place with a one-line note, then refreshes drafts.md. */
-  private async showDrafts(tenantId: string, target: any, place: BindingPlace, written: { n: number; note?: string }[]) {
-    const found = await readBinding(tenantId, place);
-    if (!found) return;
-    const state = briefState(found.binding), ids: Record<number, string> = {};
-    const fetch = (id?: string) => (id ? target.messages.fetch(id).catch(() => null) : null);
-    for (const { n, note } of written) {
-      const d = state.drafts[n - 1];
-      if (!d) continue;
-      const embed = draftEmbed(state, found.binding, n), shown = await fetch(d.messageId);
-      if (shown) await shown.edit({ embeds: [embed] });
-      else ids[n] = (await target.send({ embeds: [embed], allowedMentions: { parse: [] } })).id;
-      if (note) await target.send({ content: revisionNote(found.binding, { ...d, messageId: ids[n] ?? d.messageId }, note), allowedMentions: { parse: [] } });
-    }
-    const file = draftsFile(state, found.binding);
-    let fileMessageId: string | undefined;
-    if (file) {
-      const files = [{ attachment: Buffer.from(file.content), name: file.name }], shown = await fetch(state.draftsFileMessageId);
-      if (shown) await shown.edit({ files, attachments: [] });
-      else fileMessageId = (await target.send({ content: DRAFTS_FILE_NOTE, files, allowedMentions: { parse: [] } })).id;
-    }
-    await recordDraftMessages(tenantId, place, ids, fileMessageId);
-  }
-  /** After a brief's batch: each created draft's embed becomes its link, and one message lists every link, or what is left after a failure with drafts.md. */
-  private async afterConfirm(runtime: BotRuntime, action: QueuedAction, result: ToolResult) {
-    const batch = briefIssuesOf(action.tool, result);
-    if (!batch || !action.parentChannelId) return;
-    const thread: any = await runtime.client.channels.fetch(action.channelId).catch(() => null);
-    if (!thread?.isSendable?.()) return;
-    const found = await readBinding(runtime.tenantId, { guildId: action.guildId, channelId: action.parentChannelId, threadId: action.channelId }).catch(() => null);
-    const state = found && briefState(found.binding);
-    for (const c of batch.created) {
-      const id = state?.drafts[c.n - 1]?.messageId, shown = id && await thread.messages.fetch(id).catch(() => null);
-      if (shown) await shown.edit({ embeds: [createdEmbed(c)] }).catch(() => {});
-    }
-    const file = batch.failed && state ? draftsFile(state, found!.binding, batch.notCreated.map((d) => d.n)) : null;
-    const parts = splitReply(issuesReport(batch), MESSAGE_LIMIT);
-    for (const [k, content] of parts.entries())
-      await thread.send({ content, allowedMentions: { parse: [] }, ...(file && k === parts.length - 1 ? { files: [{ attachment: Buffer.from(file.content), name: file.name }] } : {}) });
-    const count = `${batch.created.length} issue${batch.created.length === 1 ? "" : "s"}`;
-    return batch.failed ? `Stopped at draft ${batch.failed.n} with ${count} created. Details are in the thread.` : `Created ${count}. The links are in the thread.`;
   }
   // Servers and channels come from the live gateway cache, so they are only available while the bot is connected.
   getGuilds(id: string) {

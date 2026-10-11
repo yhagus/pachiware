@@ -1,0 +1,175 @@
+/** The languages the bot's own fixed text comes in; anything else gets English. */
+export type Language = "en" | "id";
+
+/** Discord rejects message content over 2000 characters. */
+export const MESSAGE_LIMIT = 2000;
+
+const EN = new Set("the a an and or but is are was were be been to of in on at for with from by as it its this that these those when which who not no should must can does do has have will would every each than then so if".split(" "));
+const ID = new Set("yang dan atau di ke dari untuk dengan tidak bukan ini itu ada akan pada saat jika kalau bisa dapat harus sudah juga dalam oleh sebagai agar supaya karena masih setiap tetap hanya lebih sama tanpa ketika sehingga perlu sedang belum lalu tolong saya aku kamu kita kami apa gimana bagaimana kenapa nggak gak udah aja dong sih nih".split(" "));
+
+/** English or Indonesian by function words; "unknown" when neither leads or fewer than `least` were found. */
+export function languageOf(text: string, least = 3): Language | "unknown" {
+  let en = 0, id = 0;
+  for (const word of text.toLowerCase().match(/\p{L}+/gu) ?? []) { if (EN.has(word)) en++; if (ID.has(word)) id++; }
+  return en + id < least || en === id ? "unknown" : en > id ? "en" : "id";
+}
+
+/** The language for the bot's own text about these messages: Indonesian when they read so, English otherwise. Chat is short, so two function words decide. */
+export const replyLanguage = (...texts: (string | null | undefined)[]): Language => (languageOf(texts.filter(Boolean).join("\n"), 2) === "id" ? "id" : "en");
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const list = (items: string[], and: string) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ${and} ${items.at(-1)}`);
+
+const en = {
+  and: "and",
+  // Replies
+  cutNote: "-# Cut to stay within 3 messages. Ask for the rest if you need the full version.",
+  nothingToAdd: "I have nothing to add here.",
+  done: "Done.",
+  failed: "Unable to process this request. Check your tenant configuration.",
+  // Images
+  blind: "I can't see images with this profile.",
+  describeImage: "Describe the image in words and I'll work from that.",
+  rejected: "This profile rejected the image; an admin can turn image input off for it.",
+  skipped: (items: string[]) => `Skipped ${items.join(", ")}.`,
+  skip: { format: "not a PNG, JPEG, WebP or GIF", tooMany: (n: number) => `over the ${n}-image limit`, tooLarge: "too large to download", download: "could not be downloaded", unreadable: "could not be read as an image", tooBig: "could not be reduced under 5 MB" },
+  // Brief rounds
+  breakdown: (n: number) => `**Breakdown** · ${plural(n, "draft")}`,
+  draftPoint: (n: number) => `point ${n}`,
+  blockedByDrafts: (ns: number[]) => `blocked by draft ${ns.join(", ")}`,
+  round: (n: number) => `**Round ${n}**`,
+  point: (n: number, text: string) => `**Point ${n}** · ${text}`,
+  wholeBrief: "**Whole brief**",
+  askedAgain: (round: number) => `-# Asked again from round ${round}. Left unanswered this time, ➡️ becomes an assumption in the draft.`,
+  roundFooter: (author: string) => `Only <@${author}> decides here. Reply "yes" to take every ➡️, or answer by number, e.g. "yes, except Q2: …".`,
+  noQuestions: (author: string) => `No questions this round. Only <@${author}> decides here: reply "yes" to accept the breakdown, or say what to change.`,
+  describeQuestion: (image: string) => `What does ${image} show? I can't see images with this profile, so describe it in words for the drafts.`,
+  describeRecommendation: "Link it in the drafts without a description.",
+  authorDecides: (author: string) => `-# <@${author}> decides on this brief; I've noted your message for their next round.`,
+  // Creating issues
+  createIssues: (n: number) => `Create ${plural(n, "issue")} from this brief:`,
+  labels: (names: string[]) => `labels: ${names.join(", ")}`,
+  blockedBy: (refs: string[]) => `blocked by ${refs.join(", ")}`,
+  draft: (n: number) => `draft ${n}`,
+  skippedDrafts: (items: string[]) => `Skipped: ${items.join("; ")}`,
+  created: (n: number) => `Created ${plural(n, "issue")} from this brief:`,
+  briefDone: "-# This brief is done. Messages here are ordinary chat from now on.",
+  stoppedAt: (n: number, title: string, error: string) => `Stopped at draft ${n}, ${title}: ${error}`,
+  createdHeading: "**Created**",
+  nothingCreated: "Nothing was created.",
+  notCreatedHeading: "**Not created**",
+  continueRest: `Say "continue the rest" to create the drafts not created yet, under a new confirmation. drafts.md has them to paste by hand.`,
+  unlinked: (pairs: string[]) => `-# Could not link ${pairs.join(", ")}, so ${pairs.length > 1 ? "their Blocked by sections say" : "its Blocked by section says"} it in text.`,
+  unlinkedPair: (issue: number, blocker: number) => `#${issue} as blocked by #${blocker}`,
+  createdLink: (url: string) => `Created: ${url}`,
+  batchStopped: (n: number, count: number) => `Stopped at draft ${n} with ${plural(count, "issue")} created. Details are in the thread.`,
+  batchDone: (count: number) => `Created ${plural(count, "issue")}. The links are in the thread.`,
+  // Playbooks
+  skillsOff: (playbook: string, names: string[]) => `The ${playbook} playbook needs the ${list(names, "and")} skill${names.length > 1 ? "s" : ""}, which ${names.length > 1 ? "are" : "is"} off here. An admin can turn ${names.length > 1 ? "them" : "it"} on in the console.`,
+  noThread: "I couldn't open a thread for this message. Check that I can create threads in this channel.",
+  alreadyBound: (playbook: string) => `This thread already follows the ${playbook} playbook.`,
+  notSaved: "I couldn't save this thread to the Workspace, so the playbook did not start. Try again in a moment.",
+  botOff: "This bot is turned off.",
+  wrongServer: "Playbooks run only in the servers this bot is set up for.",
+  commandGone: "This command is no longer available.",
+  following: (playbook: string, thread: string) => `Following the ${playbook} playbook in <#${thread}>.`,
+  // Minutes
+  minutesOfThread: "Writing minutes of this whole thread.",
+  minutesFromHere: "Writing minutes from this message to now.",
+  minutesDm: "I write minutes only in server channels and threads, not in DMs.",
+  minutesNeedPermission: (names: string) => `You need ${names} here to get minutes of it, so I won't write them.`,
+  minutesNotMember: "This is a private thread you are not a member of, so I won't write minutes of it.",
+  minutesBotMissing: (names: string, many: boolean) => `I can't write minutes here because I'm missing the ${names} permission${many ? "s" : ""} in this channel. A server admin can grant ${many ? "them" : "it"}.`,
+  minutesEmpty: "I found no messages to write minutes of in this range.",
+  minutesFailed: "I couldn't write the minutes this time. Try again in a moment.",
+  minutesNotPosted: (file: boolean) => `I couldn't post the minutes here. Check that I have Send Messages and Embed Links${file ? ", plus Attach Files for minutes.md" : ""}.`,
+  minutesNoCopy: "I can't find the stored copy of these minutes, so I can't change them.",
+  minutesNoCopyBrief: "I can't find the stored copy of these minutes, so I can't draft issues from them.",
+  minutesCorrectionFailed: "I couldn't apply that correction. Try saying it another way.",
+  minutesEditFailed: "I couldn't edit the minutes message.",
+  minutesNoActions: "These minutes have no action items to draft issues from.",
+  minutesNotActions: (wrong: string[], span: string) => `${wrong.length > 1 ? `Items ${list(wrong, "and")} aren't action items` : `Item ${wrong[0]} isn't an action item`}. In these minutes the action items are ${span}.`,
+  minutesSpan: (items: string[], range: boolean) => (items.length === 1 ? `item ${items[0]}` : `items ${range ? `${items[0]} to ${items.at(-1)}` : list(items, "and")}`),
+  minutesTooMany: (max: number, count: number, first: number) => `A brief holds at most ${max} points and these minutes have ${count} action items. Mention me on them with the ones to draft, e.g. "turn ${first} to ${first + 9} into issues".`,
+  minutesCount: (n: number) => plural(n, "message"),
+  minutesCutCount: (n: number, when: string) => `Cut to the latest ${n} messages: everything before ${when} was left out.`,
+  minutesCutHours: (n: number, when: string) => `Cut to the last ${n} hours: everything before ${when} was left out.`,
+  minutesFooter: "Reply to correct",
+};
+
+const id: typeof en = {
+  and: "dan",
+  cutNote: "-# Dipotong agar muat dalam 3 pesan. Minta sisanya kalau perlu versi lengkapnya.",
+  nothingToAdd: "Tidak ada yang perlu saya tambahkan di sini.",
+  done: "Selesai.",
+  failed: "Permintaan ini tidak bisa diproses. Periksa konfigurasi tenant.",
+  blind: "Saya tidak bisa melihat gambar dengan profil ini.",
+  describeImage: "Jelaskan gambarnya dengan kata-kata, nanti saya kerjakan dari situ.",
+  rejected: "Profil ini menolak gambarnya; admin bisa mematikan input gambar untuk profil ini.",
+  skipped: (items) => `Dilewati: ${items.join(", ")}.`,
+  skip: { format: "bukan PNG, JPEG, WebP, atau GIF", tooMany: (n) => `melebihi batas ${n} gambar`, tooLarge: "terlalu besar untuk diunduh", download: "tidak bisa diunduh", unreadable: "tidak bisa dibaca sebagai gambar", tooBig: "tidak bisa diperkecil di bawah 5 MB" },
+  breakdown: (n) => `**Rincian** · ${n} draf`,
+  draftPoint: (n) => `poin ${n}`,
+  blockedByDrafts: (ns) => `menunggu draf ${ns.join(", ")}`,
+  round: (n) => `**Ronde ${n}**`,
+  point: (n, text) => `**Poin ${n}** · ${text}`,
+  wholeBrief: "**Seluruh brief**",
+  askedAgain: (round) => `-# Ditanyakan lagi dari ronde ${round}. Kalau kali ini tidak dijawab, ➡️ menjadi asumsi di draf.`,
+  roundFooter: (author) => `Hanya <@${author}> yang memutuskan di sini. Balas "ya" untuk menerima semua ➡️, atau jawab per nomor, misalnya "ya, kecuali Q2: …".`,
+  noQuestions: (author) => `Tidak ada pertanyaan di ronde ini. Hanya <@${author}> yang memutuskan di sini: balas "ya" untuk menerima rinciannya, atau sebutkan yang perlu diubah.`,
+  describeQuestion: (image) => `Apa isi ${image}? Saya tidak bisa melihat gambar dengan profil ini, jadi jelaskan dengan kata-kata untuk drafnya.`,
+  describeRecommendation: "Tautkan di draf tanpa deskripsi.",
+  authorDecides: (author) => `-# <@${author}> yang memutuskan brief ini; pesanmu sudah saya catat untuk ronde berikutnya.`,
+  createIssues: (n) => `Buat ${n} issue dari brief ini:`,
+  labels: (names) => `label: ${names.join(", ")}`,
+  blockedBy: (refs) => `menunggu ${refs.join(", ")}`,
+  draft: (n) => `draf ${n}`,
+  skippedDrafts: (items) => `Dilewati: ${items.join("; ")}`,
+  created: (n) => `${n} issue dibuat dari brief ini:`,
+  briefDone: "-# Brief ini selesai. Pesan di sini kini jadi obrolan biasa.",
+  stoppedAt: (n, title, error) => `Berhenti di draf ${n}, ${title}: ${error}`,
+  createdHeading: "**Dibuat**",
+  nothingCreated: "Belum ada yang dibuat.",
+  notCreatedHeading: "**Belum dibuat**",
+  continueRest: `Bilang "lanjutkan sisanya" untuk membuat draf yang belum dibuat, dengan konfirmasi baru. drafts.md berisi draf itu untuk ditempel manual.`,
+  unlinked: (pairs) => `-# Tidak bisa menautkan ${pairs.join(", ")}, jadi bagian Blocked by-nya menyebutkannya sebagai teks.`,
+  unlinkedPair: (issue, blocker) => `#${issue} sebagai menunggu #${blocker}`,
+  createdLink: (url) => `Dibuat: ${url}`,
+  batchStopped: (n, count) => `Berhenti di draf ${n} dengan ${count} issue dibuat. Detailnya ada di thread.`,
+  batchDone: (count) => `${count} issue dibuat. Tautannya ada di thread.`,
+  skillsOff: (playbook, names) => `Playbook ${playbook} butuh skill ${list(names, "dan")}, yang sedang mati di sini. Admin bisa menyalakannya di konsol.`,
+  noThread: "Saya tidak bisa membuka thread untuk pesan ini. Pastikan saya boleh membuat thread di channel ini.",
+  alreadyBound: (playbook) => `Thread ini sudah mengikuti playbook ${playbook}.`,
+  notSaved: "Thread ini tidak bisa saya simpan ke Workspace, jadi playbook-nya tidak dimulai. Coba lagi sebentar lagi.",
+  botOff: "Bot ini sedang dimatikan.",
+  wrongServer: "Playbook hanya berjalan di server yang sudah disiapkan untuk bot ini.",
+  commandGone: "Perintah ini sudah tidak tersedia.",
+  following: (playbook, thread) => `Mengikuti playbook ${playbook} di <#${thread}>.`,
+  minutesOfThread: "Menulis notula seluruh thread ini.",
+  minutesFromHere: "Menulis notula dari pesan ini sampai sekarang.",
+  minutesDm: "Saya hanya menulis notula di channel dan thread server, bukan di DM.",
+  minutesNeedPermission: (names) => `Kamu perlu ${names} di sini untuk mendapat notulanya, jadi tidak saya tulis.`,
+  minutesNotMember: "Ini thread privat dan kamu bukan anggotanya, jadi notulanya tidak saya tulis.",
+  minutesBotMissing: (names) => `Saya tidak bisa menulis notula di sini karena tidak punya izin ${names} di channel ini. Admin server bisa memberikannya.`,
+  minutesEmpty: "Tidak ada pesan untuk dibuatkan notula di rentang ini.",
+  minutesFailed: "Notulanya gagal saya tulis kali ini. Coba lagi sebentar lagi.",
+  minutesNotPosted: (file) => `Notulanya tidak bisa saya kirim di sini. Pastikan saya punya izin Send Messages dan Embed Links${file ? ", juga Attach Files untuk minutes.md" : ""}.`,
+  minutesNoCopy: "Salinan tersimpan notula ini tidak ketemu, jadi tidak bisa saya ubah.",
+  minutesNoCopyBrief: "Salinan tersimpan notula ini tidak ketemu, jadi tidak bisa saya jadikan draf issue.",
+  minutesCorrectionFailed: "Koreksinya tidak bisa saya terapkan. Coba sampaikan dengan cara lain.",
+  minutesEditFailed: "Pesan notulanya tidak bisa saya edit.",
+  minutesNoActions: "Notula ini tidak punya tindak lanjut untuk dijadikan draf issue.",
+  minutesNotActions: (wrong, span) => `${wrong.length > 1 ? `Butir ${list(wrong, "dan")} bukan tindak lanjut` : `Butir ${wrong[0]} bukan tindak lanjut`}. Di notula ini tindak lanjutnya ${span}.`,
+  minutesSpan: (items, range) => `butir ${range ? `${items[0]} sampai ${items.at(-1)}` : list(items, "dan")}`,
+  minutesTooMany: (max, count, first) => `Satu brief paling banyak ${max} poin dan notula ini punya ${count} tindak lanjut. Mention saya di notulanya dengan butir yang mau dijadikan draf, misalnya "jadikan ${first} sampai ${first + 9} issue".`,
+  minutesCount: (n) => `${n} pesan`,
+  minutesCutCount: (n, when) => `Dipotong ke ${n} pesan terakhir: semua sebelum ${when} tidak disertakan.`,
+  minutesCutHours: (n, when) => `Dipotong ke ${n} jam terakhir: semua sebelum ${when} tidak disertakan.`,
+  minutesFooter: "Balas untuk mengoreksi",
+};
+
+export type Strings = typeof en;
+/** The bot's fixed text in `language`. */
+export const textIn = (language: Language = "en"): Strings => (language === "id" ? id : en);
+/** "a, b and c" in `language`. */
+export const listOf = (items: string[], language?: Language) => list(items, textIn(language).and);

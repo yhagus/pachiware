@@ -1,4 +1,5 @@
 import type { Message } from "discord.js";
+import { textIn, jumpLink, type Language, type Strings } from "@pachiware/skills";
 import type { ImagePart } from "../llm/types.js";
 
 const MAX_IMAGES = 4;
@@ -11,9 +12,6 @@ const MEDIA: Record<string, string> = { png: "image/png", jpeg: "image/jpeg", we
 const IMAGE_NAME = /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif|svg)$/i;
 const SUPPORTED_NAME = /\.(png|jpe?g|webp|gif)$/i;
 
-export const BLIND_NOTE = "I can't see images with this profile.";
-export const BLIND_ONLY_NOTE = `${BLIND_NOTE} Describe the image in words and I'll work from that.`;
-export const REJECTED_NOTE = "This profile rejected the image; an admin can turn image input off for it.";
 
 type Attachment = { id: string; name: string; url: string; contentType?: string | null; size: number; width?: number | null; height?: number | null };
 /** An image of the turn and the message holding it; `sent` when its bytes went to the model. */
@@ -21,7 +19,6 @@ export type TurnShot = { id: string; name: string; link: string; sent: boolean }
 export type TurnImages = { images: ImagePart[]; context: string; notes: string[]; blind: boolean; shots: TurnShot[] };
 
 const attachmentsOf = (m: Message | null | undefined): Attachment[] => (m?.attachments?.size ? [...m.attachments.values()] as Attachment[] : []);
-const linkOf = (m: Message) => `https://discord.com/channels/${m.guildId ?? "@me"}/${m.channelId}/${m.id}`;
 const isImage = (a: Attachment) => !!a.contentType?.startsWith("image/") || IMAGE_NAME.test(a.name);
 const isSupported = (a: Attachment) => a.contentType ? /^image\/(png|jpeg|webp|gif)$/.test(a.contentType) : SUPPORTED_NAME.test(a.name);
 const placeholder = (a: Attachment, label: string) => `[${label}: ${a.name}${a.width && a.height ? `, ${a.width}×${a.height}` : ""}]`;
@@ -35,7 +32,8 @@ export function withPlaceholders(text: string, msg: Message) {
  * Images for the turn: attachments of the answered messages and of the message each one replies to, checked by
  * metadata, downloaded, and reduced to provider limits. Whatever is not sent is named in `notes`.
  */
-export async function gatherTurnImages(messages: Message[], acceptsImages: () => Promise<boolean>): Promise<TurnImages> {
+export async function gatherTurnImages(messages: Message[], acceptsImages: () => Promise<boolean>, language?: Language): Promise<TurnImages> {
+  const t = textIn(language);
   const holding = new Map<string, Message>();
   const of = (m: Message | null) => attachmentsOf(m).map((a) => (holding.set(a.id, holding.get(a.id) ?? m!), a));
   const own = messages.flatMap(of);
@@ -49,18 +47,19 @@ export async function gatherTurnImages(messages: Message[], acceptsImages: () =>
   const blind = candidates.some(isImage) && !(await acceptsImages());
   const skipped: string[] = [];
   for (const a of candidates) {
-    const shot = isImage(a) ? { id: a.id, name: a.name, link: linkOf(holding.get(a.id)!), sent: false } : null;
+    const from = holding.get(a.id)!;
+    const shot = isImage(a) ? { id: a.id, name: a.name, link: jumpLink(from.guildId, from.channelId, from.id), sent: false } : null;
     if (shot) result.shots.push(shot);
     if (blind && isImage(a)) { result.blind = true; continue; }
-    if (!isSupported(a)) { skipped.push(`${a.name} (not a PNG, JPEG, WebP or GIF)`); continue; }
-    if (result.images.length >= MAX_IMAGES) { skipped.push(`${a.name} (over the ${MAX_IMAGES}-image limit)`); continue; }
-    if (a.size > MAX_DOWNLOAD) { skipped.push(`${a.name} (too large to download)`); continue; }
-    const fitted = await download(a.url).then((bytes) => bytes ? fit(bytes) : "could not be downloaded");
-    if (typeof fitted === "string") skipped.push(`${a.name} (${fitted})`);
+    if (!isSupported(a)) { skipped.push(`${a.name} (${t.skip.format})`); continue; }
+    if (result.images.length >= MAX_IMAGES) { skipped.push(`${a.name} (${t.skip.tooMany(MAX_IMAGES)})`); continue; }
+    if (a.size > MAX_DOWNLOAD) { skipped.push(`${a.name} (${t.skip.tooLarge})`); continue; }
+    const fitted = await download(a.url).then((bytes) => bytes ? fit(bytes) : "download" as const);
+    if (typeof fitted === "string") skipped.push(`${a.name} (${t.skip[fitted]})`);
     else { result.images.push(fitted); if (shot) shot.sent = true; }
   }
-  if (result.blind) result.notes.push(BLIND_NOTE);
-  if (skipped.length) result.notes.push(`Skipped ${skipped.join(", ")}.`);
+  if (result.blind) result.notes.push(t.blind);
+  if (skipped.length) result.notes.push(t.skipped(skipped));
   return result;
 }
 
@@ -74,10 +73,11 @@ async function download(url: string): Promise<Uint8Array | null> {
 }
 
 // Long edge at most MAX_EDGE and at most MAX_BYTES; a GIF becomes a PNG of its first frame, since OpenAI refuses animated ones.
-async function fit(bytes: Uint8Array): Promise<ImagePart | string> {
+type SkipReason = Exclude<keyof Strings["skip"], "tooMany">;
+async function fit(bytes: Uint8Array): Promise<ImagePart | SkipReason> {
   let meta: Bun.Image.Metadata;
-  try { meta = await new Bun.Image(bytes, { maxPixels: MAX_PIXELS }).metadata(); } catch { return "could not be read as an image"; }
-  if (!MEDIA[meta.format]) return "not a PNG, JPEG, WebP or GIF";
+  try { meta = await new Bun.Image(bytes, { maxPixels: MAX_PIXELS }).metadata(); } catch { return "unreadable"; }
+  if (!MEDIA[meta.format]) return "format";
   const part = (data: Uint8Array, format: string): ImagePart => ({ type: "image", mediaType: MEDIA[format]!, data: Buffer.from(data).toString("base64") });
   if (meta.format !== "gif" && Math.max(meta.width, meta.height) <= MAX_EDGE && bytes.length <= MAX_BYTES) return part(bytes, meta.format);
   const same = meta.format === "gif" ? "png" : meta.format;
@@ -85,7 +85,7 @@ async function fit(bytes: Uint8Array): Promise<ImagePart | string> {
     try {
       const out = await new Bun.Image(bytes, { maxPixels: MAX_PIXELS }).resize(edge, edge, { fit: "inside", withoutEnlargement: true })[format as "png" | "jpeg" | "webp"]().bytes();
       if (out.length <= MAX_BYTES) return part(out, format);
-    } catch { return "could not be read as an image"; }
+    } catch { return "unreadable"; }
   }
-  return "could not be reduced under 5 MB";
+  return "tooBig";
 }

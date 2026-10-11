@@ -3,18 +3,17 @@
  * live runs and the recorded outputs in CI alike.
  */
 import { checkDraft } from "../../../packages/skills/src/draftChecker";
+import { languageOf as languageOfText, type Language } from "../../../packages/skills/src/language";
 import { fillerIn } from "../src/discord/replyStyle";
 import type { PinnedRepo } from "./repository";
 
-export type Language = "en" | "id";
+export type { Language };
 export type Check = "anatomy" | "labels" | "context" | "filler" | "language";
 export interface DraftOutput { n: number; title: string; body: string; repo: string | null; labels: string[] }
 export interface CheckContext { pin: PinnedRepo; /** Every file and folder at the pinned commit. */ paths: Set<string>; language: Language }
 export interface CheckFailure { check: Check; message: string }
 
 const LANGUAGE_NAMES: Record<Language | "unknown", string> = { en: "English", id: "Indonesian", unknown: "no clear language" };
-const EN = new Set("the a an and or but is are was were be been to of in on at for with from by as it its this that these those when which who not no should must can does do has have will would every each than then so if".split(" "));
-const ID = new Set("yang dan atau di ke dari untuk dengan tidak bukan ini itu ada akan pada saat jika kalau bisa dapat harus sudah juga dalam oleh sebagai agar supaya karena masih setiap tetap hanya lebih sama tanpa ketika sehingga perlu sedang belum lalu".split(" "));
 
 /** Everything above the footer, without the fixed English headings and labels, links, and code. */
 const proseOf = (body: string) => {
@@ -24,12 +23,8 @@ const proseOf = (body: string) => {
     .replace(/\*\*[^*\n]+\*\*/g, " ").replace(/\[[^\]]*\]\([^)]*\)/g, " ").replace(/https?:\/\/\S+/g, " ").replace(/`[^`\n]*`/g, " ").replace(/\*\((added|assumed)\)\*/g, " ");
 };
 
-/** English or Indonesian by function words; "unknown" when neither leads. */
-export function languageOf(text: string): Language | "unknown" {
-  let en = 0, id = 0;
-  for (const word of proseOf(text).toLowerCase().match(/\p{L}+/gu) ?? []) { if (EN.has(word)) en++; if (ID.has(word)) id++; }
-  return en + id < 3 || en === id ? "unknown" : en > id ? "en" : "id";
-}
+/** A draft's language from its prose, by the same function words the bot reads messages with. */
+export const languageOf = (text: string) => languageOfText(proseOf(text));
 
 const sha7 = (sha: string) => sha.slice(0, 7);
 

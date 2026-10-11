@@ -1,25 +1,21 @@
+/**
+ * The second half of a brief: the author's answers settle the round, then each breakdown draft is written out in
+ * the anatomy, checked, and shown as one embed. Drafts keep their number for good, along with their target
+ * repository, labels, and, once created, the issue's number and URL.
+ */
 import type { SkillContext, ToolDefinition, ToolResult } from "./types.js";
-import { readBinding, writeBinding, type BindingPlace, type PlaybookBinding } from "./playbooks.js";
-import { briefState, placeOf, updateBrief, undescribedImages, type BriefDraft, type BriefQuestion, type BriefState, type DraftCategory } from "./brief.js";
+import { writeBinding, jumpLink, type BindingPlace, type PlaybookBinding } from "./playbooks.js";
+import { briefState, authorsBrief, updateBrief, undescribedImages, optionLetter, hasCycle, oneLine as line, type BriefDraft, type BriefQuestion, type BriefState, type DraftCategory } from "./brief.js";
 import { checkDraft, type DraftViolation } from "./draftChecker.js";
 import { describedByAnswers, screenshotLines } from "./briefImages.js";
 import { contextUsed, groundingOf, proposedLabels, uncheckedQuestion } from "./grounding.js";
 
-/**
- * The second half of a brief: the author's answers settle the round, then each breakdown draft is written out in
- * the anatomy (#21), checked, and shown as one embed. Drafts keep their number for good; #42 adds a target
- * repository and labels to a draft, #43 an issue number and URL.
- */
 export const CATEGORIES: DraftCategory[] = ["bug", "feature", "chore", "docs"];
 const MAX = { note: 200, answer: 500, text: 1500, item: 400, items: 12 };
-const line = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
 const block = (v: unknown) => (typeof v === "string" ? v.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim() : "");
 
-async function authorsBrief(ctx: SkillContext) {
-  const place = placeOf(ctx);
-  const found = place && await readBinding(ctx.tenantId, place);
-  if (!place || !found || found.binding.status !== "active") throw new Error("This thread does not follow a playbook, so there is no brief here.");
-  if (ctx.userId !== found.binding.authorId) throw new Error("Only the brief's author moves the brief on. Answer this person without changing the brief; their message is kept as input for the author.");
+async function draftingBrief(ctx: SkillContext) {
+  const { place, found } = await authorsBrief(ctx, "Only the brief's author moves the brief on. Answer this person without changing the brief; their message is kept as input for the author.");
   const state = briefState(found.binding);
   if (!state.round || !state.drafts.length) throw new Error("This brief has no breakdown yet: post round 1 with postBriefRound first.");
   return { place, found, state };
@@ -64,10 +60,10 @@ function settleForDrafting(state: BriefState): BriefState {
 
 /** Round questions a draft shows: assumptions always, open ones after "draft now"; a whole-brief question goes in every draft. */
 const placed = (state: BriefState, d: BriefDraft) => state.questions.filter((q) => !q.image && (q.status === "assumed" || (q.status === "open" && state.draftNow)) && (q.point === d.point || q.point === 0));
-const ask = (q: Pick<BriefQuestion, "text" | "recommendation" | "options">) => `- ${q.text}${q.options?.length ? ` (${q.options.map((o, i) => `${String.fromCharCode(97 + i)}) ${o}`).join("; ")})` : ""} ➡️ ${q.recommendation}`;
+const ask = (q: Pick<BriefQuestion, "text" | "recommendation" | "options">) => `- ${q.text}${q.options?.length ? ` (${q.options.map((o, i) => `${optionLetter(i)}) ${o}`).join("; ")})` : ""} ➡️ ${q.recommendation}`;
 
 /** Where the brief came from: a thread started from a message shares that message's id. */
-export const sourceLink = (b: PlaybookBinding) => `https://discord.com/channels/${b.guildId}/${b.sourceMessageId === b.threadId ? b.channelId : b.threadId}/${b.sourceMessageId}`;
+export const sourceLink = (b: PlaybookBinding) => jumpLink(b.guildId, b.sourceMessageId === b.threadId ? b.channelId : b.threadId, b.sourceMessageId);
 
 /** The issue body of draft `n`, exactly as it would be created. `blocker` names a draft it waits on; #43 swaps in issue numbers. */
 export function draftBody(state: BriefState, binding: PlaybookBinding, n: number, blocker = (d: BriefDraft) => `Draft ${d.n}: ${d.title}`): string {
@@ -187,19 +183,6 @@ export function applyDraft(current: BriefState, binding: PlaybookBinding, args: 
   return next;
 }
 
-function hasCycle(drafts: BriefDraft[]) {
-  const state = new Map<number, 1 | 2>();
-  const visit = (n: number): boolean => {
-    if (state.get(n) === 2 || !drafts[n - 1]) return false;
-    if (state.get(n) === 1) return true;
-    state.set(n, 1);
-    if (drafts[n - 1]!.blockedBy.some(visit)) return true;
-    state.set(n, 2);
-    return false;
-  };
-  return drafts.some((d) => visit(d.n));
-}
-
 export const recordBriefAnswersTool: ToolDefinition = {
   name: "recordBriefAnswers",
   description: "In a thread that follows the issue-draft playbook: records the brief author's answers to the latest clarifying round. Call it first on every author turn that answers a question or says \"draft now\". Only works on the brief author's turns.",
@@ -219,7 +202,7 @@ export const recordBriefAnswersTool: ToolDefinition = {
 };
 
 export async function recordBriefAnswers(args: Record<string, unknown>, ctx: SkillContext) {
-  const { found, state } = await authorsBrief(ctx);
+  const { found, state } = await draftingBrief(ctx);
   const next = applyAnswers(state, args);
   await save(ctx.tenantId, found, next);
   const latest = next.questions.filter((q) => q.round === next.round);
@@ -259,7 +242,7 @@ export const writeIssueDraftTool: ToolDefinition = {
 };
 
 export async function writeIssueDraft(args: Record<string, unknown>, ctx: SkillContext) {
-  const { found, state } = await authorsBrief(ctx);
+  const { found, state } = await draftingBrief(ctx);
   const next = applyDraft(state, found.binding, args);
   await save(ctx.tenantId, found, next);
   const d = next.drafts[(args.n as number) - 1]!;
@@ -279,5 +262,5 @@ export const recordDraftMessages = (tenantId: string, place: BindingPlace, ids: 
 
 /** The one-line note under a revised draft, linking to its embed. */
 export const revisionNote = (binding: PlaybookBinding, d: BriefDraft, note: string) =>
-  `${d.messageId ? `[Draft ${d.n}](https://discord.com/channels/${binding.guildId}/${binding.threadId}/${d.messageId})` : `Draft ${d.n}`} updated: ${note}`;
+  `${d.messageId ? `[Draft ${d.n}](${jumpLink(binding.guildId, binding.threadId, d.messageId)})` : `Draft ${d.n}`} updated: ${note}`;
 export const DRAFTS_FILE_NOTE = "drafts.md has every draft's Markdown, to paste into your tracker by hand.";

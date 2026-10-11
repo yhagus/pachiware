@@ -1,7 +1,7 @@
 import type { SkillContext, ToolDefinition, ToolResult } from "./types.js";
-import { readBinding, writeBinding, type BindingPlace, type PlaybookBinding } from "./playbooks.js";
-import { WorkspaceConflict } from "./workspace/store.js";
+import { readBinding, writeBinding, rewriteBinding, type BindingPlace, type PlaybookBinding } from "./playbooks.js";
 import { groundingOf, openRepos, type BriefGrounding } from "./grounding.js";
+import { replyLanguage, textIn, MESSAGE_LIMIT, type Language } from "./language.js";
 
 /**
  * A brief's state lives in its thread's binding file (see `bindingPath`), next to the binding fields from #38.
@@ -95,14 +95,17 @@ export const briefState = (b: PlaybookBinding): BriefState => ({
 
 /** Each field's cap keeps the largest possible question, with its point heading, well under one Discord message. */
 const MAX = { points: 30, point: 200, drafts: 30, title: 70, summary: 200, questions: 40, question: 500, recommendation: 300, options: 5, option: 150 };
-const str = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
+/** A brief holds at most `points` points of at most `point` characters each. */
+export const BRIEF_CAPS = { points: MAX.points, point: MAX.point } as const;
+/** A model-written value as one trimmed line; anything but a string is empty. */
+export const oneLine = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
 
 /** Checks a round the model proposed and folds it into the brief; throws with every problem at once so one retry can fix them all. */
-export function applyRound(current: BriefState, args: Record<string, unknown>, grounding?: BriefGrounding): BriefState {
+export function applyRound(current: BriefState, args: Record<string, unknown>, grounding?: BriefGrounding, language: Language = "en"): BriefState {
   const problems: string[] = [];
   const tooLong = (what: string, value: string, max: number) => { if (value.length > max) problems.push(`${what} is ${value.length} characters; keep it to ${max}.`); };
   const round = current.round + 1;
-  const points = args.points === undefined && current.points.length ? current.points : Array.isArray(args.points) ? args.points.map(str) : [];
+  const points = args.points === undefined && current.points.length ? current.points : Array.isArray(args.points) ? args.points.map(oneLine) : [];
   // Points set before round 1 (from minutes) are the record's, so the first round cannot rewrite them.
   if (current.round === 0 && current.points.length && JSON.stringify(points) !== JSON.stringify(current.points)) problems.push(PRESET_POINTS);
   if (!points.length || points.some((p) => !p)) problems.push("points must list the brief's points, one short line each.");
@@ -117,14 +120,14 @@ export function applyRound(current: BriefState, args: Record<string, unknown>, g
     if (!raw.length) problems.push("drafts must propose at least one issue draft.");
     if (raw.length > MAX.drafts) problems.push(`A breakdown holds at most ${MAX.drafts} drafts; split the brief.`);
     drafts = raw.map((d: any, i) => {
-      const n = i + 1, title = str(d?.title), summary = str(d?.summary);
+      const n = i + 1, title = oneLine(d?.title), summary = oneLine(d?.summary);
       if (!pointOk(d?.point, false)) problems.push(`Draft ${n}'s point must be a number from 1 to ${points.length}.`);
       if (!title || !summary) problems.push(`Draft ${n} needs a title and a one-line summary.`);
       tooLong(`Draft ${n}'s title`, title, MAX.title);
       tooLong(`Draft ${n}'s summary`, summary, MAX.summary);
       const blockedBy = Array.isArray(d?.blockedBy) ? [...new Set(d.blockedBy as unknown[])] : [];
       if (blockedBy.some((b) => !Number.isInteger(b) || b === n || (b as number) < 1 || (b as number) > raw.length)) problems.push(`Draft ${n}'s blockedBy must name other drafts by number.`);
-      const repo = d?.repo === undefined ? grounding?.single : str(d.repo), repos = grounding ? openRepos(grounding) : [];
+      const repo = d?.repo === undefined ? grounding?.single : oneLine(d.repo), repos = grounding ? openRepos(grounding) : [];
       if (repo && !repos.includes(repo)) problems.push(repos.length ? `Draft ${n}'s repo must be one of ${repos.join(", ")}.` : "No repository is open to this brief: call briefRepositories first, or leave repo out to draft without repository context.");
       return { n, point: d?.point, title, summary, blockedBy: blockedBy as number[], ...(repo ? { repo } : {}) };
     });
@@ -135,21 +138,21 @@ export function applyRound(current: BriefState, args: Record<string, unknown>, g
   if (!raw) problems.push("questions must be a list.");
   if ((raw?.length ?? 0) > MAX.questions) problems.push(`A round holds at most ${MAX.questions} questions.`);
   const asked = (raw ?? []).map((q: any, i) => {
-    const text = str(q?.question), recommendation = str(q?.recommendation);
-    const options = Array.isArray(q?.options) ? q.options.map(str).filter(Boolean) : [];
+    const text = oneLine(q?.question), recommendation = oneLine(q?.recommendation);
+    const options = Array.isArray(q?.options) ? q.options.map(oneLine).filter(Boolean) : [];
     const which = `Question "${text.slice(0, 40) || i + 1}"`;
     if (!pointOk(q?.point, true)) problems.push(`${which}: point must be 0 (whole brief) or a number from 1 to ${points.length}.`);
     if (!text || !recommendation) problems.push(`${which} needs the question and a recommended answer.`);
     tooLong(which, text, MAX.question);
     tooLong(`${which}'s recommendation`, recommendation, MAX.recommendation);
     if (options.length > MAX.options) problems.push(`${which} has more than ${MAX.options} options.`);
-    options.forEach((o: string, j: number) => tooLong(`${which}, option ${String.fromCharCode(97 + j)}`, o, MAX.option));
+    options.forEach((o: string, j: number) => tooLong(`${which}, option ${optionLetter(j)}`, o, MAX.option));
     return { point: q?.point as number, text, recommendation, ...(options.length ? { options } : {}) } as { point: number; text: string; recommendation: string; options?: string[]; image?: string };
   });
   if (problems.length) throw new Error(problems.join("\n"));
   // A screenshot the model could not see is described by the author, whatever questions the model wrote.
   const asking = new Set(current.questions.map((q) => q.image));
-  for (const im of current.images ?? []) if (!im.seen && !im.description && !asking.has(im.id)) asked.push(describeQuestion(im));
+  for (const im of current.images ?? []) if (!im.seen && !im.description && !asking.has(im.id)) asked.push(describeQuestion(im, language));
 
   // What the author left unanswered last round is asked once more; left unanswered again, its recommendation is assumed.
   const carried: (typeof asked[number] & { carriedFrom: { round: number; n: number } })[] = [];
@@ -165,10 +168,10 @@ export function applyRound(current: BriefState, args: Record<string, unknown>, g
   return { ...current, points, drafts, round, questions: [...settled, ...questions] };
 }
 
-const describeQuestion = (im: BriefImage) => ({
+const describeQuestion = (im: BriefImage, language: Language) => ({
   point: 0, image: im.id,
-  text: `What does [${im.name.replace(/[[\]]/g, "")}](<${im.link}>) show? I can't see images with this profile, so describe it in words for the drafts.`,
-  recommendation: "Link it in the drafts without a description.",
+  text: textIn(language).describeQuestion(`[${im.name.replace(/[[\]]/g, "")}](<${im.link}>)`),
+  recommendation: textIn(language).describeRecommendation,
 });
 
 /** Screenshots the model saw but has not described yet, named in tool results so it calls describeBriefImages. */
@@ -177,10 +180,11 @@ export const undescribedImages = (s: BriefState) => {
   return names.length ? { describeImages: `Save what ${names.join(", ")} show${names.length > 1 ? "" : "s"} with describeBriefImages, so the drafts keep it.` } : {};
 };
 
-function hasCycle(drafts: BriefDraft[]) {
+/** The drafts' blockedBy edges loop back on themselves; a number naming no draft is ignored. */
+export function hasCycle(drafts: BriefDraft[]) {
   const state = new Map<number, 1 | 2>();
   const visit = (n: number): boolean => {
-    if (state.get(n) === 2) return false;
+    if (state.get(n) === 2 || !drafts[n - 1]) return false;
     if (state.get(n) === 1) return true;
     state.set(n, 1);
     if (drafts[n - 1]!.blockedBy.some(visit)) return true;
@@ -190,31 +194,29 @@ function hasCycle(drafts: BriefDraft[]) {
   return drafts.some((d) => visit(d.n));
 }
 
-/** Discord rejects messages over 2000 characters; the margin leaves room for its own counting of emoji. */
-export const ROUND_MESSAGE_LIMIT = 1990;
+/** The margin leaves room for Discord's own counting of emoji. */
+const ROUND_MESSAGE_LIMIT = MESSAGE_LIMIT - 10;
 type Unit = { heads: string[]; text: string };
 
 /**
  * The breakdown (when `withBreakdown`) and the latest round as Discord messages. A question is never split: it moves
  * whole to the next message, and that message repeats the headings it sits under.
  */
-export function renderRound(state: BriefState, authorId: string, withBreakdown: boolean): string[] {
-  const units: Unit[] = [];
+export function renderRound(state: BriefState, authorId: string, withBreakdown: boolean, language: Language = "en"): string[] {
+  const t = textIn(language), units: Unit[] = [];
   if (withBreakdown) {
-    const head = `**Breakdown** · ${state.drafts.length} draft${state.drafts.length === 1 ? "" : "s"}`;
-    for (const d of state.drafts) units.push({ heads: [head], text: `**${d.n}. ${d.title}** · point ${d.point}${d.repo ? ` · ${d.repo}` : ""}${d.blockedBy.length ? ` · blocked by draft ${d.blockedBy.join(", ")}` : ""}\n${d.summary}` });
+    const head = t.breakdown(state.drafts.length);
+    for (const d of state.drafts) units.push({ heads: [head], text: `**${d.n}. ${d.title}** · ${t.draftPoint(d.point)}${d.repo ? ` · ${d.repo}` : ""}${d.blockedBy.length ? ` · ${t.blockedByDrafts(d.blockedBy)}` : ""}\n${d.summary}` });
   }
-  const roundHead = `**Round ${state.round}**`;
+  const roundHead = t.round(state.round);
   const asked = state.questions.filter((q) => q.round === state.round);
   for (const q of asked) {
-    const point = q.point ? `**Point ${q.point}** · ${state.points[q.point - 1]}` : "**Whole brief**";
-    const options = (q.options ?? []).map((o, i) => `\n${String.fromCharCode(97 + i)}) ${o}`).join("");
-    const again = q.carriedFrom ? `\n-# Asked again from round ${q.carriedFrom.round}. Left unanswered this time, ➡️ becomes an assumption in the draft.` : "";
+    const point = q.point ? t.point(q.point, state.points[q.point - 1]!) : t.wholeBrief;
+    const options = (q.options ?? []).map((o, i) => `\n${optionLetter(i)}) ${o}`).join("");
+    const again = q.carriedFrom ? `\n${t.askedAgain(q.carriedFrom.round)}` : "";
     units.push({ heads: [roundHead, point], text: `❓ **Q${q.n}** ${q.text}${options}\n➡️ ${q.recommendation}${again}` });
   }
-  units.push({ heads: asked.length ? [] : [roundHead], text: asked.length
-    ? `Only <@${authorId}> decides here. Reply "yes" to take every ➡️, or answer by number, e.g. "yes, except Q2: …".`
-    : `No questions this round. Only <@${authorId}> decides here: reply "yes" to accept the breakdown, or say what to change.` });
+  units.push({ heads: asked.length ? [] : [roundHead], text: asked.length ? t.roundFooter(authorId) : t.noQuestions(authorId) });
   return pack(units, ROUND_MESSAGE_LIMIT);
 }
 
@@ -261,15 +263,22 @@ export const postBriefRoundTool: ToolDefinition = {
   },
 };
 
-export async function postBriefRound(args: Record<string, unknown>, ctx: SkillContext) {
+/** The active brief of this thread on its author's turn; any other turn gets `notAuthor` as the tool's error. */
+export async function authorsBrief(ctx: SkillContext, notAuthor: string) {
   const place = placeOf(ctx);
   const found = place && await readBinding(ctx.tenantId, place);
-  if (!found || found.binding.status !== "active") throw new Error("This thread does not follow a playbook, so there is no brief to post a round for.");
-  if (ctx.userId !== found.binding.authorId) throw new Error("Only the brief's author moves the brief on. Answer this person without posting a round; their message is kept as input for the author.");
+  if (!place || !found || found.binding.status !== "active") throw new Error("This thread does not follow a playbook, so there is no brief here.");
+  if (ctx.userId !== found.binding.authorId) throw new Error(notAuthor);
+  return { place, found };
+}
+
+export async function postBriefRound(args: Record<string, unknown>, ctx: SkillContext) {
+  const { found } = await authorsBrief(ctx, "Only the brief's author moves the brief on. Answer this person without posting a round; their message is kept as input for the author.");
   const before = briefState(found.binding);
-  const next = applyRound(before, args, groundingOf(found.binding));
+  const language = replyLanguage(found.body);
+  const next = applyRound(before, args, groundingOf(found.binding), language);
   await writeBinding(ctx.tenantId, { ...found.binding, ...next }, found.body, found.version);
-  return { round: next.round, messages: renderRound(next, found.binding.authorId, args.drafts !== undefined || before.round === 0), ...undescribedImages(next) };
+  return { round: next.round, messages: renderRound(next, found.binding.authorId, args.drafts !== undefined || before.round === 0, language), ...undescribedImages(next) };
 }
 
 /** The round messages a turn produced, in order; they replace the model's text reply in the thread. */
@@ -277,17 +286,11 @@ export const roundMessagesOf = (calls: { call: { name: string }; result: ToolRes
   calls.flatMap(({ call, result }) => (call.name === postBriefRoundTool.name && result.success && Array.isArray((result.data as any)?.messages) ? (result.data as any).messages as string[] : []));
 
 /** Read-modify-write of a binding's brief state, retried once when another write landed in between. */
-export async function updateBrief<T>(tenantId: string, place: BindingPlace, change: (s: BriefState, b: PlaybookBinding) => { state: BriefState; value: T } | null): Promise<T | null> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const found = await readBinding(tenantId, place);
-    if (!found) return null;
-    const out = change(briefState(found.binding), found.binding);
-    if (!out) return null;
-    try { await writeBinding(tenantId, { ...found.binding, ...out.state }, found.body, found.version); return out.value; }
-    catch (e) { if (!(e instanceof WorkspaceConflict) || attempt) throw e; }
-  }
-  return null;
-}
+export const updateBrief = <T>(tenantId: string, place: BindingPlace, change: (s: BriefState, b: PlaybookBinding) => { state: BriefState; value: T } | null): Promise<T | null> =>
+  rewriteBinding(tenantId, place, ({ binding }) => {
+    const out = change(briefState(binding), binding);
+    return out && { binding: { ...binding, ...out.state }, value: out.value };
+  });
 
 const MAX_INPUT_TEXT = 1000;
 /** Keeps a message from someone other than the author; it decides nothing until the author weighs it. */
@@ -311,4 +314,6 @@ export const presetPointsTurn = (turn: string) => `${turn}\n[${PRESET_POINTS} Po
 
 /** Marks a turn from someone other than the author, so the model answers without treating it as a decision. */
 export const outsiderTurn = (turn: string) => `${turn}\n[This person is not the brief's author: their message is input and decides nothing.]`;
-export const authorDecidesNote = (authorId: string) => `-# <@${authorId}> decides on this brief; I've noted your message for their next round.`;
+export const authorDecidesNote = (authorId: string, language?: Language) => textIn(language).authorDecides(authorId);
+/** "a", "b", "c" for the options of a question. */
+export const optionLetter = (i: number) => String.fromCharCode(97 + i);

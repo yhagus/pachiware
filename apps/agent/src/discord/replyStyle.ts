@@ -1,9 +1,10 @@
-/** Discord rejects message content over 2000 characters. */
-export const MESSAGE_LIMIT = 2000;
-export const MAX_MESSAGES = 3;
-const CUT_NOTE = "-# Cut to stay within 3 messages. Ask for the rest if you need the full version.";
+// The eval reads fillerIn from here, so this file stays free of database imports.
+import { textIn, MESSAGE_LIMIT, type Language } from "@pachiware/skills/src/language.js";
 
-const ADDRESSED_SILENCE = "I have nothing to add here.";
+/** Replies to `message` without pinging anyone it names; a failed send is dropped. */
+export const replyQuietly = (message: { reply(options: { content: string; allowedMentions: { parse: [] } }): Promise<unknown> }) =>
+  (content: string) => message.reply({ content, allowedMentions: { parse: [] } }).catch(() => {});
+export const MAX_MESSAGES = 3;
 
 /** The model's whole answer when it opts out of a message that does not address the bot. */
 export const SILENCE_MARKER = "[[silent]]";
@@ -19,16 +20,17 @@ export interface ReplyPlan { messages: string[]; reaction?: string }
  * The one step between the agent's reply and Discord: style rules that hold whatever the prompt said.
  * A leading marker decides the plan; an addressed message ignores the silence marker and still gets text.
  */
-export function prepareReply(reply: string, { addressed = true }: { addressed?: boolean } = {}): ReplyPlan {
+export function prepareReply(reply: string, { addressed = true, language }: { addressed?: boolean; language?: Language } = {}): ReplyPlan {
+  const t = textIn(language);
   const marker = LEADING_MARKER.exec(reply.trim());
   if (marker?.[2] !== undefined) return { messages: [], reaction: ONE_EMOJI.test(marker[2]) ? marker[2] : "👍" };
   if (marker && !addressed) return { messages: [] };
   const text = stripFiller(reply.replace(ANY_MARKER, "").trim());
   const messages = splitReply(text);
-  if (!messages.length) return { messages: [marker ? ADDRESSED_SILENCE : "Done."] };
+  if (!messages.length) return { messages: [marker ? t.nothingToAdd : t.done] };
   if (messages.length <= MAX_MESSAGES) return { messages };
-  const cut = splitReply(text, (n) => (n === MAX_MESSAGES - 1 ? MESSAGE_LIMIT - CUT_NOTE.length - 1 : MESSAGE_LIMIT)).slice(0, MAX_MESSAGES);
-  cut[cut.length - 1] += `\n${CUT_NOTE}`;
+  const cut = splitReply(text, (n) => (n === MAX_MESSAGES - 1 ? MESSAGE_LIMIT - t.cutNote.length - 1 : MESSAGE_LIMIT)).slice(0, MAX_MESSAGES);
+  cut[cut.length - 1] += `\n${t.cutNote}`;
   return { messages: cut };
 }
 

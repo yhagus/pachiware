@@ -1,13 +1,12 @@
-import type { SkillContext, ToolDefinition } from "./types.js";
-import { readBinding, type BindingPlace } from "./playbooks.js";
-import { placeOf, updateBrief, type BriefDraft, type BriefImage, type BriefState } from "./brief.js";
-
 /**
- * Screenshots in a brief travel as bytes only in the turn they arrive (#27, points 5 and 7). What they show is kept
- * as text in the brief's file: described by the model when it saw them, or by the author when the profile cannot see images.
+ * Screenshots in a brief travel as bytes only in the turn they arrive. What they show is kept as text in the brief's
+ * file: described by the model when it saw them, or by the author when the profile cannot see images.
  */
+import type { SkillContext, ToolDefinition } from "./types.js";
+import type { BindingPlace } from "./playbooks.js";
+import { authorsBrief, oneLine as line, updateBrief, type BriefDraft, type BriefImage, type BriefState } from "./brief.js";
+
 const MAX_DESCRIPTION = 500;
-const line = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
 
 /** Adds the author's screenshots of this turn to the brief; `sent` ones were shown to the model. */
 export const recordBriefImages = (tenantId: string, place: BindingPlace, shots: { id: string; name: string; link: string; sent: boolean }[]) =>
@@ -82,10 +81,7 @@ export const describeBriefImagesTool: ToolDefinition = {
 };
 
 export async function describeBriefImages(args: Record<string, unknown>, ctx: SkillContext) {
-  const place = placeOf(ctx);
-  const found = place && await readBinding(ctx.tenantId, place);
-  if (!place || !found || found.binding.status !== "active") throw new Error("This thread does not follow a playbook, so there is no brief here.");
-  if (ctx.userId !== found.binding.authorId) throw new Error("Only the brief author's screenshots go into the drafts.");
+  const { place } = await authorsBrief(ctx, "Only the brief author's screenshots go into the drafts.");
   await updateBrief(ctx.tenantId, place, (s) => ({ state: applyDescriptions(s, args), value: true }));
   return { described: (args.images as any[]).map((x) => line(x?.name)) };
 }

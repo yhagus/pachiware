@@ -1,12 +1,12 @@
 import type { SkillContext, ToolDefinition, ToolResult } from "../types.js";
-import { readBinding, writeBinding, type BindingPlace, type PlaybookBinding } from "../playbooks.js";
-import { briefState, placeOf, updateBrief, type BriefDraft, type BriefState } from "../brief.js";
+import { readBinding, rewriteBinding, type BindingPlace, type PlaybookBinding } from "../playbooks.js";
+import { briefState, authorsBrief, updateBrief, type BriefDraft, type BriefState } from "../brief.js";
 import { draftBody } from "../issueDrafts.js";
 import { groundingOf, proposedLabels } from "../grounding.js";
 import { createIssue, linkBlockedBy, type GitConn } from "../git.js";
 import { queueAction } from "../gitConfirm.js";
-import { WorkspaceConflict } from "../workspace/store.js";
 import { useRepo } from "./gitShared.js";
+import { replyLanguage, textIn, type Language, type Strings } from "../language.js";
 
 /**
  * Creating a brief's issues from its drafts (#43): one Git write confirmation for every draft left, pressed by the
@@ -14,14 +14,6 @@ import { useRepo } from "./gitShared.js";
  * passes through tool arguments.
  */
 export const CREATE_BRIEF_ISSUES = "createBriefIssues";
-
-async function authorsBrief(ctx: SkillContext) {
-  const place = placeOf(ctx);
-  const found = place && await readBinding(ctx.tenantId, place);
-  if (!place || !found || found.binding.status !== "active") throw new Error("This thread does not follow a playbook, so there is no brief to create issues from.");
-  if (ctx.userId !== found.binding.authorId) throw new Error("Only the brief's author can create its issues. Tell this person the author decides.");
-  return { place, found };
-}
 
 const numbers = (v: unknown, count: number, name: string) => {
   if (v === undefined) return [];
@@ -48,15 +40,15 @@ const blockerRef = (d: BriefDraft) => (b: BriefDraft) =>
   b.issue ? (b.repo === d.repo ? `#${b.issue.number}` : b.issue.url) : `${b.title} (not created)`;
 const stripAdded = (body: string) => body.replace(/ ?\*\(added\)\*/g, "");
 
-function summaryOf(state: BriefState, binding: PlaybookBinding, order: number[], skip: number[]) {
+function summaryOf(state: BriefState, binding: PlaybookBinding, order: number[], skip: number[], t: Strings) {
   const g = groundingOf(binding);
   const lines = order.map((n) => {
     const d = state.drafts[n - 1]!, labels = proposedLabels(g, d);
-    const waits = d.blockedBy.map((b) => { const x = state.drafts[b - 1]!; return x.issue ? blockerRef(d)(x) : `draft ${b}`; });
-    return `${n}. ${d.title} · ${d.repo}${labels.length ? ` · labels: ${labels.join(", ")}` : ""}${waits.length ? ` · blocked by ${waits.join(", ")}` : ""}`;
+    const waits = d.blockedBy.map((b) => { const x = state.drafts[b - 1]!; return x.issue ? blockerRef(d)(x) : t.draft(b); });
+    return `${n}. ${d.title} · ${d.repo}${labels.length ? ` · ${t.labels(labels)}` : ""}${waits.length ? ` · ${t.blockedBy(waits)}` : ""}`;
   });
   const skipped = skip.map((n) => `${n}. ${state.drafts[n - 1]!.title}`);
-  return [`Create ${order.length} issue${order.length === 1 ? "" : "s"} from this brief:`, ...lines, ...(skipped.length ? [`Skipped: ${skipped.join("; ")}`] : [])].join("\n");
+  return [t.createIssues(order.length), ...lines, ...(skipped.length ? [t.skippedDrafts(skipped)] : [])].join("\n");
 }
 
 const locks = new Map<string, Promise<unknown>>();
@@ -79,10 +71,12 @@ export interface BriefIssuesResult {
   /** Blocked by links this batch could not set natively; the issue's text still names the blocker. */
   unlinked?: { issue: number; blocker: number }[];
   done: boolean;
+  /** The brief's language, for the report. */
+  language: Language;
 }
 
 export async function createBriefIssues(a: Record<string, unknown>, ctx: SkillContext) {
-  const { place, found } = await authorsBrief(ctx);
+  const { place, found } = await authorsBrief(ctx, "Only the brief's author can create its issues. Tell this person the author decides.");
   const state = briefState(found.binding), count = state.drafts.length;
   const skip = numbers(a.skip, count, "skip");
   const picked = a.drafts === undefined ? state.drafts.filter((d) => !d.issue && !d.skipped && !skip.includes(d.n)).map((d) => d.n) : numbers(a.drafts, count, "drafts");
@@ -96,7 +90,7 @@ export async function createBriefIssues(a: Record<string, unknown>, ctx: SkillCo
 
   if (!ctx.confirmed) {
     if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error("Creating issues needs the author to confirm it, which only works in a Discord thread.");
-    const summary = summaryOf(state, found.binding, order, skip);
+    const summary = summaryOf(state, found.binding, order, skip, textIn(replyLanguage(found.body)));
     const q = queueAction({ tenantId: ctx.tenantId, botId: ctx.botId, userId: ctx.userId, guildId: ctx.guildId, channelId: ctx.channelId, parentChannelId: ctx.parentChannelId, tool: CREATE_BRIEF_ISSUES, args: { drafts: order, ...(skip.length ? { skip } : {}) }, summary, auth: ctx.auth, ownConfirmation: true });
     return { pending: true, ownConfirmation: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the author to press Confirm or Cancel on the message that appears in the thread; a thread grant does not cover this. Do not call this tool again." };
   }
@@ -135,23 +129,25 @@ async function runBatch(ctx: SkillContext, place: BindingPlace, order: number[],
 }
 
 async function finish(tenantId: string, place: BindingPlace, failed: BriefIssuesResult["failed"], unlinked: { issue: number; blocker: number }[]): Promise<BriefIssuesResult> {
-  for (let attempt = 0; ; attempt++) {
-    const found = await readBinding(tenantId, place);
+  const resultOf = (found: { binding: PlaybookBinding; body: string } | null): BriefIssuesResult => {
     const drafts = found ? briefState(found.binding).drafts : [];
-    const result: BriefIssuesResult = {
+    const notCreated = drafts.filter((d) => !d.issue && !d.skipped).map((d) => ({ n: d.n, title: d.title }));
+    return {
       brief: true,
       created: drafts.filter((d) => d.issue).map((d) => ({ n: d.n, title: d.title, repo: d.repo!, number: d.issue!.number, url: d.issue!.url })),
       ...(failed ? { failed } : {}),
-      notCreated: drafts.filter((d) => !d.issue && !d.skipped).map((d) => ({ n: d.n, title: d.title })),
+      notCreated,
       skipped: drafts.filter((d) => d.skipped).map((d) => ({ n: d.n, title: d.title })),
       ...(unlinked.length ? { unlinked } : {}),
-      done: false,
+      done: !!found && !notCreated.length,
+      language: replyLanguage(found?.body),
     };
-    result.done = !!found && !result.notCreated.length;
-    if (!found || !result.done) return result;
-    try { await writeBinding(tenantId, { ...found.binding, status: "done" }, found.body, found.version); return result; }
-    catch (e) { if (!(e instanceof WorkspaceConflict) || attempt) throw e; }
-  }
+  };
+  const done = await rewriteBinding(tenantId, place, (found) => {
+    const result = resultOf(found);
+    return result.done ? { binding: { ...found.binding, status: "done" }, value: result } : null;
+  });
+  return done ?? resultOf(await readBinding(tenantId, place));
 }
 
 /** The result of a confirmed batch, or null for any other tool result. */
@@ -159,23 +155,27 @@ export const briefIssuesOf = (tool: string, result: ToolResult): BriefIssuesResu
   tool === CREATE_BRIEF_ISSUES && result.success && (result.data as any)?.brief === true ? result.data as BriefIssuesResult : null;
 
 /** A created draft's embed, edited in place. */
-export const createdEmbed = (c: CreatedIssue) => ({ title: `${c.n}. ${c.title}`, url: c.url, description: `Created: ${c.url}` });
+export const createdEmbed = (c: CreatedIssue, language?: Language) => ({ title: `${c.n}. ${c.title}`, url: c.url, description: textIn(language).createdLink(c.url) });
 
 /** The thread message after a batch: every link, and on a failure what was not created and how to go on. */
 export function issuesReport(r: BriefIssuesResult): string {
+  const t = textIn(r.language);
   const links = r.created.map((c) => `${c.n}. ${c.title}: <${c.url}>`);
-  const skipped = r.skipped.length ? [`Skipped: ${r.skipped.map((d) => `${d.n}. ${d.title}`).join("; ")}`] : [];
-  const unlinked = r.unlinked?.length ? [`-# Could not link ${r.unlinked.map((u) => `#${u.issue} as blocked by #${u.blocker}`).join(", ")}, so ${r.unlinked.length > 1 ? "their Blocked by sections say" : "its Blocked by section says"} it in text.`] : [];
-  if (!r.failed) return [`Created ${r.created.length} issue${r.created.length === 1 ? "" : "s"} from this brief:`, ...links, ...skipped, ...unlinked, ...(r.done ? ["-# This brief is done. Messages here are ordinary chat from now on."] : [])].join("\n");
+  const skipped = r.skipped.length ? [t.skippedDrafts(r.skipped.map((d) => `${d.n}. ${d.title}`))] : [];
+  const unlinked = r.unlinked?.length ? [t.unlinked(r.unlinked.map((u) => t.unlinkedPair(u.issue, u.blocker)))] : [];
+  if (!r.failed) return [t.created(r.created.length), ...links, ...skipped, ...unlinked, ...(r.done ? [t.briefDone] : [])].join("\n");
   return [
-    `Stopped at draft ${r.failed.n}, ${r.failed.title}: ${r.failed.error}`,
-    ...(links.length ? ["**Created**", ...links] : ["Nothing was created."]),
-    "**Not created**", ...r.notCreated.map((d) => `${d.n}. ${d.title}`),
+    t.stoppedAt(r.failed.n, r.failed.title, r.failed.error),
+    ...(links.length ? [t.createdHeading, ...links] : [t.nothingCreated]),
+    t.notCreatedHeading, ...r.notCreated.map((d) => `${d.n}. ${d.title}`),
     ...skipped,
     ...unlinked,
-    `Say "continue the rest" to create the drafts not created yet, under a new confirmation. drafts.md has them to paste by hand.`,
+    t.continueRest,
   ].join("\n");
 }
+
+/** What the confirmation message says once the batch ran. */
+export const batchOutcome = (r: BriefIssuesResult) => (r.failed ? textIn(r.language).batchStopped(r.failed.n, r.created.length) : textIn(r.language).batchDone(r.created.length));
 
 export const briefIssuesTools: ToolDefinition[] = [{
   name: CREATE_BRIEF_ISSUES,

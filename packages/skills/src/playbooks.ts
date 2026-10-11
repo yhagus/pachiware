@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve, sep } from "node:path";
 import { checkSegments, safeId } from "./workspace/paths.js";
-import { workspaceStore } from "./workspace/store.js";
+import { workspaceStore, WorkspaceConflict } from "./workspace/store.js";
 
 /** Built-ins ship with the code; a tenant's own playbooks live under this Workspace folder and win by name. */
 export const BUILTIN_PLAYBOOKS_DIR = fileURLToPath(new URL("../playbooks/", import.meta.url));
@@ -151,6 +151,9 @@ export interface PlaybookBinding {
   [field: string]: unknown;
 }
 export type BindingPlace = { guildId: string; channelId: string; threadId: string };
+export const bindingPlace = ({ guildId, channelId, threadId }: BindingPlace): BindingPlace => ({ guildId, channelId, threadId });
+/** A link that opens one Discord message; a DM has "@me" for its server. */
+export const jumpLink = (guildId: string | null | undefined, channelId: string, messageId: string) => `https://discord.com/channels/${guildId ?? "@me"}/${channelId}/${messageId}`;
 
 /** One file per bound thread, in its channel's Workspace folder, so the binding survives a restart. */
 export function bindingPath({ guildId, channelId, threadId }: BindingPlace) {
@@ -169,6 +172,20 @@ export async function readBinding(tenantId: string, place: BindingPlace): Promis
 /** Creates the binding, or replaces it when `version` is the one last read. */
 export function writeBinding(tenantId: string, binding: PlaybookBinding, body: string, version?: string) {
   return workspaceStore().write(tenantId, bindingPath(binding), renderFrontmatter(binding, body), version);
+}
+
+/**
+ * Read-modify-write of a binding, retried once when another write landed in between. `change` returns the binding
+ * to write and the value to hand back, or null to leave the file alone.
+ */
+export async function rewriteBinding<T>(tenantId: string, place: BindingPlace, change: (found: { binding: PlaybookBinding; body: string }) => { binding: PlaybookBinding; value: T } | null): Promise<T | null> {
+  for (let attempt = 0; ; attempt++) {
+    const found = await readBinding(tenantId, place);
+    const out = found && change(found);
+    if (!out) return null;
+    try { await writeBinding(tenantId, out.binding, found!.body, found!.version); return out.value; }
+    catch (e) { if (!(e instanceof WorkspaceConflict) || attempt) throw e; }
+  }
 }
 
 /** The playbook a thread is bound to while the binding is active, or null. */
