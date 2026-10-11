@@ -94,7 +94,9 @@ discordScenario("a brief already inside a thread is followed in that thread", as
   expect(s.discord.botMessages.map((m) => [m.channelId, m.content])).toEqual([["thread-9", "Drafting here."]]);
 
   s.model.script("Got it.");
-  await s.discord.send("also Firefox", { channel: thread, author: s.discord.bob });
+  const input = await s.discord.send("also Firefox", { channel: thread, author: s.discord.bob });
+  expect(input.reactions).toEqual(["👀"]);
+  await s.discord.send("and Edge", { channel: thread });
   expect(s.discord.botMessages.at(-1)).toMatchObject({ channelId: "thread-9", content: "Got it." });
   expect(s.model.calls[1]![0]!.content).toContain("### Playbook: issue-draft");
 });
