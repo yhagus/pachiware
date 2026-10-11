@@ -114,8 +114,8 @@ const normalize = (payload: string | Payload): Required<Payload> => {
   const p = typeof payload === "string" ? { content: payload } : payload;
   return { content: p.content ?? "", embeds: (p.embeds ?? []).map(json), components: (p.components ?? []).map(json), files: p.files ?? [] };
 };
-const unwrapTool = (content: string | null) => {
-  const text = (content ?? "").replace(/<\/?untrusted_data[^>]*>/g, "").trim();
+const unwrapTool = (content: ChatMessage["content"]) => {
+  const text = (typeof content === "string" ? content : "").replace(/<\/?untrusted_data[^>]*>/g, "").trim();
   try { return JSON.parse(text); } catch { return text; }
 };
 

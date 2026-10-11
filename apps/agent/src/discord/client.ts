@@ -3,16 +3,19 @@ import { db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, li
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
-import { respondReason, isNoise, threadName, speakerTurn } from "./routing.js";
+import { respondReason, addressed, isNoise, threadName, speakerTurn } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, type Playbook } from "@pachiware/skills";
-import { prepareReply } from "./replyStyle.js";
+import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { prepareReply, MESSAGE_LIMIT, type ReplyPlan } from "./replyStyle.js";
+import { gatherTurnImages, withPlaceholders, BLIND_ONLY_NOTE, REJECTED_NOTE } from "./attachments.js";
+import { llmRouter } from "../llm/router.js";
 import { MINUTES_PLAYBOOK, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes } from "./minutes.js";
 
 const BURST_MS = 2500;
 const MESSAGE_COMMAND = 3; // ApplicationCommandType.Message
+type TurnItem = { msg: Message; text: string; direct?: boolean };
 type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[] };
 /** Who a turn acts for: the message author, or the person who ran a command on someone else's message. */
 type Actor = { id: string; name: string; member: any };
@@ -31,9 +34,9 @@ async function skillsRefusal(tenantId: string, playbook: Playbook) {
 export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
   private operations = new Map<string, Promise<any>>();
-  private bursts = new Map<string, { items: { msg: Message; text: string }[]; timer: ReturnType<typeof setTimeout> }>();
+  private bursts = new Map<string, { items: TurnItem[]; timer: ReturnType<typeof setTimeout> }>();
   private inflight = new Set<Promise<unknown>>();
-  constructor(private burstMs = BURST_MS) {}
+  constructor(private burstMs = BURST_MS) { onPlaybooksChanged((tenantId) => this.refreshCommands(tenantId)); }
   private track(work: Promise<unknown>) {
     const tracked = work.catch(() => {}).finally(() => this.inflight.delete(tracked));
     this.inflight.add(tracked);
@@ -85,7 +88,7 @@ export class DiscordBotManager {
       if (this.clients.get(id) !== runtime) return;
       runtime.connected = true;
       void updateBot(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
-      this.track(this.registerCommands(runtime));
+      this.track(this.serialize(`commands:${id}`, () => this.registerCommands(runtime)));
     });
     client.on(Events.ShardDisconnect, () => { runtime.connected = false; void updateBot(id, { connectionStatus: "disconnected" }).catch(() => {}); });
     client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
@@ -105,9 +108,13 @@ export class DiscordBotManager {
       return { success: false, message: "Discord login failed." };
     }
   }
+  /** Re-registers the commands of every running bot of the tenant, so an edited playbook needs no restart. */
+  refreshCommands(tenantId: string) {
+    for (const [id, runtime] of this.clients) if (runtime.tenantId === tenantId && runtime.connected) this.track(this.serialize(`commands:${id}`, () => this.registerCommands(runtime)));
+  }
   /** One message context-menu command per playbook that names one; Discord allows five per app. */
   private async registerCommands(runtime: BotRuntime) {
-    if (!runtime.client.application) return;
+    if (!runtime.client.application || ![...this.clients.values()].includes(runtime)) return;
     const menus = [...new Set((await listPlaybooks(runtime.tenantId)).map((p) => p.menu).filter((m): m is string => !!m))].slice(0, 5);
     await runtime.client.application.commands.set(menus.map((name) => ({ name, type: MESSAGE_COMMAND })));
   }
@@ -147,23 +154,35 @@ export class DiscordBotManager {
       trigger.repliedToBot = ref?.author.id === botUserId;
       if (ref && !trigger.repliedToBot) trigger.addressesOthers = true;
     }
+    // In a bound thread only the author decides: anyone else's message is kept as input for them and acknowledged, not answered.
+    const place = bound && { guildId: bound.binding.guildId, channelId: bound.binding.channelId, threadId: bound.binding.threadId };
+    const outsider = !!bound && msg.author.id !== bound.binding.authorId;
+    const keepInput = async () => {
+      const said = msg.content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
+      if (!place || isNoise(said, msg.attachments.size > 0)) return false;
+      return !!await recordBriefInput(runtime.tenantId, place, { messageId: msg.id, userId: msg.author.id, name: msg.member?.displayName || msg.author.username, text: said || "[attachment]" }).catch(() => null);
+    };
+    if (outsider && !addressed(trigger)) { if (await keepInput()) await msg.react("👀").catch(() => {}); return; }
     if (shared && !trigger.mentioned && !trigger.repliedToBot && !trigger.addressesOthers && !(guild?.alwaysChannelIds ?? []).includes(channelId0)) {
       const prev = await msg.channel.messages.fetch({ limit: 1, before: msg.id }).catch(() => null);
       trigger.lastMessageFromBot = prev?.first()?.author.id === botUserId;
     }
     let reason = respondReason(trigger);
+    if (!reason && bound && !outsider) reason = "direct";
     if (!reason && !shared && msg.reference?.messageId) {
       const ref = await msg.fetchReference().catch(() => null);
-      reason = respondReason({ ...trigger, repliedToBot: ref?.author.id === botUserId });
+      trigger.repliedToBot = ref?.author.id === botUserId;
+      reason = respondReason(trigger);
     }
     if (!reason) return;
+    const direct = addressed(trigger);
     const text = msg.content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
-    if (isNoise(text, msg.attachments.size > 0)) return;
+    if (isNoise(text, msg.attachments.size > 0)) { if (direct) await msg.react("👀").catch(() => {}); return; }
     const rate = await CacheService.checkRateLimit(tenantKey(runtime.tenantId, `ratelimit:discord:user:${msg.author.id}`), 10, 60);
     if (!rate.allowed) { await msg.react("⏳").catch(() => {}); return; }
-    if (!text) return;
+    if (!text && !msg.attachments.size) return;
     await db.insert(usageEvents).values({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
-    if (msg.guildId && msg.reference?.messageId) {
+    if (text && msg.guildId && msg.reference?.messageId) {
       const ref = await msg.fetchReference().catch(() => null);
       if (ref?.author.id === botUserId && minutesFileOf(ref)) {
         await this.serialize(`minutes:${ref.id}`, () => correctMinutes({ tenantId: runtime.tenantId, botId, guildId: msg.guildId!, minutesMessage: ref, reply: msg, text }));
@@ -171,6 +190,7 @@ export class DiscordBotManager {
       }
     }
     if (trigger.mentioned && await this.triggerPlaybook(runtime, botId, msg, text, !!bound)) return;
+    if (outsider) await keepInput();
     // A mention in a plain text channel opens a thread so the follow-ups need no mention; without permission it falls back to the channel.
     let thread: ThreadChannel | null = null;
     if (reason === "mention" && guild?.useThreads && "startThread" in msg && !msg.channel.isThread() && !msg.channel.isDMBased()) {
@@ -178,18 +198,17 @@ export class DiscordBotManager {
     }
     const channelId = thread?.id ?? msg.channelId;
     // One turn at a time per conversation, so concurrent messages do not interleave history.
-    const run = (m: Message, turn: string) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, turn, channelId, thread, { playbook: bound?.playbook }));
-    const speakerOf = (m: Message) => m.member?.displayName || m.author.username;
-    if (!msg.guildId || thread) { await run(msg, speakerTurn(msg.guildId, speakerOf(msg), text)); return; }
+    const run = (m: Message, items: TurnItem[]) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, items, channelId, thread, { playbook: bound?.playbook, binding: bound?.binding, direct: items.some((i) => i.direct !== false) }));
+    if (!msg.guildId || thread) { await run(msg, [{ msg, text, direct }]); return; }
     // Burst of messages in a shared channel: wait for a pause, then answer once with all of them.
     const key = `${botId}:${channelId}`;
-    const burst = this.bursts.get(key) ?? { items: [] as { msg: Message; text: string }[], timer: undefined as any };
-    burst.items.push({ msg, text });
+    const burst = this.bursts.get(key) ?? { items: [] as TurnItem[], timer: undefined as any };
+    burst.items.push({ msg, text, direct });
     clearTimeout(burst.timer);
     burst.timer = setTimeout(() => {
       this.bursts.delete(key);
       const last = burst.items[burst.items.length - 1].msg;
-      void run(last, burst.items.map((i) => speakerTurn(i.msg.guildId, speakerOf(i.msg), i.text)).join("\n")).catch(() => {});
+      void run(last, burst.items).catch(() => {});
     }, this.burstMs);
     this.bursts.set(key, burst);
   }
@@ -243,8 +262,7 @@ export class DiscordBotManager {
     if (previous?.binding.status === "active") return { error: `This thread already follows the ${previous.binding.playbook} playbook.` };
     const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, sourceMessageId: source.id, startedAt: new Date().toISOString() }, `${brief}\n`, previous?.version).catch(() => null);
     if (!saved) return { error: "I couldn't save this thread to the Workspace, so the playbook did not start. Try again in a moment." };
-    const turn = speakerTurn(source.guildId, source.member?.displayName || source.author.username, brief);
-    return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, turn, thread.id, thread, { actor, playbook })) };
+    return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, [{ msg: source, text: brief }], thread.id, thread, { actor, playbook })) };
   }
   /** Minutes post in place, replying to `at`: no thread is opened or bound. */
   private async runMinutes(runtime: BotRuntime, botId: string, playbook: Playbook, at: Message, requesterId: string, o: { startId?: string; skipIds?: string[]; refuse(text: string): Promise<unknown>; ack?(): Promise<unknown>; fail(text: string): Promise<unknown> }) {
@@ -258,7 +276,7 @@ export class DiscordBotManager {
       .catch(() => "I couldn't write the minutes this time. Try again in a moment.");
     if (error) await o.fail(error);
   }
-  private async reply(runtime: BotRuntime, botId: string, msg: Message, turn: string, channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook } = {}) {
+  private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean } = {}) {
     const target = thread ?? msg.channel;
     const typing = async () => { try { if ("sendTyping" in target) await target.sendTyping(); } catch {} };
     await typing();
@@ -267,10 +285,25 @@ export class DiscordBotManager {
     try {
       const [agent] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, runtime.tenantId)).limit(1);
       const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
-      const actor = opts.actor ?? actorOf(msg);
+      const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const playbook = opts.playbook && { name: opts.playbook.name, body: opts.playbook.body };
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
-      for (const chunk of prepareReply(output.reply).messages) await send(chunk);
+      const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId));
+      if (media.blind && !items.some((i) => i.text)) { await send(BLIND_ONLY_NOTE); return; }
+      let turn = [items.map((i) => speakerTurn(i.msg.guildId, i.msg.member?.displayName || i.msg.author.username, withPlaceholders(i.text, i.msg))).join("\n"), media.context].filter(Boolean).join("\n");
+      const brief = opts.binding && { place: { guildId: opts.binding.guildId, channelId: opts.binding.channelId, threadId: opts.binding.threadId }, authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
+      if (brief?.outsider) turn = outsiderTurn(turn);
+      else if (brief) { const input = await takeBriefInput(runtime.tenantId, brief.place).catch(() => null); if (input) turn = inputTurn(input, turn); }
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
+      output.reply = [output.reply, ...(output.imagesRejected ? [REJECTED_NOTE] : []), ...media.notes].join("\n");
+      // A posted round is the reply: its packing is decided in code, so the model's own text does not go out with it.
+      const round = roundMessagesOf(output.toolCallsExecuted);
+      const plan: ReplyPlan = round.length ? { messages: round } : prepareReply(output.reply, { addressed: direct });
+      if (brief?.outsider && plan.messages.length) {
+        const note = authorDecidesNote(brief.authorId), last = plan.messages.length - 1;
+        if (plan.messages[last]!.length + note.length < MESSAGE_LIMIT) plan.messages[last] += `\n${note}`; else plan.messages.push(note);
+      }
+      if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
+      for (const chunk of plan.messages) await send(chunk);
       if (output.toolCallsExecuted.length && target.isSendable()) {
         // Git write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.
         for (const { result } of output.toolCallsExecuted) {

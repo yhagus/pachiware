@@ -2,6 +2,7 @@ import type { SkillContext, SkillModule } from "../types.js";
 import { resolvePath, visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, type WorkspaceStore } from "../workspace/store.js";
 import { readPlaybookFile } from "../playbooks.js";
+import { postBriefRound, postBriefRoundTool } from "../brief.js";
 
 const pathArg = { type: "string", description: 'Path starting with a folder name, e.g. "channel/notes/ideas.md"' };
 
@@ -25,7 +26,7 @@ export const workspaceSkill: SkillModule = {
   description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
   capabilities: ["workspace"],
   allowedScopes: ["tenant"],
-  toolPolicy: { listFiles: { risk: "read" }, readFile: { risk: "read" }, searchFiles: { risk: "read" }, readPlaybookFile: { risk: "read" }, writeFile: { risk: "write", requiresConfirmation: false }, moveFile: { risk: "write", requiresConfirmation: false }, deleteFile: { risk: "destructive", requiresConfirmation: true } },
+  toolPolicy: { listFiles: { risk: "read" }, readFile: { risk: "read" }, searchFiles: { risk: "read" }, readPlaybookFile: { risk: "read" }, postBriefRound: { risk: "write", requiresConfirmation: false }, writeFile: { risk: "write", requiresConfirmation: false }, moveFile: { risk: "write", requiresConfirmation: false }, deleteFile: { risk: "destructive", requiresConfirmation: true } },
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "readFile", description: "Reads a Markdown file from the Workspace.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
@@ -34,6 +35,7 @@ export const workspaceSkill: SkillModule = {
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "searchFiles", description: "Finds files by name or text, case-insensitive, under a folder.", parameters: { type: "object", properties: { query: { type: "string", description: "Text to find" }, path: pathArg }, required: ["query", "path"] } },
     { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
+    postBriefRoundTool,
   ],
   handlers: {
     listFiles: async (args, ctx) => {
@@ -67,6 +69,7 @@ export const workspaceSkill: SkillModule = {
       if (content === null) throw new Error(`Playbook file "${args.playbook}/${args.path}" not found.`);
       return { content };
     },
+    postBriefRound,
     searchFiles: async (args, ctx) => {
       const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
       if (!query) throw new Error("query is required");

@@ -2,9 +2,13 @@ import type { ToolDefinition, ToolCall } from "@pachiware/skills";
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
+/** Image bytes travel only in the user turn they arrived with; stored history keeps a text placeholder. */
+export type ImagePart = { type: "image"; mediaType: string; data: string };
+export type ContentPart = { type: "text"; text: string } | ImagePart;
+
 export interface ChatMessage {
   role: MessageRole;
-  content: string | null;
+  content: string | ContentPart[] | null;
   toolCalls?: ToolCall[];
   toolCallId?: string;
   name?: string;
@@ -14,6 +18,9 @@ export interface LLMResponse {
   content: string | null;
   toolCalls: ToolCall[];
   finishReason: "stop" | "tool_calls" | "length" | "error";
+  httpStatus?: number;
+  /** The provider refused the request's images, and this answer came from a retry without them. */
+  imagesRejected?: boolean;
   usage?: {
     promptTokens: number;
     completionTokens: number;

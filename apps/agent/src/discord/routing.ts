@@ -28,6 +28,11 @@ export function respondReason(t: Trigger): Reason {
   return t.mentioned || t.repliedToBot ? "mention" : null;
 }
 
+/** A mention, a reply to the bot, or a DM: these always get a response, never silence. */
+export function addressed(t: Pick<Trigger, "guildId" | "mentioned" | "repliedToBot">) {
+  return !t.guildId || t.mentioned || t.repliedToBot;
+}
+
 export function threadName(text: string) {
   return (text.replace(/\s+/g, " ").trim().slice(0, 60) || "Conversation");
 }

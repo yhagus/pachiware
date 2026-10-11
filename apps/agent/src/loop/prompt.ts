@@ -2,6 +2,7 @@ import { db, agentsConfig, getGuildConfig } from "@pachiware/db";
 import { eq } from "drizzle-orm";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, loadMemory, loadTasks, workspaceStore } from "@pachiware/skills";
+import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
 
 export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[] };
 const guildDefaults: GuildSettings = { systemPrompt: null, useThreads: true, alwaysChannelIds: [] };
@@ -27,6 +28,8 @@ export interface PromptContext {
   channelId?: string;
   userName?: string;
   userId?: string;
+  /** Discord only: whether this turn's message mentions the bot, replies to it, or is a DM. */
+  addressed?: boolean;
   /** Set when channelId is a thread: the channel whose Workspace folder it uses. */
   skillContext?: { parentChannelId?: string };
   /** The playbook this thread is bound to. Its body joins the cached prefix, which stays stable because the binding lasts for the thread. */
@@ -85,6 +88,12 @@ export class SystemPromptBuilder {
 - No filler. No openers such as "Great question!", "Sure!", "Tentu!", "Baik, berikut…". No closers such as "Let me know if…", "Hope this helps", "Semoga membantu", "Jangan ragu bertanya". Do not restate the question, stack apologies, add decorative emoji, or say "As an AI".
 `);
 
+    if (context.platform === "discord") promptSections.push(`### When to stay quiet (set by the system):
+- The turn context says whether the message addresses you: a mention, a reply to you, or a DM. An addressed message always gets a text answer.
+- A message that does not address you reaches you only in your own threads and always-on channels. If it is not meant for you, answer with exactly ${SILENCE_MARKER} and nothing is posted. If it only acknowledges, such as "thanks", "ok" or "sip", answer with exactly ${reactionMarker("👍")} or ${reactionMarker("✅")} and only that reaction is added.
+- A marker is the whole answer: never put text around it, and never use one for an addressed message.
+`);
+
     // 3. Execution & Tool-Calling guidelines
     const activeTools = await skillRegistry.getActiveTools(context.tenantId);
     const hasGit = activeTools.some((t) => t.name === "repoList");
@@ -120,6 +129,7 @@ ${toolNames.length > 0 ? toolNames : "None currently active."}
     const lines = [`Platform: ${context.platform}`];
     if (context.channelName || context.channelId) lines.push(`Channel: ${context.channelName ? `#${context.channelName} ` : ""}(ID: ${context.channelId})`);
     if (context.userName) lines.push(`User: ${context.userName} (ID: ${context.userId})`);
+    if (context.addressed !== undefined) lines.push(`Addresses you: ${context.addressed ? "yes" : "no"}`);
     const where = { tenantId: context.tenantId, guildId: context.guildId, channelId: context.channelId, parentChannelId: context.skillContext?.parentChannelId, userId: context.userId };
     try {
       const memory = await loadMemory(where);

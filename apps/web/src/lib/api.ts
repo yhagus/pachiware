@@ -82,7 +82,8 @@ export interface GitRepoItem { repo: string; owner: string; private: boolean; ar
 export interface GitPage<T> { items: T[]; hasMore: boolean; contributorsOnly?: boolean; }
 export type GitTab = "members" | "issues" | "merge-requests" | "branches";
 export interface GitOAuthApp { id: string; provider: "github" | "gitlab"; baseUrl: string; clientId: string; hasSecret: boolean; }
-export interface WorkspaceEntry { path: string; type: "file" | "dir"; size?: number }
+/** `readOnly` marks built-in playbook entries; `overridden` is set on a built-in playbook the tenant has its own copy of. */
+export interface WorkspaceEntry { path: string; type: "file" | "dir"; size?: number; readOnly?: boolean; overridden?: boolean }
 export interface TenantSkill { id: string; name: string; description: string; toolCount: number; isEnabled: boolean; }
 export interface GitAccountInput { name?: string; provider?: string; baseUrl?: string | null; token?: string; }
 export interface BotInput { profileId?: string | null; gitAccountIds?: string[]; name?: string; platform?: string; token?: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean; }
@@ -113,10 +114,12 @@ export const api = {
   testProfile: (data: { provider: string; model: string; baseUrl?: string; apiKey?: string; profileId?: string }) => fetchJSON<{ text: ProfileProbe; image: ProfileProbe }>("/api/admin/profiles/test", json("POST", data)),
   updateProfile: (id: string, data: ProfileInput) => fetchJSON<{ profile: Profile }>(`/api/admin/profiles/${id}`, json("PATCH", data)),
   workspaceTree: (tenantId: string, path = "") => fetchJSON<{ entries: WorkspaceEntry[] }>(`/api/admin/tenants/${tenantId}/workspace/tree?path=${encodeURIComponent(path)}`),
-  workspaceRead: (tenantId: string, path: string) => fetchJSON<{ content: string; version: string }>(`/api/admin/tenants/${tenantId}/workspace/file?path=${encodeURIComponent(path)}`),
+  workspaceRead: (tenantId: string, path: string) => fetchJSON<{ content: string; version: string; readOnly?: boolean }>(`/api/admin/tenants/${tenantId}/workspace/file?path=${encodeURIComponent(path)}`),
   workspaceWrite: (tenantId: string, path: string, content: string, version?: string) => fetchJSON<{ version: string }>(`/api/admin/tenants/${tenantId}/workspace/file`, json("PUT", { path, content, version })),
   workspaceMove: (tenantId: string, from: string, to: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/move`, json("POST", { from, to })),
   workspaceDelete: (tenantId: string, path: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/file?path=${encodeURIComponent(path)}`, json("DELETE")),
+  copyPlaybook: (tenantId: string, name: string) => fetchJSON<{ path: string }>(`/api/admin/tenants/${tenantId}/workspace/playbooks/${encodeURIComponent(name)}/override`, json("POST")),
+  deletePlaybook: (tenantId: string, name: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/playbooks/${encodeURIComponent(name)}`, json("DELETE")),
   listSkills: (tenantId: string) => fetchJSON<{ skills: TenantSkill[] }>(`/api/admin/tenants/${tenantId}/skills`),
   setSkillEnabled: (tenantId: string, skillId: string, isEnabled: boolean) => fetchJSON<{ isEnabled: boolean }>(`/api/admin/tenants/${tenantId}/skills/${skillId}`, json("PATCH", { isEnabled })),
   listGitAccounts: (tenantId: string) => fetchJSON<{ gitAccounts: GitAccount[] }>(`/api/admin/tenants/${tenantId}/git-accounts`),

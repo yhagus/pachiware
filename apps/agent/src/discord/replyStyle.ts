@@ -3,13 +3,29 @@ export const MESSAGE_LIMIT = 2000;
 export const MAX_MESSAGES = 3;
 const CUT_NOTE = "-# Cut to stay within 3 messages. Ask for the rest if you need the full version.";
 
-export interface ReplyPlan { messages: string[] }
+const ADDRESSED_SILENCE = "I have nothing to add here.";
 
-/** The one step between the agent's reply and Discord: style rules that hold whatever the prompt said. */
-export function prepareReply(reply: string): ReplyPlan {
-  const text = stripFiller(reply);
+/** The model's whole answer when it opts out of a message that does not address the bot. */
+export const SILENCE_MARKER = "[[silent]]";
+export const reactionMarker = (emoji: string) => `[[react:${emoji}]]`;
+const LEADING_MARKER = /^\[\[(silent|react:\s*([^\]]*?)\s*)\]\]/u;
+const ANY_MARKER = /\[\[(?:silent|react:[^\]]*)\]\]/gu;
+const ONE_EMOJI = /^\p{Extended_Pictographic}[\u{FE0F}\u{1F3FB}-\u{1F3FF}]*$/u;
+
+/** Text messages to post, in order, and an optional reaction on the answered message; an empty plan posts nothing. */
+export interface ReplyPlan { messages: string[]; reaction?: string }
+
+/**
+ * The one step between the agent's reply and Discord: style rules that hold whatever the prompt said.
+ * A leading marker decides the plan; an addressed message ignores the silence marker and still gets text.
+ */
+export function prepareReply(reply: string, { addressed = true }: { addressed?: boolean } = {}): ReplyPlan {
+  const marker = LEADING_MARKER.exec(reply.trim());
+  if (marker?.[2] !== undefined) return { messages: [], reaction: ONE_EMOJI.test(marker[2]) ? marker[2] : "👍" };
+  if (marker && !addressed) return { messages: [] };
+  const text = stripFiller(reply.replace(ANY_MARKER, "").trim());
   const messages = splitReply(text);
-  if (!messages.length) return { messages: ["Done."] };
+  if (!messages.length) return { messages: [marker ? ADDRESSED_SILENCE : "Done."] };
   if (messages.length <= MAX_MESSAGES) return { messages };
   const cut = splitReply(text, (n) => (n === MAX_MESSAGES - 1 ? MESSAGE_LIMIT - CUT_NOTE.length - 1 : MESSAGE_LIMIT)).slice(0, MAX_MESSAGES);
   cut[cut.length - 1] += `\n${CUT_NOTE}`;
