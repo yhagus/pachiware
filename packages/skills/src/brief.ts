@@ -1,6 +1,7 @@
 import type { SkillContext, ToolDefinition, ToolResult } from "./types.js";
 import { readBinding, writeBinding, type BindingPlace, type PlaybookBinding } from "./playbooks.js";
 import { WorkspaceConflict } from "./workspace/store.js";
+import { groundingOf, openRepos, type BriefGrounding } from "./grounding.js";
 
 /**
  * A brief's state lives in its thread's binding file (see `bindingPath`), next to the binding fields from #38.
@@ -34,8 +35,10 @@ export interface BriefDraft {
   established?: string[];
   /** The model's own open questions; round questions left open or assumed are placed by point when rendering. */
   openQuestions?: { question: string; recommendation: string }[];
-  /** Target repository; none yet means the draft was written without repository context (#42 sets it). */
+  /** Target repository; none means the draft is written without repository context. */
   repo?: string;
+  /** Proposed labels chosen from the repository's own; the Category's label joins them when rendered (see proposedLabels). */
+  labels?: string[];
   /** The thread message showing this draft as an embed. */
   messageId?: string;
   revisions?: number;
@@ -75,7 +78,7 @@ const MAX = { points: 30, point: 200, drafts: 30, title: 70, summary: 200, quest
 const str = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
 
 /** Checks a round the model proposed and folds it into the brief; throws with every problem at once so one retry can fix them all. */
-export function applyRound(current: BriefState, args: Record<string, unknown>): BriefState {
+export function applyRound(current: BriefState, args: Record<string, unknown>, grounding?: BriefGrounding): BriefState {
   const problems: string[] = [];
   const tooLong = (what: string, value: string, max: number) => { if (value.length > max) problems.push(`${what} is ${value.length} characters; keep it to ${max}.`); };
   const round = current.round + 1;
@@ -101,7 +104,9 @@ export function applyRound(current: BriefState, args: Record<string, unknown>): 
       tooLong(`Draft ${n}'s summary`, summary, MAX.summary);
       const blockedBy = Array.isArray(d?.blockedBy) ? [...new Set(d.blockedBy as unknown[])] : [];
       if (blockedBy.some((b) => !Number.isInteger(b) || b === n || (b as number) < 1 || (b as number) > raw.length)) problems.push(`Draft ${n}'s blockedBy must name other drafts by number.`);
-      return { n, point: d?.point, title, summary, blockedBy: blockedBy as number[] };
+      const repo = d?.repo === undefined ? grounding?.single : str(d.repo), repos = grounding ? openRepos(grounding) : [];
+      if (repo && !repos.includes(repo)) problems.push(repos.length ? `Draft ${n}'s repo must be one of ${repos.join(", ")}.` : "No repository is open to this brief: call briefRepositories first, or leave repo out to draft without repository context.");
+      return { n, point: d?.point, title, summary, blockedBy: blockedBy as number[], ...(repo ? { repo } : {}) };
     });
     if (!problems.length && hasCycle(drafts)) problems.push("The blockedBy edges form a cycle; a draft cannot wait on itself.");
   }
@@ -162,7 +167,7 @@ export function renderRound(state: BriefState, authorId: string, withBreakdown: 
   const units: Unit[] = [];
   if (withBreakdown) {
     const head = `**Breakdown** · ${state.drafts.length} draft${state.drafts.length === 1 ? "" : "s"}`;
-    for (const d of state.drafts) units.push({ heads: [head], text: `**${d.n}. ${d.title}** · point ${d.point}${d.blockedBy.length ? ` · blocked by draft ${d.blockedBy.join(", ")}` : ""}\n${d.summary}` });
+    for (const d of state.drafts) units.push({ heads: [head], text: `**${d.n}. ${d.title}** · point ${d.point}${d.repo ? ` · ${d.repo}` : ""}${d.blockedBy.length ? ` · blocked by draft ${d.blockedBy.join(", ")}` : ""}\n${d.summary}` });
   }
   const roundHead = `**Round ${state.round}**`;
   const asked = state.questions.filter((q) => q.round === state.round);
@@ -208,6 +213,7 @@ export const postBriefRoundTool: ToolDefinition = {
         title: { type: "string", description: "Imperative, at most 70 characters" },
         summary: { type: "string", description: "One line on what it delivers, at most 200 characters" },
         blockedBy: { type: "array", items: { type: "integer" }, description: "Numbers of drafts that must land first" },
+        repo: { type: "string", description: "Target repository (owner/name) from briefRepositories. Leave it out when only one is open: drafts target that one." },
       }, required: ["point", "title", "summary"] } },
       questions: { type: "array", description: "Only questions whose answer would change a draft. Numbered and grouped by point for you.", items: { type: "object", properties: {
         point: { type: "integer", description: "The point it is about (1-based), or 0 for the whole brief" },
@@ -226,7 +232,7 @@ export async function postBriefRound(args: Record<string, unknown>, ctx: SkillCo
   if (!found || found.binding.status !== "active") throw new Error("This thread does not follow a playbook, so there is no brief to post a round for.");
   if (ctx.userId !== found.binding.authorId) throw new Error("Only the brief's author moves the brief on. Answer this person without posting a round; their message is kept as input for the author.");
   const before = briefState(found.binding);
-  const next = applyRound(before, args);
+  const next = applyRound(before, args, groundingOf(found.binding));
   await writeBinding(ctx.tenantId, { ...found.binding, ...next }, found.body, found.version);
   return { round: next.round, messages: renderRound(next, found.binding.authorId, args.drafts !== undefined || before.round === 0) };
 }

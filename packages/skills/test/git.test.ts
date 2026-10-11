@@ -71,3 +71,24 @@ test("PR and issue write/read helpers use provider endpoints", async () => {
     expect(calls.some((x) => x.method === "DELETE" && x.url.includes("issues/comments/9"))).toBe(true);
   } finally { globalThis.fetch = real; }
 });
+
+test("issue search finds open issues only, and permalinks pin a commit, on GitHub and GitLab", async () => {
+  const { searchIssues, blobUrl } = await import("../src/git.js");
+  const real = globalThis.fetch, urls: string[] = [];
+  globalThis.fetch = (async (url: string) => {
+    const u = String(url); urls.push(u);
+    if (u.includes("api.github.com/search/issues")) return Response.json({ items: [{ number: 12, title: "Login loops on Safari", state: "open", html_url: "https://github.com/o/r/issues/12" }] });
+    if (u.includes("gitlab.com/api/v4/projects/g%2Fp/issues")) return Response.json([{ iid: 4, title: "Slow export", state: "opened", web_url: "https://gitlab.com/g/p/-/issues/4" }]);
+    return new Response("x", { status: 404 });
+  }) as any;
+  try {
+    const gitlab = { provider: "gitlab" as const, baseUrl: null, token: "t" };
+    expect(await searchIssues(github, "o/r", "safari login", 1)).toEqual({ items: [{ number: 12, title: "Login loops on Safari", state: "open", url: "https://github.com/o/r/issues/12" }], hasMore: false });
+    expect(decodeURIComponent(urls[0]!)).toContain("q=safari login repo:o/r is:issue is:open");
+    expect((await searchIssues(gitlab, "g/p", "export", 1)).items).toEqual([{ number: 4, title: "Slow export", state: "open", url: "https://gitlab.com/g/p/-/issues/4" }]);
+    expect(urls[1]).toContain("state=opened");
+    expect(urls[1]).toContain("search=export");
+    expect(blobUrl(github, "o/r", "abc123", "src/a b.ts")).toBe("https://github.com/o/r/blob/abc123/src/a%20b.ts");
+    expect(blobUrl({ ...gitlab, baseUrl: "https://git.example.com/" }, "g/p", "abc123", "README.md")).toBe("https://git.example.com/g/p/-/blob/abc123/README.md");
+  } finally { globalThis.fetch = real; }
+});

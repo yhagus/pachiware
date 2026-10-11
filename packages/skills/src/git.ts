@@ -514,3 +514,16 @@ export async function searchCode(c: GitConn, repo: string, query: string, page: 
   return pageOf(rows, rows.map((i) => ({ path: i.path, line: i.startline, snippet: clipText(i.data) })));
 }
 const clipText = (t: string) => String(t ?? "").slice(0, 300);
+/** Open issues whose title or description match `query`. */
+export async function searchIssues(c: GitConn, repo: string, query: string, page: number) {
+  const gh = c.provider === "github";
+  const rows: any[] = gh
+    ? (await call(c, `/search/issues?${paged(page)}&q=${encodeURIComponent(`${query} repo:${repo} is:issue is:open`)}`))?.items ?? []
+    : (await call(c, `${repoRef(c, repo)}/issues?state=opened&${paged(page)}&search=${encodeURIComponent(query)}`)) ?? [];
+  return pageOf(rows, rows.map((r) => ({ number: r.number ?? r.iid, title: r.title, state: normState(r.state), url: r.html_url ?? r.web_url })));
+}
+/** A link to `path` as it was at commit `sha`, so it keeps showing what was read. */
+export function blobUrl(c: GitConn, repo: string, sha: string, path: string) {
+  const host = c.baseUrl?.replace(/\/+$/, "") ?? (c.provider === "github" ? "https://github.com" : "https://gitlab.com");
+  return `${host}/${repo}/${c.provider === "github" ? "blob" : "-/blob"}/${sha}/${cleanPath(path).split("/").map(encodeURIComponent).join("/")}`;
+}
