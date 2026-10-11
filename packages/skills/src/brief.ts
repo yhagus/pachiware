@@ -7,10 +7,14 @@ import { WorkspaceConflict } from "./workspace/store.js";
  * Every value is one line of JSON in the frontmatter; the body stays the brief exactly as its author wrote it.
  *
  *   points: string[]             the brief's points, one line each; "point 1" is points[0]
- *   drafts: BriefDraft[]         the breakdown: proposed issue drafts, numbered from 1 in posting order
+ *   drafts: BriefDraft[]         the breakdown, then the issue drafts it grows into (see issueDrafts.ts); a draft's number never changes once written
  *   round: number                the latest clarifying round posted, 0 before round 1
  *   questions: BriefQuestion[]   every question of every round, each with its round and number in that round
  *   input: BriefInput[]          messages from people other than the author, kept for the author to weigh
+ *   draftNow: boolean            the author said "draft now": open questions go into the drafts instead of another round
+ *   draftsFileMessageId: string  the thread message carrying drafts.md, edited when a draft changes
+ *
+ * The binding also keeps `authorName` and `botName` from when the brief started, for the drafts' footer.
  */
 export interface BriefDraft {
   n: number;
@@ -20,7 +24,21 @@ export interface BriefDraft {
   summary: string;
   /** Numbers of drafts that must land first. */
   blockedBy: number[];
+  /** Set once the full draft is written; the remaining fields are the anatomy's sections (#21). */
+  writtenAt?: string;
+  category?: DraftCategory;
+  current?: string;
+  desired?: string;
+  acceptance?: string[];
+  outOfScope?: string[];
+  established?: string[];
+  /** The model's own open questions; round questions left open or assumed are placed by point when rendering. */
+  openQuestions?: { question: string; recommendation: string }[];
+  /** The thread message showing this draft as an embed. */
+  messageId?: string;
+  revisions?: number;
 }
+export type DraftCategory = "bug" | "feature" | "chore" | "docs";
 /** open: asked, no answer yet. answered: the author settled it. carried: asked again in the next round. assumed: the recommendation was taken and is marked in the draft. */
 export type QuestionStatus = "open" | "answered" | "carried" | "assumed";
 export interface BriefQuestion {
@@ -34,9 +52,11 @@ export interface BriefQuestion {
   options?: string[];
   status: QuestionStatus;
   answer?: string;
+  /** Set on a question asked again because the author left it unanswered; unanswered a second time, it is assumed. */
+  carriedFrom?: { round: number; n: number };
 }
 export interface BriefInput { messageId: string; userId: string; name: string; text: string; at: string; round: number; seen: boolean }
-export interface BriefState { points: string[]; drafts: BriefDraft[]; round: number; questions: BriefQuestion[]; input: BriefInput[] }
+export interface BriefState { points: string[]; drafts: BriefDraft[]; round: number; questions: BriefQuestion[]; input: BriefInput[]; draftNow?: boolean; draftsFileMessageId?: string }
 
 export const briefState = (b: PlaybookBinding): BriefState => ({
   points: Array.isArray(b.points) ? b.points as string[] : [],
@@ -44,6 +64,8 @@ export const briefState = (b: PlaybookBinding): BriefState => ({
   round: typeof b.round === "number" ? b.round : 0,
   questions: Array.isArray(b.questions) ? b.questions as BriefQuestion[] : [],
   input: Array.isArray(b.input) ? b.input as BriefInput[] : [],
+  ...(b.draftNow === true ? { draftNow: true } : {}),
+  ...(typeof b.draftsFileMessageId === "string" ? { draftsFileMessageId: b.draftsFileMessageId } : {}),
 });
 
 /** Each field's cap keeps the largest possible question, with its point heading, well under one Discord message. */
@@ -62,7 +84,8 @@ export function applyRound(current: BriefState, args: Record<string, unknown>): 
   const pointOk = (p: unknown, allowWhole: boolean) => Number.isInteger(p) && (p as number) >= (allowWhole ? 0 : 1) && (p as number) <= points.length;
 
   let drafts = current.drafts;
-  if (args.drafts !== undefined || round === 1) {
+  if (args.drafts !== undefined && current.drafts.some((d) => d.writtenAt)) problems.push("The drafts are written, so the breakdown is fixed: change a draft with writeIssueDraft instead of passing drafts.");
+  else if (args.drafts !== undefined || round === 1) {
     const raw = Array.isArray(args.drafts) ? args.drafts : [];
     if (!raw.length) problems.push("drafts must propose at least one issue draft.");
     if (raw.length > MAX.drafts) problems.push(`A breakdown holds at most ${MAX.drafts} drafts; split the brief.`);
@@ -96,10 +119,18 @@ export function applyRound(current: BriefState, args: Record<string, unknown>): 
   });
   if (problems.length) throw new Error(problems.join("\n"));
 
-  // Grouped by point (whole-brief questions first), keeping the model's order within a point, then numbered across the round.
-  const questions = asked.map((q, i) => ({ q, i })).sort((a, b) => a.q.point - b.q.point || a.i - b.i)
+  // What the author left unanswered last round is asked once more; left unanswered again, its recommendation is assumed.
+  const carried: (typeof asked[number] & { carriedFrom: { round: number; n: number } })[] = [];
+  const settled = current.questions.map((q): BriefQuestion => {
+    if (q.round !== current.round || q.status !== "open") return q;
+    if (q.carriedFrom) return { ...q, status: "assumed", answer: q.recommendation };
+    carried.push({ point: q.point, text: q.text, recommendation: q.recommendation, ...(q.options ? { options: q.options } : {}), carriedFrom: { round: q.round, n: q.n } });
+    return { ...q, status: "carried" };
+  });
+  // Grouped by point (whole-brief questions first), carried questions before new ones within a point, then numbered across the round.
+  const questions = [...carried, ...asked].map((q, i) => ({ q, i })).sort((a, b) => a.q.point - b.q.point || a.i - b.i)
     .map(({ q }, i): BriefQuestion => ({ round, n: i + 1, ...q, status: "open" }));
-  return { ...current, points, drafts, round, questions: [...current.questions, ...questions] };
+  return { ...current, points, drafts, round, questions: [...settled, ...questions] };
 }
 
 function hasCycle(drafts: BriefDraft[]) {
@@ -134,7 +165,8 @@ export function renderRound(state: BriefState, authorId: string, withBreakdown: 
   for (const q of asked) {
     const point = q.point ? `**Point ${q.point}** · ${state.points[q.point - 1]}` : "**Whole brief**";
     const options = (q.options ?? []).map((o, i) => `\n${String.fromCharCode(97 + i)}) ${o}`).join("");
-    units.push({ heads: [roundHead, point], text: `❓ **Q${q.n}** ${q.text}${options}\n➡️ ${q.recommendation}` });
+    const again = q.carriedFrom ? `\n-# Asked again from round ${q.carriedFrom.round}. Left unanswered this time, ➡️ becomes an assumption in the draft.` : "";
+    units.push({ heads: [roundHead, point], text: `❓ **Q${q.n}** ${q.text}${options}\n➡️ ${q.recommendation}${again}` });
   }
   units.push({ heads: asked.length ? [] : [roundHead], text: asked.length
     ? `Only <@${authorId}> decides here. Reply "yes" to take every ➡️, or answer by number, e.g. "yes, except Q2: …".`
@@ -200,7 +232,7 @@ export const roundMessagesOf = (calls: { call: { name: string }; result: ToolRes
   calls.flatMap(({ call, result }) => (call.name === postBriefRoundTool.name && result.success && Array.isArray((result.data as any)?.messages) ? (result.data as any).messages as string[] : []));
 
 /** Read-modify-write of a binding's brief state, retried once when another write landed in between. */
-async function updateBrief<T>(tenantId: string, place: BindingPlace, change: (s: BriefState, b: PlaybookBinding) => { state: BriefState; value: T } | null): Promise<T | null> {
+export async function updateBrief<T>(tenantId: string, place: BindingPlace, change: (s: BriefState, b: PlaybookBinding) => { state: BriefState; value: T } | null): Promise<T | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const found = await readBinding(tenantId, place);
     if (!found) return null;
