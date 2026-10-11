@@ -67,7 +67,7 @@ discordScenario("the playbook body is in the prompt only for turns in its bound 
   const brief = await s.discord.send(`${s.discord.mention} issue: login loops on Safari`);
   const other = await s.discord.send(`${s.discord.mention} what is our deploy day?`);
   await s.discord.send("and the one after?", { channel: other.thread });
-  expect(s.model.calls.map((call) => call[0]!.content!.includes("### Playbook: issue-draft"))).toEqual([true, false, false]);
+  expect(s.model.calls.map((call) => String(call[0]!.content).includes("### Playbook: issue-draft"))).toEqual([true, false, false]);
   expect(brief.thread!.id).not.toBe(other.thread!.id);
 });
 
