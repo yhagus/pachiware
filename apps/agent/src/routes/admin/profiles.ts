@@ -3,9 +3,10 @@ import { HTTPException } from "hono/http-exception";
 import { db, profiles, getTenantById, encryptSecret, decryptSecret, eq } from "@pachiware/db";
 import { desc } from "drizzle-orm";
 import { object, string } from "../validation.js";
+import { LLMRouter, providerBaseUrl, providerHeaders } from "../../llm/router.js";
 
 export const profileAdminRoutes = new Hono();
-const PROVIDERS = ["openai", "custom"];
+const PROVIDERS = ["openai", "anthropic", "custom"];
 
 const publicProfile = ({ apiKeyEncrypted, ...p }: any) => ({ ...p, hasApiKey: Boolean(apiKeyEncrypted) });
 function fields(body: Record<string, any>, creating: boolean) {
@@ -14,11 +15,15 @@ function fields(body: Record<string, any>, creating: boolean) {
   if (creating || body.model !== undefined) out.model = string(body.model, "model");
   if (creating || body.provider !== undefined) {
     out.provider = string(body.provider, "provider");
-    if (!PROVIDERS.includes(out.provider)) throw new HTTPException(400, { message: "provider must be openai or custom" });
+    if (!PROVIDERS.includes(out.provider)) throw new HTTPException(400, { message: "provider must be openai, anthropic, or custom" });
   }
   if (body.baseUrl !== undefined) {
     out.baseUrl = body.baseUrl === null || body.baseUrl === "" ? null : string(body.baseUrl, "baseUrl");
     if (out.baseUrl && !/^https?:\/\//i.test(out.baseUrl)) throw new HTTPException(400, { message: "baseUrl must start with http:// or https://" });
+  }
+  if (body.acceptsImages !== undefined) {
+    if (typeof body.acceptsImages !== "boolean") throw new HTTPException(400, { message: "acceptsImages must be true or false" });
+    out.acceptsImages = body.acceptsImages;
   }
   if (body.apiKey !== undefined && !String(body.apiKey).includes("••••")) out.apiKeyEncrypted = body.apiKey ? encryptSecret(string(body.apiKey, "apiKey")!) : null;
   return out;
@@ -49,23 +54,29 @@ profileAdminRoutes.delete("/profiles/:profileId", async (c) => {
   const [row] = await db.delete(profiles).where(eq(profiles.id, c.req.param("profileId")!)).returning();
   return row ? c.json({ success: true }) : c.json({ error: "Profile not found" }, 404);
 });
-// Lists models from an OpenAI-compatible `<baseUrl>/models`. The key is used server-side only; a blank key reuses the saved profile's key.
-profileAdminRoutes.post("/profiles/models", async (c) => {
-  const body = object(await c.req.json(), "body");
-  const provider = string(body.provider, "provider");
-  if (!PROVIDERS.includes(provider!)) throw new HTTPException(400, { message: "provider must be openai or custom" });
-  const baseUrl = (typeof body.baseUrl === "string" && body.baseUrl.trim() ? body.baseUrl.trim() : provider === "openai" ? "https://api.openai.com/v1" : "").replace(/\/+$/, "");
+// Models and Test requests carry the form's unsaved values. The key stays server-side; a blank key reuses the saved profile's key.
+async function connection(body: Record<string, any>) {
+  const provider = string(body.provider, "provider")!;
+  if (!PROVIDERS.includes(provider)) throw new HTTPException(400, { message: "provider must be openai, anthropic, or custom" });
+  const baseUrl = providerBaseUrl(provider, typeof body.baseUrl === "string" ? body.baseUrl : null);
   if (!/^https?:\/\//i.test(baseUrl)) throw new HTTPException(400, { message: "A base URL is required" });
-  let key = typeof body.apiKey === "string" && body.apiKey && !body.apiKey.includes("••••") ? body.apiKey.trim() : null;
-  if (!key && typeof body.profileId === "string") {
-    const [row] = await db.select().from(profiles).where(eq(profiles.id, body.profileId)).limit(1);
-    if (row?.apiKeyEncrypted) key = decryptSecret(row.apiKeyEncrypted);
-  }
+  if (typeof body.apiKey === "string" && body.apiKey && !body.apiKey.includes("••••")) return { provider, baseUrl, key: body.apiKey.trim() };
+  const [row] = typeof body.profileId === "string" ? await db.select().from(profiles).where(eq(profiles.id, body.profileId)).limit(1) : [];
+  return { provider, baseUrl, key: row?.apiKeyEncrypted ? decryptSecret(row.apiKeyEncrypted) : null };
+}
+profileAdminRoutes.post("/profiles/models", async (c) => {
+  const { provider, baseUrl, key } = await connection(object(await c.req.json(), "body"));
   try {
-    const res = await fetch(`${baseUrl}/models`, { headers: key ? { Authorization: `Bearer ${key}` } : {}, signal: AbortSignal.timeout(10000) });
+    const res = await fetch(`${baseUrl}/models${provider === "anthropic" ? "?limit=1000" : ""}`, { headers: providerHeaders(provider, key), signal: AbortSignal.timeout(10000) });
     if (!res.ok) return c.json({ success: false, error: `Provider returned ${res.status}. Check the base URL and API key.` }, 502);
     const data: any = await res.json();
     const models = (Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : []).map((m: any) => (typeof m === "string" ? m : m?.id)).filter((m: unknown): m is string => typeof m === "string" && !!m);
     return c.json({ success: true, models: [...new Set(models)].sort() });
   } catch { return c.json({ success: false, error: "Could not reach the provider." }, 502); }
+});
+profileAdminRoutes.post("/profiles/test", async (c) => {
+  const body = object(await c.req.json(), "body");
+  const { provider, baseUrl, key } = await connection(body);
+  const result = await LLMRouter.probeProfile(provider, string(body.model, "model")!, key, baseUrl);
+  return c.json({ success: result.text.ok, ...result });
 });
