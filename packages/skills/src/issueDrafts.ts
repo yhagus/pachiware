@@ -65,7 +65,7 @@ const ask = (q: Pick<BriefQuestion, "text" | "recommendation" | "options">) => `
 /** Where the brief came from: a thread started from a message shares that message's id. */
 export const sourceLink = (b: PlaybookBinding) => jumpLink(b.guildId, b.sourceMessageId === b.threadId ? b.channelId : b.threadId, b.sourceMessageId);
 
-/** The issue body of draft `n`, exactly as it would be created. `blocker` names a draft it waits on; #43 swaps in issue numbers. */
+/** The issue body of draft `n`, exactly as it would be created. `blocker` names a draft it waits on; creation swaps in issue numbers. */
 export function draftBody(state: BriefState, binding: PlaybookBinding, n: number, blocker = (d: BriefDraft) => `Draft ${d.n}: ${d.title}`): string {
   const d = state.drafts[n - 1]!;
   const author = typeof binding.authorName === "string" && binding.authorName ? binding.authorName : "the author";

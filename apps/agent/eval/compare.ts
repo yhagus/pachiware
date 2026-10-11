@@ -1,5 +1,5 @@
 /**
- * Comparing profiles (#28, point 7): every profile runs the same briefs for k trials. A trial scores the share of its
+ * Comparing profiles: every profile runs the same briefs for k trials. A trial scores the share of its
  * drafts that pass; trials are averaged per brief, and profiles are compared as paired per-brief differences with a
  * standard error. pass^k counts briefs where every trial passed. Cost and latency come from the usage events.
  */

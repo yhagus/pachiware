@@ -1,5 +1,5 @@
 /**
- * The judged half of the issue-draft eval (#28, points 5 and 6). A pinned judge, configured by EVAL_JUDGE_* and never
+ * The judged half of the issue-draft eval. A pinned judge, configured by EVAL_JUDGE_* and never
  * one of the compared profiles' models, answers one narrow question per criterion: reasoning first, then yes, no or
  * unknown, always with the brief's reference facts in front of it.
  */

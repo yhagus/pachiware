@@ -4,7 +4,7 @@ import { groundingOf, openRepos, type BriefGrounding } from "./grounding.js";
 import { replyLanguage, textIn, MESSAGE_LIMIT, type Language } from "./language.js";
 
 /**
- * A brief's state lives in its thread's binding file (see `bindingPath`), next to the binding fields from #38.
+ * A brief's state lives in its thread's binding file (see `bindingPath`), next to the binding fields.
  * Every value is one line of JSON in the frontmatter; the body stays the brief exactly as its author wrote it.
  *
  *   points: string[]             the brief's points, one line each; "point 1" is points[0]
@@ -26,7 +26,7 @@ export interface BriefDraft {
   summary: string;
   /** Numbers of drafts that must land first. */
   blockedBy: number[];
-  /** Set once the full draft is written; the remaining fields are the anatomy's sections (#21). */
+  /** Set once the full draft is written; the remaining fields are the anatomy's sections. */
   writtenAt?: string;
   category?: DraftCategory;
   current?: string;
@@ -43,7 +43,7 @@ export interface BriefDraft {
   /** The thread message showing this draft as an embed. */
   messageId?: string;
   revisions?: number;
-  /** The issue created from this draft (#43), saved before the next draft is created so a retry never repeats it; `id` is GitHub's database id. */
+  /** The issue created from this draft, saved before the next draft is created so a retry never repeats it; `id` is GitHub's database id. */
   issue?: { number: number; url: string; id?: number };
   /** The author dropped this draft before creation; it is never created. */
   skipped?: boolean;

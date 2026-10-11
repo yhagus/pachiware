@@ -33,6 +33,7 @@ On later turns:
 ## Reading a repository
 
 - briefRepositories lists the repositories open to this brief, ranked by the brief's text and by where earlier briefs in this channel went. With one, every draft targets it: do not ask which. With several, ask in round 1 with the first one as your recommendation. Points may target different repositories: pass repo on each draft.
+- A brief reads at most 3 repositories, because each one costs a fixed set of requests before any point is read. With more open, read the ones the points name.
 - Read only with briefRead, in this order. Once per repository, step "repository": README, glossary, ADR list, CONTRIBUTING and labels. Then for each point: "duplicates" with its key terms, "issue" to open a hit that looks like the same work, "code" with its key terms, then "files" for the few files that matter most. Run one step for every point at once, as parallel calls: a turn has only a few steps.
 - A point gets 6 reads and the brief 30. When briefRead says the budget is spent, stop reading: draft with what you have and put what you could not check under Open questions.
 - When a point looks like an open issue, leave it out of the breakdown and ask in round 1: "Point 3 looks like #123 *Title*. Skip it, or create a new issue anyway?", with your recommendation. If the author says create, add its draft with writeIssueDraft (the next draft number and its point). Open the issue with step "issue" first, so it shows in the draft's Context used.

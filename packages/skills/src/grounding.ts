@@ -2,7 +2,7 @@ import type { PlaybookBinding } from "./playbooks.js";
 import type { BriefDraft, DraftCategory } from "./brief.js";
 
 /**
- * What a brief read from its repositories (#42), kept as `grounding` in the brief's binding file next to the brief state.
+ * What a brief read from its repositories, kept as `grounding` in the brief's binding file next to the brief state.
  *
  *   candidates: the repositories briefRepositories found open to this thread, each with the git account that reaches it
  *   single:     set when exactly one repository is open; drafts target it without asking

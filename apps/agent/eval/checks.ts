@@ -1,5 +1,5 @@
 /**
- * The code checks of the issue-draft eval (#28, point 5): pure functions over a draft as Discord showed it. They grade
+ * The code checks of the issue-draft eval: pure functions over a draft as Discord showed it. They grade
  * live runs and the recorded outputs in CI alike.
  */
 import { checkDraft } from "../../../packages/skills/src/draftChecker";

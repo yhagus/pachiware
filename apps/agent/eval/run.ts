@@ -1,7 +1,7 @@
 /**
  * Drives one fixture through the issue-draft playbook at the Discord seam: the brief is posted with its images and
- * started with "Draft issues", the stored answers follow in the thread, then "draft now" when no draft is up yet
- * (#28, point 2). Database modules load lazily, inside the scenario's subprocess.
+ * started with "Draft issues", the stored answers follow in the thread, then "draft now" when no draft is up yet.
+ * Database modules load lazily, inside the scenario's subprocess.
  */
 import type { Scenario } from "../test/support/discordScenario";
 import { checkOutput, type DraftOutput } from "./checks";

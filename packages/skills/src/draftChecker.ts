@@ -1,5 +1,5 @@
 /**
- * Deterministic checks of an issue draft against the anatomy and the detail budget (#21). Pure: the same
+ * Deterministic checks of an issue draft against the anatomy and the detail budget. Pure: the same
  * function gates a draft before the bot posts it and grades drafts in the eval.
  */
 export const DRAFT_LIMITS = { title: 70, acceptanceCriteria: 7, openQuestions: 5, body: 4096 } as const;

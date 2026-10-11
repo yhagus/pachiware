@@ -1,6 +1,6 @@
 /**
  * Grades a finished run's drafts again with the current rubric and the EVAL_JUDGE_* judge, without running the bot:
- * `bun apps/agent/eval/rejudge.ts apps/agent/eval/results/<run>`. Used while calibrating the rubric by hand (#49).
+ * `bun apps/agent/eval/rejudge.ts apps/agent/eval/results/<run>`. Used while calibrating the rubric by hand.
  * Results go to `<run>/rejudged-<rubric version>/`; the original run is left as it was.
  */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";

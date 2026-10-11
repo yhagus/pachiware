@@ -9,7 +9,7 @@ import { useRepo } from "./gitShared.js";
 import { replyLanguage, textIn, type Language, type Strings } from "../language.js";
 
 /**
- * Creating a brief's issues from its drafts (#43): one Git write confirmation for every draft left, pressed by the
+ * Creating a brief's issues from its drafts: one Git write confirmation for every draft left, pressed by the
  * brief's author. A thread grant never covers it. Drafts are read from the brief's file by number, so no body
  * passes through tool arguments.
  */

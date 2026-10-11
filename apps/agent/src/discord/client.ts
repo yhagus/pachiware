@@ -263,7 +263,7 @@ export class DiscordBotManager {
     // Run on posted minutes, the brief is their action items rather than the embed's text.
     const minutes = target.author.id === runtime.client.user?.id && minutesFileOf(target) ? await minutesBrief(runtime.tenantId, target, [], language) : null;
     if (minutes && "error" in minutes) return say(minutes.error);
-    const opened = await this.openPlaybook(runtime, botId, playbook, target, minutes?.text ?? target.content.trim(), { id: i.user.id, name: (i.member as any)?.displayName || i.user.username, member: i.member }, minutes ?? undefined);
+    const opened = await this.openPlaybook(runtime, botId, playbook, target, minutes?.text ?? target.content.trim(), { id: i.user.id, name: speakerName({ member: i.member as any, author: i.user }), member: i.member }, minutes ?? undefined);
     if ("error" in opened) return say(opened.error);
     await say(t.following(playbook.name, opened.thread.id));
     await opened.start();
