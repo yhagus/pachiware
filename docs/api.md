@@ -40,10 +40,11 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | POST | `/api/admin/api-keys` | `{name?}` -> raw key once |
 | GET | `/api/admin/api-keys` | `{apiKeys}` (prefix, metadata, `tenantCount`) |
 | DELETE | `/api/admin/api-keys/:keyId` | Revoke key |
-| POST | `/api/admin/tenants/:id/profiles` | `{name, provider: openai or custom, model, baseUrl? (required for custom), apiKey?}` -> `{profile}` (key never returned, `hasApiKey` only) |
-| GET | `/api/admin/tenants/:id/profiles` | `{profiles}` |
+| POST | `/api/admin/tenants/:id/profiles` | `{name, provider: openai, anthropic or custom, model, baseUrl? (required for custom), apiKey?, acceptsImages?}` -> `{profile}` (key never returned, `hasApiKey` only). `acceptsImages` (boolean, default false) lets the bot send attached images to this profile |
+| GET | `/api/admin/tenants/:id/profiles` | `{profiles}`, each with `acceptsImages` |
 | POST | `/api/admin/profiles/models` | `{provider, baseUrl?, apiKey?, profileId?}` -> `{models}` from `<baseUrl>/models`; a blank key reuses the saved profile key; 502 on provider failure |
-| PATCH | `/api/admin/profiles/:profileId` | Profile fields; blank or masked `apiKey` keeps the current one |
+| POST | `/api/admin/profiles/test` | `{provider, model, baseUrl?, apiKey?, profileId?}` -> `{success, text: {ok, message}, image: {ok, message}}`: a text request, then a tiny PNG in the provider's image shape. The image is not tried when text fails; `success` is the text result. A blank key reuses the saved profile key |
+| PATCH | `/api/admin/profiles/:profileId` | Profile fields, `acceptsImages` included; blank or masked `apiKey` keeps the current one |
 | DELETE | `/api/admin/profiles/:profileId` | Delete; integrations using it fall back to the tenant default |
 | POST | `/api/admin/tenants/:id/bots` | `{name?, token, clientId?, guildIds?, profileId?, isEnabled?}` -> `{bot}`; `profileId` must belong to the tenant |
 | GET | `/api/admin/tenants/:id/bots` | `{bots}` |
@@ -52,11 +53,18 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | DELETE | `/api/admin/bots/:botId` | Stop and remove bot from active listings |
 | GET | `/api/admin/tenants/:id/usage?from=&to=` | `{usage}` grouped by tenant/type/provider/model |
 | GET | `/api/admin/usage?from=&to=` | Platform usage aggregation |
+| GET | `/api/admin/tenants/:id/workspace/tree?path=` | `{entries}` of one folder. The root also lists a read-only `playbooks` folder; listing it shows the built-in playbooks, each with `overridden` true when the tenant has its own copy |
+| GET | `/api/admin/tenants/:id/workspace/file?path=` | `{content, version}`; a file under `playbooks/` returns `version: "builtin"` and `readOnly: true` |
+| PUT | `/api/admin/tenants/:id/workspace/file` | `{path, content, version?}`; `version` is required to replace an existing file, 409 when it changed. Paths under `playbooks/` return 403 |
+| POST | `/api/admin/tenants/:id/workspace/move` | `{from, to}`; 403 under `playbooks/` |
+| DELETE | `/api/admin/tenants/:id/workspace/file?path=` | Delete a file; 403 under `playbooks/` |
+| POST | `/api/admin/tenants/:id/workspace/playbooks/:name/override` | Copies built-in playbook `:name` to `shared/playbooks/:name`, where the tenant can edit it -> `{path}`; 404 for an unknown name, 409 when an override exists |
+| DELETE | `/api/admin/tenants/:id/workspace/playbooks/:name` | Deletes the tenant's `shared/playbooks/:name` folder; the built-in of the same name applies again. 404 when there is none |
 | GET, PUT | `/api/admin/infrastructure` | Host database/Redis settings |
 | POST | `/api/admin/infrastructure/test-db` | `{databaseUrl?}` -> connection test |
 | POST | `/api/admin/infrastructure/test-redis` | Redis connection test |
 
-Usage ranges accept ISO dates, including both boundaries. Invalid or reversed ranges return 400. Events include `llm_tokens` (successful completions with prompt/completion token counts), `tool_call` (tool name/success), and `discord_message` (accepted inbound requests). Bot deletion retains a disabled tombstone to preserve historical usage/conversation references and erases its token.
+Usage ranges accept ISO dates, including both boundaries. Invalid or reversed ranges return 400. Events include `llm_tokens` (successful completions with prompt/completion token counts; `metadata` holds `cachedTokens` and `latencyMs`, the provider's response time in milliseconds), `tool_call` (tool name/success), and `discord_message` (accepted inbound requests). Bot deletion retains a disabled tombstone to preserve historical usage/conversation references and erases its token.
 
 All `/api/v1/*` requests require `Authorization: Bearer <API key>`. Except `/api/v1/tenants`, they also require `X-Tenant-Id` (id or slug): missing header returns 400, a tenant that does not exist or is not under the key returns 404. Missing/revoked keys return 401; suspended tenants and insufficient scopes return 403.
 
