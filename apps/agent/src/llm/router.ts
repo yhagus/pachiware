@@ -4,14 +4,13 @@ import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry } from "@pachiware/skills";
 import type { ChatMessage, ContentPart, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
+import { providerBaseUrl, providerHeaders } from "./providers.js";
+
+export { providerBaseUrl, providerHeaders };
 
 type ProbeResult = { ok: boolean; message: string };
 // An 8x8 solid PNG, small enough for every provider's image limits.
 const PROBE_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO44GCAFTEMLQkAaplQAWdwh5oAAAAASUVORK5CYII=";
-const DEFAULT_BASE_URLS: Record<string, string> = { openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1" };
-export const providerBaseUrl = (provider: string, baseUrl?: string | null) => (baseUrl?.trim() || DEFAULT_BASE_URLS[provider] || "").replace(/\/+$/, "");
-export const providerHeaders = (provider: string, key?: string | null): Record<string, string> =>
-  !key ? {} : provider === "anthropic" ? { "x-api-key": key, "anthropic-version": "2023-06-01" } : { Authorization: `Bearer ${key}` };
 const textOf = (content: ChatMessage["content"]) => typeof content === "string" || content === null ? content || "" : content.filter((p) => p.type === "text").map((p) => p.text).join("\n");
 const hasImages = (messages: ChatMessage[]) => messages.some((m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image"));
 const withoutImages = (messages: ChatMessage[]) => messages.map((m) => (Array.isArray(m.content) ? { ...m, content: textOf(m.content) } : m));
@@ -99,6 +98,7 @@ export class LLMRouter {
         default: throw new Error("Unsupported tenant LLM provider");
       }
     };
+    const started = performance.now();
     let response = await call(messages);
     // A 400 on a request with images is most likely the model refusing them: one retry without, so the text still gets answered.
     if (response.httpStatus === 400 && hasImages(messages)) {
@@ -106,7 +106,7 @@ export class LLMRouter {
       if (retry.finishReason !== "error") response = { ...retry, imagesRejected: true };
     }
     if (response.finishReason !== "error") {
-      await db.insert(usageEvents).values({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0 } });
+      await db.insert(usageEvents).values({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0, latencyMs: Math.round(performance.now() - started) } });
     }
     return response;
   }
