@@ -2,7 +2,7 @@ import { cachedTokensOf } from "./usage.js";
 import { db, agentsConfig, bots, profiles, usageEvents, decryptSecret, eq, and } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry } from "@pachiware/skills";
-import type { ChatMessage, LLMRequestOptions, LLMResponse } from "./types.js";
+import type { ChatMessage, ContentPart, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
 
 type ProbeResult = { ok: boolean; message: string };
@@ -12,6 +12,16 @@ const DEFAULT_BASE_URLS: Record<string, string> = { openai: "https://api.openai.
 export const providerBaseUrl = (provider: string, baseUrl?: string | null) => (baseUrl?.trim() || DEFAULT_BASE_URLS[provider] || "").replace(/\/+$/, "");
 export const providerHeaders = (provider: string, key?: string | null): Record<string, string> =>
   !key ? {} : provider === "anthropic" ? { "x-api-key": key, "anthropic-version": "2023-06-01" } : { Authorization: `Bearer ${key}` };
+const textOf = (content: ChatMessage["content"]) => typeof content === "string" || content === null ? content || "" : content.filter((p) => p.type === "text").map((p) => p.text).join("\n");
+const hasImages = (messages: ChatMessage[]) => messages.some((m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image"));
+const withoutImages = (messages: ChatMessage[]) => messages.map((m) => (Array.isArray(m.content) ? { ...m, content: textOf(m.content) } : m));
+const openAIContent = (content: ChatMessage["content"]) => !Array.isArray(content) ? content || "" : content.map((p) =>
+  p.type === "text" ? p : { type: "image_url", image_url: { url: `data:${p.mediaType};base64,${p.data}` } });
+// Claude reads images best when they come before the text.
+const anthropicBlocks = (content: ChatMessage["content"]): any[] => !Array.isArray(content) ? (content ? [{ type: "text", text: content }] : []) : [
+  ...content.filter((p) => p.type === "image").map((p) => ({ type: "image", source: { type: "base64", media_type: p.mediaType, data: p.data } })),
+  ...content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text"),
+];
 const anthropicModelOf = (config: any): string => config?.anthropicModel || (config?.defaultProvider === "anthropic" && config?.defaultModel) || "claude-3-5-sonnet-20241022";
 
 export class LLMRouter {
@@ -81,12 +91,19 @@ export class LLMRouter {
     }
     const provider = options.provider || dbConfig.defaultProvider;
     const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature, maxTokens: options.maxTokens ?? dbConfig.maxTokens };
-    let response: LLMResponse;
-    switch (provider) {
-      case "anthropic": response = await this.callAnthropic(messages, resolved, dbConfig); break;
-      case "custom": response = await this.callCustomOpenAI(messages, resolved, dbConfig); break;
-      case "openai": response = await this.callOpenAI(messages, resolved, dbConfig); break;
-      default: throw new Error("Unsupported tenant LLM provider");
+    const call = (list: ChatMessage[]) => {
+      switch (provider) {
+        case "anthropic": return this.callAnthropic(list, resolved, dbConfig);
+        case "custom": return this.callCustomOpenAI(list, resolved, dbConfig);
+        case "openai": return this.callOpenAI(list, resolved, dbConfig);
+        default: throw new Error("Unsupported tenant LLM provider");
+      }
+    };
+    let response = await call(messages);
+    // A 400 on a request with images is most likely the model refusing them: one retry without, so the text still gets answered.
+    if (response.httpStatus === 400 && hasImages(messages)) {
+      const retry = await call(withoutImages(messages));
+      if (retry.finishReason !== "error") response = { ...retry, imagesRejected: true };
     }
     if (response.finishReason !== "error") {
       await db.insert(usageEvents).values({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0 } });
@@ -115,7 +132,7 @@ export class LLMRouter {
         return {
           role: "tool",
           tool_call_id: m.toolCallId,
-          content: m.content || "",
+          content: textOf(m.content),
         };
       }
       if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
@@ -134,7 +151,7 @@ export class LLMRouter {
       }
       return {
         role: m.role,
-        content: m.content || "",
+        content: openAIContent(m.content),
       };
     });
 
@@ -162,9 +179,7 @@ export class LLMRouter {
         body: JSON.stringify(body),
       });
 
-      if (!response.ok) {
-        throw new Error(`OpenAI API error (${response.status}): provider request rejected`);
-      }
+      if (!response.ok) return this.rejected(response.status, messages, options);
 
       const data = await response.json();
       const choice = data.choices[0];
@@ -224,24 +239,23 @@ export class LLMRouter {
     let systemPrompt = "";
     const anthropicMessages: any[] = [];
 
+    // Consecutive user turns become one message, with tool_result blocks first as the API requires.
+    const pushUser = (blocks: any[]) => {
+      const last = anthropicMessages.at(-1);
+      if (last?.role !== "user") return void anthropicMessages.push({ role: "user", content: blocks });
+      const merged = [...(typeof last.content === "string" ? [{ type: "text", text: last.content }] : last.content), ...blocks];
+      last.content = [...merged.filter((b) => b.type === "tool_result"), ...merged.filter((b) => b.type !== "tool_result")];
+    };
+
     for (const m of messages) {
       if (m.role === "system") {
-        systemPrompt += (m.content || "") + "\n\n";
+        systemPrompt += textOf(m.content) + "\n\n";
       } else if (m.role === "tool") {
-        anthropicMessages.push({
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: m.toolCallId,
-              content: m.content || "",
-            },
-          ],
-        });
+        pushUser([{ type: "tool_result", tool_use_id: m.toolCallId, content: textOf(m.content) }]);
       } else if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
         const contentBlocks: any[] = [];
         if (m.content) {
-          contentBlocks.push({ type: "text", text: m.content });
+          contentBlocks.push({ type: "text", text: textOf(m.content) });
         }
         for (const tc of m.toolCalls) {
           contentBlocks.push({
@@ -252,11 +266,12 @@ export class LLMRouter {
           });
         }
         anthropicMessages.push({ role: "assistant", content: contentBlocks });
+      } else if (m.role === "assistant") {
+        anthropicMessages.push({ role: "assistant", content: textOf(m.content) });
+      } else if (anthropicMessages.at(-1)?.role === "user" || Array.isArray(m.content)) {
+        pushUser(anthropicBlocks(m.content));
       } else {
-        anthropicMessages.push({
-          role: m.role === "assistant" ? "assistant" : "user",
-          content: m.content || "",
-        });
+        anthropicMessages.push({ role: "user", content: m.content || "" });
       }
     }
 
@@ -282,9 +297,7 @@ export class LLMRouter {
         body: JSON.stringify(body),
       });
 
-      if (!response.ok) {
-        throw new Error(`Anthropic API error (${response.status}): provider request rejected`);
-      }
+      if (!response.ok) return this.rejected(response.status, messages, options);
 
       const data = await response.json();
       const toolCalls: ToolCall[] = [];
@@ -345,7 +358,7 @@ export class LLMRouter {
         return {
           role: "tool",
           tool_call_id: m.toolCallId,
-          content: m.content || "",
+          content: textOf(m.content),
         };
       }
       if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
@@ -364,7 +377,7 @@ export class LLMRouter {
       }
       return {
         role: m.role,
-        content: m.content || "",
+        content: openAIContent(m.content),
       };
     });
 
@@ -389,9 +402,7 @@ export class LLMRouter {
         body: JSON.stringify(body),
       });
 
-      if (!response.ok) {
-        throw new Error(`Custom LLM endpoint error (${response.status}): provider request rejected`);
-      }
+      if (!response.ok) return this.rejected(response.status, messages, options);
 
       const data = await response.json();
       const choice = data.choices[0];
@@ -442,6 +453,11 @@ export class LLMRouter {
     options: LLMRequestOptions
   ): LLMResponse {
     return { content: `No ${providerName} API key configured for this tenant. Configure credentials in the operator console.`, toolCalls: [], finishReason: "error" };
+  }
+
+  private rejected(status: number, messages: ChatMessage[], options: LLMRequestOptions): LLMResponse {
+    console.warn(`LLM provider rejected the request (${status}).`);
+    return { ...this.handleFallback("Provider request failed", messages, options), httpStatus: status };
   }
 
   private handleFallback(

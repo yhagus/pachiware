@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { splitReply, stripFiller } from "../src/discord/replyStyle";
+import { prepareReply, splitReply, stripFiller } from "../src/discord/replyStyle";
 
 const para = (word: string, n: number) => Array.from({ length: n }, (_, i) => `${word} line ${i}.`).join("\n");
 
@@ -72,5 +72,31 @@ describe("stripFiller", () => {
 
   test("a reply that is only filler is left as it is", () => {
     expect(stripFiller("Sure!")).toBe("Sure!");
+  });
+});
+
+describe("prepareReply markers", () => {
+  test("the silence marker posts nothing for a message that does not address the bot", () => {
+    expect(prepareReply("[[silent]]", { addressed: false })).toEqual({ messages: [] });
+    expect(prepareReply("  [[silent]]\n(side conversation)", { addressed: false })).toEqual({ messages: [] });
+  });
+
+  test("an addressed message ignores the silence marker and keeps any text", () => {
+    expect(prepareReply("[[silent]] Build is green.")).toEqual({ messages: ["Build is green."] });
+    expect(prepareReply("[[silent]]").messages).toHaveLength(1);
+    expect(prepareReply("[[silent]]").messages[0]).not.toContain("[[");
+  });
+
+  test("a reaction marker becomes only that reaction", () => {
+    expect(prepareReply("[[react:✅]]", { addressed: false })).toEqual({ messages: [], reaction: "✅" });
+    expect(prepareReply("[[react: 👍🏽 ]]", { addressed: false })).toEqual({ messages: [], reaction: "👍🏽" });
+  });
+
+  test("a reaction that is not a single emoji falls back to 👍", () => {
+    expect(prepareReply("[[react:thumbs up]]", { addressed: false })).toEqual({ messages: [], reaction: "👍" });
+  });
+
+  test("a marker inside text never reaches Discord", () => {
+    expect(prepareReply("Deploy at 14:00. [[silent]]", { addressed: false })).toEqual({ messages: ["Deploy at 14:00."] });
   });
 });
