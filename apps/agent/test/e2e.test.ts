@@ -135,7 +135,7 @@ describe("Phase 13 tenant API", () => {
       const profile = await mk(first, { name: "Custom", provider: "custom", model: "my-model", baseUrl: "https://llm.example/v1", apiKey: "profile-secret" });
       assert(profile.hasApiKey && !("apiKeyEncrypted" in profile), "profile key exposed");
       assert((await app.request("/api/admin/tenants/" + first.id + "/profiles", { method: "POST", headers: admin, body: JSON.stringify({ name: "x", provider: "custom", model: "m" }) })).status === 400, "custom profile without baseUrl accepted");
-      assert((await app.request("/api/admin/tenants/" + first.id + "/profiles", { method: "POST", headers: admin, body: JSON.stringify({ name: "x", provider: "anthropic", model: "m" }) })).status === 400, "unsupported provider accepted");
+      assert((await app.request("/api/admin/tenants/" + first.id + "/profiles", { method: "POST", headers: admin, body: JSON.stringify({ name: "x", provider: "gemini", model: "m" }) })).status === 400, "unsupported provider accepted");
       const foreign = await mk(second, { name: "Theirs", provider: "openai", model: "gpt-x" });
       const botRes = await app.request("/api/v1/bots", { method: "POST", headers: auth(firstKey.raw, first), body: JSON.stringify({ name: "p-bot", token: "t", isEnabled: false, profileId: profile.id }) });
       assert(botRes.status === 201 && (await botRes.json()).bot.profileId === profile.id, "bot profile not saved");
@@ -158,7 +158,7 @@ describe("Phase 13 tenant API", () => {
       await modelsPost({ provider: "custom", baseUrl: "https://llm.example/v1", profileId: saved.id }); assert(modelsAuth.auth === "Bearer saved-key", "saved key not reused");
       assert((await modelsPost({ provider: "custom", baseUrl: "https://bad.example/v1", apiKey: "k" })).status === 502, "provider error not surfaced");
       assert((await modelsPost({ provider: "custom" })).status === 400, "custom without base URL accepted");
-      assert((await modelsPost({ provider: "anthropic", baseUrl: "https://x" })).status === 400, "unsupported provider accepted");
+      assert((await modelsPost({ provider: "gemini", baseUrl: "https://x" })).status === 400, "unsupported provider accepted");
       globalThis.fetch = originalFetch;
       console.log(JSON.stringify({ ok: true, usage: usage.length, completions }));
     `);

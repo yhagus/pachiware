@@ -41,7 +41,7 @@ export const tenants = sqliteTable("tenants", {
 
 export const profiles = sqliteTable("profiles", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), provider: text("provider").notNull(), model: text("model").notNull(), baseUrl: text("base_url"), apiKeyEncrypted: text("api_key_encrypted"),
+  name: text("name").notNull(), provider: text("provider").notNull(), model: text("model").notNull(), baseUrl: text("base_url"), apiKeyEncrypted: text("api_key_encrypted"), acceptsImages: integer("accepts_images", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [index("profiles_tenant_idx").on(t.tenantId)]);
 
