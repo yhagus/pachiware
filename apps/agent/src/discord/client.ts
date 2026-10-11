@@ -7,7 +7,7 @@ import { respondReason, isNoise, threadName, speakerTurn } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, type Playbook } from "@pachiware/skills";
+import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, type Playbook } from "@pachiware/skills";
 import { prepareReply } from "./replyStyle.js";
 
 const BURST_MS = 2500;
@@ -24,7 +24,7 @@ export class DiscordBotManager {
   private operations = new Map<string, Promise<any>>();
   private bursts = new Map<string, { items: { msg: Message; text: string }[]; timer: ReturnType<typeof setTimeout> }>();
   private inflight = new Set<Promise<unknown>>();
-  constructor(private burstMs = BURST_MS) {}
+  constructor(private burstMs = BURST_MS) { onPlaybooksChanged((tenantId) => this.refreshCommands(tenantId)); }
   private track(work: Promise<unknown>) {
     const tracked = work.catch(() => {}).finally(() => this.inflight.delete(tracked));
     this.inflight.add(tracked);
@@ -76,7 +76,7 @@ export class DiscordBotManager {
       if (this.clients.get(id) !== runtime) return;
       runtime.connected = true;
       void updateBot(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
-      this.track(this.registerCommands(runtime));
+      this.track(this.serialize(`commands:${id}`, () => this.registerCommands(runtime)));
     });
     client.on(Events.ShardDisconnect, () => { runtime.connected = false; void updateBot(id, { connectionStatus: "disconnected" }).catch(() => {}); });
     client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
@@ -96,9 +96,13 @@ export class DiscordBotManager {
       return { success: false, message: "Discord login failed." };
     }
   }
+  /** Re-registers the commands of every running bot of the tenant, so an edited playbook needs no restart. */
+  refreshCommands(tenantId: string) {
+    for (const [id, runtime] of this.clients) if (runtime.tenantId === tenantId && runtime.connected) this.track(this.serialize(`commands:${id}`, () => this.registerCommands(runtime)));
+  }
   /** One message context-menu command per playbook that names one; Discord allows five per app. */
   private async registerCommands(runtime: BotRuntime) {
-    if (!runtime.client.application) return;
+    if (!runtime.client.application || ![...this.clients.values()].includes(runtime)) return;
     const menus = [...new Set((await listPlaybooks(runtime.tenantId)).map((p) => p.menu).filter((m): m is string => !!m))].slice(0, 5);
     await runtime.client.application.commands.set(menus.map((name) => ({ name, type: MESSAGE_COMMAND })));
   }

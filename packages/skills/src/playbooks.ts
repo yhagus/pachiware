@@ -88,6 +88,11 @@ export async function listPlaybooks(tenantId: string): Promise<Playbook[]> {
   return [...builtinPlaybooks().filter((b) => !own.some((p) => p.name === b.name)), ...own].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+const changeListeners = new Set<(tenantId: string) => void>();
+/** Called with the tenant id whenever someone changes that tenant's playbooks; returns the unsubscribe function. */
+export function onPlaybooksChanged(listener: (tenantId: string) => void) { changeListeners.add(listener); return () => changeListeners.delete(listener); }
+export function playbooksChanged(tenantId: string) { for (const listener of changeListeners) listener(tenantId); }
+
 /** Skills in `requires` that are off; the playbook must refuse to start while any are. */
 export const missingSkills = (playbook: Playbook, activeSkillIds: string[]) => playbook.requires.filter((id) => !activeSkillIds.includes(id));
 
@@ -98,10 +103,37 @@ export async function readPlaybookFile(tenantId: string, name: string, path: str
   checkSegments(parts);
   if (!(await loadPlaybook(tenantId, name))) return null;
   const own = await workspaceStore().read(tenantId, `${TENANT_PLAYBOOKS_DIR}/${name}/${parts.join("/")}`).catch(() => null);
-  if (own) return own.content;
-  const file = resolve(BUILTIN_PLAYBOOKS_DIR, name, ...parts);
-  if (!file.startsWith(resolve(BUILTIN_PLAYBOOKS_DIR) + sep)) return null;
-  try { return statSync(file).isFile() ? readFileSync(file, "utf8") : null; } catch { return null; }
+  return own ? own.content : readBuiltinPlaybookFile(name, parts.join("/"));
+}
+
+/** Where a path inside a built-in playbook's folder lives on disk, or null when the name is not a built-in. */
+function builtinLocation(name: string, path: string) {
+  if (!builtinPlaybooks().some((p) => p.name === name)) return null;
+  const parts = path.replace(/\/$/, "").split("/").filter(Boolean);
+  checkSegments(parts);
+  const folder = resolve(BUILTIN_PLAYBOOKS_DIR, name), file = resolve(folder, ...parts);
+  return file === folder || file.startsWith(folder + sep) ? file : null;
+}
+
+export function readBuiltinPlaybookFile(name: string, path: string): string | null {
+  const file = builtinLocation(name, path);
+  try { return file && statSync(file).isFile() ? readFileSync(file, "utf8") : null; } catch { return null; }
+}
+
+/** One folder of a built-in playbook, paths relative to the playbook folder; null when there is no such folder. */
+export function listBuiltinPlaybookDir(name: string, path = ""): { path: string; type: "file" | "dir"; size?: number }[] | null {
+  const dir = builtinLocation(name, path);
+  try { if (!dir || !statSync(dir).isDirectory()) return null; } catch { return null; }
+  const prefix = path.replace(/\/$/, "");
+  return readdirSync(dir).sort().filter(validName).map((entry) => {
+    const stat = statSync(join(dir, entry)), rel = prefix ? `${prefix}/${entry}` : entry;
+    return stat.isDirectory() ? { path: rel, type: "dir" as const } : { path: rel, type: "file" as const, size: stat.size };
+  });
+}
+
+/** Every file of a built-in playbook, relative to its folder: what a tenant override starts from. */
+export function builtinPlaybookFiles(name: string, path = ""): string[] {
+  return (listBuiltinPlaybookDir(name, path) ?? []).flatMap((e) => e.type === "dir" ? builtinPlaybookFiles(name, e.path) : [e.path]);
 }
 
 export type BindingStatus = "active" | "done" | "cancelled";
