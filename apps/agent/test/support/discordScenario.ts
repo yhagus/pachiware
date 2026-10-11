@@ -9,6 +9,8 @@
  *     await s.discord.click(s.discord.botMessages.at(-1)!, "Confirm");
  *     await s.discord.contextMenu("Draft issues", msg);
  *     expect(await s.workspace.read("guilds/guild-1/channels/channel-1/notes.md")).toContain("...");
+ *     const [first] = s.discord.history([{ content: "said an hour ago", at: Date.now() - 3600_000 }]);
+ *     s.discord.deny("channel-1", s.discord.bob.id, ["ReadMessageHistory"]);
  *   });
  *
  * Each scenario runs in its own `bun test` subprocess with a fresh SQLite database and Workspace folder, so
@@ -39,7 +41,10 @@ export interface FakeMessage {
   content: string; embeds: any[]; components: any[]; files: any[];
   reactions: string[]; edits: Payload[]; reference?: { messageId: string }; thread?: FakeChannel;
 }
-export interface FakeChannel { id: string; guildId: string | null; parentId: string | null; ownerId: string | null; name: string; messages: FakeMessage[] }
+export interface FakeChannel { id: string; guildId: string | null; parentId: string | null; ownerId: string | null; name: string; messages: FakeMessage[]; /** History reads (one per `messages.fetch` page). */ fetches: number }
+export type ChannelOptions = { thread?: boolean; parentId?: string; ownerId?: string; dm?: boolean; private?: boolean; members?: string[] };
+/** A message written before the bot was listening; `at` is its creation time in ms. */
+export type PastMessage = { content: string; author?: FakeUser & { bot?: boolean }; at?: number; attachments?: any[] };
 /** A button click or context-menu command as the bot received it, with every response it made. */
 export interface FakeInteraction { responses: { kind: "reply" | "update" | "deferReply" | "deferUpdate" | "editReply" | "followUp"; payload: any }[] }
 
@@ -59,7 +64,12 @@ export interface Scenario {
     botMessages: FakeMessage[];
     /** Application commands the bot registered through `client.application.commands.set`, as JSON. */
     readonly registeredCommands: any[];
-    channel(id: string, options?: { thread?: boolean; parentId?: string; ownerId?: string; dm?: boolean }): FakeChannel;
+    /** A private thread admits only the bot plus `members`. */
+    channel(id: string, options?: ChannelOptions): FakeChannel;
+    /** Adds messages to a channel's history without the bot seeing them arrive, oldest first. */
+    history(messages: PastMessage[], options?: { channel?: FakeChannel | string }): FakeMessage[];
+    /** Takes permissions (names such as "ReadMessageHistory") from a user or the bot in a channel; a thread also inherits its parent's. */
+    deny(channel: FakeChannel | string, userId: string, permissions: string[]): void;
     send(content: string, options?: { author?: FakeUser; channel?: FakeChannel | string; replyTo?: FakeMessage; attachments?: any[] }): Promise<FakeMessage>;
     /** Clicks the button whose label or custom id matches. */
     click(message: FakeMessage, button: string, options?: { user?: FakeUser }): Promise<FakeInteraction>;
@@ -111,28 +121,36 @@ const unwrapTool = (content: string | null) => {
 
 async function createScenario(): Promise<Scenario & { close(): Promise<void> }> {
   const discordjs = { ...(await import("discord.js")) };
-  const { Collection, Events, ApplicationCommandType } = discordjs;
+  const { Collection, Events, ApplicationCommandType, ChannelType, PermissionsBitField } = discordjs;
   const failures: string[] = [];
   const fail = (message: string) => { failures.push(message); return new Error(message); };
 
   const BOT_USER = { id: "bot-user", name: "Pachiware", bot: true };
-  const GUILD = { id: "guild-1", name: "Acme" };
+  const GUILD: any = { id: "guild-1", name: "Acme" };
+  GUILD.members = { fetch: async (id: string) => ({ id, user: { id }, guild: GUILD, displayName: id }) };
   let nextId = 1000n;
   const snowflake = () => String(nextId++);
   const channels = new Map<string, any>();
   const botMessages: FakeMessage[] = [];
 
-  const makeChannel = (id: string, o: { thread?: boolean; parentId?: string; ownerId?: string; dm?: boolean } = {}) => {
+  const denied = new Map<string, Map<string, string[]>>();
+  const deniedIn = (channel: any, userId: string): string[] => [...(denied.get(channel.id)?.get(userId) ?? []), ...(channel.parentId ? deniedIn(channels.get(channel.parentId) ?? { id: channel.parentId }, userId) : [])];
+  const makeChannel = (id: string, o: ChannelOptions = {}) => {
     if (channels.has(id)) return channels.get(id);
     const channel: any = {
       id, name: id, guildId: o.dm ? null : GUILD.id, guild: o.dm ? null : GUILD, parentId: o.thread ? o.parentId ?? "channel-1" : null, ownerId: o.ownerId ?? null,
-      messages: [] as FakeMessage[],
+      type: o.dm ? ChannelType.DM : o.thread ? (o.private ? ChannelType.PrivateThread : ChannelType.PublicThread) : ChannelType.GuildText,
+      messages: [] as FakeMessage[], fetches: 0,
+      permissionsFor: (who: string | { id: string }) => new PermissionsBitField(PermissionsBitField.All).remove("Administrator", ...(deniedIn(channel, typeof who === "string" ? who : who.id) as any[])),
+      members: { fetch: async (userId: string) => { if (o.private && userId !== BOT_USER.id && !o.members?.includes(userId)) throw new Error("Unknown Member"); return { id: userId }; } },
+      fetchStarterMessage: async () => { const found = channels.get(channel.parentId)?.messages.find((m: FakeMessage) => m.id === id); if (!found) throw new Error("Unknown Message"); return found; },
       isThread: () => !!o.thread, isDMBased: () => !!o.dm, isTextBased: () => true, isSendable: () => true,
       sendTyping: async () => {},
       send: async (payload: string | Payload) => post(channel, BOT_USER, payload),
     };
     channel.messages.fetch = async (query?: string | { limit?: number; before?: string; after?: string }) => {
       if (typeof query === "string") { const found = channel.messages.find((m: FakeMessage) => m.id === query); if (!found) throw new Error("Unknown Message"); return found; }
+      channel.fetches++;
       const list = (channel.messages as FakeMessage[]).filter((m) => (!query?.before || BigInt(m.id) < BigInt(query.before)) && (!query?.after || BigInt(m.id) > BigInt(query.after)));
       return new Collection(list.slice(-(query?.limit ?? 50)).reverse().map((m) => [m.id, m]));
     };
@@ -140,7 +158,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     return channel;
   };
 
-  const post = (channel: any, author: FakeUser & { bot: boolean }, payload: string | Payload, extra: { reference?: string; attachments?: any[] } = {}) => {
+  const post = (channel: any, author: FakeUser & { bot: boolean }, payload: string | Payload, extra: { reference?: string; attachments?: any[]; at?: number } = {}) => {
     const body = normalize(payload);
     const mentioned = new Collection<string, any>([...body.content.matchAll(/<@!?(\w[\w-]*)>/g)].map(([, id]) => [id, { id }]));
     const message: any = {
@@ -150,7 +168,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       member: channel.guildId ? { displayName: author.name, roles: { cache: new Collection() }, permissions: { toArray: () => [] } } : null,
       mentions: { users: mentioned },
       attachments: new Collection((extra.attachments ?? []).map((a, i) => [a.id ?? String(i), a])),
-      createdTimestamp: Date.now(),
+      createdTimestamp: extra.at ?? Date.now(),
+      get url() { return `https://discord.com/channels/${channel.guildId ?? "@me"}/${channel.id}/${message.id}`; },
       react: async (emoji: string) => { message.reactions.push(emoji); },
       reply: async (p: string | Payload) => post(channel, BOT_USER, p, { reference: message.id }),
       edit: async (p: string | Payload) => { const next = normalize(p); message.edits.push(next); Object.assign(message, typeof p === "string" ? { content: p } : Object.fromEntries(Object.entries(next).filter(([k]) => k in (p as object)))); return message; },
@@ -158,7 +177,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       startThread: async ({ name }: { name: string }) => { message.thread = makeChannel(message.id, { thread: true, parentId: channel.id, ownerId: BOT_USER.id }); message.thread.name = name; return message.thread; },
     };
     channel.messages.push(message);
-    if (author.bot) botMessages.push(message);
+    if (author.id === BOT_USER.id) botMessages.push(message);
     return message;
   };
 
@@ -270,6 +289,13 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       mention: `<@${BOT_USER.id}>`, botUserId: BOT_USER.id, guildId: GUILD.id, alice, bob, botMessages,
       get registeredCommands() { return client.application.commands.registered; },
       channel: (id, options) => makeChannel(id, options),
+      history: (messages, { channel } = {}) => messages.map((m) => post(channelOf(channel), { ...(m.author ?? alice), bot: !!m.author?.bot }, m.content, { attachments: m.attachments, at: m.at })),
+      deny: (channel, userId, permissions) => {
+        const id = typeof channel === "string" ? channel : channel.id;
+        const byUser = denied.get(id) ?? new Map<string, string[]>();
+        denied.set(id, byUser);
+        byUser.set(userId, [...(byUser.get(userId) ?? []), ...permissions]);
+      },
       send: async (content, { author = alice, channel, replyTo, attachments } = {}) => {
         const message = post(channelOf(channel), { ...author, bot: false }, content, { reference: replyTo?.id, attachments });
         client.emit(Events.MessageCreate, message);
