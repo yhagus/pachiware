@@ -8,6 +8,7 @@ import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
 import { listPlaybooks, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, type Playbook } from "@pachiware/skills";
+import { prepareReply } from "./replyStyle.js";
 
 const BURST_MS = 2500;
 const MESSAGE_COMMAND = 3; // ApplicationCommandType.Message
@@ -230,7 +231,7 @@ export class DiscordBotManager {
       const actor = opts.actor ?? actorOf(msg);
       const playbook = opts.playbook && { name: opts.playbook.name, body: opts.playbook.body };
       const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
-      for (const chunk of output.reply.match(/[^]{1,1900}/g) || ["Done."]) await send(chunk);
+      for (const chunk of prepareReply(output.reply).messages) await send(chunk);
       if (output.toolCallsExecuted.length && target.isSendable()) {
         // Git write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.
         for (const { result } of output.toolCallsExecuted) {

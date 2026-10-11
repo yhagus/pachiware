@@ -142,6 +142,28 @@ describe("SQLite tenancy migration", () => {
     }
   });
 
+  test("adds the accepts-images flag to existing profiles, turned off", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-profiles-"));
+    const database = join(directory, "profiles.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+        await runMigrations();
+        queryClient.exec("ALTER TABLE profiles DROP COLUMN accepts_images");
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
+        queryClient.exec("INSERT INTO profiles (id,tenant_id,name,provider,model) VALUES ('p1','t1','Old','openai','gpt-x')");
+        await runMigrations();
+        await runMigrations();
+        console.log(JSON.stringify(queryClient.query("SELECT id, accepts_images AS flag FROM profiles").all()));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual([{ id: "p1", flag: 0 }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("upgrades per-tenant API keys to global keys, linking each tenant to its first live key", () => {
     const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-keys-"));
     const database = join(directory, "keys.db");

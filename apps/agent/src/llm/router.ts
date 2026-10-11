@@ -5,6 +5,15 @@ import { skillRegistry } from "@pachiware/skills";
 import type { ChatMessage, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
 
+type ProbeResult = { ok: boolean; message: string };
+// An 8x8 solid PNG, small enough for every provider's image limits.
+const PROBE_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO44GCAFTEMLQkAaplQAWdwh5oAAAAASUVORK5CYII=";
+const DEFAULT_BASE_URLS: Record<string, string> = { openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1" };
+export const providerBaseUrl = (provider: string, baseUrl?: string | null) => (baseUrl?.trim() || DEFAULT_BASE_URLS[provider] || "").replace(/\/+$/, "");
+export const providerHeaders = (provider: string, key?: string | null): Record<string, string> =>
+  !key ? {} : provider === "anthropic" ? { "x-api-key": key, "anthropic-version": "2023-06-01" } : { Authorization: `Bearer ${key}` };
+const anthropicModelOf = (config: any): string => config?.anthropicModel || (config?.defaultProvider === "anthropic" && config?.defaultModel) || "claude-3-5-sonnet-20241022";
+
 export class LLMRouter {
   private async getActiveTenantConfig(tenantId: string) {
     try {
@@ -37,6 +46,25 @@ export class LLMRouter {
     return row?.profile ?? null;
   }
 
+  // A profile declares image input. A tenant default has no flag, so only an Anthropic default can learn it, from the models endpoint.
+  async acceptsImages(tenantId: string, botId?: string): Promise<boolean> {
+    const profile = await this.getBotProfile(tenantId, botId);
+    if (profile) return profile.acceptsImages;
+    const config = await this.getActiveTenantConfig(tenantId);
+    if (config.defaultProvider !== "anthropic" || !config.anthropicApiKey) return false;
+    const model = anthropicModelOf(config);
+    const cacheKey = tenantKey(tenantId, `llm:image-input:${model}`);
+    const cached = await CacheService.get<boolean>(cacheKey);
+    if (cached !== null) return cached;
+    try {
+      const res = await fetch(`${providerBaseUrl("anthropic", config.anthropicBaseUrl)}/models/${encodeURIComponent(model)}`, { headers: providerHeaders("anthropic", config.anthropicApiKey), signal: AbortSignal.timeout(10000) });
+      if (!res.ok) return false;
+      const supported = (await res.json())?.capabilities?.image_input?.supported === true;
+      await CacheService.set(cacheKey, supported, 3600);
+      return supported;
+    } catch { return false; }
+  }
+
   /**
    * Main completion method dispatching to the configured or requested provider.
    */
@@ -47,7 +75,7 @@ export class LLMRouter {
     let dbConfig = await this.getActiveTenantConfig(options.tenantId);
     const profile = options.provider ? null : await this.getBotProfile(options.tenantId, options.botId);
     if (profile) {
-      if (!["openai", "custom"].includes(profile.provider)) throw new Error("Unsupported profile provider");
+      if (!["openai", "anthropic", "custom"].includes(profile.provider)) throw new Error("Unsupported profile provider");
       const key = profile.apiKeyEncrypted ? decryptSecret(profile.apiKeyEncrypted) : null;
       dbConfig = { ...dbConfig, defaultProvider: profile.provider, defaultModel: profile.model, [`${profile.provider}ApiKey`]: key, [`${profile.provider}BaseUrl`]: profile.baseUrl, [`${profile.provider}Model`]: profile.model };
     }
@@ -187,7 +215,7 @@ export class LLMRouter {
   ): Promise<LLMResponse> {
     const apiKey = dbConfig?.anthropicApiKey;
     const baseUrl = (dbConfig?.anthropicBaseUrl || "https://api.anthropic.com/v1").replace(/\/+$/, "");
-    const model = options.model || dbConfig?.anthropicModel || "claude-3-5-sonnet-20241022";
+    const model = options.model || anthropicModelOf(dbConfig);
 
     if (!apiKey) {
       return this.handleMissingApiKey("anthropic", messages, options);
@@ -237,7 +265,6 @@ export class LLMRouter {
       system: systemPrompt.trim() || undefined,
       messages: anthropicMessages,
       max_tokens: options.maxTokens ?? 4096,
-      temperature: options.temperature ?? 0.7,
     };
 
     if (options.tools && options.tools.length > 0) {
@@ -427,6 +454,29 @@ export class LLMRouter {
       toolCalls: [],
       finishReason: "error",
     };
+  }
+
+  // The profile Test action: a text request, then a tiny PNG in the provider's own image shape.
+  static async probeProfile(provider: string, model: string, apiKey: string | null, baseUrl?: string | null): Promise<{ text: ProbeResult; image: ProbeResult }> {
+    const anthropic = provider === "anthropic";
+    const send = async (image: boolean): Promise<string | null> => {
+      const content = !image ? "Reply with the single word OK." : anthropic
+        ? [{ type: "image", source: { type: "base64", media_type: "image/png", data: PROBE_PNG } }, { type: "text", text: "What colour is this image? One word." }]
+        : [{ type: "text", text: "What colour is this image? One word." }, { type: "image_url", image_url: { url: `data:image/png;base64,${PROBE_PNG}` } }];
+      try {
+        const res = await fetch(`${providerBaseUrl(provider, baseUrl)}/${anthropic ? "messages" : "chat/completions"}`, {
+          method: "POST", headers: { "Content-Type": "application/json", ...providerHeaders(provider, apiKey) },
+          body: JSON.stringify({ model, max_tokens: 64, messages: [{ role: "user", content }] }), signal: AbortSignal.timeout(30000),
+        });
+        if (res.ok) return null;
+        const reason = await res.json().then((d: any) => d?.error?.message, () => null);
+        return `${res.status}${typeof reason === "string" && reason ? `: ${reason.slice(0, 200)}` : ""}`;
+      } catch { return "the provider could not be reached"; }
+    };
+    const textError = await send(false);
+    if (textError) return { text: { ok: false, message: `Failed (${textError}). Check the model, base URL, and API key.` }, image: { ok: false, message: "Not tried, because text failed." } };
+    const imageError = await send(true);
+    return { text: { ok: true, message: "Works." }, image: imageError ? { ok: false, message: `Rejected (${imageError}).` } : { ok: true, message: "Accepted." } };
   }
 
   static async testOpenAI(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string; modelCount?: number }> {
