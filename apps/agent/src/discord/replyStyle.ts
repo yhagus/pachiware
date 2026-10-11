@@ -32,6 +32,15 @@ export function prepareReply(reply: string, { addressed = true }: { addressed?: 
   return { messages: cut };
 }
 
+/** Lines the plan must carry whatever the cut: they join its last message when they fit, else follow in their own. */
+export function withNotes(plan: ReplyPlan, notes: string[]): ReplyPlan {
+  if (!notes.length) return plan;
+  const text = notes.join("\n"), messages = [...plan.messages], last = messages.length - 1;
+  if (last >= 0 && messages[last]!.length + 1 + text.length <= MESSAGE_LIMIT) messages[last] += `\n${text}`;
+  else messages.push(...splitReply(text));
+  return { ...plan, messages };
+}
+
 /**
  * Splits a reply into Discord messages at paragraph breaks, falling back to line breaks.
  * Only a single line longer than a whole message is cut inside, at its last space.

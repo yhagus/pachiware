@@ -90,3 +90,24 @@ discordScenario("a provider that rejects the image is retried without it and the
   expect(s.http.requests.filter((r) => r.url.endsWith("/chat/completions"))).toHaveLength(2);
   expect(s.discord.botMessages.at(-1)?.content).toBe("Check the auth service logs.\nThis profile rejected the image; an admin can turn image input off for it.");
 });
+
+discordScenario("a reply cut to three messages still ends with the image notes", async (s) => {
+  const shot = await image(s, "screenshot.png", 300, 200);
+  s.model.script(Array.from({ length: 8 }, (_, i) => `Paragraph ${i + 1}. ${"Words that make the answer long. ".repeat(30)}`).join("\n\n"));
+  await s.discord.send(`${s.discord.mention} explain the whole login flow`, { attachments: [shot] });
+  const sent = s.discord.botMessages.map((m) => m.content);
+  expect(sent.join("\n")).toContain("-# Cut to stay within 3 messages.");
+  expect(sent.at(-1)!.endsWith("I can't see images with this profile.")).toBe(true);
+  for (const m of sent) expect(m.length).toBeLessThanOrEqual(2000);
+});
+
+discordScenario("in a brief thread the image notes go out with the round that replaces the model's text", async (s) => {
+  const { startBrief, ROUND_1 } = await import(process.cwd() + "/apps/agent/test/support/briefs.ts");
+  const { thread } = await startBrief(s);
+  const shot = await image(s, "safari.png", 300, 200);
+  s.model.script([{ tool: "recordBriefAnswers", args: { round: 1, answers: [{ q: 1, answer: "No." }] } }, { tool: "postBriefRound", args: { questions: [ROUND_1.questions[1]] } }], "ok");
+  await s.discord.send("Q1: no, see the screenshot", { channel: thread, attachments: [shot] });
+  const sent = s.discord.botMessages.filter((m) => m.channelId === thread.id).at(-1)!.content;
+  expect(sent).toContain("**Round 2**");
+  expect(sent.endsWith("I can't see images with this profile.")).toBe(true);
+});

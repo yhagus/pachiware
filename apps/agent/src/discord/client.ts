@@ -8,7 +8,7 @@ import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton, type QueuedAction } from "./gitConfirm.js";
 import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, missingSkills, skillRegistry, roundMessagesOf, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, draftsWrittenOf, briefState, draftEmbed, draftsFile, recordDraftMessages, revisionNote, DRAFTS_FILE_NOTE, recordBriefImages, unseeBriefImages, briefIssuesOf, createdEmbed, issuesReport, type BindingPlace, type Playbook, type PlaybookBinding, type ToolResult } from "@pachiware/skills";
-import { prepareReply, splitReply, MESSAGE_LIMIT, type ReplyPlan } from "./replyStyle.js";
+import { prepareReply, splitReply, withNotes, MESSAGE_LIMIT, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, withPlaceholders, BLIND_ONLY_NOTE, REJECTED_NOTE } from "./attachments.js";
 import { llmRouter } from "../llm/router.js";
 import { MINUTES_PLAYBOOK, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
@@ -318,15 +318,13 @@ export class DiscordBotManager {
       const shots = place && !brief?.outsider ? media.shots : [];
       if (shots.length) await recordBriefImages(runtime.tenantId, place!, shots).catch(() => null);
       const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, skillContext: { member: memberAuth(actor.member), discord: new DiscordJSAdapter(runtime.client, msg.guildId || runtime.guildIds[0]), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
-      output.reply = [output.reply, ...(output.imagesRejected ? [REJECTED_NOTE] : []), ...media.notes].join("\n");
+      const notes = [...(output.imagesRejected ? [REJECTED_NOTE] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       // A posted round or draft is the reply: its layout is decided in code, so the model's own text does not go out with it.
       const round = roundMessagesOf(output.toolCallsExecuted), written = draftsWrittenOf(output.toolCallsExecuted);
-      const plan: ReplyPlan = round.length || written.length ? { messages: round } : prepareReply(output.reply, { addressed: direct });
-      if (brief?.outsider && plan.messages.length) {
-        const note = authorDecidesNote(brief.authorId), last = plan.messages.length - 1;
-        if (plan.messages[last]!.length + note.length < MESSAGE_LIMIT) plan.messages[last] += `\n${note}`; else plan.messages.push(note);
-      }
+      let plan: ReplyPlan = round.length || written.length ? { messages: round } : prepareReply(output.reply, { addressed: direct });
+      if (plan.messages.length || direct) plan = withNotes(plan, notes);
+      if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId)]);
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       for (const chunk of plan.messages) await send(chunk);
       if (written.length && place && target.isSendable()) await this.showDrafts(runtime.tenantId, target, place, written);
