@@ -84,8 +84,7 @@ export interface MinutesReply { tenantId: string; botId: string; guildId: string
 /** A reply to posted minutes: the requester's corrects them in place, anyone else's is recorded as input. */
 export async function correctMinutes(c: MinutesReply, now = Date.now()) {
   const answer = (content: string) => c.reply.reply({ content, allowedMentions: { parse: [] } }).catch(() => {});
-  const channel = c.minutesMessage.channel;
-  const path = `${minutesFolder(c.guildId, (channel.isThread() ? channel.parentId : channel.id) ?? channel.id)}/${minutesFileOf(c.minutesMessage)}`;
+  const path = recordPath(c.guildId, c.minutesMessage);
   const stored = await workspaceStore().read(c.tenantId, path);
   const record = stored && parseRecord(stored.content);
   if (!stored || !record || record.messageId !== c.minutesMessage.id) return answer("I can't find the stored copy of these minutes, so I can't change them.");
@@ -113,6 +112,48 @@ export async function correctMinutes(c: MinutesReply, now = Date.now()) {
   Object.assign(record, { title: next.title, minutes: next, corrections: [...record.corrections, entry] });
   await workspaceStore().write(c.tenantId, path, recordText(record), stored.version);
   await c.reply.react("✅").catch(() => {});
+}
+
+const recordPath = (guildId: string, message: Message) => {
+  const channel = message.channel;
+  return `${minutesFolder(guildId, (channel.isThread() ? channel.parentId : channel.id) ?? channel.id)}/${minutesFileOf(message)}`;
+};
+
+/** Every number in "points 2 and 3" or "items 2-4"; mentions are skipped. */
+export const namedNumbers = (text: string) => {
+  const out: number[] = [];
+  for (const [, a, b] of text.replace(/<[@#][!&]?\d+>/g, " ").matchAll(/(\d{1,3})(?:\s*(?:-|–|to)\s*(\d{1,3}))?/gu)) {
+    const from = Number(a), to = b ? Number(b) : from;
+    for (let n = from; n <= Math.min(to, from + 50); n++) out.push(n);
+  }
+  return [...new Set(out)];
+};
+
+const BRIEF_POINT_MAX = 200, BRIEF_POINTS_MAX = 30;
+export interface MinutesBrief { title: string; points: string[]; text: string }
+/**
+ * The action items of posted minutes as a brief: all of them when `numbers` is empty, else the ones with those numbers
+ * as the embed shows them (counted across all sections). Points come from the stored record, never from the embed text.
+ */
+export async function minutesBrief(tenantId: string, message: Message, numbers: number[]): Promise<MinutesBrief | { error: string }> {
+  const stored = message.guildId ? await workspaceStore().read(tenantId, recordPath(message.guildId, message)).catch(() => null) : null;
+  const record = stored && parseRecord(stored.content);
+  if (!record || record.messageId !== message.id) return { error: "I can't find the stored copy of these minutes, so I can't draft issues from them." };
+  const m = record.minutes, first = m.decided.length + m.open.length + 1;
+  const all = m.actions.map((a, i) => ({ ...a, n: first + i }));
+  if (!all.length) return { error: "These minutes have no action items to draft issues from." };
+  const span = all.length === 1 ? `item ${first}` : `items ${all.length > 3 ? `${first} to ${first + all.length - 1}` : and(all.map((a) => String(a.n)))}`;
+  const wrong = numbers.filter((n) => n < first || n >= first + all.length);
+  if (wrong.length) return { error: `${wrong.length > 1 ? `Items ${and(wrong.map(String))} aren't action items` : `Item ${wrong[0]} isn't an action item`}. In these minutes the action items are ${span}.` };
+  const picked = numbers.length ? all.filter((a) => numbers.includes(a.n)) : all;
+  if (picked.length > BRIEF_POINTS_MAX) return { error: `A brief holds at most ${BRIEF_POINTS_MAX} points and these minutes have ${picked.length} action items. Mention me on them with the ones to draft, e.g. "turn ${first} to ${first + 9} into issues".` };
+  const points = picked.map((a) => {
+    const line = `${a.owner ? `${a.owner}: ` : ""}${a.task}${a.due ? ` (${m.labels.due} ${a.due})` : ""}`;
+    return line.length > BRIEF_POINT_MAX ? `${line.slice(0, BRIEF_POINT_MAX - 1)}…` : line;
+  });
+  const link = jumpLink(message.guildId!, message.channelId, message.id);
+  const text = [`Action items ${picked.map((a) => a.n).join(", ")} of the minutes "${m.title}" (${link}):`, ...picked.map((a, i) => `${i + 1}. ${points[i]} (${a.link})`)].join("\n");
+  return { title: m.title, points, text };
 }
 
 const CORRECTION = `The person who asked for these minutes sent a correction. Apply it and reply with the whole corrected minutes in the same JSON shape, changing only what the correction asks for. "ref" is the number of a source in the list; an item the correction adds points to the correction.`;
