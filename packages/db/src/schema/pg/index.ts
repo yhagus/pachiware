@@ -102,7 +102,7 @@ export const agentsConfig = pgTable("agents_config", {
   anthropicBaseUrl: text("anthropic_base_url"),
   anthropicModel: text("anthropic_model"),
 
-  // Custom / 9router (OpenAI-compatible) Provider
+  // Custom (OpenAI-compatible) Provider
   customBaseUrl: text("custom_base_url"),
   customApiKeyEncrypted: text("custom_api_key_encrypted"),
   customModel: text("custom_model"),

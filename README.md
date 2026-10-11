@@ -85,7 +85,7 @@ Keep the SSH connection open, then visit `http://localhost:3000` on your compute
 
 ### 1. Connect an AI Model
 
-In **LLM Router**, choose OpenAI, Anthropic, or a custom endpoint such as 9router. Enter your API key, base URL if needed, and a model name available from your provider. Test the connection, then save the configuration.
+In **LLM Router**, choose OpenAI, Anthropic, or a custom OpenAI-compatible endpoint. Enter your API key, base URL if needed, and a model name available from your provider. Test the connection, then save the configuration.
 
 ### 2. Try Chat and Tasks
 

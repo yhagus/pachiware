@@ -294,7 +294,7 @@ export class LLMRouter {
   }
 
   /**
-   * Calls custom / OpenAI-compatible endpoint (e.g. 9router).
+   * Calls a custom OpenAI-compatible endpoint.
    */
   private async callCustomOpenAI(
     messages: ChatMessage[],
@@ -302,11 +302,14 @@ export class LLMRouter {
     dbConfig?: any
   ): Promise<LLMResponse> {
     const apiKey = dbConfig?.customApiKey;
-    const baseUrl = (dbConfig?.customBaseUrl || "https://api.9router.com/v1").replace(/\/+$/, "");
+    const baseUrl = (dbConfig?.customBaseUrl || "").replace(/\/+$/, "");
     const model = options.model || dbConfig?.customModel || "gpt-4o";
 
     if (!apiKey) {
-      return this.handleMissingApiKey("custom (9router)", messages, options);
+      return this.handleMissingApiKey("custom", messages, options);
+    }
+    if (!baseUrl) {
+      return { content: "No custom provider base URL configured for this tenant. Configure it in the operator console.", toolCalls: [], finishReason: "error" };
     }
 
     // Reuse OpenAI wire format
@@ -468,7 +471,8 @@ export class LLMRouter {
   }
 
   static async testCustom(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string; modelCount?: number }> {
-    const url = (baseUrl || "https://api.9router.com/v1").replace(/\/+$/, "");
+    const url = (baseUrl || "").replace(/\/+$/, "");
+    if (!url) return { success: false, message: "A custom provider needs a base URL." };
     try {
       const res = await fetch(`${url}/models`, {
         headers: { Authorization: `Bearer ${apiKey.trim()}` },

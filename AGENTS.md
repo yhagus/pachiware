@@ -11,7 +11,7 @@
 - **Cache / Storage:** Redis (Session state, rate-limiting, and async queue execution)
 - **ORM / Query Builder:** Prisma or Drizzle ORM
 - **Frontend Management GUI:** Vite + React 19 + react-router with Tailwind CSS v4 & shadcn/ui (admin portal)
-- **LLM Integrations:** Direct SDK calls supporting OpenAI, Anthropic Claude, or custom proxy endpoints (e.g., `9router`)
+- **LLM Integrations:** Direct SDK calls supporting OpenAI, Anthropic Claude, or custom OpenAI-compatible endpoints
 
 ---
 
