@@ -52,7 +52,8 @@ export async function listAvailabilityRules(key: LevelKey): Promise<Availability
 export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; value: string }, skills: SkillModule[], playbooks: string[] = []): string | null {
   if (!(TARGET_KINDS as readonly string[]).includes(rule.kind)) return `kind must be one of ${TARGET_KINDS.join(", ")}`;
   if (!(RULE_VALUES as readonly string[]).includes(rule.value)) return `value must be one of ${RULE_VALUES.join(", ")}`;
-  if (rule.value !== "off") return "Only off is supported for now";
+  if (rule.value === "opt_in" && key.level !== "bot" && key.level !== "guild") return "opt_in is only for a bot or a guild: it makes each level below say on";
+  if (rule.value === "on" && key.level !== "guild" && key.level !== "channel") return "on is only for a guild or a channel, under an opt_in above it";
   if (rule.kind === "effect") return "Effect rules are not supported yet";
   if (rule.kind === "playbook" && !playbooks.includes(rule.name)) return `Unknown playbook "${rule.name}"`;
   if (rule.kind === "skill") {
@@ -72,6 +73,10 @@ export async function setAvailabilityRule(key: LevelKey, rule: AvailabilityRule,
   const playbooks = rule.kind === "playbook" ? (await listPlaybooks(key.tenantId)).map((p) => p.name) : [];
   const problem = ruleProblem(key, rule, skills, playbooks);
   if (problem) throw new AvailabilityError(problem);
+  if (rule.value === "on") {
+    const above = (await rulesAt(key)).slice(0, AVAILABILITY_LEVELS.indexOf(key.level));
+    if (!above.some((rules) => rules.get(`${rule.kind}:${rule.name}`) === "opt_in")) throw new AvailabilityError(`on needs an opt_in above it; ${rule.name} is not opt-in at the bot or guild`);
+  }
   await clearAvailabilityRule(key, rule);
   await db.insert(availabilityRules).values({ tenantId: key.tenantId, level: key.level, ...keyColumns(key), targetKind: rule.kind, targetName: rule.name, value: rule.value, updatedAt: new Date() });
 }
@@ -90,9 +95,12 @@ async function rulesAt(place: Place): Promise<Map<string, RuleValue>[]> {
   return AVAILABILITY_LEVELS.map((level) => new Map(rows.filter((r: any) => r.level === level && applies(r)).map((r: any) => [`${r.targetKind}:${r.targetName}`, r.value as RuleValue])));
 }
 
-/** The only walk down the levels: a target is available unless a level on the way turns it off. */
+/** The only walk down the levels: a target is available unless a level on the way turns it off, or opts in without a lower level saying on. */
 function allows(levels: Map<string, RuleValue>[], kind: TargetKind, name: string): boolean {
-  return !levels.some((rules) => rules.get(`${kind}:${name}`) === "off");
+  const values = levels.map((rules) => rules.get(`${kind}:${name}`));
+  if (values.includes("off")) return false;
+  const optIn = values.lastIndexOf("opt_in");
+  return optIn < 0 || values.slice(optIn + 1).includes("on");
 }
 
 /** What is available at a place. `skills` are the skills the tenant has switched on, `playbooks` the tenant's playbooks. */
