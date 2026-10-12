@@ -1,7 +1,7 @@
 import { db, agentsConfig, getGuildConfig } from "@pachiware/db";
 import { eq } from "drizzle-orm";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { skillRegistry, loadMemory, loadTasks, workspaceStore } from "@pachiware/skills";
+import { skillRegistry, loadMemory, loadTasks, workspaceStore, type OffSummary } from "@pachiware/skills";
 import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
 
 export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[] };
@@ -34,6 +34,29 @@ export interface PromptContext {
   skillContext?: { parentChannelId?: string };
   /** The playbook this thread is bound to. Its body joins the cached prefix, which stays stable because the binding lasts for the thread. */
   playbook?: { name: string; body: string };
+  /** What availability rules turn off where the message came from. It changes only when an admin changes a rule, so it may sit in the cached prompt. */
+  off?: OffSummary;
+}
+
+const effectMeaning: Record<string, string> = {
+  read: "anything that only reads, such as listing tasks or reading a file",
+  write: "changes that can be changed back, such as creating a task or writing a file",
+  danger: "actions that cannot be undone or that change access, security or settings, such as deleting a repository or archiving a channel",
+};
+
+/** The off-summary section, or null when nothing is off, so a tenant without rules keeps the prompt it had. */
+function offSection(off: OffSummary | undefined): string | null {
+  if (!off) return null;
+  const lines = [
+    ...(off.skills.length ? [`- Skills: ${off.skills.join(", ")}.`] : []),
+    ...(off.someToolsOff.length ? [`- Some tools of: ${off.someToolsOff.join(", ")}.`] : []),
+    ...off.effects.map((e) => `- Every ${e} tool: ${effectMeaning[e] ?? e}.`),
+    ...(off.playbooks.length ? [`- Playbooks: ${off.playbooks.join(", ")}.`] : []),
+  ];
+  if (!lines.length) return null;
+  return `### Turned off here (an admin's availability rules for this place):
+${lines.join("\n")}
+When someone asks for one of these, say it is turned off here and an admin can turn it back on. Do not reach the same result with another tool.`;
 }
 
 export class SystemPromptBuilder {
@@ -120,6 +143,10 @@ ${context.playbook.body}`);
 ### Active Tools Available:
 ${toolNames.length > 0 ? toolNames : "None currently active."}
 `);
+
+    // Last, so everything above stays the same prefix whatever is off here.
+    const off = offSection(context.off);
+    if (off) promptSections.push(off);
 
     return promptSections.join("\n").trim();
   }
