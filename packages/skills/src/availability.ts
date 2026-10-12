@@ -31,7 +31,11 @@ export interface Availability {
   playbooks: string[];
   /** Why the playbook cannot start here, or null when it can. A playbook the resolver was not given counts as off. */
   playbookCause(name: string): PlaybookCause | null;
+  /** What rules turn off here, for the model: skill names, effects, skills with some tools off, playbooks off themselves. All empty when no rule takes anything away. */
+  off: OffSummary;
 }
+
+export interface OffSummary { skills: string[]; effects: string[]; someToolsOff: string[]; playbooks: string[] }
 
 export class AvailabilityError extends Error {}
 
@@ -123,7 +127,14 @@ export async function resolveAvailability(place: Place, skills: SkillModule[], p
     }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const names = new Set(tools.map((t) => t.name));
+  const off: OffSummary = {
+    skills: skills.filter((s) => !skillOn(s.id)).map((s) => s.name),
+    effects: EFFECTS.filter((e) => !allows(levels, "effect", e)),
+    someToolsOff: skills.filter((s) => skillOn(s.id) && s.tools.some((t) => !s.toolPolicy?.[t.name]?.playbook && !allows(levels, "tool", t.name))).map((s) => s.name),
+    playbooks: [...causes].filter(([, cause]) => cause?.off === "playbook").map(([name]) => name),
+  };
   return {
+    off,
     tools, toolAvailable: (name) => names.has(name),
     playbooks: [...causes].filter(([, cause]) => !cause).map(([name]) => name),
     playbookCause: (name) => (causes.has(name) ? causes.get(name)! : { off: "playbook" }),

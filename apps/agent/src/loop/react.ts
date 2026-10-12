@@ -76,7 +76,9 @@ export class AgentReActLoop {
     else if (!verdict.decision.allow) await audit({ db, tenantId: input.tenantId, botId: input.botId }, "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", observed: true });
 
     // 2. Build dynamic system prompt
-    const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId, botId: input.botId });
+    const place = availabilityPlace({ tenantId: input.tenantId, botId: input.botId, guildId: input.context.guildId, channelId: input.context.channelId, parentChannelId: input.context.skillContext?.parentChannelId });
+    const available = await skillRegistry.availableAt(place);
+    const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId, botId: input.botId, off: available.off });
 
     // 3. Load previous messages from DB (windowed in steps so the prompt prefix stays cacheable)
     const scope = and(eq(messagesTable.conversationId, convId), eq(messagesTable.tenantId, input.tenantId));
@@ -118,8 +120,7 @@ export class AgentReActLoop {
     // 5. Retrieve active tools
     // Availability rules for this place first, then a playbook may close tools in its threads; a call to either is refused even when the model names it anyway.
     const closed = closedTools(input.context.playbook?.name);
-    const place = availabilityPlace({ tenantId: input.tenantId, botId: input.botId, guildId: input.context.guildId, channelId: input.context.channelId, parentChannelId: input.context.skillContext?.parentChannelId });
-    const activeTools = (await skillRegistry.availableAt(place)).tools.filter((t) => !closed.has(t.name));
+    const activeTools = available.tools.filter((t) => !closed.has(t.name));
 
     // 6. Build execution context for tools
     const skillContext: SkillContext = {
