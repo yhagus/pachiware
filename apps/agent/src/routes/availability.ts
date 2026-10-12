@@ -1,9 +1,10 @@
 import type { Context, Hono } from "hono";
-import { skillRegistry, listAvailabilityRules, setAvailabilityRule, clearAvailabilityRule, AvailabilityError, type LevelKey } from "@pachiware/skills";
+import { skillRegistry, listAvailabilityRules, inheritedAvailability, setAvailabilityRule, clearAvailabilityRule, AvailabilityError, type LevelKey } from "@pachiware/skills";
 import { object } from "./validation.js";
 
 /**
- * GET lists one level's rules, PUT `{kind, name, value}` sets one, DELETE `?kind=&name=` clears one; each answers `{rules}` of that level.
+ * GET lists one level's rules, PUT `{kind, name, value}` sets one, DELETE `?kind=&name=` clears one; each answers `{rules, inherited}` of that level,
+ * `inherited` being what the levels above leave it (see inheritedAvailability).
  * `level` returns the level the request names, or null when its tenant or bot is not the caller's (404).
  */
 export function availabilityRoutes(app: Hono<any>, path: string, level: (c: Context<any>) => Promise<LevelKey | null>) {
@@ -11,7 +12,7 @@ export function availabilityRoutes(app: Hono<any>, path: string, level: (c: Cont
     const key = await level(c);
     return key ? handle(c, key) : c.json({ error: "Not found" }, 404);
   };
-  const out = async (c: Context<any>, key: LevelKey) => c.json({ success: true, rules: await listAvailabilityRules(key) });
+  const out = async (c: Context<any>, key: LevelKey) => c.json({ success: true, rules: await listAvailabilityRules(key), inherited: await inheritedAvailability(key, skillRegistry.getAllSkills(), await skillRegistry.getActiveSkills(key.tenantId)) });
   app.get(path, withLevel(out));
   app.put(path, withLevel(async (c, key) => {
     const body = object(await c.req.json().catch(() => null), "body");

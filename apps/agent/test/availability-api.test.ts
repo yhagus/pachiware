@@ -158,3 +158,51 @@ test("a playbook rule is set and cleared at any level, and an unknown playbook i
   const unknown = await call("PUT", "/api/admin/tenants/" + t.id + "/availability", h, { kind: "playbook", name: "no-such-playbook", value: "off" });
   assert(unknown.status === 400 && /no-such-playbook/.test(unknown.body.error), "unknown playbook: " + JSON.stringify(unknown.body));
 `));
+
+test("each level reports what the levels above leave it, apart from its own rules", () => run(`
+  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
+  const at = { tenant: "/api/admin/tenants/" + t.id, bot: "/api/admin/bots/" + bot.id, guild: "/api/admin/bots/" + bot.id + "/guilds/g1", channel: "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1" };
+  const put = async (level, kind, name, value) => { const r = await call("PUT", at[level] + "/availability", h, { kind, name, value }); assert(r.status === 200, level + " " + name + " " + JSON.stringify(r.body)); };
+  const inherited = async (level) => (await call("GET", at[level] + "/availability", h)).body.inherited.map((e) => [e.kind + ":" + e.name, e.available ? "available" : "unavailable", e.off ? "off at " + e.off : "", e.optIn ? "opt-in at " + e.optIn : ""].filter(Boolean).join(" "));
+  const same = (got, want, why) => assert(JSON.stringify(got) === JSON.stringify(want), why + ": " + JSON.stringify(got));
+
+  // Git starts switched off for a new tenant.
+  assert((await call("PATCH", at.tenant + "/skills/discord_management", h, { isEnabled: false })).status === 200, "switch");
+  await put("tenant", "tool", "createTask", "off");
+  await put("bot", "effect", "danger", "off");
+  await put("bot", "skill", "task_management", "opt_in");
+  await put("guild", "skill", "task_management", "on");
+  await put("guild", "playbook", "issue-draft", "opt_in");
+  await put("channel", "effect", "read", "off");
+
+  same(await inherited("tenant"), [], "the tenant inherits nothing");
+  same(await inherited("bot"), ["skill:discord_management unavailable off at tenant", "skill:git_repositories unavailable off at tenant", "tool:createTask unavailable off at tenant"], "bot");
+  same(await inherited("guild"), ["effect:danger unavailable off at bot", "skill:discord_management unavailable off at tenant", "skill:git_repositories unavailable off at tenant", "skill:task_management unavailable opt-in at bot", "tool:createTask unavailable off at tenant"], "guild");
+  same(await inherited("channel"), ["effect:danger unavailable off at bot", "playbook:issue-draft unavailable opt-in at guild", "skill:discord_management unavailable off at tenant", "skill:git_repositories unavailable off at tenant", "skill:task_management available opt-in at bot", "tool:createTask unavailable off at tenant"], "channel");
+  const other = (await call("GET", at.guild + "/channels/c2/availability", h)).body;
+  assert(other.rules.length === 0 && other.inherited.length === 6, "another channel inherits the same: " + JSON.stringify(other));
+  const cleared = await call("DELETE", at.guild + "/availability?kind=skill&name=task_management", h);
+  assert(cleared.body.inherited.some((e) => e.name === "task_management" && !e.available && e.optIn === "bot"), "clearing the guild's on leaves the bot's opt-in waiting: " + JSON.stringify(cleared.body.inherited));
+`));
+
+test("the tenant API reports what a bot level inherits", () => run(`
+  const key = await db.issueApiKey("k1");
+  const a = await db.createTenant({ name: "A", slug: "a", apiKeyId: key.keyId }), botA = await db.createBot({ tenantId: a.id, token: "x" });
+  const as = { Authorization: "Bearer " + key.raw, "X-Tenant-Id": a.id, "Content-Type": "application/json" };
+  assert((await call("PUT", "/api/v1/availability", as, { kind: "effect", name: "danger", value: "off" })).status === 200, "tenant rule");
+  const got = await call("GET", "/api/v1/bots/" + botA.id + "/guilds/g1/availability", as);
+  assert(JSON.stringify(got.body.inherited) === JSON.stringify([{ kind: "effect", name: "danger", available: false, off: "tenant" }, { kind: "skill", name: "git_repositories", available: false, off: "tenant" }]), JSON.stringify(got.body));
+  assert(JSON.stringify((await call("GET", "/api/v1/availability", as)).body.inherited) === "[]", "the tenant inherits nothing");
+`));
+
+test("the admin skills catalogue lists the tenant's playbooks with the skills they require", () => run(`
+  const t = await db.createTenant({ name: "A", slug: "a" });
+  const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
+  const { workspaceStore } = await imp("packages/skills/src/workspace/store.ts");
+  await workspaceStore().write(t.id, "shared/playbooks/retro/PLAYBOOK.md", '---\\nname: retro\\ndescription: Group the points\\ntrigger: {"word": "retro"}\\nrequires: ["task_management"]\\n---\\nGroup the points.\\n');
+  const playbooks = (await call("GET", "/api/admin/tenants/" + t.id + "/skills", h)).body.playbooks;
+  const byName = Object.fromEntries((playbooks ?? []).map((p) => [p.name, p]));
+  assert(byName["issue-draft"] && byName["issue-draft"].requires.includes("workspace"), "built-in playbook: " + JSON.stringify(playbooks));
+  assert(byName.retro && JSON.stringify(byName.retro.requires) === JSON.stringify(["task_management"]) && byName.retro.description === "Group the points", "tenant playbook: " + JSON.stringify(playbooks));
+`));

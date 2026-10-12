@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, skills, tenantSkills, seedTenant, getTenantById, eq } from "@pachiware/db";
 import { and } from "drizzle-orm";
-import { skillRegistry } from "@pachiware/skills";
+import { skillRegistry, listPlaybooks } from "@pachiware/skills";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 import { availabilityRoutes } from "../availability.js";
 
@@ -17,7 +17,9 @@ skillAdminRoutes.get("/tenants/:id/skills", async (c) => {
   return c.json({ success: true, skills: rows.map(({ s, state }: any) => {
     const { groups = [], tools = [] } = code.get(s.id) ?? {};
     return { id: s.id, name: s.name, description: s.description, groups, tools, toolCount: tools.length, isEnabled: state.isEnabled };
-  }).sort((a: any, b: any) => a.name.localeCompare(b.name)) });
+  }).sort((a: any, b: any) => a.name.localeCompare(b.name)),
+  // Playbooks are availability targets too: built-in and the tenant's own, each with the skills it requires.
+  playbooks: (await listPlaybooks(id)).map((p) => ({ name: p.name, description: p.description, requires: p.requires })) });
 });
 skillAdminRoutes.patch("/tenants/:id/skills/:skillId", async (c) => {
   const body = await c.req.json().catch(() => null);

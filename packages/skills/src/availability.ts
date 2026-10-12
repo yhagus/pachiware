@@ -98,6 +98,23 @@ async function rulesAt(place: Place): Promise<Map<string, RuleValue>[]> {
   return AVAILABILITY_LEVELS.map((level) => new Map(rows.filter((r: any) => r.level === level && applies(r)).map((r: any) => [`${r.targetKind}:${r.targetName}`, r.value as RuleValue])));
 }
 
+/**
+ * What the levels above this one leave it: every target a level above has a rule on, plus each skill the tenant switched off (`enabled` are the switched-on skills).
+ * `available` is the resolver's walk; `off` names the highest level that turns the target off, `optIn` the lowest that made it opt-in.
+ * A target that is not listed is available from above. The tenant inherits nothing.
+ */
+export async function inheritedAvailability(key: LevelKey, skills: SkillModule[], enabled: SkillModule[]): Promise<{ kind: TargetKind; name: string; available: boolean; off?: AvailabilityLevel; optIn?: AvailabilityLevel }[]> {
+  const depth = AVAILABILITY_LEVELS.indexOf(key.level);
+  if (depth === 0) return [];
+  const levels = (await rulesAt(key)).slice(0, depth);
+  for (const s of skills) if (!enabled.some((e) => e.id === s.id)) levels[0]!.set(`skill:${s.id}`, "off");
+  return [...new Set(levels.flatMap((rules) => [...rules.keys()]))].sort().map((target) => {
+    const kind = target.slice(0, target.indexOf(":")) as TargetKind, name = target.slice(kind.length + 1);
+    const values = levels.map((rules) => rules.get(target)), off = values.indexOf("off"), optIn = values.lastIndexOf("opt_in");
+    return { kind, name, available: allows(levels, kind, name), ...(off >= 0 ? { off: AVAILABILITY_LEVELS[off] } : {}), ...(optIn >= 0 ? { optIn: AVAILABILITY_LEVELS[optIn] } : {}) };
+  });
+}
+
 /** The only walk down the levels: a target is available unless a level on the way turns it off, or opts in without a lower level saying on. */
 function allows(levels: Map<string, RuleValue>[], kind: TargetKind, name: string): boolean {
   const values = levels.map((rules) => rules.get(`${kind}:${name}`));
