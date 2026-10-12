@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
 import { db } from "@pachiware/db";
-import { skillRegistry, peekAction, dropAction, takeExpired, payloadIntact, audit, redact, grantThreadConfirmation, isGitWriteConfirmationOwner, type ToolResult } from "@pachiware/skills";
+import { skillRegistry, peekAction, dropAction, takeExpired, payloadIntact, audit, redact, grantThreadConfirmation, isGitWriteConfirmationOwner, availabilityPlace, textIn, replyLanguage, type SkillContext, type ToolResult } from "@pachiware/skills";
 
 const PREFIX = "gitconfirm";
 type Pending = { confirmationId: string; summary: string; ownConfirmation?: boolean };
@@ -32,7 +32,7 @@ export interface ButtonLike {
 export type QueuedAction = NonNullable<ReturnType<typeof peekAction>>;
 /** Runs after a confirmed action; the text it returns replaces the confirmation's default result text. */
 export type AfterConfirm = (action: QueuedAction, result: ToolResult) => Promise<string | void>;
-type ActionContextOptions = { userId?: string; discord?: unknown; confirmed?: boolean };
+type ActionContextOptions = { userId?: string; discord?: SkillContext["discord"]; confirmed?: boolean };
 
 /** Build the execution context once so audit and confirmed runs share identical scope. */
 const actionContext = (action: QueuedAction, options: ActionContextOptions = {}) => ({
@@ -45,6 +45,13 @@ const actionContext = (action: QueuedAction, options: ActionContextOptions = {})
 function resultText(summary: string, success: boolean, detail: string) {
   const status = success ? "Completed" : "I couldn't complete that";
   return `${summary.slice(0, 700)}\n\n${status}.\n${detail.slice(0, 1100)}`.slice(0, 1900);
+}
+/** Availability rules may have changed since the action was queued; it stays queued so Confirm works again if the tool is turned back on. */
+async function refusedAsOff(i: ButtonLike, action: QueuedAction): Promise<boolean> {
+  if ((await skillRegistry.availableAt(availabilityPlace(action))).toolAvailable(action.tool)) return false;
+  await audit(actionContext(action), "tool_denied", { tool: action.tool, reason: "disabled_or_unavailable" });
+  await i.reply({ content: textIn(replyLanguage(action.summary)).toolOffSinceAsked, ephemeral: true });
+  return true;
 }
 /** Returns true when the click belonged to a confirmation (handled or refused). */
 export async function handleConfirmButton(i: ButtonLike, botId: string, discordFor?: (guildId: string) => unknown, after?: AfterConfirm): Promise<boolean> {
@@ -59,6 +66,7 @@ export async function handleConfirmButton(i: ButtonLike, botId: string, discordF
     }
     if (!isGitWriteConfirmationOwner({ userId: i.user.id })) { await audit(actionContext(action), "thread_confirmation_denied", { tool: action.tool, reason: "not_owner" }); await i.reply({ content: "Only a configured owner can confirm sensitive Git changes for this thread.", ephemeral: true }); return true; }
     if (!payloadIntact(action)) { await audit(actionContext(action), "thread_confirmation_denied", { tool: action.tool, reason: "payload_changed" }); await i.update({ content: "The request changed before confirmation. Ask again in this thread.", components: [] }); return true; }
+    if (await refusedAsOff(i, action)) return true;
     if (!grantThreadConfirmation(actionContext(action, { userId: i.user.id }))) { await audit(actionContext(action), "thread_confirmation_denied", { tool: action.tool, reason: "context_mismatch" }); await i.reply({ content: "This confirmation belongs to a different conversation. Ask again in the current thread.", ephemeral: true }); return true; }
     dropAction(id);
     await audit(actionContext(action), "thread_confirmation_granted", { tool: action.tool, confirmationId: id });
@@ -70,6 +78,7 @@ export async function handleConfirmButton(i: ButtonLike, botId: string, discordF
     return true;
   }
   if (i.user.id !== action.userId) { await i.reply({ content: "Only the person who asked for this can confirm or cancel it.", ephemeral: true }); return true; }
+  if (verb === "ok" && await refusedAsOff(i, action)) return true;
   dropAction(id); // single use: a double click cannot run it twice
   const base = { db, tenantId: action.tenantId, botId: action.botId };
   if (!payloadIntact(action)) { await audit(base, "tool_denied", { tool: action.tool, reason: "payload_changed" }); await i.update({ content: "I couldn't run that because the request changed after it was queued. Ask again.", components: [] }); return true; }

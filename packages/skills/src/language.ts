@@ -73,6 +73,8 @@ const en = {
   wrongServer: "Playbooks run only in the servers this bot is set up for.",
   commandGone: "This command is no longer available.",
   following: (playbook: string, thread: string) => `Following the ${playbook} playbook in <#${thread}>.`,
+  // Confirmations
+  toolOffSinceAsked: "This tool was turned off here after you asked, so I won't run it. An admin can turn it back on in the console.",
   // Minutes
   minutesOfThread: "Writing minutes of this whole thread.",
   minutesFromHere: "Writing minutes from this message to now.",
@@ -145,6 +147,7 @@ const id: typeof en = {
   wrongServer: "Playbook hanya berjalan di server yang sudah disiapkan untuk bot ini.",
   commandGone: "Perintah ini sudah tidak tersedia.",
   following: (playbook, thread) => `Mengikuti playbook ${playbook} di <#${thread}>.`,
+  toolOffSinceAsked: "Tool ini dimatikan di sini setelah kamu memintanya, jadi tidak saya jalankan. Admin bisa menyalakannya lagi di konsol.",
   minutesOfThread: "Menulis notula seluruh thread ini.",
   minutesFromHere: "Menulis notula dari pesan ini sampai sekarang.",
   minutesDm: "Saya hanya menulis notula di channel dan thread server, bukan di DM.",
