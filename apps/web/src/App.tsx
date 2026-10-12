@@ -12,6 +12,7 @@ import { IntegrationServers } from "@/pages/tenant/IntegrationServers";
 import { TenantSkills } from "@/pages/tenant/TenantSkills";
 import { TenantWorkspace } from "@/pages/tenant/TenantWorkspace";
 import { IntegrationGitAccess } from "@/pages/tenant/IntegrationGitAccess";
+import { IntegrationAvailability } from "./pages/tenant/IntegrationAvailability";
 import { TenantProfiles } from "@/pages/tenant/TenantProfiles";
 import { TenantGitAccounts } from "@/pages/tenant/TenantGitAccounts";
 import { GitRepos, GitRepoDetail } from "@/pages/tenant/GitBrowse";
@@ -57,6 +58,7 @@ export default function App() {
               <Route index element={<Navigate to="servers" replace />} />
               <Route path="servers" element={<IntegrationServers />} />
               <Route path="git-access" element={<IntegrationGitAccess />} />
+              <Route path="availability" element={<IntegrationAvailability />} />
             </Route>
           </Route>
           <Route path="api-keys" element={<ApiKeys />} />

@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { api, type AvailabilityRule, type SkillTool, type Tenant, type TenantSkill, type ToolEffect } from "@/lib/api";
 
-const EFFECTS: Record<ToolEffect, { label: string; variant: "outline" | "secondary" | "destructive"; means: string }> = {
+export const EFFECTS: Record<ToolEffect, { label: string; variant: "outline" | "secondary" | "destructive"; means: string }> = {
   read: { label: "Read", variant: "outline", means: "Looks things up and changes nothing." },
   write: { label: "Write", variant: "secondary", means: "Creates or changes things that can be changed back." },
   danger: { label: "Danger", variant: "destructive", means: "Cannot be undone, or changes access, security, or settings." },
@@ -19,13 +19,13 @@ type Off = Set<string>;
 const key = (kind: "tool" | "effect", name: string) => `${kind}:${name}`;
 
 /** Grouped skills (Git) list one section per group; the rest are one flat list. Playbook tools always come last, in their own section. */
-function sections(s: TenantSkill): { title?: string; tools: SkillTool[] }[] {
+export function sections(s: TenantSkill): { title?: string; tools: SkillTool[] }[] {
   const general = s.tools.filter((t: SkillTool) => !t.playbook), playbook = s.tools.filter((t: SkillTool) => t.playbook);
   const main = s.groups.length ? s.groups.map((g: string) => ({ title: g, tools: general.filter((t: SkillTool) => t.group === g) })) : [{ tools: general }];
   return [...main, { title: "Playbook tools", tools: playbook }].filter((x) => x.tools.length);
 }
 
-const effectCounts = (tools: SkillTool[]) =>
+export const effectCounts = (tools: SkillTool[]) =>
   (Object.keys(EFFECTS) as ToolEffect[]).map((e) => [e, tools.filter((t) => t.effect === e).length] as const).filter(([, n]) => n).map(([e, n]) => `${n} ${e}`).join(" · ");
 
 function Effects({ off, onToggle }: { off: Off | null; onToggle: (effect: ToolEffect, on: boolean) => void }) {

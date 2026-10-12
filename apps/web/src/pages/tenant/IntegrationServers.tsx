@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Hash, SlidersHorizontal, Megaphone, MessagesSquare, Mic, Volume2, type LucideIcon } from "lucide-react";
+import { Link } from "react-router";
+import { ChevronRight, Hash, SlidersHorizontal, ToggleRight, Megaphone, MessagesSquare, Mic, Volume2, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,7 +63,10 @@ export function IntegrationServers() {
                 {!g.allowed && <Badge variant="outline">Ignored</Badge>}
                 <ChevronRight className="size-4 text-muted-foreground transition-transform group-open:rotate-90" />
               </summary>
-              <div className="flex justify-end border-t px-4 py-2"><Button variant="outline" size="sm" onClick={() => setEditing(g)}><SlidersHorizontal /> Settings</Button></div>
+              <div className="flex flex-wrap justify-end gap-2 border-t px-4 py-2">
+                <Button asChild variant="outline" size="sm"><Link to={`../availability?guild=${g.id}`}><ToggleRight /> Availability</Link></Button>
+                <Button variant="outline" size="sm" onClick={() => setEditing(g)}><SlidersHorizontal /> Settings</Button>
+              </div>
               <Channels channels={g.channels} onOpen={setChannel} />
             </details>
           </CardContent>
