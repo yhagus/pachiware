@@ -1,10 +1,10 @@
 import { db, availabilityRules } from "@pachiware/db";
 import { and, eq, isNull, or } from "drizzle-orm";
-import type { SkillModule, ToolDefinition } from "./types.js";
+import { EFFECT_MEANING, type Effect, type SkillModule, type ToolDefinition } from "./types.js";
 import { policyOf } from "./guardrails.js";
 import { listPlaybooks, type Playbook } from "./playbooks.js";
 
-export const EFFECTS = ["read", "write", "danger"] as const;
+export const EFFECTS = Object.keys(EFFECT_MEANING) as Effect[];
 
 /** Levels from the top: the tenant, a bot, a guild of that bot, a channel of that guild. */
 export const AVAILABILITY_LEVELS = ["tenant", "bot", "guild", "channel"] as const;
@@ -14,7 +14,13 @@ export type TargetKind = (typeof TARGET_KINDS)[number];
 export const RULE_VALUES = ["off", "opt_in", "on"] as const;
 export type RuleValue = (typeof RULE_VALUES)[number];
 
-export interface AvailabilityRule { kind: TargetKind; name: string; value: RuleValue }
+/** What a rule is about. */
+export interface Target { kind: TargetKind; name: string }
+export interface AvailabilityRule extends Target { value: RuleValue }
+/** One level's rules, looked up by targetKey. */
+type LevelRules = Map<string, AvailabilityRule>;
+const targetKey = (t: Target) => `${t.kind}:${t.name}`;
+const valueAt = (rules: LevelRules, t: Target) => rules.get(targetKey(t))?.value;
 /** One level of one tenant; the ids its level needs are set. */
 export interface LevelKey { tenantId: string; level: AvailabilityLevel; botId?: string; guildId?: string; channelId?: string }
 /** Where a message came from; a thread passes its parent channel. */
@@ -35,7 +41,7 @@ export interface Availability {
   off: OffSummary;
 }
 
-export interface OffSummary { skills: string[]; effects: string[]; someToolsOff: string[]; playbooks: string[] }
+export interface OffSummary { skills: string[]; effects: Effect[]; someToolsOff: string[]; playbooks: string[] }
 
 export class AvailabilityError extends Error {}
 
@@ -52,7 +58,7 @@ const whereKey = (k: LevelKey) => {
 const toRule = (r: any): AvailabilityRule => ({ kind: r.targetKind, name: r.targetName, value: r.value });
 
 export async function listAvailabilityRules(key: LevelKey): Promise<AvailabilityRule[]> {
-  return (await db.select().from(availabilityRules).where(whereKey(key))).map(toRule).sort((a: AvailabilityRule, b: AvailabilityRule) => `${a.kind}:${a.name}`.localeCompare(`${b.kind}:${b.name}`));
+  return (await db.select().from(availabilityRules).where(whereKey(key))).map(toRule).sort((a: AvailabilityRule, b: AvailabilityRule) => targetKey(a).localeCompare(targetKey(b)));
 }
 
 /** Why a rule cannot be written at this level, or null. `skills` is every registered skill. */
@@ -84,12 +90,12 @@ export async function setAvailabilityRule(key: LevelKey, rule: AvailabilityRule,
     const above = (await rulesAt(key)).slice(0, AVAILABILITY_LEVELS.indexOf(key.level));
     // A tool is also off where its skill or its effect is off.
     const skill = rule.kind === "tool" ? skills.find((s) => s.tools.some((t) => t.name === rule.name)) : undefined;
-    const covering: [TargetKind, string][] = [[rule.kind, rule.name], ...(skill ? [["skill", skill.id], ["effect", policyOf(skill, rule.name).effect]] as [TargetKind, string][] : [])];
+    const covering: Target[] = [rule, ...(skill ? [{ kind: "skill", name: skill.id }, { kind: "effect", name: policyOf(skill, rule.name).effect }] as Target[] : [])];
     for (const [i, rules] of above.entries()) {
-      const off = covering.find(([kind, name]) => rules.get(`${kind}:${name}`) === "off");
-      if (off) throw new AvailabilityError(`${off[1]} is off at the ${AVAILABILITY_LEVELS[i]}; a level below cannot turn it back on`);
+      const off = covering.find((t) => valueAt(rules, t) === "off");
+      if (off) throw new AvailabilityError(`${off.name} is off at the ${AVAILABILITY_LEVELS[i]}; a level below cannot turn it back on`);
     }
-    if (rule.value === "on" && !above.some((rules) => rules.get(`${rule.kind}:${rule.name}`) === "opt_in")) throw new AvailabilityError(`on needs an opt_in above it; ${rule.name} is not opt-in at the bot or guild`);
+    if (rule.value === "on" && !above.some((rules) => valueAt(rules, rule) === "opt_in")) throw new AvailabilityError(`on needs an opt_in above it; ${rule.name} is not opt-in at the bot or guild`);
   }
   // Insert-or-update in one statement each, so two writes of one target never both insert; the unique key is an expression index, hence no conflict target.
   const updatedAt = new Date();
@@ -103,12 +109,12 @@ export async function clearAvailabilityRule(key: LevelKey, target: { kind: strin
 }
 
 /** The rules on the way from the tenant down to this place, one map per level, top first. */
-async function rulesAt(place: Place): Promise<Map<string, RuleValue>[]> {
+async function rulesAt(place: Place): Promise<LevelRules[]> {
   const rows = await db.select().from(availabilityRules).where(and(eq(availabilityRules.tenantId, place.tenantId), place.botId ? or(isNull(availabilityRules.botId), eq(availabilityRules.botId, place.botId)) : isNull(availabilityRules.botId)));
   const applies = (r: any) => r.level === "tenant" || r.level === "bot"
     || (r.level === "guild" && !!place.guildId && r.guildId === place.guildId)
     || (r.level === "channel" && !!place.guildId && !!place.channelId && r.guildId === place.guildId && r.channelId === place.channelId);
-  return AVAILABILITY_LEVELS.map((level) => new Map(rows.filter((r: any) => r.level === level && applies(r)).map((r: any) => [`${r.targetKind}:${r.targetName}`, r.value as RuleValue])));
+  return AVAILABILITY_LEVELS.map((level) => new Map(rows.filter((r: any) => r.level === level && applies(r)).map(toRule).map((r: AvailabilityRule) => [targetKey(r), r])));
 }
 
 /**
@@ -120,17 +126,18 @@ export async function inheritedAvailability(key: LevelKey, skills: SkillModule[]
   const depth = AVAILABILITY_LEVELS.indexOf(key.level);
   if (depth === 0) return [];
   const levels = (await rulesAt(key)).slice(0, depth);
-  for (const s of skills) if (!enabled.some((e) => e.id === s.id)) levels[0]!.set(`skill:${s.id}`, "off");
-  return [...new Set(levels.flatMap((rules) => [...rules.keys()]))].sort().map((target) => {
-    const kind = target.slice(0, target.indexOf(":")) as TargetKind, name = target.slice(kind.length + 1);
-    const values = levels.map((rules) => rules.get(target)), off = values.indexOf("off"), optIn = values.lastIndexOf("opt_in");
+  for (const s of skills) if (!enabled.some((e) => e.id === s.id)) { const off: AvailabilityRule = { kind: "skill", name: s.id, value: "off" }; levels[0]!.set(targetKey(off), off); }
+  const targets = new Map(levels.flatMap((rules) => [...rules]));
+  return [...targets.keys()].sort().map((k) => {
+    const { kind, name } = targets.get(k)!;
+    const values = levels.map((rules) => rules.get(k)?.value), off = values.indexOf("off"), optIn = values.lastIndexOf("opt_in");
     return { kind, name, available: allows(levels, kind, name), ...(off >= 0 ? { off: AVAILABILITY_LEVELS[off] } : {}), ...(optIn >= 0 ? { optIn: AVAILABILITY_LEVELS[optIn] } : {}) };
   });
 }
 
 /** The only walk down the levels: a target is available unless a level on the way turns it off, or opts in without a lower level saying on. */
-function allows(levels: Map<string, RuleValue>[], kind: TargetKind, name: string): boolean {
-  const values = levels.map((rules) => rules.get(`${kind}:${name}`));
+function allows(levels: LevelRules[], kind: TargetKind, name: string): boolean {
+  const values = levels.map((rules) => valueAt(rules, { kind, name }));
   if (values.includes("off")) return false;
   const optIn = values.lastIndexOf("opt_in");
   return optIn < 0 || values.slice(optIn + 1).includes("on");

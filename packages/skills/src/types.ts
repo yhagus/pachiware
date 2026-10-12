@@ -66,8 +66,14 @@ export interface DiscordClientAdapter {
   }): Promise<{ id: string; topic: string; success: boolean }>;
 }
 
-/** What calling a tool can do: read changes nothing, write can be changed back, danger cannot be undone or changes access, security or settings. */
+/** What calling a tool can do; EFFECT_MEANING says what each covers. */
 export type Effect = "read" | "write" | "danger";
+/** The one wording of each effect on the server, as the model reads it. */
+export const EFFECT_MEANING: Record<Effect, string> = {
+  read: "anything that only reads, such as listing tasks or reading a file",
+  write: "changes that can be changed back, such as creating a task or writing a file",
+  danger: "actions that cannot be undone or that change access, security or settings, such as deleting a repository or archiving a channel",
+};
 /** What a tool needs from the context: the identifier must be present and is the only data it may touch. */
 export type SkillScope = "tenant" | "guild" | "channel" | "user" | "role";
 

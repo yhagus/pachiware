@@ -1,5 +1,7 @@
 import type { Context, Hono } from "hono";
 import { skillRegistry, listAvailabilityRules, inheritedAvailability, setAvailabilityRule, clearAvailabilityRule, AvailabilityError, type LevelKey } from "@pachiware/skills";
+import { db, bots } from "@pachiware/db";
+import { and, eq, ne } from "drizzle-orm";
 import { object } from "./validation.js";
 
 /**
@@ -26,8 +28,17 @@ export function availabilityRoutes(app: Hono<any>, path: string, level: (c: Cont
   }));
 }
 
-/** The level a path names below a bot: the bot, a guild of it, or a channel of that guild. */
-export const botLevel = (c: Context<any>, tenantId: string, botId: string): LevelKey => {
-  const guildId = c.req.param("guildId"), channelId = c.req.param("channelId");
-  return { tenantId, botId, guildId, channelId, level: channelId ? "channel" : guildId ? "guild" : "bot" };
-};
+/**
+ * Mounts the availability routes of a bot, its guilds and their channels under `botPath`, whose `:${param}` names the bot.
+ * The bot must not be deleted and, when `tenantOf` is given, must belong to that tenant; otherwise 404.
+ */
+export function botAvailabilityRoutes(app: Hono<any>, botPath: string, param: string, tenantOf?: (c: Context<any>) => string) {
+  const level = async (c: Context<any>): Promise<LevelKey | null> => {
+    const botId = c.req.param(param)!, tenantId = tenantOf?.(c);
+    const [bot] = await db.select({ tenantId: bots.tenantId }).from(bots).where(and(eq(bots.id, botId), ne(bots.connectionStatus, "deleted"), tenantId ? eq(bots.tenantId, tenantId) : undefined)).limit(1);
+    if (!bot) return null;
+    const guildId = c.req.param("guildId"), channelId = c.req.param("channelId");
+    return { tenantId: bot.tenantId, botId, guildId, channelId, level: channelId ? "channel" : guildId ? "guild" : "bot" };
+  };
+  for (const path of ["", "/guilds/:guildId", "/guilds/:guildId/channels/:channelId"]) availabilityRoutes(app, `${botPath}${path}/availability`, level);
+}
