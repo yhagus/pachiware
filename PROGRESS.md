@@ -706,3 +706,20 @@ Planning only for now. The decisions are worked on the wayfinder map [#16](https
 - [ ] Hand calibration of the eval judge: #49 (ready-for-human).
 - [ ] Recorded eval outputs in `apps/agent/eval/recorded/` come from scripted dry runs; replace them with a live run once a key is available.
 - [x] Removed 9router: the project has no tie to it. The custom provider has no default base URL anymore, and both the call and the connection test refuse to run without one. Docs, the map and research #17 were updated to match. `bun test apps/agent` passes 19/19. `bun run typecheck` still reports only the errors that were already there (`apps/web`, `apps/agent/src/discord/gitConfirm.ts`).
+
+## Phase 28 — Fine-grained skill and playbook control (planning, map #50)
+
+Planning only for now. The decisions are worked on the wayfinder map [#50](https://github.com/yhagus/pachiware/issues/50). Implementation issues come after the spec is complete.
+
+- [x] Destination set: a spec for (A) a playbook catalogue, with mattpocock/skills imported as built-in playbooks that are off by default, started by `/<name>` in a new thread, and able to load other playbooks; and (B) per-tool skill control, with tools grouped inside each skill and tagged read / write / destructive. Both apply at Tenant → Bot → Guild → Channel, where each level only narrows the one above it.
+- [x] Glossary: Playbook is started by a person by name and may load another playbook; new relationship between Playbook and Skill.
+- [x] ADR 0004: Claude Code style skills become playbooks, not skills (no rename to "Toolset").
+- [x] Map and 8 tickets created (#51–#58), with blocking edges wired. Starting frontier: #51, #52 (research, running), #53, #54.
+- [x] Research #51 and #52 resolved; findings are on `research/mattpocock-skills-as-playbooks` and `research/discord-slash-commands-for-playbooks` (never merged) and gisted in the map. Their open questions were added to #56, #57, #58; web fetch went to Not yet specified.
+- [x] Fog graduated into #59: git tools and batch confirmation for tracker playbooks.
+- [x] #53 levels: Tenant → Bot → (bot, guild) → channel; availability rules only narrow, no rule inherits, bot and guild may require opt-in below. Glossary gained Availability rule; ADR 0005 records why availability inherits while git scope does not.
+- [x] Fog graduated into #60: who may start a playbook or call a tool.
+- [x] #54 tool groups and effects: read / write / danger, a multi-action tool takes its riskiest action, tags only describe and are rule targets, git has six groups, playbook-only tools follow their playbook, everything declared in code. Glossary gained Effect.
+- [ ] Grilling #60 who may use it, #59 git tools and batch confirmation, #56 slash command flow, #57 playbook loading playbook, #58 state of imported playbooks; prototype #55 admin UI.
+- [x] Spec published early for track B and the level model: #61 (ready-for-agent). Test seams: the Discord scenario harness (offered tools per call) and the admin HTTP API. Track A tickets stay open on map #50.
+- [x] Tickets for spec #61 published as sub-issues with native blocking, all ready-for-agent: #62 tool catalogue (start), #63 availability tracer bullet, then #64 effect rules, #65 opt-in, #66 playbook availability, #67 Confirm re-check, #68 off-summary in the prompt, #69 admin views per bot, guild, and channel.

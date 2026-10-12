@@ -60,9 +60,17 @@ _Avoid_: Whitelist
 A bundle of tools the agent may call. Enabled or disabled per tenant. The git skill turns on by itself when a git account is first attached to a bot.
 _Avoid_: Plugin, extension
 
+**Availability rule**:
+A rule that turns a playbook, a skill, a tool, or every tool with one effect off for a bot, a guild of that bot, or a channel. Without a rule a level inherits what the level above allows; a rule can only narrow, never turn back on what is off above. A bot or a guild may instead make something wait for the level below to opt in.
+_Avoid_: Permission (reserved for Discord permissions), toggle, scope (reserved for git scope)
+
+**Effect**:
+What calling a tool can do: read (changes nothing), write (changes something that can be changed back), or danger (cannot be undone, or changes access, security, or settings). A tool that does several things carries the riskiest of them. Fixed by the skill; an admin cannot change it.
+_Avoid_: Risk level, destructive (too narrow: a webhook change deletes nothing)
+
 **Playbook**:
-Written guidance the agent follows for one kind of work, such as turning a brief into issue drafts or writing minutes. It says how to think and in what steps; the tools it uses come from skills.
-_Avoid_: Skill (a skill is tools), prompt, template
+Written guidance the agent follows for one kind of work, such as turning a brief into issue drafts or writing minutes. It says how to think and in what steps; the tools it uses come from skills. A person starts one by name from chat; the agent never picks one on its own, but a playbook may load another playbook that is also available.
+_Avoid_: Skill (a skill is tools, even though other agent tools call this a skill), prompt, template
 
 **Workspace**:
 A tenant's tree of folders and Markdown files where the agent keeps its tasks, notes, and memory. It is the agent's own store, separate from the platform's configuration. Folders follow the tenant's guilds and channels, and the agent may add subfolders below them.
@@ -78,3 +86,5 @@ _Avoid_: Server, channel group
 - A **Bot** has zero or one **Profile** and many **Git accounts**; all must belong to the bot's **Tenant**.
 - A **Brief** becomes one or more **Issue drafts** through **Clarifying rounds** held in one thread; only its author decides.
 - A **Git scope** narrows a **Bot**'s **Git accounts** per **Guild** and per channel; it can never add an account the bot does not have.
+- A **Playbook** requires some **Skills** and may load other **Playbooks**; it cannot start while a required skill is off.
+- An **Availability rule** narrows **Playbooks** and **Skills** per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too.
