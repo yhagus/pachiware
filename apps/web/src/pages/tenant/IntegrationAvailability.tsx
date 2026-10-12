@@ -2,15 +2,15 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useSearchParams } from "react-router";
 import { ChevronRight } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
-import { Card, CardContent } from "../../components/ui/card";
-import { Label } from "../../components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
-import { Skeleton } from "../../components/ui/skeleton";
-import { api, type AvailabilityKind, type AvailabilityLevel, type AvailabilityLevelName, type AvailabilityValue, type Guild, type InheritedAvailability, type LevelAvailability, type PlaybookSummary, type SkillTool, type TenantSkill, type ToolEffect } from "../../lib/api";
-import { EFFECTS, effectCounts, sections } from "./TenantSkills";
-import { useIntegration } from "./IntegrationDetail";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { api, type AvailabilityKind, type AvailabilityLevel, type AvailabilityLevelName, type AvailabilityValue, type Guild, type InheritedAvailability, type LevelAvailability, type PlaybookSummary, type SkillTool, type TenantSkill, type ToolEffect } from "@/lib/api";
+import { EFFECTS, effectCounts, sections, targetKey as key } from "@/lib/skills";
+import { useIntegration } from "@/pages/tenant/IntegrationDetail";
 
 type Level = Exclude<AvailabilityLevelName, "tenant">;
 type Choice = AvailabilityValue | "inherit";
@@ -19,13 +19,15 @@ type Outcome = "on" | "off" | "opt_in" | "waiting";
 
 const WHERE: Record<AvailabilityLevelName, string> = { tenant: "the tenant", bot: "the bot", guild: "the server", channel: "the channel" };
 const KIND: Record<AvailabilityKind, string> = { playbook: "Playbook", skill: "Skill", tool: "Tool", effect: "Effect" };
-const key = (kind: AvailabilityKind, name: string) => `${kind}:${name}`;
 
-/** The controls a level may use: opt-in only at a bot or server, on only beneath an opt-in that nothing above turned off. A rule already set stays listed so the select shows the truth. */
-function choices(level: Level, inherited: InheritedAvailability | undefined, own: AvailabilityValue | undefined): Choice[] {
+/**
+ * The controls a level may use: opt-in only at a bot or server, on only beneath an opt-in, and neither while something above turns the target off
+ * (`offAbove` covers a tool's skill and effect too). A rule already set stays listed so the select shows the truth.
+ */
+function choices(level: Level, inherited: InheritedAvailability | undefined, own: AvailabilityValue | undefined, offAbove: boolean): Choice[] {
   const list: Choice[] = ["inherit", "off"];
-  if (level !== "channel") list.push("opt_in");
-  if (level !== "bot" && inherited?.optIn && !inherited.off) list.push("on");
+  if (level !== "channel" && !offAbove) list.push("opt_in");
+  if (level !== "bot" && inherited?.optIn && !offAbove) list.push("on");
   if (own && !list.includes(own)) list.push(own);
   return list;
 }
@@ -47,12 +49,12 @@ function inheritedNote(i: InheritedAvailability | undefined, level: Level): stri
   return null;
 }
 
-function RuleSelect({ id, level, inherited, own, busy, onPick, label }: { id: string; level: Level; inherited: InheritedAvailability | undefined; own: AvailabilityValue | undefined; busy: boolean; onPick: (c: Choice) => void; label: string }) {
+function RuleSelect({ id, level, inherited, own, offAbove, busy, onPick, label }: { id: string; level: Level; inherited: InheritedAvailability | undefined; own: AvailabilityValue | undefined; offAbove: boolean; busy: boolean; onPick: (c: Choice) => void; label: string }) {
   const from: Outcome = !inherited || inherited.available ? "on" : inherited.off ? "off" : "waiting";
   return (
     <Select value={own ?? "inherit"} disabled={busy} onValueChange={(v: string) => onPick(v as Choice)}>
       <SelectTrigger id={id} aria-label={label} className={`h-11 w-full shrink-0 sm:h-9 sm:w-52 ${own ? "border-foreground/40 font-medium" : ""}`}><SelectValue /></SelectTrigger>
-      <SelectContent>{choices(level, inherited, own).map((c) => <SelectItem key={c} value={c}>{choiceLabel(c, level, from)}</SelectItem>)}</SelectContent>
+      <SelectContent>{choices(level, inherited, own, offAbove).map((c) => <SelectItem key={c} value={c}>{choiceLabel(c, level, from)}</SelectItem>)}</SelectContent>
     </Select>
   );
 }
@@ -146,16 +148,19 @@ export function IntegrationAvailability() {
     catch (e) { toast.error(`${KIND[kind]} ${name}: ${(e as Error).message}`); }
     finally { setBusy(null); }
   };
-  const control = (kind: AvailabilityKind, name: string, label: string) => (
-    <RuleSelect id={`rule-${kind}-${name}`} level={levelName} inherited={inherited.get(key(kind, name))} own={own.get(key(kind, name))} busy={busy === key(kind, name)} onPick={(c) => void pick(kind, name, c)} label={`${label} at this level`} />
+  const offAbove = (kind: AvailabilityKind, name: string) => !!inherited.get(key(kind, name))?.off;
+  /** `also` are targets whose off above covers this one too: a tool's skill and effect. */
+  const control = (kind: AvailabilityKind, name: string, label: string, also: [AvailabilityKind, string][] = []) => (
+    <RuleSelect id={`rule-${kind}-${name}`} level={levelName} inherited={inherited.get(key(kind, name))} own={own.get(key(kind, name))} offAbove={[[kind, name] as [AvailabilityKind, string], ...also].some(([k, n]) => offAbove(k, n))}
+      busy={busy === key(kind, name)} onPick={(c) => void pick(kind, name, c)} label={`${label} at this level`} />
   );
   const note = (kind: AvailabilityKind, name: string) => inheritedNote(inherited.get(key(kind, name)), levelName);
   const offWhy = (o: Outcome, what: string, many = false) => (o === "off" ? `Off: ${what} ${many ? "are" : "is"} off here.` : o === "waiting" ? `Off: ${what} ${many ? "wait" : "waits"} for an opt-in here.` : null);
 
-  const toolRow = (t: SkillTool) => (
+  const toolRow = (s: TenantSkill) => (t: SkillTool) => (
     <Row key={t.name} title={t.name} mono description={t.description} badge={<Badge variant={EFFECTS[t.effect].variant}>{EFFECTS[t.effect].label}</Badge>}
       notes={[!t.playbook && note("tool", t.name), offWhy(outcome("effect", t.effect), `${EFFECTS[t.effect].label} tools`, true), t.playbook ? `Follows the ${t.playbook} playbook; it has no rule of its own.` : null]}
-      control={t.playbook ? null : control("tool", t.name, t.name)} />
+      control={t.playbook ? null : control("tool", t.name, t.name, [["skill", s.id], ["effect", t.effect]])} />
   );
   const setHere = (tools: SkillTool[]) => tools.filter((t) => own.has(key("tool", t.name))).length;
 
@@ -266,12 +271,12 @@ export function IntegrationAvailability() {
                       {skillOff && <p className="pt-2 text-xs font-medium">Every tool below is off here while {s.name} is.</p>}
                       {sections(s).map((sec) => sec.title && s.groups.length ? (
                         <Fold key={sec.title} nested title={sec.title} summary={`${sec.tools.length} tools`} count={setHere(sec.tools)}>
-                          <ul className="divide-y">{sec.tools.map(toolRow)}</ul>
+                          <ul className="divide-y">{sec.tools.map(toolRow(s))}</ul>
                         </Fold>
                       ) : (
                         <section key={sec.title ?? "all"}>
                           {sec.title && <h4 className="pt-2 text-xs font-medium text-muted-foreground">{sec.title} · {sec.tools.length}</h4>}
-                          <ul className="divide-y">{sec.tools.map(toolRow)}</ul>
+                          <ul className="divide-y">{sec.tools.map(toolRow(s))}</ul>
                         </section>
                       ))}
                     </Fold>
