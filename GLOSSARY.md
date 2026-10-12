@@ -61,7 +61,7 @@ A bundle of tools the agent may call. Enabled or disabled per tenant. The git sk
 _Avoid_: Plugin, extension
 
 **Availability rule**:
-A rule that turns a playbook, a skill, a tool, or every tool with one effect off for a bot, a guild of that bot, or a channel. Without a rule a level inherits what the level above allows; a rule can only narrow, never turn back on what is off above. A bot or a guild may instead make something wait for the level below to opt in.
+A rule that turns a playbook, a skill, a tool, or every tool with one effect off for the tenant, a bot, a guild of that bot, or a channel. Without a rule a level inherits what the level above allows; a rule can only narrow, never turn back on what is off above. A bot or a guild may instead make something wait for the level below to opt in.
 _Avoid_: Permission (reserved for Discord permissions), toggle, scope (reserved for git scope)
 
 **Effect**:
@@ -87,4 +87,4 @@ _Avoid_: Server, channel group
 - A **Brief** becomes one or more **Issue drafts** through **Clarifying rounds** held in one thread; only its author decides.
 - A **Git scope** narrows a **Bot**'s **Git accounts** per **Guild** and per channel; it can never add an account the bot does not have.
 - A **Playbook** requires some **Skills** and may load other **Playbooks**; it cannot start while a required skill is off.
-- An **Availability rule** narrows **Playbooks** and **Skills** per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too.
+- An **Availability rule** narrows **Playbooks** and **Skills** for the tenant and per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too.
