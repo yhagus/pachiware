@@ -93,9 +93,6 @@ const changeListeners = new Set<(tenantId: string) => void>();
 export function onPlaybooksChanged(listener: (tenantId: string) => void) { changeListeners.add(listener); return () => changeListeners.delete(listener); }
 export function playbooksChanged(tenantId: string) { for (const listener of changeListeners) listener(tenantId); }
 
-/** Skills in `requires` that are off; the playbook must refuse to start while any are. */
-export const missingSkills = (playbook: Playbook, activeSkillIds: string[]) => playbook.requires.filter((id) => !activeSkillIds.includes(id));
-
 /** A sibling file of the effective playbook (a template or checklist its steps point at): the tenant's copy first, then the built-in one. */
 export async function readPlaybookFile(tenantId: string, name: string, path: string): Promise<string | null> {
   const parts = path.replace(/\/$/, "").split("/");

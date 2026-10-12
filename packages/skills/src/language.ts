@@ -66,6 +66,8 @@ const en = {
   batchDone: (count: number) => `Created ${plural(count, "issue")}. The links are in the thread.`,
   // Playbooks
   skillsOff: (playbook: string, names: string[]) => `The ${playbook} playbook needs the ${list(names, "and")} skill${names.length > 1 ? "s" : ""}, which ${names.length > 1 ? "are" : "is"} off here. An admin can turn ${names.length > 1 ? "them" : "it"} on in the console.`,
+  playbookOff: (playbook: string) => `The ${playbook} playbook is off here. An admin can turn it on in the console.`,
+  playbookEnded: (playbook: string) => `-# The ${playbook} playbook is no longer available here, so this thread stops following it. Messages here are ordinary chat from now on.`,
   noThread: "I couldn't open a thread for this message. Check that I can create threads in this channel.",
   alreadyBound: (playbook: string) => `This thread already follows the ${playbook} playbook.`,
   notSaved: "I couldn't save this thread to the Workspace, so the playbook did not start. Try again in a moment.",
@@ -140,6 +142,8 @@ const id: typeof en = {
   batchStopped: (n, count) => `Berhenti di draf ${n} dengan ${count} issue dibuat. Detailnya ada di thread.`,
   batchDone: (count) => `${count} issue dibuat. Tautannya ada di thread.`,
   skillsOff: (playbook, names) => `Playbook ${playbook} butuh skill ${list(names, "dan")}, yang sedang mati di sini. Admin bisa menyalakannya di konsol.`,
+  playbookOff: (playbook) => `Playbook ${playbook} sedang mati di sini. Admin bisa menyalakannya di konsol.`,
+  playbookEnded: (playbook) => `-# Playbook ${playbook} tidak lagi tersedia di sini, jadi thread ini berhenti mengikutinya. Pesan di sini kini jadi obrolan biasa.`,
   noThread: "Saya tidak bisa membuka thread untuk pesan ini. Pastikan saya boleh membuat thread di channel ini.",
   alreadyBound: (playbook) => `Thread ini sudah mengikuti playbook ${playbook}.`,
   notSaved: "Thread ini tidak bisa saya simpan ke Workspace, jadi playbook-nya tidak dimulai. Coba lagi sebentar lagi.",

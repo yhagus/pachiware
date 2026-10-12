@@ -7,6 +7,7 @@ import { workspaceSkill } from "./builtin/workspace.js";
 import { GuardrailService, audit, isEnforced, policyOf, actionKey, markDone, redact, guardrailMode } from "./guardrails.js";
 import { queueAction } from "./gitConfirm.js";
 import { resolveAvailability, availabilityPlace, type Availability, type Place } from "./availability.js";
+import { listPlaybooks, type Playbook } from "./playbooks.js";
 import type {
   SkillModule,
   ToolDefinition,
@@ -92,9 +93,9 @@ export class SkillRegistry {
     return this.getAllSkills().filter((s) => names.has(s.id));
   }
 
-  /** What the tenant's switched-on skills offer at this place once availability rules apply. */
-  public async availableAt(place: Place): Promise<Availability> {
-    return resolveAvailability(place, await this.getActiveSkills(place.tenantId));
+  /** What the tenant's switched-on skills and its playbooks offer at this place once availability rules apply. A caller holding the playbooks it asks about may pass them. */
+  public async availableAt(place: Place, playbooks?: Playbook[]): Promise<Availability> {
+    return resolveAvailability(place, await this.getActiveSkills(place.tenantId), playbooks ?? await listPlaybooks(place.tenantId));
   }
 
   /**
