@@ -8,6 +8,7 @@ import { skillRoutes } from "./routes/v1/skills.js";
 import { taskRoutes } from "./routes/v1/tasks.js";
 import { botRoutes } from "./routes/v1/bots.js";
 import { tenantRoutes } from "./routes/v1/tenants.js";
+import { availabilityTenantRoutes } from "./routes/v1/availability.js";
 import { tenantAdminRoutes } from "./routes/admin/tenants.js";
 import { apiKeyAdminRoutes } from "./routes/admin/apiKeys.js";
 import { botAdminRoutes } from "./routes/admin/bots.js";
@@ -61,6 +62,7 @@ export function createServer() {
   app.route("/api/v1/tasks", taskRoutes);
   app.route("/api/v1/bots", botRoutes);
   app.route("/api/v1/tenants", tenantRoutes);
+  app.route("/api/v1/availability", availabilityTenantRoutes);
   app.route("/api/admin/tenants", tenantAdminRoutes);
   app.route("/api/admin", apiKeyAdminRoutes);
   app.route("/api/admin", botAdminRoutes);

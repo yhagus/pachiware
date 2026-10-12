@@ -53,6 +53,10 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | DELETE | `/api/admin/bots/:botId` | Stop and remove bot from active listings |
 | GET | `/api/admin/tenants/:id/skills` | `{skills}`: each `{id, name, description, isEnabled, groups, tools, toolCount}`. `tools` come from the code registry: `{name, description, effect: read, write or danger, group?, playbook?}`. `groups` lists the skill's groups in display order (Git only); `playbook` marks a tool that only serves that playbook |
 | PATCH | `/api/admin/tenants/:id/skills/:skillId` | `{isEnabled}` turns the skill on or off for the tenant |
+| GET, PUT, DELETE | `/api/admin/tenants/:id/availability` | Tenant-level availability rules (see below) |
+| GET, PUT, DELETE | `/api/admin/bots/:botId/availability` | Bot-level availability rules |
+| GET, PUT, DELETE | `/api/admin/bots/:botId/guilds/:guildId/availability` | Rules for one guild of that bot |
+| GET, PUT, DELETE | `/api/admin/bots/:botId/guilds/:guildId/channels/:channelId/availability` | Rules for one channel of that guild; its threads follow them |
 | GET | `/api/admin/tenants/:id/usage?from=&to=` | `{usage}` grouped by tenant/type/provider/model |
 | GET | `/api/admin/usage?from=&to=` | Platform usage aggregation |
 | GET | `/api/admin/tenants/:id/workspace/tree?path=` | `{entries}` of one folder. The root also lists a read-only `playbooks` folder; listing it shows the built-in playbooks, each with `overridden` true when the tenant has its own copy |
@@ -92,6 +96,10 @@ All `/api/v1/*` requests require `Authorization: Bearer <API key>`. Except `/api
 | PATCH, DELETE | `/api/v1/bots/:id` | Update/delete tenant bot |
 | POST | `/api/v1/bots/:id/test` | `{token?}` test provided or stored token |
 | POST | `/api/v1/bots/:id/restart` | Restart owned gateway |
+| GET, PUT, DELETE | `/api/v1/availability` | Tenant-level availability rules |
+| GET, PUT, DELETE | `/api/v1/bots/:id/availability`, `.../guilds/:guildId/availability`, `.../guilds/:guildId/channels/:channelId/availability` | Bot, guild and channel rules of an owned bot; another tenant's bot returns 404 |
+
+**Availability rules.** A rule turns something off at one level: the tenant, a bot, a guild of that bot, or a channel of that guild. A level without a rule inherits what the level above allows, so a tenant with no rules is offered every tool of its enabled skills. A tool is offered, and runs, only when its skill and the tool itself are available at the place the message came from; a thread uses its parent channel. `GET` returns `{rules}` of that level, each `{kind, name, value}`. `PUT {kind, name, value}` sets one rule and `DELETE ?kind=&name=` clears one; both return the level's `{rules}`. `kind` is `skill` or `tool` (`playbook` and `effect` are reserved and refused for now), `value` is `off` (`opt_in` and `on` are reserved and refused for now). 400 with `{error}` for an unknown skill or tool, a tool that serves a playbook (it follows its playbook), or a skill rule at the tenant level (use the skill switch). Deleting a bot removes its rules.
 
 Credential config fields are `openaiApiKeyEncrypted`, `anthropicApiKeyEncrypted`, and `customApiKeyEncrypted`. On writes these accept **plaintext** and encrypt server-side; reads return `••••••••` or null. Omitted/masked values preserve the existing key; null or empty clears it. Bot responses expose `hasToken` rather than a token. Old unauthenticated `/api/agent/*`, `/api/tasks`, and `/api/skills` endpoints are removed.
 

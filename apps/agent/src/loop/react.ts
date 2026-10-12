@@ -1,7 +1,7 @@
 import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
 import { eq, and, sql } from "drizzle-orm";
 import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
@@ -116,9 +116,10 @@ export class AgentReActLoop {
     });
 
     // 5. Retrieve active tools
-    // A playbook may close tools in its threads; a call to one is refused even when the model names it anyway.
+    // Availability rules for this place first, then a playbook may close tools in its threads; a call to either is refused even when the model names it anyway.
     const closed = closedTools(input.context.playbook?.name);
-    const activeTools = (await skillRegistry.getActiveTools(input.tenantId)).filter((t) => !closed.has(t.name));
+    const place = availabilityPlace({ tenantId: input.tenantId, botId: input.botId, guildId: input.context.guildId, channelId: input.context.channelId, parentChannelId: input.context.skillContext?.parentChannelId });
+    const activeTools = (await skillRegistry.availableAt(place)).tools.filter((t) => !closed.has(t.name));
 
     // 6. Build execution context for tools
     const skillContext: SkillContext = {

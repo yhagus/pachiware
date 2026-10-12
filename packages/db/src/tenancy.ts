@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { eq, and, or, isNull, ne, sql, inArray } from "drizzle-orm";
-import { db, tenants, apiKeys, bots, guildConfigs, gitAccounts, botGitAccounts, gitScopes, agentsConfig, skills, tenantSkills, activeDialect } from "./index.js";
+import { db, tenants, apiKeys, bots, guildConfigs, gitAccounts, botGitAccounts, gitScopes, availabilityRules, agentsConfig, skills, tenantSkills, activeDialect } from "./index.js";
 import { seedTenant } from "./seed.js";
 import { encryptSecret, decryptSecret, hashApiKey, generateApiKey } from "./crypto.js";
 
@@ -100,6 +100,8 @@ export async function listAllActiveBots() {
 export async function deleteBot(id: string) {
   // Keep historical usage/conversation linkage; disabled bots are retained as tombstones.
   await db.update(bots).set({ isEnabled: false, connectionStatus: "deleted", tokenEncrypted: "", updatedAt: new Date() }).where(eq(bots.id, id));
+  // The tombstone keeps the row, so the foreign-key cascade never fires; its availability rules go here.
+  await db.delete(availabilityRules).where(eq(availabilityRules.botId, id));
 }
 
 export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[] };

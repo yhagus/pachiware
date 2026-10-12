@@ -13,6 +13,7 @@ export * from "./guardrails.js";
 export * from "./threadConfirmation.js";
 export * from "./gitOAuth.js";
 export * from "./registry.js";
+export * from "./availability.js";
 export * from "./playbooks.js";
 export * from "./brief.js";
 export * from "./issueDrafts.js";

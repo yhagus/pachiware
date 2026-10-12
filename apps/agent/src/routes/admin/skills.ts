@@ -3,6 +3,7 @@ import { db, skills, tenantSkills, seedTenant, getTenantById, eq } from "@pachiw
 import { and } from "drizzle-orm";
 import { skillRegistry } from "@pachiware/skills";
 import { CacheService, tenantKey } from "../../cache/redis.js";
+import { availabilityRoutes } from "../availability.js";
 
 export const skillAdminRoutes = new Hono();
 
@@ -28,3 +29,5 @@ skillAdminRoutes.patch("/tenants/:id/skills/:skillId", async (c) => {
   await CacheService.del(tenantKey(tenantId, "skills:active"));
   return c.json({ success: true, isEnabled: state.isEnabled });
 });
+// Tenant-level rules for tools, effects and playbooks; a whole skill is switched with the PATCH above.
+availabilityRoutes(skillAdminRoutes, "/tenants/:id/availability", async (c) => (await getTenantById(c.req.param("id")!) ? { tenantId: c.req.param("id")!, level: "tenant" } : null));

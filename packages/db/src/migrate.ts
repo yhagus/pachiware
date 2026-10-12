@@ -3,7 +3,7 @@ import { queryClient } from "./index.js";
 import { activeDialect } from "./schema/index.js";
 import { encryptSecret, generateApiKey, hashApiKey } from "./crypto.js";
 
-const tables = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events"] as const;
+const tables = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "availability_rules", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events"] as const;
 
 function definitions(pg: boolean): Record<string, string> {
   const time = pg ? "TIMESTAMPTZ" : "INTEGER";
@@ -25,6 +25,7 @@ function definitions(pg: boolean): Record<string, string> {
     guild_configs: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, guild_id TEXT NOT NULL, system_prompt TEXT, use_threads ${bool} NOT NULL DEFAULT ${yes}, always_channel_ids ${json} NOT NULL DEFAULT '[]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id)`,
     bot_git_accounts: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, git_account_id TEXT NOT NULL, created_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,git_account_id), FOREIGN KEY(tenant_id,git_account_id) REFERENCES git_accounts(tenant_id,id)`,
     git_scopes: `id ${id}, ${tenant}, bot_id TEXT NOT NULL, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL DEFAULT '', git_account_id TEXT NOT NULL, repo_patterns ${json} NOT NULL DEFAULT '["*"]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id,channel_id,git_account_id), FOREIGN KEY(bot_id,git_account_id) REFERENCES bot_git_accounts(bot_id,git_account_id) ON DELETE CASCADE`,
+    availability_rules: `id ${id}, ${tenant}, level TEXT NOT NULL, bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE, guild_id TEXT NOT NULL DEFAULT '', channel_id TEXT NOT NULL DEFAULT '', target_kind TEXT NOT NULL, target_name TEXT NOT NULL, value TEXT NOT NULL, updated_at ${time} NOT NULL DEFAULT ${now}`,
     agents_config: `tenant_id TEXT PRIMARY KEY NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL DEFAULT 'Pachiware Agent', system_prompt TEXT NOT NULL DEFAULT 'You are Pachiware Agent, a helpful and precise assistant.', default_provider TEXT NOT NULL DEFAULT 'openai', default_model TEXT NOT NULL DEFAULT 'gpt-4o', temperature REAL NOT NULL DEFAULT 0.7, max_tokens INTEGER NOT NULL DEFAULT 4096, openai_api_key_encrypted TEXT, openai_base_url TEXT, openai_model TEXT, anthropic_api_key_encrypted TEXT, anthropic_base_url TEXT, anthropic_model TEXT, custom_api_key_encrypted TEXT, custom_base_url TEXT, custom_model TEXT, settings ${json} NOT NULL DEFAULT '{}', updated_at ${time} NOT NULL DEFAULT ${now}`,
     skills: `id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, default_enabled ${bool} NOT NULL DEFAULT ${yes}, tool_definitions ${json} NOT NULL DEFAULT '[]', handler_type TEXT NOT NULL DEFAULT 'builtin', config ${json} NOT NULL DEFAULT '{}', ${dates}`,
     tenant_skills: `id ${id}, ${tenant}, skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE, is_enabled ${bool} NOT NULL DEFAULT ${yes}, config ${json} NOT NULL DEFAULT '{}', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(tenant_id,skill_id)`,
@@ -176,6 +177,8 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   await exec("CREATE INDEX IF NOT EXISTS tenants_api_key_idx ON tenants(api_key_id)");
   await exec("CREATE INDEX IF NOT EXISTS bots_tenant_idx ON bots(tenant_id)");
   await exec("CREATE INDEX IF NOT EXISTS profiles_tenant_idx ON profiles(tenant_id)");
+  // A tenant-level rule has no bot; coalesce keeps NULL from making every tenant row distinct.
+  await exec("CREATE UNIQUE INDEX IF NOT EXISTS availability_rules_key_idx ON availability_rules(tenant_id,level,COALESCE(bot_id,''),guild_id,channel_id,target_kind,target_name)");
   await exec("CREATE INDEX IF NOT EXISTS usage_tenant_created_idx ON usage_events(tenant_id,created_at)");
   return bootstrapKey;
 }

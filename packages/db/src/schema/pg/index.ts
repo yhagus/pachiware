@@ -74,6 +74,14 @@ export const gitScopes = pgTable("git_scopes", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("git_scopes_idx").on(t.botId, t.guildId, t.channelId, t.gitAccountId), foreignKey({ columns: [t.botId, t.gitAccountId], foreignColumns: [botGitAccounts.botId, botGitAccounts.gitAccountId] }).onDelete("cascade")]);
 
+/** Availability rules: tenant (no bot), bot, (bot, guild), or channel level; target kind playbook, skill, tool or effect; value off, opt_in or on. No row means inherit. */
+export const availabilityRules = pgTable("availability_rules", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  level: text("level").notNull(), botId: text("bot_id").references(() => bots.id, { onDelete: "cascade" }), guildId: text("guild_id").notNull().default(""), channelId: text("channel_id").notNull().default(""),
+  targetKind: text("target_kind").notNull(), targetName: text("target_name").notNull(), value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [uniqueIndex("availability_rules_key_idx").on(t.tenantId, t.level, sql`coalesce(${t.botId}, '')`, t.guildId, t.channelId, t.targetKind, t.targetName)]);
+
 export const usageEvents = pgTable("usage_events", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),
   type: text("type").notNull(), provider: text("provider"), model: text("model"),

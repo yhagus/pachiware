@@ -77,6 +77,9 @@ export type BotGitAccount = typeof pgSchema.botGitAccounts.$inferSelect;
 export let gitScopes = active.gitScopes;
 export type GitScope = typeof pgSchema.gitScopes.$inferSelect;
 
+export let availabilityRules = active.availabilityRules;
+export type AvailabilityRuleRow = typeof pgSchema.availabilityRules.$inferSelect;
+
 export let usageEvents = active.usageEvents;
 export type UsageEvent = typeof pgSchema.usageEvents.$inferSelect;
 export type NewUsageEvent = typeof pgSchema.usageEvents.$inferInsert;
@@ -88,5 +91,5 @@ export type NewTenantSkill = typeof pgSchema.tenantSkills.$inferInsert;
 export function switchSchema(dialect: DbDialect) {
   activeDialect = dialect;
   const next = dialect === "postgres" ? pgSchema : sqliteSchema;
-  ({ agentsConfig, skills, tasks, conversations, messages, tenants, apiKeys, profiles, gitAccounts, gitOauthApps, bots, guildConfigs, botGitAccounts, gitScopes, usageEvents, tenantSkills } = next);
+  ({ agentsConfig, skills, tasks, conversations, messages, tenants, apiKeys, profiles, gitAccounts, gitOauthApps, bots, guildConfigs, botGitAccounts, gitScopes, availabilityRules, usageEvents, tenantSkills } = next);
 }

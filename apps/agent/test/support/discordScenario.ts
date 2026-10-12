@@ -60,6 +60,8 @@ export interface Scenario {
   /** Attaches a git account to the bot and opens these repositories in the guild. */
   git(options?: { provider?: "github" | "gitlab"; repos?: string[] }): Promise<{ id: string }>;
   guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[] }): Promise<void>;
+  /** Writes an availability rule as the admin API does; `botId` defaults to this bot and the guild to "guild-1". */
+  availability(at: { level: "tenant" | "bot" | "guild" | "channel"; botId?: string; channelId?: string }, rule: { kind: string; name: string; value: string }): Promise<void>;
   /** Paths are tenant-relative, e.g. "guilds/guild-1/channels/channel-1/brief.md". */
   workspace: { read(path: string): Promise<string | null>; write(path: string, content: string): Promise<void>; list(path: string): Promise<string[]> };
   discord: {
@@ -207,6 +209,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { CacheService } = await import("../../src/cache/redis.ts");
   const { guildCacheKey } = await import("../../src/loop/prompt.ts");
   const { workspaceStore } = await import("../../../../packages/skills/src/workspace/store.ts");
+  const { setAvailabilityRule } = await import("../../../../packages/skills/src/availability.ts");
+  const { skillRegistry } = await import("../../../../packages/skills/src/registry.ts");
 
   const tenant = await createTenant({ name: "Acme", slug: "acme" });
   const bot = await createBot({ tenantId: tenant.id, token: "scenario-token", guildIds: [GUILD.id] });
@@ -287,6 +291,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       return account;
     },
     guildSettings: async (input) => { await upsertGuildConfig(tenant.id, bot.id, GUILD.id, input); await CacheService.del(guildCacheKey(tenant.id, bot.id, GUILD.id)); },
+    availability: async ({ level, botId = bot.id, channelId }, rule) => {
+      await setAvailabilityRule({ tenantId: tenant.id, level, botId, guildId: GUILD.id, channelId }, rule as any, skillRegistry.getAllSkills());
+    },
     workspace: {
       read: async (path) => (await workspaceStore().read(tenant.id, path))?.content ?? null,
       write: async (path, content) => { const current = await workspaceStore().read(tenant.id, path); await workspaceStore().write(tenant.id, path, content, current?.version); },

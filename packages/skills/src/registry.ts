@@ -6,6 +6,7 @@ import { gitRepositorySkill } from "./builtin/git.js";
 import { workspaceSkill } from "./builtin/workspace.js";
 import { GuardrailService, audit, isEnforced, policyOf, actionKey, markDone, redact, guardrailMode } from "./guardrails.js";
 import { queueAction } from "./gitConfirm.js";
+import { resolveAvailability, availabilityPlace, type Availability, type Place } from "./availability.js";
 import type {
   SkillModule,
   ToolDefinition,
@@ -91,6 +92,11 @@ export class SkillRegistry {
     return this.getAllSkills().filter((s) => names.has(s.id));
   }
 
+  /** What the tenant's switched-on skills offer at this place once availability rules apply. */
+  public async availableAt(place: Place): Promise<Availability> {
+    return resolveAvailability(place, await this.getActiveSkills(place.tenantId));
+  }
+
   /**
    * Converts ToolDefinitions into OpenAI function calling format:
    * [ { type: "function", function: { name, description, parameters } } ]
@@ -135,10 +141,9 @@ export class SkillRegistry {
     // "confirmed" is a host flag on the context; the same word in model arguments is dropped so it can neither skip the gate nor split the duplicate key.
     const { confirmed: _ignored, ...args } = (toolCall.arguments ?? {}) as Record<string, any>;
     if (!context.tenantId) return { toolCallId, name, success: false, error: "Tenant context required" };
-    const allowed = await this.getActiveTools(context.tenantId);
-    if (!allowed.some((tool) => tool.name === name)) {
+    if (!(await this.availableAt(availabilityPlace(context))).toolAvailable(name)) {
       await audit(context, "tool_denied", { tool: name, reason: "disabled_or_unavailable" });
-      return { toolCallId, name, success: false, error: "Tool is disabled or unavailable for this tenant" };
+      return { toolCallId, name, success: false, error: "Tool is disabled or unavailable here" };
     }
     const skillId = this.toolToSkillMap.get(name);
 

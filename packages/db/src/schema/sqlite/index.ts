@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, real, index, uniqueIndex, foreignKey } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 /**
@@ -88,6 +89,13 @@ export const gitScopes = sqliteTable("git_scopes", {
   repoPatterns: text("repo_patterns", { mode: "json" }).$type<string[]>().notNull().default(["*"]),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [uniqueIndex("git_scopes_idx").on(t.botId, t.guildId, t.channelId, t.gitAccountId), foreignKey({ columns: [t.botId, t.gitAccountId], foreignColumns: [botGitAccounts.botId, botGitAccounts.gitAccountId] }).onDelete("cascade")]);
+
+export const availabilityRules = sqliteTable("availability_rules", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  level: text("level").notNull(), botId: text("bot_id").references(() => bots.id, { onDelete: "cascade" }), guildId: text("guild_id").notNull().default(""), channelId: text("channel_id").notNull().default(""),
+  targetKind: text("target_kind").notNull(), targetName: text("target_name").notNull(), value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("availability_rules_key_idx").on(t.tenantId, t.level, sql`coalesce(${t.botId}, '')`, t.guildId, t.channelId, t.targetKind, t.targetName)]);
 
 export const usageEvents = sqliteTable("usage_events", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),

@@ -6,6 +6,7 @@ import { guildCacheKey, loadGuildSettings } from "../../loop/prompt.js";
 import { CacheService } from "../../cache/redis.js";
 import { object, string, stringArray } from "../validation.js";
 import { botFields, assertProfile, assertGitAccounts, botsOut } from "../v1/bots.js";
+import { availabilityRoutes, botLevel } from "../availability.js";
 export const botAdminRoutes = new Hono();
 botAdminRoutes.post("/tenants/:id/bots", async (c) => {
   if (!await getTenantById(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
@@ -90,6 +91,11 @@ async function putScope(c: any, channelId: string) {
 }
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/git", (c) => putScope(c, ""));
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/channels/:channelId/git", (c) => putScope(c, c.req.param("channelId")!));
+const adminBotLevel = async (c: any) => {
+  const [bot] = await db.select({ tenantId: bots.tenantId }).from(bots).where(and(eq(bots.id, c.req.param("botId")!), ne(bots.connectionStatus, "deleted"))).limit(1);
+  return bot ? botLevel(c, bot.tenantId, c.req.param("botId")!) : null;
+};
+for (const path of ["/bots/:botId/availability", "/bots/:botId/guilds/:guildId/availability", "/bots/:botId/guilds/:guildId/channels/:channelId/availability"]) availabilityRoutes(botAdminRoutes, path, adminBotLevel);
 // Only conversations the bot itself handled (mentions, DMs, its own threads) are stored.
 botAdminRoutes.get("/bots/:botId/conversations", async (c) => {
   const channelId = c.req.query("channelId");

@@ -5,6 +5,7 @@ import { and, eq, ne, inArray } from "drizzle-orm";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { DiscordBotManager, discordBotManager } from "../../discord/client.js";
 import { object, string, stringArray, publicBot } from "../validation.js";
+import { availabilityRoutes, botLevel } from "../availability.js";
 
 export const botRoutes = new Hono<TenantEnv>();
 // A profile can only be attached to integrations of the tenant that owns it.
@@ -82,3 +83,8 @@ botRoutes.post("/:id/test", async (c) => {
   const token = typeof body.token === "string" && !body.token.includes("••••") ? body.token : resolved!.token;
   return c.json(await DiscordBotManager.testToken(token));
 });
+const ownBotLevel = async (c: any) => {
+  const [bot] = await db.select({ id: bots.id }).from(bots).where(and(eq(bots.id, c.req.param("id")!), eq(bots.tenantId, c.get("tenantId")), ne(bots.connectionStatus, "deleted"))).limit(1);
+  return bot ? botLevel(c, c.get("tenantId"), bot.id) : null;
+};
+for (const path of ["/:id/availability", "/:id/guilds/:guildId/availability", "/:id/guilds/:guildId/channels/:channelId/availability"]) availabilityRoutes(botRoutes, path, ownBotLevel);
