@@ -87,3 +87,21 @@ test("the tenant skill switch keeps working beside availability rules", () => ru
   assert(rule.status === 400 && /switch/i.test(rule.body.error), "a tenant skill rule should point at the switch: " + JSON.stringify(rule.body));
   assert((await call("GET", "/api/admin/tenants/" + t.id + "/availability", h)).body.rules.length === 0, "the switch wrote a rule");
 `));
+
+test("a playbook rule is set and cleared at any level, and an unknown playbook is refused with 400", () => run(`
+  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
+  const { workspaceStore } = await imp("packages/skills/src/workspace/store.ts");
+  await workspaceStore().write(t.id, "shared/playbooks/retro/PLAYBOOK.md", '---\\nname: retro\\ntrigger: {"word": "retro"}\\n---\\nGroup the points.\\n');
+  for (const base of ["/api/admin/tenants/" + t.id, "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1"]) {
+    const url = base + "/availability";
+    for (const name of ["issue-draft", "retro"]) {
+      const set = await call("PUT", url, h, { kind: "playbook", name, value: "off" });
+      assert(set.status === 200 && set.body.rules.some((r) => r.kind === "playbook" && r.name === name && r.value === "off"), url + " set " + name + " " + set.status + " " + JSON.stringify(set.body));
+    }
+    const cleared = await call("DELETE", url + "?kind=playbook&name=issue-draft", h);
+    assert(cleared.status === 200 && JSON.stringify(cleared.body.rules) === JSON.stringify([{ kind: "playbook", name: "retro", value: "off" }]), url + " clear " + JSON.stringify(cleared.body));
+  }
+  const unknown = await call("PUT", "/api/admin/tenants/" + t.id + "/availability", h, { kind: "playbook", name: "no-such-playbook", value: "off" });
+  assert(unknown.status === 400 && /no-such-playbook/.test(unknown.body.error), "unknown playbook: " + JSON.stringify(unknown.body));
+`));

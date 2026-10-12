@@ -1,6 +1,7 @@
 import { db, availabilityRules } from "@pachiware/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 import type { SkillModule, ToolDefinition } from "./types.js";
+import { listPlaybooks, type Playbook } from "./playbooks.js";
 
 /** Levels from the top: the tenant, a bot, a guild of that bot, a channel of that guild. */
 export const AVAILABILITY_LEVELS = ["tenant", "bot", "guild", "channel"] as const;
@@ -16,10 +17,17 @@ export interface LevelKey { tenantId: string; level: AvailabilityLevel; botId?: 
 /** Where a message came from; a thread passes its parent channel. */
 export interface Place { tenantId: string; botId?: string; guildId?: string; channelId?: string }
 
+/** Why a playbook cannot start: the playbook itself is off, or skills it requires are off (their ids). */
+export type PlaybookCause = { off: "playbook" } | { off: "skills"; skills: string[] };
+
 export interface Availability {
-  /** Tools of the tenant's enabled skills that are available here, sorted by name. */
+  /** Tools of the tenant's enabled skills that are available here, sorted by name. A playbook's tools follow their playbook. */
   tools: ToolDefinition[];
   toolAvailable(name: string): boolean;
+  /** Names of the playbooks that can start here. */
+  playbooks: string[];
+  /** Why the playbook cannot start here, or null when it can. A playbook the resolver was not given counts as off. */
+  playbookCause(name: string): PlaybookCause | null;
 }
 
 export class AvailabilityError extends Error {}
@@ -41,12 +49,12 @@ export async function listAvailabilityRules(key: LevelKey): Promise<Availability
 }
 
 /** Why a rule cannot be written at this level, or null. `skills` is every registered skill. */
-export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; value: string }, skills: SkillModule[]): string | null {
+export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; value: string }, skills: SkillModule[], playbooks: string[] = []): string | null {
   if (!(TARGET_KINDS as readonly string[]).includes(rule.kind)) return `kind must be one of ${TARGET_KINDS.join(", ")}`;
   if (!(RULE_VALUES as readonly string[]).includes(rule.value)) return `value must be one of ${RULE_VALUES.join(", ")}`;
   if (rule.value !== "off") return "Only off is supported for now";
   if (rule.kind === "effect") return "Effect rules are not supported yet";
-  if (rule.kind === "playbook") return "Playbook rules are not supported yet";
+  if (rule.kind === "playbook" && !playbooks.includes(rule.name)) return `Unknown playbook "${rule.name}"`;
   if (rule.kind === "skill") {
     if (!skills.some((s) => s.id === rule.name)) return `Unknown skill "${rule.name}"`;
     if (key.level === "tenant") return "Use the skill switch to turn a skill off for the tenant";
@@ -61,7 +69,8 @@ export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; v
 }
 
 export async function setAvailabilityRule(key: LevelKey, rule: AvailabilityRule, skills: SkillModule[]): Promise<void> {
-  const problem = ruleProblem(key, rule, skills);
+  const playbooks = rule.kind === "playbook" ? (await listPlaybooks(key.tenantId)).map((p) => p.name) : [];
+  const problem = ruleProblem(key, rule, skills, playbooks);
   if (problem) throw new AvailabilityError(problem);
   await clearAvailabilityRule(key, rule);
   await db.insert(availabilityRules).values({ tenantId: key.tenantId, level: key.level, ...keyColumns(key), targetKind: rule.kind, targetName: rule.name, value: rule.value, updatedAt: new Date() });
@@ -86,12 +95,22 @@ function allows(levels: Map<string, RuleValue>[], kind: TargetKind, name: string
   return !levels.some((rules) => rules.get(`${kind}:${name}`) === "off");
 }
 
-/** What is available at a place. `skills` are the skills the tenant has switched on. */
-export async function resolveAvailability(place: Place, skills: SkillModule[]): Promise<Availability> {
+/** What is available at a place. `skills` are the skills the tenant has switched on, `playbooks` the tenant's playbooks. */
+export async function resolveAvailability(place: Place, skills: SkillModule[], playbooks: Pick<Playbook, "name" | "requires">[]): Promise<Availability> {
   const levels = await rulesAt(place);
-  const tools = skills.filter((s) => allows(levels, "skill", s.id))
-    .flatMap((s) => s.tools.filter((t) => allows(levels, "tool", t.name)))
+  const skillOn = (id: string) => skills.some((s) => s.id === id) && allows(levels, "skill", id);
+  const causes = new Map(playbooks.map((p): [string, PlaybookCause | null] => {
+    if (!allows(levels, "playbook", p.name)) return [p.name, { off: "playbook" }];
+    const off = p.requires.filter((id) => !skillOn(id));
+    return [p.name, off.length ? { off: "skills", skills: off } : null];
+  }));
+  const tools = skills.filter((s) => skillOn(s.id))
+    .flatMap((s) => s.tools.filter((t) => { const playbook = s.toolPolicy?.[t.name]?.playbook; return playbook ? causes.get(playbook) === null : allows(levels, "tool", t.name); }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const names = new Set(tools.map((t) => t.name));
-  return { tools, toolAvailable: (name) => names.has(name) };
+  return {
+    tools, toolAvailable: (name) => names.has(name),
+    playbooks: [...causes].filter(([, cause]) => !cause).map(([name]) => name),
+    playbookCause: (name) => (causes.has(name) ? causes.get(name)! : { off: "playbook" }),
+  };
 }

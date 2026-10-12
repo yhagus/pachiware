@@ -7,7 +7,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, missingSkills, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, withPlaceholders } from "./attachments.js";
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
@@ -25,11 +25,14 @@ const actorOf = (m: Message): Actor => ({ id: m.author.id, name: speakerName(m),
 const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
 const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
-/** Names the skills a playbook requires that are off for the tenant, or null when it can start. */
-async function skillsRefusal(tenantId: string, playbook: Playbook, language?: Language) {
-  const missing = missingSkills(playbook, (await skillRegistry.getActiveSkills(tenantId)).map((s) => s.id));
-  if (!missing.length) return null;
-  return textIn(language).skillsOff(playbook.name, missing.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id));
+/** Where a message's availability rules come from: a thread follows its parent channel. */
+const placeOf = (tenantId: string, botId: string, m: Message) => availabilityPlace({ tenantId, botId, guildId: m.guildId ?? undefined, channelId: m.channelId, parentChannelId: m.channel.isThread() ? m.channel.parentId ?? undefined : undefined });
+/** Why the playbook cannot start where `at` was posted: it is off there, or skills it requires are. Null when it can start. */
+async function playbookRefusal(tenantId: string, botId: string, playbook: Playbook, at: Message, language?: Language) {
+  const cause = (await skillRegistry.availableAt(placeOf(tenantId, botId, at), [playbook])).playbookCause(playbook.name);
+  if (!cause) return null;
+  const t = textIn(language);
+  return cause.off === "playbook" ? t.playbookOff(playbook.name) : t.skillsOff(playbook.name, cause.skills.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id));
 }
 export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
@@ -137,6 +140,12 @@ export class DiscordBotManager {
     const channelId0 = msg.channelId;
     const parentId = msg.channel.isThread() ? msg.channel.parentId : null;
     const bound = msg.guildId && parentId ? await boundPlaybook(runtime.tenantId, { guildId: msg.guildId, channelId: parentId, threadId: channelId0 }) : null;
+    // A playbook no longer available here ends its thread's binding; the message that finds out gets the one note instead of an answer.
+    if (bound && (await skillRegistry.availableAt(placeOf(runtime.tenantId, botId, msg), [bound.playbook])).playbookCause(bound.playbook.name)) {
+      const ended = await rewriteBinding(runtime.tenantId, bindingPlace(bound.binding), ({ binding }) => binding.status === "active" ? { binding: { ...binding, status: "cancelled" as const }, value: true } : null).catch(() => null);
+      if (ended) await replyQuietly(msg)(textIn(replyLanguage(msg.content)).playbookEnded(bound.playbook.name));
+      return;
+    }
     // A thread bound to a playbook is the bot's to follow even when someone else opened it.
     const ownThread = msg.channel.isThread() && (msg.channel.ownerId === botUserId || !!bound);
     const shared = ownThread || (guild?.alwaysChannelIds ?? []).includes(channelId0);
@@ -271,7 +280,7 @@ export class DiscordBotManager {
   /** Checks the playbook's skills, opens or reuses the source message's thread, and binds it; `start` runs the first turn there. A brief from minutes arrives with its points set. */
   private async openPlaybook(runtime: BotRuntime, botId: string, playbook: Playbook, source: Message, brief: string, actor: Actor, fromMinutes?: MinutesBrief): Promise<{ error: string } | { thread: ThreadChannel; start: () => Promise<void> }> {
     const language = replyLanguage(brief), t = textIn(language);
-    const refusal = await skillsRefusal(runtime.tenantId, playbook, language);
+    const refusal = await playbookRefusal(runtime.tenantId, botId, playbook, source, language);
     if (refusal) return { error: refusal };
     const thread = source.channel.isThread() ? source.channel as ThreadChannel
       : source.thread ?? await source.startThread({ name: threadName(fromMinutes?.title ?? brief), autoArchiveDuration: 1440 }).catch(() => null);
@@ -286,7 +295,7 @@ export class DiscordBotManager {
   /** Minutes post in place, replying to `at`: no thread is opened or bound. */
   private async runMinutes(runtime: BotRuntime, botId: string, playbook: Playbook, at: Message, requesterId: string, o: { startId?: string; skipIds?: string[]; refuse(text: string): Promise<unknown>; ack?(): Promise<unknown>; fail(text: string): Promise<unknown> }, language?: Language) {
     const adapter = new DiscordJSAdapter(runtime.client, at.guildId || runtime.guildIds[0]);
-    const refusal = (at.guildId && await skillsRefusal(runtime.tenantId, playbook, language)) || await minutesRefusal(adapter, at.channelId, requesterId, language);
+    const refusal = (at.guildId && await playbookRefusal(runtime.tenantId, botId, playbook, at, language)) || await minutesRefusal(adapter, at.channelId, requesterId, language);
     if (refusal) { await o.refuse(refusal); return; }
     await o.ack?.();
     if ("sendTyping" in at.channel) await at.channel.sendTyping().catch(() => {});
