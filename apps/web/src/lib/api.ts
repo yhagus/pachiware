@@ -88,6 +88,14 @@ export type ToolEffect = "read" | "write" | "danger";
 /** `group` is one of the skill's `groups`; `playbook` marks a tool that only serves that playbook. */
 export interface SkillTool { name: string; description: string; effect: ToolEffect; group?: string; playbook?: string; }
 export interface TenantSkill { id: string; name: string; description: string; groups: string[]; tools: SkillTool[]; toolCount: number; isEnabled: boolean; }
+export type AvailabilityKind = "playbook" | "skill" | "tool" | "effect";
+export type AvailabilityValue = "off" | "opt_in" | "on";
+export interface AvailabilityRule { kind: AvailabilityKind; name: string; value: AvailabilityValue; }
+/** One level of availability rules: the tenant, a bot, a guild of that bot, or a channel of that guild. */
+export type AvailabilityLevel = { tenantId: string } | { botId: string; guildId?: string; channelId?: string };
+const availabilityPath = (l: AvailabilityLevel) => "tenantId" in l
+  ? `/api/admin/tenants/${l.tenantId}/availability`
+  : `/api/admin/bots/${l.botId}${l.guildId ? `/guilds/${l.guildId}` : ""}${l.guildId && l.channelId ? `/channels/${l.channelId}` : ""}/availability`;
 export interface GitAccountInput { name?: string; provider?: string; baseUrl?: string | null; token?: string; }
 export interface BotInput { profileId?: string | null; gitAccountIds?: string[]; name?: string; platform?: string; token?: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean; }
 
@@ -125,6 +133,9 @@ export const api = {
   deletePlaybook: (tenantId: string, name: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/playbooks/${encodeURIComponent(name)}`, json("DELETE")),
   listSkills: (tenantId: string) => fetchJSON<{ skills: TenantSkill[] }>(`/api/admin/tenants/${tenantId}/skills`),
   setSkillEnabled: (tenantId: string, skillId: string, isEnabled: boolean) => fetchJSON<{ isEnabled: boolean }>(`/api/admin/tenants/${tenantId}/skills/${skillId}`, json("PATCH", { isEnabled })),
+  listAvailability: (level: AvailabilityLevel) => fetchJSON<{ rules: AvailabilityRule[] }>(availabilityPath(level)),
+  setAvailability: (level: AvailabilityLevel, rule: AvailabilityRule) => fetchJSON<{ rules: AvailabilityRule[] }>(availabilityPath(level), json("PUT", rule)),
+  clearAvailability: (level: AvailabilityLevel, kind: AvailabilityKind, name: string) => fetchJSON<{ rules: AvailabilityRule[] }>(`${availabilityPath(level)}?${new URLSearchParams({ kind, name })}`, json("DELETE")),
   listGitAccounts: (tenantId: string) => fetchJSON<{ gitAccounts: GitAccount[] }>(`/api/admin/tenants/${tenantId}/git-accounts`),
   createGitAccount: (tenantId: string, data: GitAccountInput) => fetchJSON<{ gitAccount: GitAccount }>(`/api/admin/tenants/${tenantId}/git-accounts`, json("POST", data)),
   updateGitAccount: (id: string, data: GitAccountInput) => fetchJSON<{ gitAccount: GitAccount }>(`/api/admin/git-accounts/${id}`, json("PATCH", data)),

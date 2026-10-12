@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { api, type SkillTool, type Tenant, type TenantSkill, type ToolEffect } from "@/lib/api";
+import { api, type AvailabilityRule, type SkillTool, type Tenant, type TenantSkill, type ToolEffect } from "@/lib/api";
 
 const EFFECTS: Record<ToolEffect, { label: string; variant: "outline" | "secondary" | "destructive" }> = {
   read: { label: "Read", variant: "outline" },
@@ -24,13 +24,15 @@ function sections(s: TenantSkill): { title?: string; tools: SkillTool[] }[] {
 const effectCounts = (tools: SkillTool[]) =>
   (Object.keys(EFFECTS) as ToolEffect[]).map((e) => [e, tools.filter((t) => t.effect === e).length] as const).filter(([, n]) => n).map(([e, n]) => `${n} ${e}`).join(" · ");
 
-function Tools({ skill }: { skill: TenantSkill }) {
+/** `off` is null until the tenant's rules load; playbook tools follow their playbook and get no switch. */
+function Tools({ skill, off, onToggle }: { skill: TenantSkill; off: Set<string> | null; onToggle: (tool: SkillTool, on: boolean) => void }) {
+  const offCount = off ? skill.tools.filter((t: SkillTool) => off.has(t.name)).length : 0;
   return (
     <details className="group border-t">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
         <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
         <span className="font-medium">Tools</span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">{effectCounts(skill.tools)}</span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">{effectCounts(skill.tools)}{offCount > 0 && ` · ${offCount} off`}</span>
       </summary>
       <div className="space-y-4 border-t px-4 py-3">
         {sections(skill).map((sec) => (
@@ -44,6 +46,7 @@ function Tools({ skill }: { skill: TenantSkill }) {
                     <div className="text-xs text-muted-foreground">{t.description}</div>
                   </div>
                   <Badge variant={EFFECTS[t.effect].variant}>{EFFECTS[t.effect].label}</Badge>
+                  {!t.playbook && <Switch checked={!off?.has(t.name)} disabled={!off} onCheckedChange={(v: boolean) => onToggle(t, v)} aria-label={`${t.name} available`} />}
                 </li>
               ))}
             </ul>
@@ -57,7 +60,20 @@ function Tools({ skill }: { skill: TenantSkill }) {
 export function TenantSkills() {
   const tenant = useOutletContext<Tenant>();
   const [list, setList] = useState<TenantSkill[] | null>(null);
+  const [off, setOff] = useState<Set<string> | null>(null);
   useEffect(() => { api.listSkills(tenant.id).then((r: { skills: TenantSkill[] }) => setList(r.skills)).catch((e: Error) => { toast.error(e.message); setList([]); }); }, [tenant.id]);
+  useEffect(() => {
+    api.listAvailability({ tenantId: tenant.id })
+      .then((r: { rules: AvailabilityRule[] }) => setOff(new Set(r.rules.filter((x) => x.kind === "tool" && x.value === "off").map((x) => x.name))))
+      .catch((e: Error) => toast.error(`Tool switches unavailable: ${e.message}`));
+  }, [tenant.id]);
+
+  const toggleTool = (t: SkillTool, on: boolean) => {
+    const set = (v: boolean) => setOff((o) => { const next = new Set(o); if (v) next.delete(t.name); else next.add(t.name); return next; });
+    set(on);
+    (on ? api.clearAvailability({ tenantId: tenant.id }, "tool", t.name) : api.setAvailability({ tenantId: tenant.id }, { kind: "tool", name: t.name, value: "off" }))
+      .catch((e: Error) => { set(!on); toast.error(e.message); });
+  };
 
   const toggle = (s: TenantSkill, on: boolean) => {
     const set = (v: boolean) => setList((l) => l && l.map((x) => (x.id === s.id ? { ...x, isEnabled: v } : x)));
@@ -69,7 +85,7 @@ export function TenantSkills() {
   if (!list.length) return <p className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">No skills available.</p>;
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Skills the assistant may use for this tenant. A disabled skill's tools are hidden from the model. Danger tools cannot be undone or change access, security, or settings.</p>
+      <p className="text-sm text-muted-foreground">Skills the assistant may use for this tenant. A disabled skill's tools are hidden from the model. A tool switched off here is hidden from every bot of this tenant; playbook tools follow their playbook. Danger tools cannot be undone or change access, security, or settings.</p>
       {list.map((s) => (
         <Card key={s.id} className="py-0">
           <CardContent className="px-0">
@@ -80,7 +96,7 @@ export function TenantSkills() {
               </div>
               <Switch checked={s.isEnabled} onCheckedChange={(v: boolean) => toggle(s, v)} aria-label={`${s.name} enabled`} />
             </div>
-            {s.tools.length > 0 && <Tools skill={s} />}
+            {s.tools.length > 0 && <Tools skill={s} off={off} onToggle={toggleTool} />}
           </CardContent>
         </Card>
       ))}
