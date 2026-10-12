@@ -57,6 +57,35 @@ test("availability rules refuse playbook tools, unknown targets and bad values w
   assert((await call("PUT", "/api/admin/tenants/nope/availability", h, { kind: "tool", name: "createTask", value: "off" })).status === 404, "unknown tenant");
 `));
 
+test("effect rules set and clear at every level, and an unknown effect is refused", () => run(`
+  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
+  const levels = ["/api/admin/tenants/" + t.id, "/api/admin/bots/" + bot.id, "/api/admin/bots/" + bot.id + "/guilds/g1", "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1"];
+  for (const base of levels) {
+    const url = base + "/availability";
+    for (const effect of ["read", "write", "danger"]) {
+      const set = await call("PUT", url, h, { kind: "effect", name: effect, value: "off" });
+      assert(set.status === 200 && set.body.rules.some((r) => r.kind === "effect" && r.name === effect && r.value === "off"), url + " set " + effect + " " + set.status + " " + JSON.stringify(set.body));
+    }
+    const cleared = await call("DELETE", url + "?kind=effect&name=danger", h);
+    assert(cleared.status === 200 && JSON.stringify(cleared.body.rules.map((r) => r.name)) === JSON.stringify(["read", "write"]), url + " clear " + JSON.stringify(cleared.body));
+    const unknown = await call("PUT", url, h, { kind: "effect", name: "destructive", value: "off" });
+    assert(unknown.status === 400 && /destructive/.test(unknown.body.error), url + " unknown effect " + unknown.status + " " + JSON.stringify(unknown.body));
+  }
+`));
+
+test("a channel cannot turn back on a tool or an effect that its guild turned off", () => run(`
+  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
+  assert((await call("PUT", "/api/admin/bots/" + bot.id + "/guilds/g1/availability", h, { kind: "effect", name: "danger", value: "off" })).status === 200, "guild danger off");
+  const channel = "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1/availability";
+  for (const rule of [{ kind: "effect", name: "danger", value: "on" }, { kind: "tool", name: "archiveChannel", value: "on" }]) {
+    const r = await call("PUT", channel, h, rule);
+    assert(r.status === 400 && typeof r.body.error === "string", JSON.stringify(rule) + " " + r.status + " " + JSON.stringify(r.body));
+  }
+  assert((await call("GET", channel, h)).body.rules.length === 0, "a refused rule was stored");
+`));
+
 test("on needs an opt_in above it, and opt_in stays at a bot or a guild", () => run(`
   const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };

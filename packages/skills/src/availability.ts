@@ -1,6 +1,9 @@
 import { db, availabilityRules } from "@pachiware/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 import type { SkillModule, ToolDefinition } from "./types.js";
+import { policyOf } from "./guardrails.js";
+
+export const EFFECTS = ["read", "write", "danger"] as const;
 
 /** Levels from the top: the tenant, a bot, a guild of that bot, a channel of that guild. */
 export const AVAILABILITY_LEVELS = ["tenant", "bot", "guild", "channel"] as const;
@@ -46,7 +49,7 @@ export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; v
   if (!(RULE_VALUES as readonly string[]).includes(rule.value)) return `value must be one of ${RULE_VALUES.join(", ")}`;
   if (rule.value === "opt_in" && key.level !== "bot" && key.level !== "guild") return "opt_in is only for a bot or a guild: it makes each level below say on";
   if (rule.value === "on" && key.level !== "guild" && key.level !== "channel") return "on is only for a guild or a channel, under an opt_in above it";
-  if (rule.kind === "effect") return "Effect rules are not supported yet";
+  if (rule.kind === "effect" && !(EFFECTS as readonly string[]).includes(rule.name)) return `Unknown effect "${rule.name}": use ${EFFECTS.join(", ")}`;
   if (rule.kind === "playbook") return "Playbook rules are not supported yet";
   if (rule.kind === "skill") {
     if (!skills.some((s) => s.id === rule.name)) return `Unknown skill "${rule.name}"`;
@@ -98,7 +101,7 @@ function allows(levels: Map<string, RuleValue>[], kind: TargetKind, name: string
 export async function resolveAvailability(place: Place, skills: SkillModule[]): Promise<Availability> {
   const levels = await rulesAt(place);
   const tools = skills.filter((s) => allows(levels, "skill", s.id))
-    .flatMap((s) => s.tools.filter((t) => allows(levels, "tool", t.name)))
+    .flatMap((s) => s.tools.filter((t) => allows(levels, "tool", t.name) && allows(levels, "effect", policyOf(s, t.name).effect)))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const names = new Set(tools.map((t) => t.name));
   return { tools, toolAvailable: (name) => names.has(name) };

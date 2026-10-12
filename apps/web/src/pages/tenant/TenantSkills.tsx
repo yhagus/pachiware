@@ -8,11 +8,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { api, type AvailabilityRule, type SkillTool, type Tenant, type TenantSkill, type ToolEffect } from "@/lib/api";
 
-const EFFECTS: Record<ToolEffect, { label: string; variant: "outline" | "secondary" | "destructive" }> = {
-  read: { label: "Read", variant: "outline" },
-  write: { label: "Write", variant: "secondary" },
-  danger: { label: "Danger", variant: "destructive" },
+const EFFECTS: Record<ToolEffect, { label: string; variant: "outline" | "secondary" | "destructive"; means: string }> = {
+  read: { label: "Read", variant: "outline", means: "Looks things up and changes nothing." },
+  write: { label: "Write", variant: "secondary", means: "Creates or changes things that can be changed back." },
+  danger: { label: "Danger", variant: "destructive", means: "Cannot be undone, or changes access, security, or settings." },
 };
+
+/** Keys of the tenant's `off` rules, e.g. "tool:createTask" or "effect:danger". */
+type Off = Set<string>;
+const key = (kind: "tool" | "effect", name: string) => `${kind}:${name}`;
 
 /** Grouped skills (Git) list one section per group; the rest are one flat list. Playbook tools always come last, in their own section. */
 function sections(s: TenantSkill): { title?: string; tools: SkillTool[] }[] {
@@ -24,9 +28,32 @@ function sections(s: TenantSkill): { title?: string; tools: SkillTool[] }[] {
 const effectCounts = (tools: SkillTool[]) =>
   (Object.keys(EFFECTS) as ToolEffect[]).map((e) => [e, tools.filter((t) => t.effect === e).length] as const).filter(([, n]) => n).map(([e, n]) => `${n} ${e}`).join(" · ");
 
-/** `off` is null until the tenant's rules load; playbook tools follow their playbook and get no switch. */
-function Tools({ skill, off, onToggle }: { skill: TenantSkill; off: Set<string> | null; onToggle: (tool: SkillTool, on: boolean) => void }) {
-  const offCount = off ? skill.tools.filter((t: SkillTool) => off.has(t.name)).length : 0;
+function Effects({ off, onToggle }: { off: Off | null; onToggle: (effect: ToolEffect, on: boolean) => void }) {
+  return (
+    <Card className="py-0">
+      <CardContent className="px-0">
+        <div className="p-4 pb-3">
+          <div className="font-medium">Effects</div>
+          <div className="text-xs text-muted-foreground">Switching an effect off hides every tool with that effect, in every skill, from every bot of this tenant. Tools added later are covered too.</div>
+        </div>
+        <ul className="divide-y border-t">
+          {(Object.keys(EFFECTS) as ToolEffect[]).map((e) => (
+            <li key={e} className="flex items-center gap-3 px-4 py-3">
+              <Badge variant={EFFECTS[e].variant}>{EFFECTS[e].label}</Badge>
+              <div className="min-w-0 flex-1 text-xs text-muted-foreground">{EFFECTS[e].means}</div>
+              <Switch checked={!off?.has(key("effect", e))} disabled={!off} onCheckedChange={(v: boolean) => onToggle(e, v)} aria-label={`${EFFECTS[e].label} tools available`} />
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** `off` is null until the tenant's rules load; playbook tools follow their playbook and get no switch. A tool whose effect is off cannot be switched on here. */
+function Tools({ skill, off, onToggle }: { skill: TenantSkill; off: Off | null; onToggle: (tool: SkillTool, on: boolean) => void }) {
+  const effectOff = (t: SkillTool) => !!off?.has(key("effect", t.effect));
+  const offCount = off ? skill.tools.filter((t: SkillTool) => off.has(key("tool", t.name)) || effectOff(t)).length : 0;
   return (
     <details className="group border-t">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
@@ -44,9 +71,10 @@ function Tools({ skill, off, onToggle }: { skill: TenantSkill; off: Set<string> 
                   <div className="min-w-0 flex-1">
                     <div className="break-all font-mono text-sm">{t.name}</div>
                     <div className="text-xs text-muted-foreground">{t.description}</div>
+                    {effectOff(t) && <div className="text-xs font-medium">Off: {EFFECTS[t.effect].label} tools are switched off above.</div>}
                   </div>
                   <Badge variant={EFFECTS[t.effect].variant}>{EFFECTS[t.effect].label}</Badge>
-                  {!t.playbook && <Switch checked={!off?.has(t.name)} disabled={!off} onCheckedChange={(v: boolean) => onToggle(t, v)} aria-label={`${t.name} available`} />}
+                  {!t.playbook && <Switch checked={!off?.has(key("tool", t.name)) && !effectOff(t)} disabled={!off || effectOff(t)} onCheckedChange={(v: boolean) => onToggle(t, v)} aria-label={`${t.name} available`} />}
                 </li>
               ))}
             </ul>
@@ -60,18 +88,18 @@ function Tools({ skill, off, onToggle }: { skill: TenantSkill; off: Set<string> 
 export function TenantSkills() {
   const tenant = useOutletContext<Tenant>();
   const [list, setList] = useState<TenantSkill[] | null>(null);
-  const [off, setOff] = useState<Set<string> | null>(null);
+  const [off, setOff] = useState<Off | null>(null);
   useEffect(() => { api.listSkills(tenant.id).then((r: { skills: TenantSkill[] }) => setList(r.skills)).catch((e: Error) => { toast.error(e.message); setList([]); }); }, [tenant.id]);
   useEffect(() => {
     api.listAvailability({ tenantId: tenant.id })
-      .then((r: { rules: AvailabilityRule[] }) => setOff(new Set(r.rules.filter((x) => x.kind === "tool" && x.value === "off").map((x) => x.name))))
+      .then((r: { rules: AvailabilityRule[] }) => setOff(new Set(r.rules.filter((x) => (x.kind === "tool" || x.kind === "effect") && x.value === "off").map((x) => `${x.kind}:${x.name}`))))
       .catch((e: Error) => toast.error(`Tool switches unavailable: ${e.message}`));
   }, [tenant.id]);
 
-  const toggleTool = (t: SkillTool, on: boolean) => {
-    const set = (v: boolean) => setOff((o) => { const next = new Set(o); if (v) next.delete(t.name); else next.add(t.name); return next; });
+  const switchRule = (kind: "tool" | "effect", name: string, on: boolean) => {
+    const set = (v: boolean) => setOff((o) => { const next = new Set(o); if (v) next.delete(key(kind, name)); else next.add(key(kind, name)); return next; });
     set(on);
-    (on ? api.clearAvailability({ tenantId: tenant.id }, "tool", t.name) : api.setAvailability({ tenantId: tenant.id }, { kind: "tool", name: t.name, value: "off" }))
+    (on ? api.clearAvailability({ tenantId: tenant.id }, kind, name) : api.setAvailability({ tenantId: tenant.id }, { kind, name, value: "off" }))
       .catch((e: Error) => { set(!on); toast.error(e.message); });
   };
 
@@ -85,7 +113,8 @@ export function TenantSkills() {
   if (!list.length) return <p className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">No skills available.</p>;
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Skills the assistant may use for this tenant. A disabled skill's tools are hidden from the model. A tool switched off here is hidden from every bot of this tenant; playbook tools follow their playbook. Danger tools cannot be undone or change access, security, or settings.</p>
+      <p className="text-sm text-muted-foreground">Skills the assistant may use for this tenant. A disabled skill's tools are hidden from the model. A tool switched off here is hidden from every bot of this tenant; playbook tools follow their playbook.</p>
+      <Effects off={off} onToggle={(e, on) => switchRule("effect", e, on)} />
       {list.map((s) => (
         <Card key={s.id} className="py-0">
           <CardContent className="px-0">
@@ -96,7 +125,7 @@ export function TenantSkills() {
               </div>
               <Switch checked={s.isEnabled} onCheckedChange={(v: boolean) => toggle(s, v)} aria-label={`${s.name} enabled`} />
             </div>
-            {s.tools.length > 0 && <Tools skill={s} off={off} onToggle={toggleTool} />}
+            {s.tools.length > 0 && <Tools skill={s} off={off} onToggle={(t, on) => switchRule("tool", t.name, on)} />}
           </CardContent>
         </Card>
       ))}
