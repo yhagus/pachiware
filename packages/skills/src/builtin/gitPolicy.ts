@@ -4,7 +4,7 @@ import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 export const GIT_GROUPS = ["Browse", "Issues & PRs", "Code", "CI", "Repo admin", "Org"];
 
 const R: Effect = "read", W: Effect = "write", D: Effect = "danger";
-// [effect, group] per tool. Danger is also git's owner-only gate (gitShared.guard).
+// [effect, group] per tool. The effect describes the tool for the admin and availability rules; who may ask and Confirm stay in gitShared.guard.
 const declared: Record<string, [Effect, string]> = {
   gitAccounts: [R, "Browse"], repoList: [R, "Browse"], repoBranches: [R, "Browse"], repoCommits: [R, "Browse"], repoCommit: [R, "Browse"], repoCompare: [R, "Browse"],
   repoReadFile: [R, "Browse"], repoSearchCode: [R, "Browse"], repoTags: [R, "Browse"], repoReleases: [R, "Browse"], repoStats: [R, "Browse"], repoNotifications: [R, "Browse"],
@@ -37,10 +37,4 @@ export const gitToolPolicy: Record<string, ToolPolicy> = {
   briefRepositories: { effect: R, group: "Browse", playbook: ISSUE_DRAFT_PLAYBOOK },
   briefRead: { effect: R, group: "Browse", playbook: ISSUE_DRAFT_PLAYBOOK, metered: true },
   createBriefIssues: { effect: W, group: "Issues & PRs", playbook: ISSUE_DRAFT_PLAYBOOK },
-};
-
-export const gitEffect = (tool: string): Effect => {
-  const effect = gitToolPolicy[tool]?.effect;
-  if (!effect) throw new Error(`${tool} declares no effect`);
-  return effect;
 };
