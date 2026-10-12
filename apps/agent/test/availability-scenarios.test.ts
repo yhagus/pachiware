@@ -48,3 +48,29 @@ discordScenario("execution refuses a tool that is off here even when the model c
   const { tasks } = await import("../../../packages/db/src/index.ts");
   expect(await s.db.select().from(tasks)).toEqual([]);
 });
+
+discordScenario("danger off in a guild removes every danger tool in its channels and keeps read and write tools", async (s) => {
+  await s.availability({ level: "guild" }, { kind: "effect", name: "danger", value: "off" });
+  s.model.script("ok", "ok");
+  await s.discord.send(`${s.discord.mention} tidy up`, { channel: "channel-1" });
+  await s.discord.send(`${s.discord.mention} tidy up`, { channel: "channel-2" });
+  for (const offered of s.model.tools) {
+    expect(offered).not.toContain("archiveChannel");
+    expect(offered).not.toContain("deleteFile");
+    expect(offered).toEqual(expect.arrayContaining(["listChannels", "readFile", "createTask", "writeFile", "setChannelTopic"]));
+  }
+});
+
+discordScenario("a multi-action git tool tagged danger is gone when danger is off, and git reads and writes stay", async (s) => {
+  await s.git({ repos: ["acme/*"] });
+  s.model.script("ok", "ok");
+  await s.discord.send(`${s.discord.mention} list the repo secrets`);
+  expect(s.model.tools[0]).toEqual(expect.arrayContaining(["repoSecrets", "repoDelete", "repoTransfer"]));
+
+  await s.availability({ level: "guild" }, { kind: "effect", name: "danger", value: "off" });
+  await s.discord.send(`${s.discord.mention} list the repo secrets`);
+  expect(s.model.tools[1]).not.toContain("repoSecrets");
+  expect(s.model.tools[1]).not.toContain("repoDelete");
+  expect(s.model.tools[1]).not.toContain("repoTransfer");
+  expect(s.model.tools[1]).toEqual(expect.arrayContaining(["repoList", "repoIssues", "repoCreateIssue", "repoWriteFile"]));
+});
