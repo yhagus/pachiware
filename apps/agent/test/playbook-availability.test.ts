@@ -59,3 +59,13 @@ discordScenario("turning a playbook off while its thread is active ends the thre
   expect(s.model.calls[1]![0]!.content).not.toContain("### Playbook: issue-draft");
   expect(s.model.tools[1]).not.toContain("postBriefRound");
 });
+
+discordScenario("a playbook's write tools obey a write effect rule while the playbook itself still starts", async (s) => {
+  await s.availability({ level: "channel", channelId: "channel-1" }, { kind: "effect", name: "write", value: "off" });
+  s.model.script("Drafting.");
+  const brief = await s.discord.send(`${s.discord.mention} issue: export CSV is slow`);
+  expect(brief.thread).toBeDefined();
+  expect(s.model.calls[0]![0]!.content).toContain("### Playbook: issue-draft");
+  expect(s.model.tools[0]).not.toContain("postBriefRound");
+  expect(s.model.tools[0]).toContain("readPlaybookFile");
+});

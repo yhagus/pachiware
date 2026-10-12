@@ -86,6 +86,25 @@ test("a channel cannot turn back on a tool or an effect that its guild turned of
   assert((await call("GET", channel, h)).body.rules.length === 0, "a refused rule was stored");
 `));
 
+test("an opt_in or on beneath an off on the same target is refused with 400", () => run(`
+  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
+  assert((await call("PUT", "/api/admin/tenants/" + t.id + "/availability", h, { kind: "playbook", name: "issue-draft", value: "off" })).status === 200, "tenant off");
+  const r = await call("PUT", "/api/admin/bots/" + bot.id + "/availability", h, { kind: "playbook", name: "issue-draft", value: "opt_in" });
+  assert(r.status === 400 && /off at the tenant/.test(r.body.error), r.status + " " + JSON.stringify(r.body));
+  assert((await call("PUT", "/api/admin/bots/" + bot.id + "/availability", h, { kind: "playbook", name: "issue-draft", value: "off" })).status === 200, "an off below an off is fine");
+`));
+
+test("two PUTs on the same target at once both succeed and leave one rule", () => run(`
+  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const h = { "X-Platform-Key": "k", "Content-Type": "application/json" }, url = "/api/admin/bots/" + bot.id + "/availability";
+  const both = await Promise.all([call("PUT", url, h, { kind: "tool", name: "createTask", value: "off" }), call("PUT", url, h, { kind: "tool", name: "createTask", value: "off" })]);
+  assert(both.every((r) => r.status === 200), JSON.stringify(both));
+  assert((await call("GET", url, h)).body.rules.length === 1, "one rule");
+  const changed = await call("PUT", url, h, { kind: "tool", name: "createTask", value: "opt_in" });
+  assert(JSON.stringify(changed.body.rules) === JSON.stringify([{ kind: "tool", name: "createTask", value: "opt_in" }]), "a second PUT replaces the value: " + JSON.stringify(changed.body));
+`));
+
 test("on needs an opt_in above it, and opt_in stays at a bot or a guild", () => run(`
   const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };

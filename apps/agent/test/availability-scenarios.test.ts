@@ -102,10 +102,21 @@ discordScenario("a bot opt-in hides a tool in every guild until that guild says 
   expect(s.model.tools[1]).toContain("createTask");
 });
 
-discordScenario("an off above wins over an on below", async (s) => {
+discordScenario("a level cannot opt in or turn on what a level above turned off", async (s) => {
   await s.availability({ level: "bot" }, { kind: "skill", name: "task_management", value: "off" });
+  await expect(s.availability({ level: "guild" }, { kind: "skill", name: "task_management", value: "opt_in" })).rejects.toThrow(/off at the bot/);
+  await s.availability({ level: "guild" }, { kind: "effect", name: "danger", value: "off" });
+  await expect(s.availability({ level: "guild" }, { kind: "tool", name: "createTask", value: "opt_in" })).rejects.toThrow(/task_management is off at the bot/);
+  await expect(s.availability({ level: "channel", channelId: "channel-1" }, { kind: "tool", name: "archiveChannel", value: "on" })).rejects.toThrow(/danger is off at the guild/);
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} list my tasks`);
+  expect(s.model.tools[0].filter((t) => /Task/.test(t))).toEqual([]);
+});
+
+discordScenario("an off written above after an on below still wins", async (s) => {
   await s.availability({ level: "guild" }, { kind: "skill", name: "task_management", value: "opt_in" });
   await s.availability({ level: "channel", channelId: "channel-1" }, { kind: "skill", name: "task_management", value: "on" });
+  await s.availability({ level: "bot" }, { kind: "skill", name: "task_management", value: "off" });
   s.model.script("ok");
   await s.discord.send(`${s.discord.mention} list my tasks`);
   expect(s.model.tools[0].filter((t) => /Task/.test(t))).toEqual([]);

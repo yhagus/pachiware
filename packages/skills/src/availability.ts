@@ -80,12 +80,21 @@ export async function setAvailabilityRule(key: LevelKey, rule: AvailabilityRule,
   const playbooks = rule.kind === "playbook" ? (await listPlaybooks(key.tenantId)).map((p) => p.name) : [];
   const problem = ruleProblem(key, rule, skills, playbooks);
   if (problem) throw new AvailabilityError(problem);
-  if (rule.value === "on") {
+  if (rule.value !== "off") {
     const above = (await rulesAt(key)).slice(0, AVAILABILITY_LEVELS.indexOf(key.level));
-    if (!above.some((rules) => rules.get(`${rule.kind}:${rule.name}`) === "opt_in")) throw new AvailabilityError(`on needs an opt_in above it; ${rule.name} is not opt-in at the bot or guild`);
+    // A tool is also off where its skill or its effect is off.
+    const skill = rule.kind === "tool" ? skills.find((s) => s.tools.some((t) => t.name === rule.name)) : undefined;
+    const covering: [TargetKind, string][] = [[rule.kind, rule.name], ...(skill ? [["skill", skill.id], ["effect", policyOf(skill, rule.name).effect]] as [TargetKind, string][] : [])];
+    for (const [i, rules] of above.entries()) {
+      const off = covering.find(([kind, name]) => rules.get(`${kind}:${name}`) === "off");
+      if (off) throw new AvailabilityError(`${off[1]} is off at the ${AVAILABILITY_LEVELS[i]}; a level below cannot turn it back on`);
+    }
+    if (rule.value === "on" && !above.some((rules) => rules.get(`${rule.kind}:${rule.name}`) === "opt_in")) throw new AvailabilityError(`on needs an opt_in above it; ${rule.name} is not opt-in at the bot or guild`);
   }
-  await clearAvailabilityRule(key, rule);
-  await db.insert(availabilityRules).values({ tenantId: key.tenantId, level: key.level, ...keyColumns(key), targetKind: rule.kind, targetName: rule.name, value: rule.value, updatedAt: new Date() });
+  // Insert-or-update in one statement each, so two writes of one target never both insert; the unique key is an expression index, hence no conflict target.
+  const updatedAt = new Date();
+  const inserted = await db.insert(availabilityRules).values({ tenantId: key.tenantId, level: key.level, ...keyColumns(key), targetKind: rule.kind, targetName: rule.name, value: rule.value, updatedAt }).onConflictDoNothing().returning();
+  if (!inserted.length) await db.update(availabilityRules).set({ value: rule.value, updatedAt }).where(and(whereKey(key), eq(availabilityRules.targetKind, rule.kind), eq(availabilityRules.targetName, rule.name)));
 }
 
 export async function clearAvailabilityRule(key: LevelKey, target: { kind: string; name: string }): Promise<boolean> {
