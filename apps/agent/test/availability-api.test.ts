@@ -86,6 +86,30 @@ test("a channel cannot turn back on a tool or an effect that its guild turned of
   assert((await call("GET", channel, h)).body.rules.length === 0, "a refused rule was stored");
 `));
 
+test("on needs an opt_in above it, and opt_in stays at a bot or a guild", () => run(`
+  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
+  const at = { tenant: "/api/admin/tenants/" + t.id, bot: "/api/admin/bots/" + bot.id, guild: "/api/admin/bots/" + bot.id + "/guilds/g1", channel: "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1" };
+  const put = (level, rule) => call("PUT", at[level] + "/availability", h, rule);
+  const refused = async (level, rule, reason, why) => { const r = await put(level, rule); assert(r.status === 400 && reason.test(r.body.error), why + ": " + r.status + " " + JSON.stringify(r.body)); };
+  const skill = (value) => ({ kind: "skill", name: "task_management", value });
+  await refused("channel", skill("on"), /opt_in above/, "channel on with nothing above");
+  await refused("guild", skill("on"), /opt_in above/, "guild on with nothing above");
+  await refused("channel", skill("opt_in"), /bot or a guild/, "channel opt_in");
+  await refused("tenant", { kind: "tool", name: "createTask", value: "opt_in" }, /bot or a guild/, "tenant opt_in");
+  await refused("bot", skill("on"), /guild or a channel/, "bot on");
+
+  assert((await put("guild", skill("opt_in"))).status === 200, "guild opt_in");
+  assert((await put("channel", skill("on"))).status === 200, "channel on under a guild opt_in");
+  await refused("channel", { kind: "tool", name: "createTask", value: "on" }, /opt_in above/, "an opt_in on another target does not count");
+  assert((await call("PUT", at.guild.replace("g1", "g2") + "/channels/c1/availability", h, skill("on"))).status === 400, "an opt_in in another guild does not count");
+
+  assert((await put("bot", { kind: "tool", name: "createTask", value: "opt_in" })).status === 200, "bot opt_in");
+  assert((await put("guild", { kind: "tool", name: "createTask", value: "on" })).status === 200, "guild on under a bot opt_in");
+  assert((await call("PUT", at.guild.replace("g1", "g2") + "/channels/c9/availability", h, { kind: "tool", name: "createTask", value: "on" })).status === 200, "channel on under a bot opt_in");
+  assert((await call("GET", at.channel + "/availability", h)).body.rules.length === 1, "a refused rule was stored");
+`));
+
 test("the tenant API manages the tenant's own rules and no other tenant's", () => run(`
   const key = await db.issueApiKey("k1");
   const a = await db.createTenant({ name: "A", slug: "a", apiKeyId: key.keyId }), b = await db.createTenant({ name: "B", slug: "b", apiKeyId: key.keyId });
