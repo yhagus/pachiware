@@ -13,6 +13,7 @@ import type {
   ToolResult,
   SkillContext,
   ToolHandler,
+  CatalogueSkill,
 } from "./types.js";
 
 export class SkillRegistry {
@@ -62,6 +63,14 @@ export class SkillRegistry {
    */
   public getAllSkills(): SkillModule[] {
     return Array.from(this.skills.values());
+  }
+
+  /** Every skill with its tools as the code declares them: effect, group and playbook come from toolPolicy, never from the database. */
+  public catalogue(): CatalogueSkill[] {
+    return this.getAllSkills().map((s) => ({
+      id: s.id, name: s.name, description: s.description, groups: s.groups ?? [],
+      tools: s.tools.map((t) => { const p = s.toolPolicy?.[t.name]; return { name: t.name, description: t.description, effect: p?.effect, ...(p?.group ? { group: p.group } : {}), ...(p?.playbook ? { playbook: p.playbook } : {}) }; }),
+    }));
   }
 
   /**
@@ -161,7 +170,7 @@ export class SkillRegistry {
           }
           const summary = `${name} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`;
           const q = queueAction({ tenantId: context.tenantId, botId, userId, guildId, channelId, parentChannelId: context.parentChannelId, tool: name, args: args ?? {}, summary, auth: context.auth });
-          await audit(context, "confirmation_requested", { tool: name, risk: policyOf(skill, name).risk, confirmationId: q.id });
+          await audit(context, "confirmation_requested", { tool: name, effect: policyOf(skill, name).effect, confirmationId: q.id });
           await audit(context, "thread_confirmation_requested", { tool: name, confirmationId: q.id });
           return { toolCallId, name, success: true, data: { pending: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the user to press Confirm or Cancel on the message that appears in the channel. Do not call this tool again." } };
         }
@@ -174,7 +183,7 @@ export class SkillRegistry {
 
     try {
       const data = await handler(args, context);
-      if (policyOf(skill, name).risk !== "read" && !skill.confirmsInternally && guardrailMode() !== "observe") markDone(actionKey(name, args, context));
+      if (policyOf(skill, name).effect !== "read" && !skill.confirmsInternally && guardrailMode() !== "observe") markDone(actionKey(name, args, context));
       return {
         toolCallId,
         name,

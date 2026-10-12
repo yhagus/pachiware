@@ -66,7 +66,8 @@ export interface DiscordClientAdapter {
   }): Promise<{ id: string; topic: string; success: boolean }>;
 }
 
-export type SkillRisk = "read" | "write" | "destructive";
+/** What calling a tool can do: read changes nothing, write can be changed back, danger cannot be undone or changes access, security or settings. */
+export type Effect = "read" | "write" | "danger";
 /** What a tool needs from the context: the identifier must be present and is the only data it may touch. */
 export type SkillScope = "tenant" | "guild" | "channel" | "user" | "role";
 
@@ -77,9 +78,11 @@ export interface AuthorizationContext extends MemberAuth {
 }
 
 export interface ToolPolicy {
-  risk: SkillRisk;
-  /** Default: true for write and destructive. */ requiresConfirmation?: boolean;
+  /** A tool with several actions carries its riskiest one. */ effect: Effect;
+  /** Default: true for write and danger. */ requiresConfirmation?: boolean;
   /** Calls are capped by a playbook's own read budget, so they skip the per-user rate limit (the tenant limit still applies). */ metered?: boolean;
+  /** One of the skill's groups; set for every tool of a skill that declares groups. */ group?: string;
+  /** The playbook this tool serves; it is available exactly when that playbook is. */ playbook?: string;
 }
 
 export interface SkillContext {
@@ -113,8 +116,8 @@ export interface SkillModule {
   handlers: Record<string, ToolHandler>;
   /** What the skill lets the bot do, e.g. "tasks"; used to tell whether a request can be served at all. */
   capabilities?: string[];
-  /** Default risk and confirmation for tools without an entry in toolPolicy. Default: read. */
-  risk?: SkillRisk;
+  /** Default effect and confirmation for tools without an entry in toolPolicy. Default: read. */
+  effect?: Effect;
   requiresConfirmation?: boolean;
   /** The skill queues and checks confirmation itself (git), so the registry gate and duplicate guard stay out of the way. */
   confirmsInternally?: boolean;
@@ -122,4 +125,9 @@ export interface SkillModule {
   /** Any-of Discord permission names needed to run non-read tools ("Administrator" always passes). */
   requiredPermissions?: string[];
   toolPolicy?: Record<string, ToolPolicy>;
+  /** Display order of the groups the tools sit in; large skills only. */
+  groups?: string[];
 }
+
+export interface CatalogueTool { name: string; description: string; effect?: Effect; group?: string; playbook?: string }
+export interface CatalogueSkill { id: string; name: string; description: string; groups: string[]; tools: CatalogueTool[] }

@@ -51,6 +51,8 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | PATCH | `/api/admin/bots/:botId` | Bot fields; token encrypted on write |
 | POST | `/api/admin/bots/:botId/restart` | Restart this gateway |
 | DELETE | `/api/admin/bots/:botId` | Stop and remove bot from active listings |
+| GET | `/api/admin/tenants/:id/skills` | `{skills}`: each `{id, name, description, isEnabled, groups, tools, toolCount}`. `tools` come from the code registry: `{name, description, effect: read, write or danger, group?, playbook?}`. `groups` lists the skill's groups in display order (Git only); `playbook` marks a tool that only serves that playbook |
+| PATCH | `/api/admin/tenants/:id/skills/:skillId` | `{isEnabled}` turns the skill on or off for the tenant |
 | GET | `/api/admin/tenants/:id/usage?from=&to=` | `{usage}` grouped by tenant/type/provider/model |
 | GET | `/api/admin/usage?from=&to=` | Platform usage aggregation |
 | GET | `/api/admin/tenants/:id/workspace/tree?path=` | `{entries}` of one folder. The root also lists a read-only `playbooks` folder; listing it shows the built-in playbooks, each with `overridden` true when the tenant has its own copy |

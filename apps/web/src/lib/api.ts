@@ -84,7 +84,10 @@ export type GitTab = "members" | "issues" | "merge-requests" | "branches";
 export interface GitOAuthApp { id: string; provider: "github" | "gitlab"; baseUrl: string; clientId: string; hasSecret: boolean; }
 /** `readOnly` marks built-in playbook entries; `overridden` is set on a built-in playbook the tenant has its own copy of. */
 export interface WorkspaceEntry { path: string; type: "file" | "dir"; size?: number; readOnly?: boolean; overridden?: boolean }
-export interface TenantSkill { id: string; name: string; description: string; toolCount: number; isEnabled: boolean; }
+export type ToolEffect = "read" | "write" | "danger";
+/** `group` is one of the skill's `groups`; `playbook` marks a tool that only serves that playbook. */
+export interface SkillTool { name: string; description: string; effect: ToolEffect; group?: string; playbook?: string; }
+export interface TenantSkill { id: string; name: string; description: string; groups: string[]; tools: SkillTool[]; toolCount: number; isEnabled: boolean; }
 export interface GitAccountInput { name?: string; provider?: string; baseUrl?: string | null; token?: string; }
 export interface BotInput { profileId?: string | null; gitAccountIds?: string[]; name?: string; platform?: string; token?: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean; }
 

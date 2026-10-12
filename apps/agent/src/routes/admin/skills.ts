@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { db, skills, tenantSkills, seedTenant, getTenantById, eq } from "@pachiware/db";
 import { and } from "drizzle-orm";
+import { skillRegistry } from "@pachiware/skills";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 
 export const skillAdminRoutes = new Hono();
@@ -10,7 +11,12 @@ skillAdminRoutes.get("/tenants/:id/skills", async (c) => {
   if (!await getTenantById(id)) return c.json({ error: "Tenant not found" }, 404);
   await seedTenant(id);
   const rows = await db.select({ s: skills, state: tenantSkills }).from(tenantSkills).innerJoin(skills, eq(tenantSkills.skillId, skills.id)).where(eq(tenantSkills.tenantId, id));
-  return c.json({ success: true, skills: rows.map(({ s, state }: any) => ({ id: s.id, name: s.name, description: s.description, toolCount: s.toolDefinitions.length, isEnabled: state.isEnabled })).sort((a: any, b: any) => a.name.localeCompare(b.name)) });
+  // Tools, groups and effects come from the code registry; the seeded tool_definitions column is not kept in sync with it.
+  const code = new Map(skillRegistry.catalogue().map((s) => [s.id, s]));
+  return c.json({ success: true, skills: rows.map(({ s, state }: any) => {
+    const { groups = [], tools = [] } = code.get(s.id) ?? {};
+    return { id: s.id, name: s.name, description: s.description, groups, tools, toolCount: tools.length, isEnabled: state.isEnabled };
+  }).sort((a: any, b: any) => a.name.localeCompare(b.name)) });
 });
 skillAdminRoutes.patch("/tenants/:id/skills/:skillId", async (c) => {
   const body = await c.req.json().catch(() => null);

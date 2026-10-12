@@ -10,9 +10,10 @@ export const taskManagementSkill: SkillModule = {
   capabilities: ["tasks"],
   allowedScopes: ["tenant"],
   toolPolicy: {
-    createTask: { risk: "write", requiresConfirmation: false },
-    updateTaskStatus: { risk: "write", requiresConfirmation: true },
-    assignTask: { risk: "write", requiresConfirmation: true },
+    createTask: { effect: "write", requiresConfirmation: false },
+    listTasks: { effect: "read" },
+    updateTaskStatus: { effect: "write", requiresConfirmation: true },
+    assignTask: { effect: "write", requiresConfirmation: true },
   },
   tools: [
     {

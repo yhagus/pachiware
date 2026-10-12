@@ -8,9 +8,10 @@ export const discordManagementSkill: SkillModule = {
   allowedScopes: ["tenant", "guild", "channel", "user"],
   requiredPermissions: ["ManageChannels"],
   toolPolicy: {
-    createChannel: { risk: "write", requiresConfirmation: true },
-    archiveChannel: { risk: "destructive", requiresConfirmation: true },
-    setChannelTopic: { risk: "write", requiresConfirmation: false },
+    createChannel: { effect: "write", requiresConfirmation: true },
+    archiveChannel: { effect: "danger", requiresConfirmation: true },
+    listChannels: { effect: "read" },
+    setChannelTopic: { effect: "write", requiresConfirmation: false },
   },
   tools: [
     {

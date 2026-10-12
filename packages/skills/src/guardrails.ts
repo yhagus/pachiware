@@ -44,9 +44,9 @@ export const actionKey = (tool: string, args: unknown, c: SkillContext) => paylo
 export const isDone = (key: string) => { const until = done.get(key); return !!until && until > Date.now(); };
 export const markDone = (key: string) => { done.set(key, Date.now() + COOLDOWN_MS); if (done.size > 2000) for (const [k, t] of done) if (t <= Date.now()) done.delete(k); };
 
-export const policyOf = (skill: SkillModule, tool: string): Required<ToolPolicy> => {
-  const p = skill.toolPolicy?.[tool], risk = p?.risk ?? skill.risk ?? "read";
-  return { risk, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? risk !== "read", metered: p?.metered ?? false };
+export const policyOf = (skill: SkillModule, tool: string) => {
+  const p = skill.toolPolicy?.[tool], effect = p?.effect ?? skill.effect ?? "read";
+  return { effect, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? effect !== "read", metered: p?.metered ?? false };
 };
 
 // Phrases that try to rewrite the rules or pull out hidden material. Matching text is flagged, never obeyed.
@@ -117,13 +117,14 @@ export const GuardrailService = {
     const present: Record<string, unknown> = { tenant: ctx.tenantId, guild: ctx.guildId, channel: ctx.channelId, user: ctx.userId, role: a };
     for (const s of skill.allowedScopes ?? []) if (!present[s]) return this.denyOutOfScope(`This action only works inside a Discord server channel (missing ${s}).`);
     const policy = policyOf(skill, tool);
-    if (policy.risk !== "read" && skill.requiredPermissions?.length) {
+    if (policy.effect !== "read" && skill.requiredPermissions?.length) {
       const perms = a?.permissions ?? [];
       if (!perms.includes("Administrator") && !skill.requiredPermissions.some((p) => perms.includes(p))) return this.denyUnauthorized(`You need one of these Discord permissions to ask for this: ${skill.requiredPermissions.join(", ")}.`);
     }
     const who = ctx.userId ?? "anon";
-    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.risk !== "read" && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", "Too many requests right now. Wait a minute and try again.");
-    if (policy.risk !== "read" && !skill.confirmsInternally) {
+    // A skill that confirms internally (git) runs its own duplicate guard behind Confirm, so the per-tool write limit and the checks below skip it.
+    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !skill.confirmsInternally && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", "Too many requests right now. Wait a minute and try again.");
+    if (policy.effect !== "read" && !skill.confirmsInternally) {
       const until = done.get(actionKey(tool, args, ctx));
       if (until && until > Date.now()) return deny("duplicate", "That exact action just ran. It was not repeated.");
       if (policy.requiresConfirmation && !ctx.confirmed && !hasThreadConfirmation(ctx)) return this.requireConfirmation(`${tool} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`);
