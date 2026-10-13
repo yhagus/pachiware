@@ -83,6 +83,19 @@ export const availabilityRules = pgTable("availability_rules", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("availability_rules_key_idx").on(t.tenantId, t.level, sql`coalesce(${t.botId}, '')`, t.guildId, t.channelId, t.targetKind, t.targetName)]);
 
+/** A Reminder or Digest run the scheduler polls by (status, next_at); the row holds the whole recurrence, never a cron string (ADR 0006). */
+export const schedules = pgTable("schedules", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id").notNull(),
+  kind: text("kind").$type<"reminder" | "digest">().notNull().default("reminder"), guildId: text("guild_id"), channelId: text("channel_id").notNull(),
+  ownerId: text("owner_id"), ownerName: text("owner_name"), text: text("text").notNull().default(""), withTasks: boolean("with_tasks").notNull().default(false),
+  mentions: jsonb("mentions").$type<string[]>().notNull().default([]),
+  recurrence: text("recurrence").$type<"once" | "daily" | "weekly" | "monthly">().notNull().default("once"), weekdays: jsonb("weekdays").$type<number[]>().notNull().default([]), dayOfMonth: integer("day_of_month"),
+  timeOfDay: text("time_of_day"), timezone: text("timezone").notNull(), until: timestamp("until", { withTimezone: true }),
+  nextAt: timestamp("next_at", { withTimezone: true }).notNull(), lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
+  status: text("status").$type<"active" | "cancelled" | "done">().notNull().default("active"), attempts: integer("attempts").notNull().default(0), error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [index("schedules_due_idx").on(t.status, t.nextAt), foreignKey({ columns: [t.tenantId, t.botId], foreignColumns: [bots.tenantId, bots.id] })]);
+
 export const usageEvents = pgTable("usage_events", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),
   type: text("type").notNull(), provider: text("provider"), model: text("model"),
@@ -254,6 +267,9 @@ export type GuildConfig = typeof guildConfigs.$inferSelect;
 
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type NewUsageEvent = typeof usageEvents.$inferInsert;
+
+export type Schedule = typeof schedules.$inferSelect;
+export type NewSchedule = typeof schedules.$inferInsert;
 
 export type TenantSkill = typeof tenantSkills.$inferSelect;
 export type NewTenantSkill = typeof tenantSkills.$inferInsert;

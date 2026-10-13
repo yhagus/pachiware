@@ -117,6 +117,8 @@ const en = {
   minutesCutCount: (n: number, when: string) => `Cut to the latest ${n} messages: everything before ${when} was left out.`,
   minutesCutHours: (n: number, when: string) => `Cut to the last ${n} hours: everything before ${when} was left out.`,
   minutesFooter: "Reply to correct",
+  // Reminders
+  reminder: (text: string) => `Reminder: ${text}`,
   // Channel history
   historyNoChannel: "I can't find that channel.",
   historyDm: "I read channel history only in server channels and threads, not in DMs.",
@@ -210,6 +212,7 @@ const id: typeof en = {
   minutesCutCount: (n, when) => `Dipotong ke ${n} pesan terakhir: semua sebelum ${when} tidak disertakan.`,
   minutesCutHours: (n, when) => `Dipotong ke ${n} jam terakhir: semua sebelum ${when} tidak disertakan.`,
   minutesFooter: "Balas untuk mengoreksi",
+  reminder: (text) => `Pengingat: ${text}`,
   historyNoChannel: "Channel itu tidak ketemu.",
   historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
   historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,

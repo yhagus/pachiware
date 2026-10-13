@@ -45,6 +45,11 @@ export class DiscordBotManager {
     const tracked = work.catch(() => {}).finally(() => this.inflight.delete(tracked));
     this.inflight.add(tracked);
   }
+  /** The gateway client of a running, connected bot; the scheduler posts through it. */
+  clientOf(botId: string): Client | null {
+    const runtime = this.clients.get(botId);
+    return runtime?.connected ? runtime.client : null;
+  }
   /** Resolves once no gateway event, burst, or reply is still being handled. */
   async idle() {
     while (this.inflight.size || this.bursts.size || this.operations.size) await new Promise((r) => setTimeout(r, 5));

@@ -1,0 +1,60 @@
+import { schedules } from "@pachiware/db";
+import type { SkillModule } from "../types.js";
+import { DEFAULT_TIMEZONE, isoInZone, now, wallClock } from "../clock.js";
+import { parseWhen } from "../schedule.js";
+
+/** Pings and framing share Discord's 2000 characters with the text. */
+const MAX_TEXT = 1500;
+const MAX_MENTIONS = 10;
+
+/** User ids as written or as `<@id>` pings, without the owner and without repeats. */
+function mentionIds(input: unknown, ownerId: string): string[] {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input)) throw new Error("mentions must be a list of Discord user ids");
+  const ids = input.map((m) => String(m).trim().replace(/^<@!?([\w-]+)>$/, "$1")).filter((id) => /^[\w-]{1,64}$/.test(id) && id !== ownerId);
+  return [...new Set(ids)].slice(0, MAX_MENTIONS);
+}
+
+export const remindersSkill: SkillModule = {
+  id: "reminders",
+  name: "Reminders",
+  description: "Post a message at a time a person chose, where they asked, pinging them.",
+  capabilities: ["reminders"],
+  allowedScopes: ["tenant", "channel", "user"],
+  toolPolicy: { createReminder: { effect: "write", requiresConfirmation: false } },
+  tools: [
+    {
+      name: "createReminder",
+      description: "Sets a Reminder: posts the text in this channel at the given time, pinging the asker and anyone in mentions. Turn the asker's words into a date and time with the time line of the context; never ask for a format.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "What to post, in the asker's words" },
+          at: { type: "string", description: 'When to post, e.g. "2026-03-06T15:00" or "15:00"; read in this place\'s time zone unless it carries an offset' },
+          mentions: { type: "array", items: { type: "string" }, description: "Discord user ids to ping besides the asker" },
+        },
+        required: ["text", "at"],
+      },
+    },
+  ],
+  handlers: {
+    createReminder: async (args, ctx) => {
+      if (!ctx.botId || !ctx.channelId || !ctx.userId) throw new Error("Reminders can only be set from a Discord channel or DM.");
+      const text = typeof args.text === "string" ? args.text.replace(/\s+/g, " ").trim() : "";
+      if (!text) throw new Error("text is required");
+      if (text.length > MAX_TEXT) throw new Error(`text must be at most ${MAX_TEXT} characters`);
+      const timezone = ctx.timezone ?? DEFAULT_TIMEZONE, from = now();
+      const at = parseWhen(args.at, timezone, from);
+      if (at === null) throw new Error('at must be a date and time such as "2026-03-06T15:00"');
+      if (at <= from) throw new Error("That time has already passed; pick a later one.");
+      const mentions = mentionIds(args.mentions, ctx.userId);
+      const wall = wallClock(timezone, at);
+      const [row] = await ctx.db.insert(schedules).values({
+        tenantId: ctx.tenantId, botId: ctx.botId, kind: "reminder", guildId: ctx.guildId ?? null, channelId: ctx.channelId,
+        ownerId: ctx.userId, ownerName: ctx.userName ?? null, text, mentions, recurrence: "once",
+        timeOfDay: `${String(wall.hour).padStart(2, "0")}:${String(wall.minute).padStart(2, "0")}`, timezone, nextAt: new Date(at),
+      }).returning({ id: schedules.id });
+      return { id: row!.id, at: isoInZone(timezone, at), text, mentions, channelId: ctx.channelId };
+    },
+  },
+};
