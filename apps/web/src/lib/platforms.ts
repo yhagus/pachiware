@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { GitBranch, Plug, Server, ToggleRight, type LucideIcon } from "lucide-react";
+import { AlarmClock, GitBranch, Plug, Server, ToggleRight, type LucideIcon } from "lucide-react";
 import { DiscordIcon } from "@/components/DiscordIcon";
 import type { Bot, BotInput } from "@/lib/api";
 import { label } from "@/lib/utils";
@@ -12,7 +12,7 @@ export interface Platform { id: string; name: string; description: string; icon:
 export const PLATFORMS: Platform[] = [
   {
     id: "discord", name: "Discord", description: "Connect a Discord bot to servers and channels.", icon: DiscordIcon, scopeLabel: "servers",
-    sections: [{ path: "servers", label: "Servers", icon: Server }, { path: "git-access", label: "Git access", icon: GitBranch }, { path: "availability", label: "Availability", icon: ToggleRight }],
+    sections: [{ path: "servers", label: "Servers", icon: Server }, { path: "git-access", label: "Git access", icon: GitBranch }, { path: "availability", label: "Availability", icon: ToggleRight }, { path: "reminders", label: "Reminders", icon: AlarmClock }],
     fields: [
       { key: "token", label: "Bot token", secret: true },
       { key: "clientId", label: "Client ID" },

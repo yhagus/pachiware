@@ -14,6 +14,7 @@ import { TenantWorkspace } from "@/pages/tenant/TenantWorkspace";
 import { TenantSettings } from "@/pages/tenant/TenantSettings";
 import { IntegrationGitAccess } from "@/pages/tenant/IntegrationGitAccess";
 import { IntegrationAvailability } from "./pages/tenant/IntegrationAvailability";
+import { IntegrationReminders } from "@/pages/tenant/IntegrationReminders";
 import { TenantProfiles } from "@/pages/tenant/TenantProfiles";
 import { TenantGitAccounts } from "@/pages/tenant/TenantGitAccounts";
 import { GitRepos, GitRepoDetail } from "@/pages/tenant/GitBrowse";
@@ -61,6 +62,7 @@ export default function App() {
               <Route path="servers" element={<IntegrationServers />} />
               <Route path="git-access" element={<IntegrationGitAccess />} />
               <Route path="availability" element={<IntegrationAvailability />} />
+              <Route path="reminders" element={<IntegrationReminders />} />
             </Route>
           </Route>
           <Route path="api-keys" element={<ApiKeys />} />

@@ -105,6 +105,11 @@ export type AvailabilityLevel = { tenantId: string } | { botId: string; guildId?
 const availabilityPath = (l: AvailabilityLevel) => "tenantId" in l
   ? `/api/admin/tenants/${l.tenantId}/availability`
   : `/api/admin/bots/${l.botId}${l.guildId ? `/guilds/${l.guildId}` : ""}${l.guildId && l.channelId ? `/channels/${l.channelId}` : ""}/availability`;
+/** An active Reminder of a bot, set from chat. `weekdays` (0 = Sunday) and `dayOfMonth` belong to weekly and monthly repeats; times are ISO instants, `timeOfDay` is wall time in `timezone`. */
+export interface Reminder {
+  id: string; ownerId: string | null; ownerName: string | null; guildId: string | null; channelId: string; text: string; withTasks: boolean; mentions: string[];
+  recurrence: "once" | "daily" | "weekly" | "monthly"; weekdays: number[]; dayOfMonth: number | null; timeOfDay: string | null; timezone: string; until: string | null; nextAt: string; lastFiredAt: string | null; createdAt: string;
+}
 export interface GitAccountInput { name?: string; provider?: string; baseUrl?: string | null; token?: string; }
 export interface BotInput { profileId?: string | null; gitAccountIds?: string[]; name?: string; platform?: string; token?: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean; }
 
@@ -165,6 +170,8 @@ export const api = {
   getGuildGit: (id: string, guildId: string) => fetchJSON<GuildGit>(`/api/admin/bots/${id}/guilds/${guildId}/git`),
   saveGuildGit: (id: string, guildId: string, rules: GitRule[], channelId = "") =>
     fetchJSON<{ server: GitRule[]; rules: GitRule[] }>(`/api/admin/bots/${id}/guilds/${guildId}${channelId ? `/channels/${channelId}` : ""}/git`, json("PUT", { rules })),
+  listReminders: (id: string) => fetchJSON<{ reminders: Reminder[] }>(`/api/admin/bots/${id}/reminders`),
+  cancelReminder: (id: string, reminderId: string) => fetchJSON<{ reminder: Reminder }>(`/api/admin/bots/${id}/reminders/${reminderId}`, json("DELETE")),
   listBotConversations: (id: string, channelId: string) => fetchJSON<{ conversations: Conversation[] }>(`/api/admin/bots/${id}/conversations?channelId=${encodeURIComponent(channelId)}`),
   getBotConversationMessages: (id: string, conversationId: string) => fetchJSON<{ messages: ChatMessage[] }>(`/api/admin/bots/${id}/conversations/${conversationId}/messages`),
   updateBot: (id: string, data: BotInput) => fetchJSON<{ bot: Bot }>(`/api/admin/bots/${id}`, json("PATCH", data)),
