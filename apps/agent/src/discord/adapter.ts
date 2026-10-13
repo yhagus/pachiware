@@ -9,6 +9,7 @@ import type { Message } from "discord.js";
 import type {
   DiscordClientAdapter,
   DiscordChannelInfo,
+  DiscordMemberInfo,
 } from "@pachiware/skills";
 
 /** One message of a channel's history, as minutes need it. */
@@ -179,6 +180,25 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
       topic: args.topic,
       success: true,
     };
+  }
+
+  async pinMessage(args: { channelId: string; messageId: string }): Promise<{ id: string; channelId: string }> {
+    const channel: any = await this.client.channels.fetch(args.channelId).catch(() => null);
+    if (!channel?.isTextBased?.()) throw new Error(`Channel "${args.channelId}" was not found or is not a text channel.`);
+    const message = await channel.messages.fetch(args.messageId).catch(() => null);
+    if (!message) throw new Error(`Message "${args.messageId}" was not found in that channel.`);
+    await message.pin();
+    return { id: message.id, channelId: channel.id };
+  }
+
+  async listMembers(args: { query: string; limit: number }): Promise<DiscordMemberInfo[]> {
+    const guild = await this.getGuild();
+    const found = await guild.members.search({ query: args.query, limit: args.limit });
+    return [...found.values()].map((m: any) => ({
+      id: m.id,
+      displayName: m.displayName ?? m.user?.globalName ?? m.user?.username ?? m.id,
+      roles: [...(m.roles?.cache?.values() ?? [])].filter((r: any) => r.id !== guild.id).map((r: any) => r.name),
+    }));
   }
 
   /** Checks a requester may read a channel's history and the bot may read it and post minutes there. */
