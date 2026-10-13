@@ -3,7 +3,7 @@ import { workspaceStore, renderFrontmatter, parseFrontmatter, safeId, asUntruste
 import { llmRouter } from "../llm/router.js";
 import { replyQuietly } from "./replyStyle.js";
 import { speakerName } from "./routing.js";
-import { HISTORY_PAGE, HISTORY_PAGES, HISTORY_SPAN_MS, type DiscordJSAdapter, type HistoryAccess, type HistoryCut, type HistoryMessage } from "./adapter.js";
+import { HISTORY_PAGE, HISTORY_PAGES, HISTORY_SPAN_MS, permissionName, stamp, transcript, type DiscordJSAdapter, type HistoryAccess, type HistoryCut } from "./adapter.js";
 
 /** The built-in playbook this module runs; a tenant playbook of the same name changes its steps and triggers, not where minutes go. */
 export const MINUTES_PLAYBOOK = "minutes";
@@ -25,9 +25,6 @@ interface MinutesRecord {
   title: string; guildId: string; channelId: string; postedIn: string; messageId: string; requesterId: string;
   header: Header; minutes: Minutes; corrections: Input[]; input: Input[];
 }
-
-const PERMISSION_NAMES: Record<string, string> = { ViewChannel: "View Channel", ReadMessageHistory: "Read Message History", SendMessages: "Send Messages", SendMessagesInThreads: "Send Messages in Threads", EmbedLinks: "Embed Links", AttachFiles: "Attach Files" };
-const permissionName = (flag: string) => PERMISSION_NAMES[flag] ?? flag.replace(/([a-z])([A-Z])/g, "$1 $2");
 
 /** What to tell the requester when minutes cannot be written here, or null when they can. */
 export async function minutesRefusal(adapter: DiscordJSAdapter, channelId: string, requesterId: string, language?: Language): Promise<string | null> {
@@ -166,16 +163,6 @@ const FORMAT = `Reply with one JSON object and nothing else, in this shape:
 {"title": "a few words naming the discussion", "decided": [{"text": "...", "ref": 3}], "open": [{"text": "...", "ref": 5}], "actions": [{"owner": "a name from the discussion, or null", "task": "...", "due": "as stated, or null", "ref": 7}], "labels": ${JSON.stringify(LABELS)}}
 "ref" is the number of the message the item comes from. "labels" are the section labels, written in the discussion's language.`;
 const systemPrompt = (playbook: Playbook) => `### Playbook: ${playbook.name}\n${playbook.body}\n\n${FORMAT}`;
-
-const stamp = (t: number) => new Date(t).toISOString().slice(0, 16).replace("T", " ");
-function transcript(messages: HistoryMessage[]) {
-  const number = new Map(messages.map((m, i) => [m.id, i + 1]));
-  return messages.map((m, i) => {
-    const reply = m.replyTo && number.has(m.replyTo) ? ` (reply to [${number.get(m.replyTo)}])` : "";
-    const files = m.attachments.map((a) => ` [${a}]`).join("");
-    return `[${i + 1}] ${stamp(m.at)} ${m.speaker}${m.own ? " (this bot)" : ""}${reply}: ${m.text}${files}`;
-  }).join("\n");
-}
 
 const clean = (v: unknown) => (typeof v === "string" ? redact(v.replace(/\s+/g, " ").trim()) : "");
 /** The model's JSON as minutes; items without a message to point to are dropped, and an owner the discussion never named is cleared. */

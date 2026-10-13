@@ -6,9 +6,13 @@ import {
   PermissionFlagsBits,
 } from "discord.js";
 import type { Message } from "discord.js";
-import type {
-  DiscordClientAdapter,
-  DiscordChannelInfo,
+import {
+  type ChannelHistory,
+  type DiscordClientAdapter,
+  type DiscordChannelInfo,
+  type Language,
+  listOf,
+  textIn,
 } from "@pachiware/skills";
 
 /** One message of a channel's history, as minutes need it. */
@@ -36,6 +40,20 @@ export const HISTORY_PAGES = 5;
 export const HISTORY_SPAN_MS = 24 * 3600_000;
 const READ_HISTORY = ["ViewChannel", "ReadMessageHistory"];
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|heic)$/i;
+const PERMISSION_NAMES: Record<string, string> = { ViewChannel: "View Channel", ReadMessageHistory: "Read Message History", SendMessages: "Send Messages", SendMessagesInThreads: "Send Messages in Threads", EmbedLinks: "Embed Links", AttachFiles: "Attach Files" };
+/** A Discord permission flag as its settings page names it. */
+export const permissionName = (flag: string) => PERMISSION_NAMES[flag] ?? flag.replace(/([a-z])([A-Z])/g, "$1 $2");
+
+export const stamp = (t: number) => new Date(t).toISOString().slice(0, 16).replace("T", " ");
+/** History as the model reads it, one numbered line per message: time, speaker, what it replied to, text, attachment placeholders. */
+export function transcript(messages: HistoryMessage[]) {
+  const number = new Map(messages.map((m, i) => [m.id, i + 1]));
+  return messages.map((m, i) => {
+    const reply = m.replyTo && number.has(m.replyTo) ? ` (reply to [${number.get(m.replyTo)}])` : "";
+    const files = m.attachments.map((a) => ` [${a}]`).join("");
+    return `[${i + 1}] ${stamp(m.at)} ${m.speaker}${m.own ? " (this bot)" : ""}${reply}: ${m.text}${files}`;
+  }).join("\n");
+}
 
 export class DiscordJSAdapter implements DiscordClientAdapter {
   constructor(private client: Client, private guildId?: string) {}
@@ -225,6 +243,29 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
       .map((m) => historyMessage(m, botId))
       .filter((m) => m.text || m.attachments.length);
     return { messages, cut };
+  }
+
+  async readChannelHistory(args: { channelId: string; requesterId: string; since?: string; limit?: number; language?: Language }, now = Date.now()): Promise<ChannelHistory> {
+    const t = textIn(args.language);
+    if (!(await this.client.channels.fetch(args.channelId).catch(() => null))) throw new Error(t.historyNoChannel);
+    const access = await this.historyAccess(args.channelId, args.requesterId);
+    if (!access.ok) {
+      if (access.who === "dm") throw new Error(t.historyDm);
+      const names = listOf(access.missing.map(permissionName), args.language);
+      if (access.who === "requester") throw new Error(access.missing.length ? t.historyNeedPermission(names) : t.historyNotMember);
+      throw new Error(t.historyBotMissing(names, access.missing.length > 1));
+    }
+    const since = args.since === undefined ? undefined : Date.parse(args.since);
+    if (since !== undefined && Number.isNaN(since)) throw new Error("since must be an ISO 8601 date-time");
+    const most = HISTORY_PAGE * HISTORY_PAGES;
+    const limit = Math.min(Math.max(1, Math.floor(args.limit ?? most)), most);
+    const { messages, cut } = await this.readHistory(args.channelId, since === undefined ? {} : { since }, now);
+    const kept = messages.slice(-limit);
+    const when = (at: number) => `${stamp(at)} UTC`;
+    const note = kept.length < messages.length ? t.minutesCutCount(limit, when(kept[0]!.at))
+      : cut?.reason === "count" ? t.minutesCutCount(most, when(cut.keptFrom))
+      : cut ? t.minutesCutHours(HISTORY_SPAN_MS / 3600_000, when(cut.keptFrom)) : undefined;
+    return { channelId: args.channelId, count: kept.length, from: kept[0] ? stamp(kept[0].at) : null, to: kept.at(-1) ? stamp(kept.at(-1)!.at) : null, transcript: transcript(kept), ...(note ? { note } : {}) };
   }
 }
 

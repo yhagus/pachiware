@@ -99,6 +99,12 @@ const en = {
   minutesCutCount: (n: number, when: string) => `Cut to the latest ${n} messages: everything before ${when} was left out.`,
   minutesCutHours: (n: number, when: string) => `Cut to the last ${n} hours: everything before ${when} was left out.`,
   minutesFooter: "Reply to correct",
+  // Channel history
+  historyNoChannel: "I can't find that channel.",
+  historyDm: "I read channel history only in server channels and threads, not in DMs.",
+  historyNeedPermission: (names: string) => `You need ${names} in that channel to read its history, so I won't read it for you.`,
+  historyNotMember: "That is a private thread you are not a member of, so I won't read its history.",
+  historyBotMissing: (names: string, many: boolean) => `I can't read that channel because I'm missing the ${names} permission${many ? "s" : ""} there. A server admin can grant ${many ? "them" : "it"}.`,
 };
 
 const id: typeof en = {
@@ -173,6 +179,11 @@ const id: typeof en = {
   minutesCutCount: (n, when) => `Dipotong ke ${n} pesan terakhir: semua sebelum ${when} tidak disertakan.`,
   minutesCutHours: (n, when) => `Dipotong ke ${n} jam terakhir: semua sebelum ${when} tidak disertakan.`,
   minutesFooter: "Balas untuk mengoreksi",
+  historyNoChannel: "Channel itu tidak ketemu.",
+  historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
+  historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,
+  historyNotMember: "Itu thread privat dan kamu bukan anggotanya, jadi riwayatnya tidak saya baca.",
+  historyBotMissing: (names) => `Saya tidak bisa membaca channel itu karena tidak punya izin ${names} di sana. Admin server bisa memberikannya.`,
 };
 
 export type Strings = typeof en;

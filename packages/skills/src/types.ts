@@ -1,4 +1,5 @@
 import type { db } from "@pachiware/db";
+import type { Language } from "./language.js";
 
 export interface ToolPropertySchema {
   type: string;
@@ -64,6 +65,27 @@ export interface DiscordClientAdapter {
     channelId: string;
     topic: string;
   }): Promise<{ id: string; topic: string; success: boolean }>;
+
+  /** A channel's last 24 hours after the access check minutes use; throws the refusal text when the asker or the bot may not read it. */
+  readChannelHistory(args: {
+    channelId: string;
+    requesterId: string;
+    /** ISO 8601; messages before it are left out. */
+    since?: string;
+    /** Keeps the latest `limit` messages, 500 at most. */
+    limit?: number;
+    language?: Language;
+  }): Promise<ChannelHistory>;
+}
+
+/** Numbered lines "[n] YYYY-MM-DD HH:MM Speaker: text", oldest first, in the shape minutes read; `note` says what was cut. */
+export interface ChannelHistory {
+  channelId: string;
+  count: number;
+  from: string | null;
+  to: string | null;
+  transcript: string;
+  note?: string;
 }
 
 /** What calling a tool can do; EFFECT_MEANING says what each covers. */

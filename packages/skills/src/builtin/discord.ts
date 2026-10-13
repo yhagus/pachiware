@@ -12,6 +12,7 @@ export const discordManagementSkill: SkillModule = {
     archiveChannel: { effect: "danger", requiresConfirmation: true },
     listChannels: { effect: "read" },
     setChannelTopic: { effect: "write", requiresConfirmation: false },
+    readChannelHistory: { effect: "read" },
   },
   tools: [
     {
@@ -68,6 +69,18 @@ export const discordManagementSkill: SkillModule = {
           topic: { type: "string", description: "The new topic text" },
         },
         required: ["channelId", "topic"],
+      },
+    },
+    {
+      name: "readChannelHistory",
+      description: "Reads what was said in a channel or thread during the last 24 hours (500 messages at most), oldest first, with speaker and time. Only channels the person asking can read themselves. Defaults to the channel the conversation is in.",
+      parameters: {
+        type: "object",
+        properties: {
+          channelId: { type: "string", description: "The channel or thread to read, as an id or a <#id> mention; omit for the current channel" },
+          since: { type: "string", description: "Only messages at or after this ISO 8601 date-time; never earlier than 24 hours ago" },
+          limit: { type: "number", description: "Keep only the latest N messages (default and maximum 500)" },
+        },
       },
     },
   ],
@@ -167,6 +180,16 @@ export const discordManagementSkill: SkillModule = {
         message: `Updated topic for channel ${result.id} successfully.`,
         topic: result.topic,
       };
+    },
+
+    readChannelHistory: async (
+      args: { channelId?: string; since?: string; limit?: number },
+      context: SkillContext
+    ) => {
+      const channelId = args.channelId?.trim().replace(/^<#([^>]+)>$/, "$1") || context.channelId;
+      if (!channelId) throw new Error("Name a channel to read: this conversation is not in one.");
+      if (!context.discord || !context.userId) throw new Error("Channel history can only be read from Discord.");
+      return context.discord.readChannelHistory({ channelId, requesterId: context.userId, since: args.since, limit: args.limit });
     },
   },
 };
