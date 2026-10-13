@@ -123,7 +123,51 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
     `);
   });
 
-  test("tasks are Markdown files filed by channel, with the same four tools", () => {
+  test("a task file without dueAt or creator stays valid; due dates are checked, read in the place's zone, and filtered by bounds", () => {
+    scenario(`
+      const fs = await import("node:fs"), ws = process.env.WORKSPACE_DIR + "/" + alpha.id, dir = ws + "/guilds/g1/channels/c1/tasks";
+      const { setClock } = await imp("packages/skills/src/clock.ts");
+      setClock(() => Date.parse("2026-10-14T03:00:00Z"));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(dir + "/old-task-0a0a0a0a.md", '---\\nid: "0a0a0a0a-0000-4000-8000-000000000001"\\ntitle: "Old task"\\nstatus: "pending"\\npriority: "low"\\nassignedTo: null\\ncreatedAt: "2026-01-01T00:00:00.000Z"\\nupdatedAt: "2026-01-01T00:00:00.000Z"\\n---\\n');
+      const old = (await call(alpha, "listTasks", {})).data.tasks[0];
+      assert(old && old.title === "Old task" && old.dueAt === null && old.createdBy === null && old.late === false, "old file not read: " + JSON.stringify(old));
+      // a creator comes from the turn; a date-only due date is kept as is, a wall-clock time takes the place's zone
+      const made = await call(alpha, "createTask", { title: "Pay rent", dueAt: "2026-10-31" }, { userName: "Dewi" });
+      assert(made.success && made.data.task.dueAt === "2026-10-31" && made.data.task.createdBy === "u1" && made.data.task.createdByName === "Dewi", "createTask due: " + JSON.stringify(made));
+      const timed = await call(alpha, "createTask", { title: "Call the vendor", dueAt: "2026-10-15 09:30" }, { timezone: "Asia/Tokyo" });
+      assert(timed.data.task.dueAt === "2026-10-15T09:30:00+09:00", "wall-clock due: " + timed.data.task.dueAt);
+      const utc = await call(alpha, "createTask", { title: "Deploy", dueAt: "2026-10-14T02:00:00Z" });
+      assert(utc.data.task.dueAt === "2026-10-14T02:00:00Z", "offset due kept: " + utc.data.task.dueAt);
+      for (const bad of ["tomorrow", "2026-02-30", "2026-10-14T25:00", 42]) assert(!(await call(alpha, "createTask", { title: "x", dueAt: bad })).success, "accepted due " + bad);
+      // set, clear, and refuse through setTaskDueDate without Confirm
+      const set = await call(alpha, "setTaskDueDate", { taskId: old.id, dueAt: "2026-10-13" }, { confirmed: false, botId: undefined });
+      assert(set.success && set.data.task.dueAt === "2026-10-13" && !set.data.pending, "setTaskDueDate: " + JSON.stringify(set));
+      assert(fs.readFileSync(dir + "/old-task-0a0a0a0a.md", "utf8").includes('dueAt: "2026-10-13"'), "file not updated");
+      assert(!(await call(alpha, "setTaskDueDate", { taskId: old.id, dueAt: "soon" })).success, "bad due accepted");
+      // filters: late, bounds inclusive by day, undated tasks left out of due filters
+      const titles = async (args, ctx) => (await call(alpha, "listTasks", args, ctx)).data.tasks.map((t) => t.title);
+      assert(JSON.stringify(await titles({ late: true })) === JSON.stringify(["Old task", "Deploy"]), "late: " + JSON.stringify(await titles({ late: true })));
+      assert(JSON.stringify(await titles({ late: false })) === JSON.stringify(["Call the vendor", "Pay rent"]), "not late: " + JSON.stringify(await titles({ late: false })));
+      assert(JSON.stringify(await titles({ dueAfter: "2026-10-14", dueBefore: "2026-10-15" })) === JSON.stringify(["Deploy", "Call the vendor"]), "bounds: " + JSON.stringify(await titles({ dueAfter: "2026-10-14", dueBefore: "2026-10-15" })));
+      assert(JSON.stringify(await titles({ dueAfter: "2026-10-14T03:00:00Z" })) === JSON.stringify(["Call the vendor", "Pay rent"]), "exact bound: " + JSON.stringify(await titles({ dueAfter: "2026-10-14T03:00:00Z" })));
+      assert(!(await call(alpha, "listTasks", { dueBefore: "friday" })).success, "bad bound accepted");
+      // the same zone question answered for the per-turn list: end of day in Asia/Tokyo comes before the end of day in Asia/Jakarta
+      setClock(() => Date.parse("2026-10-30T15:30:00Z"));
+      assert(JSON.stringify(await titles({ late: true }, { timezone: "Asia/Tokyo" })) === JSON.stringify(["Old task", "Deploy", "Call the vendor"]), "late in Tokyo");
+      setClock(() => Date.parse("2026-10-31T16:30:00Z"));
+      assert(!(await titles({ late: true })).includes("Pay rent"), "late at Oct 31 23:30 in Jakarta");
+      setClock(() => Date.parse("2026-10-31T17:00:30Z"));
+      assert((await titles({ late: true })).includes("Pay rent"), "not late at Nov 1 00:00:30 in Jakarta");
+      const done = await call(alpha, "updateTaskStatus", { taskId: made.data.task.id, status: "completed" }, { confirmed: false, botId: undefined });
+      assert(done.success && !done.data.pending && !(await titles({ late: true })).includes("Pay rent"), "a completed task is never late");
+      const { SystemPromptBuilder } = await imp("apps/agent/src/loop/prompt.ts");
+      const turn = await SystemPromptBuilder.buildDynamic({ tenantId: alpha.id, platform: "discord", guildId: "g1", channelId: "c1", skillContext: { parentChannelId: "c1" } });
+      assert(/^pending \\| due 2026-10-13, late \\| unassigned \\| 0a0a0a0a \\| Old task$/m.test(turn) && !turn.includes("Pay rent"), "turn list: " + turn);
+    `);
+  });
+
+  test("tasks are Markdown files filed by channel, with the same five tools", () => {
     scenario(`
       const fs = await import("node:fs"), ws = process.env.WORKSPACE_DIR + "/" + alpha.id;
       const made = await call(alpha, "createTask", { title: "Fix the login bug!", description: "Users get a 500\\nafter reset", priority: "high", discordChannelId: "legacy-channel" });
@@ -185,7 +229,7 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
       // active tasks are listed from files
       await call(alpha, "createTask", { title: "Ship launch page" });
       const withTask = await turn(alpha);
-      assert(withTask.includes("Active tasks:") && withTask.includes("Ship launch page (pending)"), "active tasks missing: " + withTask);
+      assert(withTask.includes("Active tasks (status | due | owner | id | title):") && /^pending \\| no due date \\| unassigned \\| [0-9a-f]{8} \\| Ship launch page$/m.test(withTask), "active tasks missing: " + withTask);
     `);
   });
 

@@ -2,19 +2,22 @@ import type { SkillModule, SkillContext } from "../types.js";
 import { visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
-import { today } from "../clock.js";
+import { DEFAULT_TIMEZONE, now, offsetText, today, utcOffsetMinutes, zonedTime } from "../clock.js";
+
+const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
 
 export const taskManagementSkill: SkillModule = {
   id: "task_management",
   name: "Task Management",
-  description: "Create, view, update status, and assign tasks kept as Markdown files in the Workspace.",
+  description: "Create, view, update status, assign, and set due dates of tasks kept as Markdown files in the Workspace.",
   capabilities: ["tasks"],
   allowedScopes: ["tenant"],
   toolPolicy: {
     createTask: { effect: "write", requiresConfirmation: false },
     listTasks: { effect: "read" },
-    updateTaskStatus: { effect: "write", requiresConfirmation: true },
-    assignTask: { effect: "write", requiresConfirmation: true },
+    updateTaskStatus: { effect: "write", requiresConfirmation: false },
+    assignTask: { effect: "write", requiresConfirmation: false },
+    setTaskDueDate: { effect: "write", requiresConfirmation: false },
   },
   tools: [
     {
@@ -31,6 +34,7 @@ export const taskManagementSkill: SkillModule = {
             description: "Task priority level (default: medium)",
           },
           assignedTo: { type: "string", description: "Optional name or ID of the assignee" },
+          dueAt: { type: "string", description: DUE_AT_HINT },
           discordChannelId: { type: "string", description: "Legacy channel ID; the current turn's channel determines the Workspace folder" },
         },
         required: ["title"],
@@ -48,6 +52,9 @@ export const taskManagementSkill: SkillModule = {
             description: "Filter by status (default is all active)",
           },
           assignedTo: { type: "string", description: "Filter by assignee username or ID" },
+          dueAfter: { type: "string", description: "Only tasks due at or after this date (YYYY-MM-DD, from the start of that day) or date-time; tasks without a due date are left out" },
+          dueBefore: { type: "string", description: "Only tasks due at or before this date (YYYY-MM-DD, to the end of that day) or date-time; tasks without a due date are left out" },
+          late: { type: "boolean", description: "true: only tasks past their due date and not completed; false: only tasks that are not late" },
           limit: { type: "number", description: "Max number of tasks to return (default: 20)" },
         },
       },
@@ -80,15 +87,28 @@ export const taskManagementSkill: SkillModule = {
         required: ["taskId", "assignedTo"],
       },
     },
+    {
+      name: "setTaskDueDate",
+      description: "Sets or clears the due date of a task.",
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "The UUID of the task" },
+          dueAt: { type: "string", description: `${DUE_AT_HINT}; null or empty clears it` },
+        },
+        required: ["taskId"],
+      },
+    },
   ],
   handlers: {
-    createTask: async (args: { title: string; description?: string; priority?: Priority; assignedTo?: string; discordChannelId?: string }, ctx: SkillContext) => {
+    createTask: async (args: { title: string; description?: string; priority?: Priority; assignedTo?: string; dueAt?: string | null; discordChannelId?: string }, ctx: SkillContext) => {
       if (typeof args.title !== "string" || !args.title.trim()) throw new Error("Task title is required");
       if (args.title.length > 200) throw new Error("Task title is too long (max 200 characters)");
       if (args.priority !== undefined && !PRIORITIES.includes(args.priority)) throw new Error("Invalid task priority");
+      const dueAt = dueAtArg(args.dueAt, zoneOf(ctx));
       const roots = visibleRoots(ctx), home = roots.channel ?? roots.dm ?? roots.tenant!;
-      const now = today().toISOString(), id = crypto.randomUUID();
-      const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: args.assignedTo?.trim() || null, createdAt: now, updatedAt: now };
+      const at = today().toISOString(), id = crypto.randomUUID();
+      const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: args.assignedTo?.trim() || null, dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at };
       await workspaceStore().write(ctx.tenantId, `${home}/tasks/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
       await labelFolder(ctx, roots.channel ? "channel" : roots.guild ? "guild" : roots.dm ? "dm" : "");
       if (roots.channel) await labelFolder(ctx, "guild");
@@ -96,12 +116,17 @@ export const taskManagementSkill: SkillModule = {
       return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.`, task };
     },
 
-    listTasks: async (args: { status?: Status | "all"; assignedTo?: string; limit?: number }, ctx: SkillContext) => {
-      const limit = Math.min(100, Math.max(1, Number(args.limit) || 20));
+    listTasks: async (args: { status?: Status | "all"; assignedTo?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
+      const limit = Math.min(100, Math.max(1, Number(args.limit) || 20)), zone = zoneOf(ctx), at = now();
+      const after = dueBound(args.dueAfter, zone, "start"), before = dueBound(args.dueBefore, zone, "end");
+      const late = args.late === undefined || args.late === null ? undefined : args.late === true || args.late === "true";
+      const byDue = after !== undefined || before !== undefined || late !== undefined;
       const found = (await loadTasks(workspaceStore(), ctx))
-        .map((f) => f.task)
+        .map((f) => ({ ...f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
         .filter((t) => (!args.status || args.status === "all" || t.status === args.status) && (!args.assignedTo || t.assignedTo === args.assignedTo))
-        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+        .filter((t) => (after === undefined || (t.due !== null && t.due >= after)) && (before === undefined || (t.due !== null && t.due <= before)) && (late === undefined || t.late === late))
+        .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.createdAt.localeCompare(b.createdAt) : b.createdAt.localeCompare(a.createdAt)))
+        .map(({ due: _, ...t }) => t);
       return { total: Math.min(found.length, limit), tasks: found.slice(0, limit) };
     },
 
@@ -116,21 +141,68 @@ export const taskManagementSkill: SkillModule = {
       const updated = await change(ctx, args.taskId, (t) => ({ ...t, assignedTo: args.assignedTo.trim() }));
       return { success: true, message: `Task "${updated.title}" assigned to @${updated.assignedTo}.`, task: updated };
     },
+
+    setTaskDueDate: async (args: { taskId: string; dueAt?: string | null }, ctx: SkillContext) => {
+      const dueAt = dueAtArg(args.dueAt, zoneOf(ctx));
+      const updated = await change(ctx, args.taskId, (t) => ({ ...t, dueAt }));
+      return { success: true, message: dueAt ? `Task "${updated.title}" is due ${dueAt}.` : `Task "${updated.title}" has no due date now.`, task: updated };
+    },
   },
 };
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/, DATE_TIME = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:\d{2})?$/;
+const zoneOf = (ctx: Pick<SkillContext, "timezone">) => ctx.timezone ?? DEFAULT_TIMEZONE;
+
+/** A due date as the file stores it: a date, or a date-time with its offset. A date-time without an offset is read in `timeZone`. Null when `value` is not a real date or time. */
+export function normalizeDueAt(value: unknown, timeZone: string): string | null {
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  if (DATE_ONLY.test(v)) return zonedTime("UTC", `${v}T00:00`) === null ? null : v;
+  const m = DATE_TIME.exec(v);
+  if (!m) return null;
+  const wall = `${m[1]}T${m[2]}:${m[3] ?? "00"}`;
+  if (m[4]) return zonedTime("UTC", wall) === null ? null : `${wall}${m[4]}`;
+  const at = zonedTime(timeZone, wall);
+  return at === null ? null : `${wall}${offsetText(utcOffsetMinutes(timeZone, at))}`;
+}
+function dueAtArg(value: unknown, timeZone: string): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  const dueAt = normalizeDueAt(value, timeZone);
+  if (dueAt === null) throw new Error(`Invalid due date "${String(value).slice(0, 40)}": use YYYY-MM-DD, or a date-time such as 2026-03-06T15:00`);
+  return dueAt;
+}
+/** The last instant a task is on time: the end of the day in `timeZone` for a date, the exact time otherwise. Null without a due date. */
+export function dueMoment(dueAt: string | null | undefined, timeZone: string): number | null {
+  if (!dueAt) return null;
+  if (DATE_ONLY.test(dueAt)) { const end = zonedTime(timeZone, `${dueAt}T23:59:59`); return end === null ? null : end + 999; }
+  const m = DATE_TIME.exec(dueAt);
+  if (!m) return null;
+  if (m[4]) { const t = Date.parse(`${m[1]}T${m[2]}:${m[3] ?? "00"}${m[4]}`); return Number.isNaN(t) ? null : t; }
+  return zonedTime(timeZone, `${m[1]}T${m[2]}:${m[3] ?? "00"}`);
+}
+function dueBound(value: unknown, timeZone: string, edge: "start" | "end"): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const dueAt = normalizeDueAt(value, timeZone);
+  if (dueAt === null) throw new Error(`Invalid ${edge === "start" ? "dueAfter" : "dueBefore"} "${String(value).slice(0, 40)}": use YYYY-MM-DD or a date-time`);
+  return (edge === "start" && DATE_ONLY.test(dueAt) ? zonedTime(timeZone, `${dueAt}T00:00`) : dueMoment(dueAt, timeZone))!;
+}
+/** Late: past its due moment and not completed. */
+export const isLate = (task: Pick<Task, "dueAt" | "status">, timeZone: string, at = now()): boolean => { const due = dueMoment(task.dueAt, timeZone); return task.status !== "completed" && due !== null && at > due; };
+/** The one-line task format the turn context and the Digest share: status, due, owner, id prefix, title. */
+export const taskLine = (t: Task, timeZone: string, at = now()) => `${t.status} | ${t.dueAt ? `due ${t.dueAt}${isLate(t, timeZone, at) ? ", late" : ""}` : "no due date"} | ${t.assignedTo ?? "unassigned"} | ${t.id.slice(0, 8)} | ${t.title}`;
 
 export const STATUSES = ["pending", "in_progress", "completed"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 type Status = (typeof STATUSES)[number];
 type Priority = (typeof PRIORITIES)[number];
-export interface Task { id: string; title: string; description: string | null; status: Status; priority: Priority; assignedTo: string | null; createdAt: string; updatedAt: string }
+export interface Task { id: string; title: string; description: string | null; status: Status; priority: Priority; assignedTo: string | null; dueAt: string | null; createdBy: string | null; createdByName: string | null; createdAt: string; updatedAt: string }
 
 export const slug = (title: string) => title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "") || "task";
 
 /** Frontmatter is one `key: JSON value` per line, which is also valid YAML; hand-edited bare values (status: pending) are accepted too. */
 export function render(t: Task) {
   const q = JSON.stringify;
-  return `---\nid: ${q(t.id)}\ntitle: ${q(t.title)}\nstatus: ${q(t.status)}\npriority: ${q(t.priority)}\nassignedTo: ${q(t.assignedTo)}\ncreatedAt: ${q(t.createdAt)}\nupdatedAt: ${q(t.updatedAt)}\n---\n${t.description ?? ""}\n`;
+  return `---\nid: ${q(t.id)}\ntitle: ${q(t.title)}\nstatus: ${q(t.status)}\npriority: ${q(t.priority)}\nassignedTo: ${q(t.assignedTo)}\ndueAt: ${q(t.dueAt)}\ncreatedBy: ${q(t.createdBy)}\ncreatedByName: ${q(t.createdByName)}\ncreatedAt: ${q(t.createdAt)}\nupdatedAt: ${q(t.updatedAt)}\n---\n${t.description ?? ""}\n`;
 }
 /** A task file, or null when it is not a valid one: a broken file is skipped, never trusted. */
 export function parseTask(text: string): Task | null {
@@ -147,7 +219,8 @@ export function parseTask(text: string): Task | null {
   const validDate = (v: unknown) => typeof v === "string" && !!v && !Number.isNaN(Date.parse(v));
   if (typeof id !== "string" || !/^[0-9a-f-]{8,36}$/i.test(id) || typeof title !== "string" || !title.trim() || !STATUSES.includes(status) || !PRIORITIES.includes(priority) || !validDate(f.createdAt) || !validDate(f.updatedAt)) return null;
   const str = (v: unknown) => (typeof v === "string" && v ? v : null);
-  return { id, title, description: m[2]!.trim() || null, status, priority, assignedTo: str(f.assignedTo), createdAt: str(f.createdAt) ?? "", updatedAt: str(f.updatedAt) ?? "" };
+  const dueAt = str(f.dueAt);
+  return { id, title, description: m[2]!.trim() || null, status, priority, assignedTo: str(f.assignedTo), dueAt: dueAt && (DATE_ONLY.test(dueAt) || DATE_TIME.test(dueAt)) ? dueAt : null, createdBy: str(f.createdBy), createdByName: str(f.createdByName), createdAt: str(f.createdAt) ?? "", updatedAt: str(f.updatedAt) ?? "" };
 }
 
 interface Found { path: string; version: string; task: Task }

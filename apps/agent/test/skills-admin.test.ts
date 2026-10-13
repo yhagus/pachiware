@@ -21,7 +21,7 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     const skills = await list(alpha), byId = Object.fromEntries(skills.map((s) => [s.id, s]));
     assert(byId.git_repositories.toolCount === 86 && byId.git_repositories.tools.length === 86, "git count " + byId.git_repositories.toolCount);
     assert(byId.workspace.toolCount === 13, "workspace count " + byId.workspace.toolCount);
-    assert(byId.task_management.toolCount === 4 && byId.discord_management.toolCount === 8, "small skill counts");
+    assert(byId.task_management.toolCount === 5 && byId.discord_management.toolCount === 8, "small skill counts");
     assert(JSON.stringify(byId.git_repositories.groups) === JSON.stringify(["Browse", "Issues & PRs", "Code", "CI", "Repo admin", "Org"]), "git groups");
     assert(byId.workspace.groups.length === 0, "workspace declares no groups");
     const tool = (s, n) => byId[s].tools.find((t) => t.name === n);

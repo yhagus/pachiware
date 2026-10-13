@@ -41,7 +41,7 @@ export async function exportTasks(store: WorkspaceStore = workspaceStore()) {
     const task: Task = {
       id: row.id, title: String(row.title).trim() || "Untitled", description: row.description?.trim() || null,
       status: (STATUSES as readonly string[]).includes(row.status) ? row.status : "pending", priority: (PRIORITIES as readonly string[]).includes(row.priority) ? row.priority : "medium",
-      assignedTo: row.assignedTo || null, createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt),
+      assignedTo: row.assignedTo || null, dueAt: null, createdBy: null, createdByName: null, createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt),
     };
     await store.write(row.tenantId, `${home}/tasks/${slug(task.title)}-${short}.md`, render(task));
     await label(store, row.tenantId, home, guild && channel ? `#${channel}` : guild ? `Guild ${guild}` : "Shared");
