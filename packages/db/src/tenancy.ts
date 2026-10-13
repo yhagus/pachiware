@@ -38,7 +38,7 @@ export async function createTenant(input: { name: string; slug?: string; apiKeyI
     // Bun SQLite transactions must stay synchronous to retain rollback semantics.
     return db.transaction((tx: any) => {
       const row = tx.insert(tenants).values(values).returning().get();
-      tx.insert(agentsConfig).values({ tenantId: row.id, timezone: "Asia/Jakarta", language: "id", settings: { maxReActIterations: 32 } }).run();
+      tx.insert(agentsConfig).values({ tenantId: row.id, timezone: "Asia/Jakarta", language: "id", temperature: 0.2, settings: { maxReActIterations: 32 } }).run();
       for (const skill of tx.select().from(skills).all()) {
         tx.insert(tenantSkills).values({ tenantId: row.id, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config }).run();
       }

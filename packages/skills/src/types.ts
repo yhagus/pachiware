@@ -75,6 +75,8 @@ export interface DiscordClientAdapter {
   postAccess(channelId: string, requesterId: string): Promise<PostAccess>;
   /** Posts plain text with no pings. */
   sendMessage(args: { channelId: string; content: string }): Promise<{ id: string; channelId: string; url: string }>;
+  /** One message of a channel with its attachments' metadata; null when the channel or the message is unknown. */
+  fetchMessage(args: { channelId: string; messageId: string }): Promise<DiscordMessageInfo | null>;
   /** A channel's last 24 hours after the access check minutes use; throws the refusal text when the asker or the bot may not read it. */
   readChannelHistory(args: {
     channelId: string;
@@ -98,6 +100,9 @@ export interface ChannelHistory {
 }
 
 export interface DiscordMemberInfo { id: string; displayName: string; roles: string[] }
+
+export interface DiscordAttachmentInfo { id: string; name: string; url: string; size: number; contentType: string | null }
+export interface DiscordMessageInfo { id: string; channelId: string; authorId: string; attachments: DiscordAttachmentInfo[] }
 
 export type PostAccess = { ok: true } | { ok: false; who: "requester" | "bot" | "unknown"; missing: string[] };
 
@@ -148,8 +153,12 @@ export interface SkillContext {
   /** The place's configured zone and language (the guild's, else the tenant's), for dates and for text the tool writes on its own. */
   timezone?: string;
   language?: "id" | "en";
+  /** One tool-free call to the bot's own model, set by the host; null when the provider failed. Memory compaction uses it. */
+  complete?: Completion;
   metadata?: Record<string, any>;
 }
+
+export type Completion = (request: { system: string; user: string }) => Promise<string | null>;
 
 export type ToolHandler = (args: any, context: SkillContext) => Promise<any>;
 

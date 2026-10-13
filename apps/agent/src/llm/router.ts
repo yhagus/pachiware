@@ -1,4 +1,5 @@
 import { cachedTokensOf } from "./usage.js";
+import { providerRequest } from "./retry.js";
 import { db, agentsConfig, bots, profiles, usageEvents, decryptSecret, eq, and } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, textIn, configuredLanguage } from "@pachiware/skills";
@@ -20,6 +21,10 @@ const anthropicBlocks = (content: ChatMessage["content"]): any[] => !Array.isArr
   ...content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text"),
 ];
 const anthropicModelOf = (config: any): string => config?.anthropicModel || (config?.defaultProvider === "anthropic" && config?.defaultModel) || DEFAULT_MODELS.anthropic!;
+// Low enough that actions are repeatable; a tenant's own value wins.
+const DEFAULT_TEMPERATURE = 0.2;
+const CACHED = { cache_control: { type: "ephemeral" } };
+const markLast = (blocks: any[]) => blocks.map((b, i) => (i === blocks.length - 1 ? { ...b, ...CACHED } : b));
 
 export class LLMRouter {
   private async getActiveTenantConfig(tenantId: string) {
@@ -87,7 +92,7 @@ export class LLMRouter {
       dbConfig = { ...dbConfig, defaultProvider: profile.provider, defaultModel: profile.model, [`${profile.provider}ApiKey`]: key, [`${profile.provider}BaseUrl`]: profile.baseUrl, [`${profile.provider}Model`]: profile.model };
     }
     const provider = options.provider || dbConfig.defaultProvider;
-    const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature, maxTokens: options.maxTokens ?? dbConfig.maxTokens, language: configuredLanguage({ language: options.language }, dbConfig) };
+    const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature ?? DEFAULT_TEMPERATURE, maxTokens: options.maxTokens ?? dbConfig.maxTokens, language: configuredLanguage({ language: options.language }, dbConfig) };
     const call = (list: ChatMessage[]) => {
       switch (provider) {
         case "anthropic": return this.callAnthropic(list, resolved, dbConfig);
@@ -156,7 +161,7 @@ export class LLMRouter {
     const body: any = {
       model,
       messages: formattedMessages,
-      temperature: options.temperature ?? 0.7,
+      temperature: options.temperature ?? DEFAULT_TEMPERATURE,
       max_tokens: options.maxTokens ?? 4096,
     };
 
@@ -168,7 +173,7 @@ export class LLMRouter {
     }
 
     try {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
+      const response = await providerRequest(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -234,7 +239,7 @@ export class LLMRouter {
       return this.handleMissingApiKey("anthropic", messages, options);
     }
 
-    let systemPrompt = "";
+    const systemBlocks: any[] = [];
     const anthropicMessages: any[] = [];
 
     // Consecutive user turns become one message, with tool_result blocks first as the API requires.
@@ -247,7 +252,8 @@ export class LLMRouter {
 
     for (const m of messages) {
       if (m.role === "system") {
-        systemPrompt += textOf(m.content) + "\n\n";
+        const text = textOf(m.content).trim();
+        if (text) systemBlocks.push({ type: "text", text });
       } else if (m.role === "tool") {
         pushUser([{ type: "tool_result", tool_use_id: m.toolCallId, content: textOf(m.content) }]);
       } else if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
@@ -273,19 +279,20 @@ export class LLMRouter {
       }
     }
 
+    // No temperature: current Claude models reject a non-default one. The cache marks cover the stable prefix (tools, then system).
     const body: any = {
       model,
-      system: systemPrompt.trim() || undefined,
+      system: systemBlocks.length ? markLast(systemBlocks) : undefined,
       messages: anthropicMessages,
       max_tokens: options.maxTokens ?? 4096,
     };
 
     if (options.tools && options.tools.length > 0) {
-      body.tools = skillRegistry.toAnthropicTools(options.tools);
+      body.tools = markLast(skillRegistry.toAnthropicTools(options.tools));
     }
 
     try {
-      const response = await fetch(`${baseUrl}/messages`, {
+      const response = await providerRequest(`${baseUrl}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -322,6 +329,7 @@ export class LLMRouter {
               promptTokens: data.usage.input_tokens,
               completionTokens: data.usage.output_tokens,
               totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+              cachedTokens: cachedTokensOf(data.usage),
             }
           : undefined,
       };
@@ -382,7 +390,7 @@ export class LLMRouter {
     const body: any = {
       model,
       messages: formattedMessages,
-      temperature: options.temperature ?? 0.7,
+      temperature: options.temperature ?? DEFAULT_TEMPERATURE,
       max_tokens: options.maxTokens ?? 4096,
     };
 
@@ -391,7 +399,7 @@ export class LLMRouter {
     }
 
     try {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
+      const response = await providerRequest(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
