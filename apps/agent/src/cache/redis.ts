@@ -36,6 +36,7 @@ class InMemoryCache {
   del(...keys: string[]): void {
     for (const k of keys) {
       this.store.delete(k);
+      this.rateLimits.delete(k);
     }
   }
 

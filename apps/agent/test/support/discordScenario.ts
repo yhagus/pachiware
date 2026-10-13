@@ -2,7 +2,7 @@
  * Discord scenario harness: the real bot manager and agent loop behind a fake discord.js client.
  *
  *   discordScenario("name", async (s) => {
- *     s.model.script({ tool: "repoList", args: {} }, (turn) => `saw ${turn.toolResults[0].items.length}`);
+ *     s.model.script({ tool: "repoList", args: {} }, (turn) => `saw ${turn.toolResults[0].items.length}`, { error: "Provider request failed" });
  *     s.http.on("GET api.github.com/user/repos", () => [{ full_name: "acme/api" }]);
  *     await s.git({ repos: ["acme/*"] });
  *     const msg = await s.discord.send(`${s.discord.mention} list repos`);
@@ -32,7 +32,9 @@ const SELECTED = process.env.PACHIWARE_SCENARIO;
 /** What the model step functions see: the request so far, plus the parsed results of this turn's tool calls. */
 export type ModelTurn = { messages: ChatMessage[]; toolResults: any[] };
 export type ToolCallStep = { tool: string; args?: Record<string, unknown> };
-export type ModelStep = string | ToolCallStep | ToolCallStep[] | ((turn: ModelTurn) => ModelStep);
+/** The provider failed: the router's fallback answer, as a real outage would produce. */
+export type ErrorStep = { error: string };
+export type ModelStep = string | ToolCallStep | ToolCallStep[] | ErrorStep | ((turn: ModelTurn) => ModelStep);
 export type HttpRequest = { method: string; url: string; body: any };
 
 export type Payload = { content?: string; embeds?: any[]; components?: any[]; files?: any[] };
@@ -76,6 +78,8 @@ export interface Scenario {
     /** Takes permissions (names such as "ReadMessageHistory") from a user or the bot in a channel; a thread also inherits its parent's. */
     deny(channel: FakeChannel | string, userId: string, permissions: string[]): void;
     send(content: string, options?: { author?: FakeUser; channel?: FakeChannel | string; replyTo?: FakeMessage; attachments?: any[] }): Promise<FakeMessage>;
+    /** Lifts the ten-messages-a-minute limit for a user, so a scenario can hold a long conversation. */
+    unlimited(user: FakeUser): void;
     /** Clicks the button whose label or custom id matches. */
     click(message: FakeMessage, button: string, options?: { user?: FakeUser }): Promise<FakeInteraction>;
     contextMenu(commandName: string, target: FakeMessage, options?: { user?: FakeUser }): Promise<FakeInteraction>;
@@ -206,7 +210,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   await runMigrations(); await runSeed();
   const { llmRouter } = await import("../../src/llm/router.ts");
   const { DiscordBotManager } = await import("../../src/discord/client.ts");
-  const { CacheService } = await import("../../src/cache/redis.ts");
+  const { CacheService, tenantKey } = await import("../../src/cache/redis.ts");
   const { guildCacheKey } = await import("../../src/loop/prompt.ts");
   const { workspaceStore } = await import("../../../../packages/skills/src/workspace/store.ts");
   const { setAvailabilityRule } = await import("../../../../packages/skills/src/availability.ts");
@@ -221,6 +225,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const toResponse = (step: ModelStep, turn: ModelTurn): LLMResponse => {
     if (typeof step === "function") return toResponse(step(turn), turn);
     if (typeof step === "string") return { content: step, toolCalls: [], finishReason: "stop" };
+    if ("error" in step) return { content: step.error, toolCalls: [], finishReason: "error" };
     const list = Array.isArray(step) ? step : [step];
     return { content: null, finishReason: "tool_calls", toolCalls: list.map((c) => ({ id: `call-${++callId}`, name: c.tool, arguments: c.args ?? {} })) };
   };
@@ -263,6 +268,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   makeChannel("channel-1");
 
   const alice = { id: "user-alice", name: "Alice" }, bob = { id: "user-bob", name: "Bob" };
+  const unlimited = new Set<string>();
   const responder = (interaction: FakeInteraction & Record<string, any>, channel: any, user: FakeUser) => {
     let replyMessage: FakeMessage | null = null;
     const record = (kind: FakeInteraction["responses"][number]["kind"], payload: any) => { interaction.responses.push({ kind, payload: payload === undefined ? undefined : typeof payload === "string" ? payload : { ...payload, ...normalize(payload) } }); };
@@ -311,11 +317,13 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         byUser.set(userId, [...(byUser.get(userId) ?? []), ...permissions]);
       },
       send: async (content, { author = alice, channel, replyTo, attachments } = {}) => {
+        if (unlimited.has(author.id)) await CacheService.del(tenantKey(tenant.id, `ratelimit:discord:user:${author.id}`));
         const message = post(channelOf(channel), { ...author, bot: false }, content, { reference: replyTo?.id, attachments });
         client.emit(Events.MessageCreate, message);
         await settle();
         return message;
       },
+      unlimited: (user) => { unlimited.add(user.id); },
       click: async (message, button, { user = alice } = {}) => {
         const found = message.components.flatMap((row: any) => row.components ?? []).find((c: any) => c.label === button || c.custom_id === button);
         if (!found) throw new Error(`No button "${button}" on message ${message.id}`);
