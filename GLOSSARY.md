@@ -80,6 +80,30 @@ _Avoid_: Vault, file store, database
 A Discord community a bot has joined. Discord's own name for what its interface calls a server.
 _Avoid_: Server, channel group
 
+**Due date**:
+The day, and optionally the time, by which a task should be done. A task without one is not late. Set and changed by anyone in the task's channel, like the rest of the task.
+_Avoid_: Deadline (reserved for people's wording in minutes), ETA
+
+**Reminder**:
+A message the bot sends to a channel or a DM at a time a person chose, once or on a repeating schedule. It is created from chat and belongs to the person who asked. A task's due date never creates one.
+_Avoid_: Alarm, notification, scheduled message
+
+**Digest**:
+The bot's daily post in a channel an admin opted in, at that channel's chosen hour: the tasks due that day, the tasks already late, and nothing else. A day with nothing to report gets no post.
+_Avoid_: Report, standup, summary
+
+**Decision**:
+One thing the team settled, written down with its context and the reason, only when a person asks for it to be recorded. Memory keeps a one-line pointer to it; the decision itself is the record. The "Decided" part of minutes is not a decision until someone asks to record it.
+_Avoid_: Resolution, agreement, ADR (reserved for this repository's own records)
+
+**Note**:
+Text a person asked the bot to keep that is neither a task, a decision, nor minutes. It says what the person said, not what the bot concluded.
+_Avoid_: Memo, doc, memory
+
+**Memory**:
+What the bot keeps about a place to answer better later: the team's decisions, how people like to be addressed and to work, and the conventions of the place. One memory per tenant, per guild, and per channel; a channel's memory is not read in another channel. Conversation itself and private details are never memory.
+_Avoid_: Notes (notes are files a person asked for), context, history
+
 ## Relationships
 
 - A **Tenant** owns many **Bots**, **Profiles**, and **Git accounts**, and exactly one **Workspace**.
@@ -88,3 +112,7 @@ _Avoid_: Server, channel group
 - A **Git scope** narrows a **Bot**'s **Git accounts** per **Guild** and per channel; it can never add an account the bot does not have.
 - A **Playbook** requires some **Skills** and may load other **Playbooks**; it cannot start while a required skill is off.
 - An **Availability rule** narrows **Playbooks** and **Skills** for the tenant and per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too.
+- A **Reminder** belongs to the person who asked for it and to the channel or DM it will post in; it is not part of any task.
+- A **Digest** is per channel and reads that channel's tasks and their **Due dates**; it never reads another channel.
+- **Memory** lives in the **Workspace** at the tenant, guild, and channel level; the channel level is read only in that channel.
+- A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.

@@ -733,3 +733,21 @@ Planning only for now. The decisions are worked on the wayfinder map [#50](https
   - [x] Kept on purpose: brief tools are no longer offered when Workspace is off (issue-draft needs it, so they could not be used anyway); a Confirm refused because the tool is off keeps the change queued.
   - [x] Verification: `bun test` 302 pass, 0 fail. `bun run typecheck` reports only `apps/web` lines (291; the root config does not resolve the web `@/` alias, `apps/web/tsconfig.json` alone reports 0); web build passes. The PostgreSQL migration was read but not run (no local Postgres).
 - [ ] Track A of map #50 (slash commands, imported playbooks, playbook loading, state, git tools, who may use it, admin UI prototype) is still open.
+
+## Phase 29 — Administrative assistant: time, due dates, memory, reminders, digest, filing (spec #72)
+
+Harness review scored the bot 62/100 as an everyday administrative assistant (strong on safety, reply style, playbooks, eval; weak on time awareness, due dates, reminders, memory upkeep, filing, long conversations, router resilience). A grilling session settled every branch; the spec is issue [#72](https://github.com/yhagus/pachiware/issues/72) with one ready-for-agent sub-issue per block and native blocking edges.
+
+- [x] Glossary gained Due date, Reminder, Digest, Memory, Decision, Note, with their relationships.
+- [x] ADR 0006: schedules live in the database, not the Workspace (time-indexed runtime state; must run on one process with SQLite and no Redis; no cron strings).
+- [x] Test seams agreed: the Discord scenario harness (gains a fake clock, a scheduler tick, and permission grants) for every behaviour; the subprocess API scenario with stubbed `fetch` for the router and the new console endpoints. No web UI tests.
+- [x] Spec #72 and sub-issues published, all ready-for-agent: #80 block 1 (start), then #73 persona and memory, #74 history and summary, #75 schedules and Reminders, #78 Discord tools (all blocked by #80); #76 Digest (blocked by #75); #77 filing (blocked by #73); #79 live eval (blocked by all).
+- [ ] #80 Block 1: time zone and language settings, time line in the turn context, task `dueAt` and `createdBy`, task writes without Confirm, router timeout/retry/cache_control/temperature 0.2, capability regex removed.
+- [ ] #73 Block 2: seeded editable persona, `remember` and `forget`, compaction keeping the last 30 days, folder conventions enforced.
+- [ ] #74 Block 3: `readChannelHistory`, rolling summary rewritten when the history window steps.
+- [ ] #75 Block 4: `schedules` table, scheduler loop, Reminder tools, console Reminders page.
+- [ ] #76 Block 5: Digest channels in guild settings, daily post of due and late tasks.
+- [ ] #77 Block 6: attachments filed with PDF and DOCX text extraction, `saveAttachment`, Decision and Note conventions.
+- [ ] #78 Block 7: `sendMessage` (Confirm), `pinMessage`, `listMembers`.
+- [ ] #79 Block 8: live eval briefs and judge criteria for daily assistant behaviours.
+- Target after all blocks: about 90/100; the rest depends on the tenant's model, not the harness.
