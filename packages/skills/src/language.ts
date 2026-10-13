@@ -86,6 +86,10 @@ const en = {
   following: (playbook: string, thread: string) => `Following the ${playbook} playbook in <#${thread}>.`,
   // Confirmations
   toolOffSinceAsked: "This tool was turned off here after you asked, so I won't run it. An admin can turn it back on in the console.",
+  // Posting in another channel
+  postNoChannel: "I can't find that channel in this server.",
+  postNeedView: "You can't see that channel, so I won't post there.",
+  postBotMissing: (names: string, many: boolean) => `I can't post there: I'm missing the ${names} permission${many ? "s" : ""} in that channel. A server admin can grant ${many ? "them" : "it"}.`,
   // Minutes
   minutesOfThread: "Writing minutes of this whole thread.",
   minutesFromHere: "Writing minutes from this message to now.",
@@ -164,6 +168,9 @@ const id: typeof en = {
   commandGone: "Perintah ini sudah tidak tersedia.",
   following: (playbook, thread) => `Mengikuti playbook ${playbook} di <#${thread}>.`,
   toolOffSinceAsked: "Tool ini dimatikan di sini setelah kamu memintanya, jadi tidak saya jalankan. Admin bisa menyalakannya lagi di konsol.",
+  postNoChannel: "Channel itu tidak saya temukan di server ini.",
+  postNeedView: "Kamu tidak bisa melihat channel itu, jadi tidak saya kirim ke sana.",
+  postBotMissing: (names) => `Saya tidak bisa mengirim ke sana karena tidak punya izin ${names} di channel itu. Admin server bisa memberikannya.`,
   minutesOfThread: "Menulis notula seluruh thread ini.",
   minutesFromHere: "Menulis notula dari pesan ini sampai sekarang.",
   minutesDm: "Saya hanya menulis notula di channel dan thread server, bukan di DM.",

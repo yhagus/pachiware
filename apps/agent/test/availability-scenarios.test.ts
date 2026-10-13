@@ -37,7 +37,7 @@ discordScenario("a thread follows its parent channel's rules", async (s) => {
 discordScenario("a tenant with no rules is offered exactly the tools it was offered before", async (s) => {
   s.model.script("ok");
   await s.discord.send(`${s.discord.mention} hi`);
-  expect(s.model.tools[0]).toEqual(["archiveChannel", "assignTask", "createChannel", "createTask", "deleteFile", "describeBriefImages", "listChannels", "listFiles", "listTasks", "moveFile", "postBriefRound", "readFile", "readPlaybookFile", "recordBriefAnswers", "searchFiles", "setChannelTopic", "updateTaskStatus", "writeFile", "writeIssueDraft"]);
+  expect(s.model.tools[0]).toEqual(["archiveChannel", "assignTask", "createChannel", "createTask", "deleteFile", "describeBriefImages", "listChannels", "listFiles", "listMembers", "listTasks", "moveFile", "pinMessage", "postBriefRound", "readFile", "readPlaybookFile", "recordBriefAnswers", "searchFiles", "sendMessage", "setChannelTopic", "updateTaskStatus", "writeFile", "writeIssueDraft"]);
 });
 
 discordScenario("execution refuses a tool that is off here even when the model calls it", async (s) => {

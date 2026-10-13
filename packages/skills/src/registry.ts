@@ -165,6 +165,10 @@ export class SkillRegistry {
 
     // Guardrail: scope, role, size, rate, duplicate and confirmation, decided here and not by the model.
     const decision = GuardrailService.checkTool(skill, name, args, context);
+    const check = skill.checks?.[name];
+    if (check && (decision.allow || decision.kind === "confirmation_required")) {
+      try { await check(args, context); } catch (error: any) { return { toolCallId, name, success: false, error: error?.message || String(error) }; }
+    }
     if (!decision.allow) {
       const enforced = isEnforced(decision.kind);
       if (decision.kind === "confirmation_required") {

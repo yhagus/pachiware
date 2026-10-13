@@ -1,4 +1,23 @@
-import type { SkillModule, SkillContext } from "../types.js";
+import type { SkillModule, SkillContext, PostAccess } from "../types.js";
+import { listOf, replyLanguage, textIn } from "../language.js";
+
+/** "<#123>" or "123" → "123". */
+const channelIdOf = (input: string) => /^<#([^>\s]+)>$/.exec(input.trim())?.[1] ?? input.trim();
+const permissionName = (flag: string) => flag.replace(/([a-z])([A-Z])/g, "$1 $2");
+
+/** Throws the refusal, in the announcement's language, when the bot cannot post there or the asker cannot see it. */
+async function assertCanPost(args: { channelId: string; content: string }, ctx: SkillContext): Promise<string> {
+  const channelId = channelIdOf(args.channelId);
+  if (!ctx.discord) return channelId;
+  const access: PostAccess = await ctx.discord.postAccess(channelId, ctx.userId ?? "");
+  if (access.ok) return channelId;
+  const language = replyLanguage(args.content), t = textIn(language);
+  if (access.who === "unknown") throw new Error(t.postNoChannel);
+  if (access.who === "requester") throw new Error(t.postNeedView);
+  throw new Error(t.postBotMissing(listOf(access.missing.map(permissionName), language), access.missing.length > 1));
+}
+
+const MEMBER_LIMIT_DEFAULT = 10, MEMBER_LIMIT_MAX = 50;
 
 export const discordManagementSkill: SkillModule = {
   id: "discord_management",
@@ -12,6 +31,12 @@ export const discordManagementSkill: SkillModule = {
     archiveChannel: { effect: "danger", requiresConfirmation: true },
     listChannels: { effect: "read" },
     setChannelTopic: { effect: "write", requiresConfirmation: false },
+    pinMessage: { effect: "write", requiresConfirmation: false, requiredPermissions: ["ManageMessages"] },
+    listMembers: { effect: "read" },
+    sendMessage: { effect: "write", requiresConfirmation: true, requiredPermissions: [] },
+  },
+  checks: {
+    sendMessage: async (args: { channelId: string; content: string }, ctx: SkillContext) => { await assertCanPost(args, ctx); },
   },
   tools: [
     {
@@ -68,6 +93,42 @@ export const discordManagementSkill: SkillModule = {
           topic: { type: "string", description: "The new topic text" },
         },
         required: ["channelId", "topic"],
+      },
+    },
+    {
+      name: "pinMessage",
+      description: "Pins a message in a channel so it stays at the top. The person asking needs Manage Messages.",
+      parameters: {
+        type: "object",
+        properties: {
+          messageId: { type: "string", description: "Discord message ID" },
+          channelId: { type: "string", description: "Channel the message is in (default: the current channel)" },
+        },
+        required: ["messageId"],
+      },
+    },
+    {
+      name: "listMembers",
+      description: "Finds server members whose username or nickname starts with the query; returns id, display name, and roles.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Start of a username or nickname" },
+          limit: { type: "number", description: `Most results to return (default ${MEMBER_LIMIT_DEFAULT}, at most ${MEMBER_LIMIT_MAX})` },
+        },
+        required: ["query"],
+      },
+    },
+    {
+      name: "sendMessage",
+      description: "Posts a message in another channel of this server, after the person who asked presses Confirm. Nothing in it pings anyone.",
+      parameters: {
+        type: "object",
+        properties: {
+          channelId: { type: "string", description: "The target channel as a mention (<#id>) or its id" },
+          content: { type: "string", description: "The message to post, at most 2000 characters" },
+        },
+        required: ["channelId", "content"],
       },
     },
   ],
@@ -167,6 +228,32 @@ export const discordManagementSkill: SkillModule = {
         message: `Updated topic for channel ${result.id} successfully.`,
         topic: result.topic,
       };
+    },
+
+    pinMessage: async (args: { messageId: string; channelId?: string }, context: SkillContext) => {
+      const channelId = args.channelId || context.channelId;
+      if (!channelId) throw new Error("Say which channel the message is in.");
+      if (!context.discord) throw new Error("Discord client is not connected.");
+      const pinned = await context.discord.pinMessage({ channelId, messageId: args.messageId });
+      return { success: true, message: `Pinned message ${pinned.id} in channel ${pinned.channelId}.`, ...pinned };
+    },
+
+    listMembers: async (args: { query: string; limit?: number }, context: SkillContext) => {
+      const query = args.query?.trim();
+      if (!query) throw new Error("Give the start of a username or nickname to search for.");
+      if (!context.discord) throw new Error("Discord client is not connected.");
+      const limit = Math.min(MEMBER_LIMIT_MAX, Math.max(1, Math.floor(Number(args.limit) || MEMBER_LIMIT_DEFAULT)));
+      const members = await context.discord.listMembers({ query, limit });
+      return { success: true, count: members.length, members };
+    },
+
+    sendMessage: async (args: { channelId: string; content: string }, context: SkillContext) => {
+      const channelId = await assertCanPost(args, context);
+      if (!context.discord) {
+        return { success: false, simulated: true, message: `Discord client is not connected. [Simulated] Would post in channel ${channelId}.` };
+      }
+      const posted = await context.discord.sendMessage({ channelId, content: args.content });
+      return { success: true, message: `Posted in <#${posted.channelId}>.`, messageId: posted.id, url: posted.url };
     },
   },
 };
