@@ -69,7 +69,11 @@ export interface Tenant { id: string; name: string; slug: string; status: string
 export interface Bot { id: string; tenantId: string; name: string; platform: string; clientId: string | null; guildIds: string[]; profileId: string | null; gitAccountIds: string[]; isEnabled: boolean; hasToken: boolean; connectionStatus: string; lastError: string | null; lastConnectedAt: string | null; }
 export interface GuildChannel { id: string; name: string; type: "text" | "voice" | "announcement" | "stage" | "forum"; category: string | null; }
 export interface Guild { id: string; name: string; icon: string | null; memberCount: number; allowed: boolean; channels: GuildChannel[]; }
-export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; }
+export type Language = "id" | "en";
+export const LANGUAGES: { id: Language; name: string }[] = [{ id: "id", name: "Indonesian" }, { id: "en", name: "English" }];
+/** The tenant's defaults; a guild overrides them with its own, null meaning "the tenant's". */
+export interface TenantSettings { timezone: string; language: Language; }
+export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; }
 export interface GitRule { gitAccountId: string; repoPatterns: string[]; }
 export interface GuildGit { accounts: { id: string; name: string; provider: "github" | "gitlab"; username: string }[]; server: GitRule[]; channels: Record<string, GitRule[]>; }
 export interface Conversation { id: string; channelId: string | null; userId: string | null; createdAt: string; lastMessageAt: string | null; messageCount: number; }
@@ -117,6 +121,8 @@ export const api = {
   getTenant: (id: string) => fetchJSON<{ tenant: Tenant }>(`/api/admin/tenants/${id}`),
   createTenant: (name: string, slug?: string, apiKeyId?: string) => fetchJSON<{ tenant: Tenant }>("/api/admin/tenants", json("POST", { name, slug: slug || undefined, apiKeyId: apiKeyId || undefined })),
   updateTenant: (id: string, data: { name?: string; status?: "active" | "suspended" }) => fetchJSON<{ tenant: Tenant }>(`/api/admin/tenants/${id}`, json("PATCH", data)),
+  getTenantSettings: (id: string) => fetchJSON<{ settings: TenantSettings }>(`/api/admin/tenants/${id}/settings`),
+  saveTenantSettings: (id: string, data: Partial<TenantSettings>) => fetchJSON<{ settings: TenantSettings }>(`/api/admin/tenants/${id}/settings`, json("PUT", data)),
 
   listApiKeys: () => fetchJSON<{ apiKeys: ApiKey[] }>("/api/admin/api-keys"),
   createApiKey: (name: string) => fetchJSON<{ raw: string; keyId: string }>("/api/admin/api-keys", json("POST", { name })),

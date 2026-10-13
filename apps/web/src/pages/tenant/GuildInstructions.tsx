@@ -5,9 +5,12 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { api, type Guild, type GuildConfig } from "@/lib/api";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TimezoneInput } from "@/components/TimezoneInput";
+import { api, LANGUAGES, type Guild, type GuildConfig, type Language } from "@/lib/api";
 
 const MAX = 8000;
+const INHERIT = "tenant";
 
 export function GuildInstructions({ botId, guild, onClose }: { botId: string; guild: Guild | null; onClose: () => void }) {
   const [cfg, setCfg] = useState<GuildConfig | null>(null);
@@ -62,6 +65,24 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
                   <p className="text-xs text-muted-foreground">A mention opens a thread, and the conversation continues there without mentions.</p>
                 </div>
                 <Switch id="guild-threads" checked={cfg.useThreads} onCheckedChange={(v) => setCfg({ ...cfg, useThreads: v })} />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="guild-tz">Time zone</Label>
+                  <TimezoneInput id="guild-tz" value={cfg.timezone ?? ""} placeholder="Tenant default" onChange={(v) => setCfg({ ...cfg, timezone: v || null })} />
+                  <p className="text-xs text-muted-foreground">What "today" and "Friday" mean here. Empty keeps the tenant's.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="guild-lang">Language</Label>
+                  <Select value={cfg.language ?? INHERIT} onValueChange={(v) => setCfg({ ...cfg, language: v === INHERIT ? null : (v as Language) })}>
+                    <SelectTrigger id="guild-lang" className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={INHERIT}>Tenant default</SelectItem>
+                      {LANGUAGES.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">For posts the bot writes on its own. Replies still follow each message.</p>
+                </div>
               </div>
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">Always respond in</legend>
