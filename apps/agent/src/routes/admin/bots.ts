@@ -7,6 +7,7 @@ import { CacheService } from "../../cache/redis.js";
 import { object, string, stringArray, placeSettings } from "../validation.js";
 import { botFields, assertProfile, assertGitAccounts, botsOut } from "../v1/bots.js";
 import { botAvailabilityRoutes } from "../availability.js";
+import { botReminderRoutes } from "../reminders.js";
 export const botAdminRoutes = new Hono();
 botAdminRoutes.post("/tenants/:id/bots", async (c) => {
   if (!await getTenantById(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
@@ -93,6 +94,7 @@ async function putScope(c: any, channelId: string) {
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/git", (c) => putScope(c, ""));
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/channels/:channelId/git", (c) => putScope(c, c.req.param("channelId")!));
 botAvailabilityRoutes(botAdminRoutes, "/bots/:botId", "botId");
+botReminderRoutes(botAdminRoutes, "/bots/:botId", "botId");
 // Only conversations the bot itself handled (mentions, DMs, its own threads) are stored.
 botAdminRoutes.get("/bots/:botId/conversations", async (c) => {
   const channelId = c.req.query("channelId");
