@@ -120,6 +120,7 @@ const en = {
   minutesFooter: "Reply to correct",
   // Reminders
   reminder: (text: string) => `Reminder: ${text}`,
+  openTasks: "Open tasks (status | due | owner | id | title):",
   // Channel history
   historyNoChannel: "I can't find that channel.",
   historyDm: "I read channel history only in server channels and threads, not in DMs.",
@@ -215,6 +216,7 @@ const id: typeof en = {
   minutesCutHours: (n, when) => `Dipotong ke ${n} jam terakhir: semua sebelum ${when} tidak disertakan.`,
   minutesFooter: "Balas untuk mengoreksi",
   reminder: (text) => `Pengingat: ${text}`,
+  openTasks: "Tugas terbuka (status | due | owner | id | title):",
   historyNoChannel: "Channel itu tidak ketemu.",
   historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
   historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,
