@@ -64,7 +64,14 @@ export interface DiscordClientAdapter {
     channelId: string;
     topic: string;
   }): Promise<{ id: string; topic: string; success: boolean }>;
+
+  pinMessage(args: { channelId: string; messageId: string }): Promise<{ id: string; channelId: string }>;
+
+  /** Discord's member search: people whose username or nickname starts with `query`; no privileged intent. */
+  listMembers(args: { query: string; limit: number }): Promise<DiscordMemberInfo[]>;
 }
+
+export interface DiscordMemberInfo { id: string; displayName: string; roles: string[] }
 
 /** What calling a tool can do; EFFECT_MEANING says what each covers. */
 export type Effect = "read" | "write" | "danger";
@@ -89,6 +96,7 @@ export interface ToolPolicy {
   /** Calls are capped by a playbook's own read budget, so they skip the per-user rate limit (the tenant limit still applies). */ metered?: boolean;
   /** One of the skill's groups; set for every tool of a skill that declares groups. */ group?: string;
   /** The playbook this tool serves; it is available exactly when that playbook is. */ playbook?: string;
+  /** Any-of Discord permission names this tool needs instead of the skill's. */ requiredPermissions?: string[];
 }
 
 export interface SkillContext {
