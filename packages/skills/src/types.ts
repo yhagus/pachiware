@@ -69,9 +69,16 @@ export interface DiscordClientAdapter {
 
   /** Discord's member search: people whose username or nickname starts with `query`; no privileged intent. */
   listMembers(args: { query: string; limit: number }): Promise<DiscordMemberInfo[]>;
+
+  /** Whether the bot may post in a channel and the requester may see it; "unknown" covers a channel outside this guild or a DM. */
+  postAccess(channelId: string, requesterId: string): Promise<PostAccess>;
+  /** Posts plain text with no pings. */
+  sendMessage(args: { channelId: string; content: string }): Promise<{ id: string; channelId: string; url: string }>;
 }
 
 export interface DiscordMemberInfo { id: string; displayName: string; roles: string[] }
+
+export type PostAccess = { ok: true } | { ok: false; who: "requester" | "bot" | "unknown"; missing: string[] };
 
 /** What calling a tool can do; EFFECT_MEANING says what each covers. */
 export type Effect = "read" | "write" | "danger";
@@ -96,7 +103,7 @@ export interface ToolPolicy {
   /** Calls are capped by a playbook's own read budget, so they skip the per-user rate limit (the tenant limit still applies). */ metered?: boolean;
   /** One of the skill's groups; set for every tool of a skill that declares groups. */ group?: string;
   /** The playbook this tool serves; it is available exactly when that playbook is. */ playbook?: string;
-  /** Any-of Discord permission names this tool needs instead of the skill's. */ requiredPermissions?: string[];
+  /** Replaces the skill's requiredPermissions for this tool; empty means anyone may ask. */ requiredPermissions?: string[];
 }
 
 export interface SkillContext {
@@ -128,6 +135,8 @@ export interface SkillModule {
   description: string;
   tools: ToolDefinition[];
   handlers: Record<string, ToolHandler>;
+  /** Runs before Confirm is offered and again when the confirmed run starts; throws to refuse the call. */
+  checks?: Record<string, ToolHandler>;
   /** What the skill lets the bot do, e.g. "tasks"; used to tell whether a request can be served at all. */
   capabilities?: string[];
   /** Default effect and confirmation for tools without an entry in toolPolicy. Default: read. */
