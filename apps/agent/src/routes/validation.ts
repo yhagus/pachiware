@@ -1,5 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 import { canonicalTimezone, isLanguage, type Language } from "@pachiware/skills";
+import type { DigestChannel } from "@pachiware/db";
 
 export type PlaceSettings = { timezone?: string | null; language?: Language | null };
 /** `timezone` (canonical IANA name) and `language` from a settings body; `nullable` lets a guild clear its override. */
@@ -17,6 +18,21 @@ export function placeSettings(body: Record<string, any>, nullable = false): Plac
     if (body.language === null && nullable) out.language = null;
     else if (!isLanguage(body.language)) throw new HTTPException(400, { message: 'language must be "id" or "en"' });
     else out.language = body.language;
+  }
+  return out;
+}
+
+export const MAX_DIGEST_CHANNELS = 50;
+/** `digestChannels` from a guild settings body: `{ channelId, hour }` entries, the hour a whole number from 0 to 23, one entry per channel. */
+export function digestChannels(value: unknown): DigestChannel[] {
+  if (!Array.isArray(value) || value.length > MAX_DIGEST_CHANNELS) throw new HTTPException(400, { message: `digestChannels must be an array of at most ${MAX_DIGEST_CHANNELS} entries` });
+  const out: DigestChannel[] = [];
+  for (const entry of value) {
+    const channelId = entry && typeof entry === "object" && typeof entry.channelId === "string" ? entry.channelId.trim() : "";
+    if (!channelId) throw new HTTPException(400, { message: "each digestChannels entry needs a channelId" });
+    if (!Number.isInteger(entry.hour) || entry.hour < 0 || entry.hour > 23) throw new HTTPException(400, { message: "each digestChannels entry needs an hour from 0 to 23" });
+    if (out.some((e) => e.channelId === channelId)) throw new HTTPException(400, { message: "a channel can hold one Digest" });
+    out.push({ channelId, hour: entry.hour });
   }
   return out;
 }

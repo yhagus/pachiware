@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { eq, and, or, isNull, ne, sql, inArray } from "drizzle-orm";
-import { db, tenants, apiKeys, bots, guildConfigs, gitAccounts, botGitAccounts, gitScopes, availabilityRules, agentsConfig, skills, tenantSkills, activeDialect } from "./index.js";
+import { db, tenants, apiKeys, bots, guildConfigs, gitAccounts, botGitAccounts, gitScopes, availabilityRules, agentsConfig, skills, tenantSkills, activeDialect, type DigestChannel } from "./index.js";
 import { seedTenant } from "./seed.js";
 import { encryptSecret, decryptSecret, hashApiKey, generateApiKey } from "./crypto.js";
 
@@ -104,7 +104,7 @@ export async function deleteBot(id: string) {
   await db.delete(availabilityRules).where(eq(availabilityRules.botId, id));
 }
 
-export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null };
+export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: DigestChannel[] };
 export async function getGuildConfig(botId: string, guildId: string) {
   return (await db.select().from(guildConfigs).where(and(eq(guildConfigs.botId, botId), eq(guildConfigs.guildId, guildId))).limit(1))[0] || null;
 }

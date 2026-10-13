@@ -1,10 +1,9 @@
 import { Hono } from "hono";
-import { db, bots, conversations, messages, createBot, updateBot, deleteBot, getTenantById, upsertGuildConfig, setBotGitAccounts, listBotGitAccounts, listGitScopes, replaceGitScopes, eq } from "@pachiware/db";
+import { db, bots, conversations, messages, createBot, updateBot, deleteBot, getTenantById, setBotGitAccounts, listBotGitAccounts, listGitScopes, replaceGitScopes, eq, type GuildConfigInput } from "@pachiware/db";
 import { ne, and, or, desc, sql } from "drizzle-orm";
 import { discordBotManager } from "../../discord/client.js";
-import { guildCacheKey, loadGuildSettings } from "../../loop/prompt.js";
-import { CacheService } from "../../cache/redis.js";
-import { object, string, stringArray, placeSettings } from "../validation.js";
+import { loadGuildSettings, saveGuildSettings } from "../../loop/prompt.js";
+import { object, string, stringArray, placeSettings, digestChannels } from "../validation.js";
 import { botFields, assertProfile, assertGitAccounts, botsOut } from "../v1/bots.js";
 import { botAvailabilityRoutes } from "../availability.js";
 import { botReminderRoutes } from "../reminders.js";
@@ -50,7 +49,7 @@ botAdminRoutes.get("/bots/:botId/guilds", (c) => {
   const guilds = discordBotManager.getGuilds(c.req.param("botId")!);
   return c.json({ success: true, connected: guilds !== null, guilds: guilds ?? [] });
 });
-const guildSettingsOut = (s: Awaited<ReturnType<typeof loadGuildSettings>>) => ({ systemPrompt: s.systemPrompt ?? "", useThreads: s.useThreads, alwaysChannelIds: s.alwaysChannelIds, timezone: s.timezone, language: s.language });
+const guildSettingsOut = (s: Awaited<ReturnType<typeof loadGuildSettings>>) => ({ systemPrompt: s.systemPrompt ?? "", useThreads: s.useThreads, alwaysChannelIds: s.alwaysChannelIds, timezone: s.timezone, language: s.language, digestChannels: s.digestChannels });
 botAdminRoutes.get("/bots/:botId/guilds/:guildId/config", async (c) => {
   const [bot] = await db.select().from(bots).where(eq(bots.id, c.req.param("botId")!)).limit(1);
   return c.json({ success: true, config: guildSettingsOut(await loadGuildSettings(bot.tenantId, bot.id, c.req.param("guildId")!)) });
@@ -58,7 +57,7 @@ botAdminRoutes.get("/bots/:botId/guilds/:guildId/config", async (c) => {
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/config", async (c) => {
   const [bot] = await db.select().from(bots).where(eq(bots.id, c.req.param("botId")!)).limit(1);
   const body = object(await c.req.json(), "body"), guildId = c.req.param("guildId")!;
-  const input: Parameters<typeof upsertGuildConfig>[3] = {};
+  const input: GuildConfigInput = {};
   if (body.systemPrompt !== undefined) {
     if (typeof body.systemPrompt !== "string" || body.systemPrompt.length > 8000) return c.json({ error: "systemPrompt must be a string of at most 8000 characters" }, 400);
     input.systemPrompt = body.systemPrompt.trim() || null;
@@ -68,10 +67,9 @@ botAdminRoutes.put("/bots/:botId/guilds/:guildId/config", async (c) => {
     input.useThreads = body.useThreads;
   }
   if (body.alwaysChannelIds !== undefined) input.alwaysChannelIds = stringArray(body.alwaysChannelIds, "alwaysChannelIds").slice(0, 50);
+  if (body.digestChannels !== undefined) input.digestChannels = digestChannels(body.digestChannels);
   Object.assign(input, placeSettings(body, true));
-  await upsertGuildConfig(bot.tenantId, bot.id, guildId, input);
-  await CacheService.del(guildCacheKey(bot.tenantId, bot.id, guildId));
-  return c.json({ success: true, config: guildSettingsOut(await loadGuildSettings(bot.tenantId, bot.id, guildId)) });
+  return c.json({ success: true, config: guildSettingsOut(await saveGuildSettings(bot.tenantId, bot.id, guildId, input)) });
 });
 // Git access per server (channelId "") and per channel: which attached accounts are on, and which repos (wildcard patterns).
 const scopesOut = (rows: any[], channelId: string) => rows.filter((r) => r.channelId === channelId).map((r) => ({ gitAccountId: r.gitAccountId, repoPatterns: r.repoPatterns }));

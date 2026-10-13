@@ -113,7 +113,7 @@ Credential config fields are `openaiApiKeyEncrypted`, `anthropicApiKeyEncrypted`
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/admin/bots/:botId/guilds/:guildId/config` | `{systemPrompt, useThreads, alwaysChannelIds, timezone, language}`; defaults when unset (`timezone` and `language` null mean the tenant's) |
-| PUT | `/api/admin/bots/:botId/guilds/:guildId/config` | Partial update. `systemPrompt` ≤ 8000 chars (empty clears), `useThreads` boolean, `alwaysChannelIds` string[] (max 50), `timezone` IANA name or null, `language` `id`, `en` or null |
+| GET | `/api/admin/bots/:botId/guilds/:guildId/config` | `{systemPrompt, useThreads, alwaysChannelIds, timezone, language, digestChannels}`; defaults when unset (`timezone` and `language` null mean the tenant's) |
+| PUT | `/api/admin/bots/:botId/guilds/:guildId/config` | Partial update. `systemPrompt` ≤ 8000 chars (empty clears), `useThreads` boolean, `alwaysChannelIds` string[] (max 50), `timezone` IANA name or null, `language` `id`, `en` or null, `digestChannels` `[{channelId, hour}]` (hour 0 to 23, one entry per channel, max 50). Saving keeps one daily `digest` schedule row per entry in the guild's zone and cancels the rows of entries removed |
 
 `systemPrompt` is appended to the tenant prompt under "Server instructions" for that server only. The bot answers DMs, its own threads, `alwaysChannelIds` channels, and @mentions or replies to it. With `useThreads`, a mention opens a thread and the conversation continues there without mentions. Guild conversations are shared per channel or thread, and turns are prefixed with the speaker's name.
