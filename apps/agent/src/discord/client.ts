@@ -3,6 +3,7 @@ import { db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, li
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
+import { rollSummary } from "../loop/summary.js";
 import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
@@ -344,6 +345,9 @@ export class DiscordBotManager {
           if (p) await target.send(confirmMessage(p, actor.id));
         }
       }
+      clearInterval(interval);
+      // Still inside this conversation's serialized job, so the next turn reads the rewritten summary.
+      if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});
     } catch { await send(t.failed).catch(() => {}); }
     finally { clearInterval(interval); }
   }

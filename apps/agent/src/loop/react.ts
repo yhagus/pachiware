@@ -5,6 +5,7 @@ import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeI
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
+import { summaryOf, summaryMessage, type ConversationSummary } from "./summary.js";
 
 export interface ReActInput {
   tenantId: string;
@@ -26,6 +27,8 @@ export interface ReActOutput {
   toolCallsExecuted: { call: ToolCall; result: ToolResult }[];
   iterations: number;
   imagesRejected?: boolean;
+  /** Where the history window started on this turn; the caller compares it after storing the turn to see whether the window stepped. */
+  historyOffset: number;
 }
 
 const MAX_TOOL_RESULT = 12000;
@@ -43,9 +46,11 @@ export class AgentReActLoop {
 
     // 1. Ensure conversation exists in PostgreSQL
     let convId = input.conversationId;
+    let summary: ConversationSummary | null = null;
     if (convId) {
       const [owned] = await db.select().from(conversations).where(and(eq(conversations.id, convId), eq(conversations.tenantId, input.tenantId))).limit(1);
       if (!owned) throw new Error("Conversation not found");
+      summary = summaryOf(owned.metadata);
     }
     if (!convId) {
       const [newConv] = await db
@@ -71,7 +76,7 @@ export class AgentReActLoop {
     if (!verdict.decision.allow && isEnforced(verdict.decision.kind) && !waived) {
       const auditCtx = { db, tenantId: input.tenantId, botId: input.botId };
       await audit(auditCtx, verdict.decision.kind === "prompt_injection" ? "prompt_injection_detected" : "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", platform: input.context.platform });
-      return { conversationId: convId, reply: verdict.decision.message, toolCallsExecuted, iterations: 0 };
+      return { conversationId: convId, reply: verdict.decision.message, toolCallsExecuted, iterations: 0, historyOffset: 0 };
     }
     else if (!verdict.decision.allow) await audit({ db, tenantId: input.tenantId, botId: input.botId }, "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", observed: true });
 
@@ -83,17 +88,20 @@ export class AgentReActLoop {
     // 3. Load previous messages from DB (windowed in steps so the prompt prefix stays cacheable)
     const scope = and(eq(messagesTable.conversationId, convId), eq(messagesTable.tenantId, input.tenantId));
     const [{ n: total }] = await db.select({ n: sql<number>`count(*)` }).from(messagesTable).where(scope);
+    const windowOffset = historyOffset(Number(total));
     const existingDbMessages = dropLeadingOrphans<Message>(await db
       .select()
       .from(messagesTable)
       .where(scope)
       .orderBy(messagesTable.createdAt)
-      .offset(historyOffset(Number(total)))
+      .offset(windowOffset)
       .limit(HISTORY_SIZE + HISTORY_STEP) as Message[]);
 
     const messageHistory: ChatMessage[] = [
       { role: "system", content: systemPrompt },
     ];
+    // Before the stored rows, and rewritten only when the window steps, so the prefix stays cacheable in between; a playbook thread's own file is its record.
+    if (summary && !input.context.playbook) messageHistory.push(summaryMessage(summary));
 
     for (const msg of existingDbMessages) {
       messageHistory.push({
@@ -246,6 +254,7 @@ export class AgentReActLoop {
       toolCallsExecuted,
       iterations,
       imagesRejected,
+      historyOffset: windowOffset,
     };
   }
 }
