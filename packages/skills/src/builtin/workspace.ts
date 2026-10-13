@@ -6,8 +6,17 @@ import { postBriefRound, postBriefRoundTool } from "../brief.js";
 import { recordBriefAnswers, recordBriefAnswersTool, writeIssueDraft, writeIssueDraftTool } from "../issueDrafts.js";
 import { describeBriefImages, describeBriefImagesTool } from "../briefImages.js";
 import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
+import { forget, memoryScope, remember } from "../workspace/memory.js";
 
 const pathArg = { type: "string", description: 'Path starting with a folder name, e.g. "channel/notes/ideas.md"' };
+const scopeArg = { type: "string", enum: ["channel", "guild"], description: 'Whose Memory: "channel" for this channel, "guild" for the whole server (needs Manage Server). In a DM both mean the person\'s own Memory.' };
+
+/** Guild Memory is read in every channel, so only someone who can manage the server may change it; the check is in the skill, not the prompt. */
+function memoryScopeFor(ctx: SkillContext, requested: unknown) {
+  const scope = memoryScope(ctx, requested);
+  if (scope === "guild" && !ctx.auth?.permissions.some((p) => p === "Administrator" || p === "ManageGuild")) throw new Error("Guild Memory can only be changed by someone with Manage Server.");
+  return scope;
+}
 
 /** A hidden \`.name\` file beside the id folder lets a person tell folders apart; it is best effort and never shown to the agent. */
 export async function labelFolder(ctx: SkillContext, root: string) {
@@ -29,7 +38,7 @@ export const workspaceSkill: SkillModule = {
   description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
   capabilities: ["workspace"],
   allowedScopes: ["tenant"],
-  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, searchFiles: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true } },
+  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, searchFiles: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true }, remember: { effect: "write", requiresConfirmation: false }, forget: { effect: "write", requiresConfirmation: false } },
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "readFile", description: "Reads a Markdown file from the Workspace.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
@@ -38,6 +47,8 @@ export const workspaceSkill: SkillModule = {
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "searchFiles", description: "Finds files by name or text, case-insensitive, under a folder.", parameters: { type: "object", properties: { query: { type: "string", description: "Text to find" }, path: pathArg }, required: ["query", "path"] } },
     { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
+    { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name; say nothing about it unless asked. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { scope: scopeArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["scope", "text"] } },
+    { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { scope: scopeArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["scope", "match"] } },
     postBriefRoundTool,
     recordBriefAnswersTool,
     writeIssueDraftTool,
@@ -74,6 +85,20 @@ export const workspaceSkill: SkillModule = {
       const content = await readPlaybookFile(ctx.tenantId, args.playbook, args.path);
       if (content === null) throw new Error(`Playbook file "${args.playbook}/${args.path}" not found.`);
       return { content };
+    },
+    remember: async (args, ctx) => {
+      const text = typeof args.text === "string" ? args.text.replace(/\s+/g, " ").trim() : "";
+      if (!text) throw new Error("text is required");
+      const scope = memoryScopeFor(ctx, args.scope);
+      const line = await remember(ctx, scope, text, ctx.userName || ctx.userId || "unknown");
+      await labelFolder(ctx, scope);
+      return { scope, line };
+    },
+    forget: async (args, ctx) => {
+      const match = typeof args.match === "string" ? args.match.trim() : "";
+      if (!match) throw new Error("match is required");
+      const scope = memoryScopeFor(ctx, args.scope);
+      return { scope, removed: await forget(ctx, scope, match) };
     },
     postBriefRound,
     recordBriefAnswers,
