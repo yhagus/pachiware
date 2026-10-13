@@ -33,6 +33,7 @@ export const discordManagementSkill: SkillModule = {
     setChannelTopic: { effect: "write", requiresConfirmation: false },
     pinMessage: { effect: "write", requiresConfirmation: false, requiredPermissions: ["ManageMessages"] },
     listMembers: { effect: "read" },
+    readChannelHistory: { effect: "read" },
     sendMessage: { effect: "write", requiresConfirmation: true, requiredPermissions: [] },
   },
   checks: {
@@ -129,6 +130,18 @@ export const discordManagementSkill: SkillModule = {
           content: { type: "string", description: "The message to post, at most 2000 characters" },
         },
         required: ["channelId", "content"],
+      },
+    },
+    {
+      name: "readChannelHistory",
+      description: "Reads what was said in a channel or thread during the last 24 hours (500 messages at most), oldest first, with speaker and time. Only channels the person asking can read themselves. Defaults to the channel the conversation is in.",
+      parameters: {
+        type: "object",
+        properties: {
+          channelId: { type: "string", description: "The channel or thread to read, as an id or a <#id> mention; omit for the current channel" },
+          since: { type: "string", description: "Only messages at or after this ISO 8601 date-time; never earlier than 24 hours ago" },
+          limit: { type: "number", description: "Keep only the latest N messages (default and maximum 500)" },
+        },
       },
     },
   ],
@@ -254,6 +267,16 @@ export const discordManagementSkill: SkillModule = {
       }
       const posted = await context.discord.sendMessage({ channelId, content: args.content });
       return { success: true, message: `Posted in <#${posted.channelId}>.`, messageId: posted.id, url: posted.url };
+    },
+
+    readChannelHistory: async (
+      args: { channelId?: string; since?: string; limit?: number },
+      context: SkillContext
+    ) => {
+      const channelId = args.channelId?.trim().replace(/^<#([^>]+)>$/, "$1") || context.channelId;
+      if (!channelId) throw new Error("Name a channel to read: this conversation is not in one.");
+      if (!context.discord || !context.userId) throw new Error("Channel history can only be read from Discord.");
+      return context.discord.readChannelHistory({ channelId, requesterId: context.userId, since: args.since, limit: args.limit });
     },
   },
 };
