@@ -75,6 +75,8 @@ export interface DiscordClientAdapter {
   postAccess(channelId: string, requesterId: string): Promise<PostAccess>;
   /** Posts plain text with no pings. */
   sendMessage(args: { channelId: string; content: string }): Promise<{ id: string; channelId: string; url: string }>;
+  /** One message of a channel with its attachments' metadata; null when the channel or the message is unknown. */
+  fetchMessage(args: { channelId: string; messageId: string }): Promise<DiscordMessageInfo | null>;
   /** A channel's last 24 hours after the access check minutes use; throws the refusal text when the asker or the bot may not read it. */
   readChannelHistory(args: {
     channelId: string;
@@ -98,6 +100,9 @@ export interface ChannelHistory {
 }
 
 export interface DiscordMemberInfo { id: string; displayName: string; roles: string[] }
+
+export interface DiscordAttachmentInfo { id: string; name: string; url: string; size: number; contentType: string | null }
+export interface DiscordMessageInfo { id: string; channelId: string; authorId: string; attachments: DiscordAttachmentInfo[] }
 
 export type PostAccess = { ok: true } | { ok: false; who: "requester" | "bot" | "unknown"; missing: string[] };
 

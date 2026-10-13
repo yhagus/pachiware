@@ -57,3 +57,50 @@ discordScenario("a file sent in a DM is filed under the DM's folder", async (s) 
   expect(turnOf(s)).toBe("my notes [file: notes.md saved as dm/files/notes.md]");
   expect(await s.workspace.read("dms/user-alice/files/notes.md")).toBe("# Notes\n");
 });
+
+const saved = (turn: any) => (turn.toolResults[0].error ? `refused: ${turn.toolResults[0].error}` : `Saved as ${turn.toolResults[0].path}`);
+
+discordScenario("in an always-on channel a file posted to colleagues is left alone; saveAttachment on that message files it", async (s) => {
+  await s.guildSettings({ alwaysChannelIds: ["channel-1"] });
+  const report = attachment(s, "report.pdf", pdf(2048), { contentType: "application/pdf" });
+  s.model.script("Seen.");
+  const post = await s.discord.send("the report for Friday", { attachments: [report] });
+  expect(turnOf(s)).toBe(`Alice: the report for Friday [file: report.pdf (message ${post.id})]`);
+  expect(s.http.requests).toEqual([]);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual([]);
+
+  s.model.script({ tool: "saveAttachment", args: { messageId: post.id } }, saved);
+  await s.discord.send(`${s.discord.mention} save that file`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Saved as channel/files/report.pdf");
+  expect(s.http.requests.map((r) => r.url)).toEqual([report.url]);
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report.pdf")).toBe(new TextDecoder().decode(pdf(2048)));
+});
+
+discordScenario("saveAttachment picks the attachment by name, keeps a taken name beside the first, and refuses the same files the turn would", async (s) => {
+  await s.guildSettings({ alwaysChannelIds: ["channel-1"], language: "en" });
+  const first = attachment(s, "report.pdf", pdf(2048), { contentType: "application/pdf" });
+  const second = attachment(s, "report.pdf", pdf(100), { contentType: "application/pdf" });
+  const notes = attachment(s, "notes.md", null, { contentType: "text/markdown", size: 40 });
+  const tool = attachment(s, "setup.exe", null, { contentType: "application/octet-stream", size: 500 });
+  s.model.script("Filed.", "Seen.");
+  await s.discord.send(`${s.discord.mention} v1`, { attachments: [first] });
+  const post = await s.discord.send("v2, my notes and the installer", { attachments: [second, notes, tool] });
+
+  s.model.script({ tool: "saveAttachment", args: { messageId: post.id } }, saved);
+  await s.discord.send(`${s.discord.mention} save the files from that message`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("refused: That message holds several files: report.pdf, notes.md. Say which one.");
+
+  s.model.script({ tool: "saveAttachment", args: { messageId: post.id, name: "report.pdf" } }, saved);
+  await s.discord.send(`${s.discord.mention} save the report`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Saved as channel/files/report-2.pdf");
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report-2.pdf")).toBe(new TextDecoder().decode(pdf(100)));
+
+  s.model.script({ tool: "saveAttachment", args: { messageId: post.id, name: "setup.exe" } }, saved);
+  await s.discord.send(`${s.discord.mention} and the installer`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("refused: not filed: not a PDF, DOCX, XLSX, CSV, MD or TXT");
+
+  s.model.script({ tool: "saveAttachment", args: { messageId: "999999" } }, saved);
+  await s.discord.send(`${s.discord.mention} save the file from message 999999`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("refused: I can't find that message in this channel.");
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual(["guilds/guild-1/channels/channel-1/files/report-2.pdf", "guilds/guild-1/channels/channel-1/files/report.pdf"]);
+});
