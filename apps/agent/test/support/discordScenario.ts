@@ -228,6 +228,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { createTenant, createBot, upsertGuildConfig } = await import("../../../../packages/db/src/tenancy.ts");
   await runMigrations(); await runSeed();
   const { llmRouter } = await import("../../src/llm/router.ts");
+  const { retryPolicy } = await import("../../src/llm/retry.ts");
+  retryPolicy.sleep = async () => {};
   const { DiscordBotManager } = await import("../../src/discord/client.ts");
   const { CacheService, tenantKey } = await import("../../src/cache/redis.ts");
   const { guildCacheKey } = await import("../../src/loop/prompt.ts");
