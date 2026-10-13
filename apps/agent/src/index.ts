@@ -2,6 +2,7 @@ import { createServer } from "./server.js";
 import { config } from "./config.js";
 import { redis } from "./cache/redis.js";
 import { discordBotManager } from "./discord/client.js";
+import { startScheduler } from "./scheduler.js";
 import { runMigrations, runSeed } from "@pachiware/db";
 
 async function main() {
@@ -28,6 +29,7 @@ async function main() {
   discordBotManager.startAll().catch((err) => {
     console.warn("Notice during Discord bot startup:", err.message);
   });
+  startScheduler(discordBotManager);
 
   // 4. Start Hono Web Server via Bun.serve
   const app = createServer();

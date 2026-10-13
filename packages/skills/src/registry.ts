@@ -4,6 +4,7 @@ import { taskManagementSkill } from "./builtin/tasks.js";
 import { discordManagementSkill } from "./builtin/discord.js";
 import { gitRepositorySkill } from "./builtin/git.js";
 import { workspaceSkill } from "./builtin/workspace.js";
+import { remindersSkill } from "./builtin/reminders.js";
 import { GuardrailService, audit, isEnforced, policyOf, actionKey, markDone, redact, guardrailMode } from "./guardrails.js";
 import { queueAction } from "./gitConfirm.js";
 import { resolveAvailability, availabilityPlace, type Availability, type Place } from "./availability.js";
@@ -28,6 +29,7 @@ export class SkillRegistry {
     this.registerSkill(discordManagementSkill);
     this.registerSkill(gitRepositorySkill);
     this.registerSkill(workspaceSkill);
+    this.registerSkill(remindersSkill);
   }
 
   /**

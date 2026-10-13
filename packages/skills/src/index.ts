@@ -26,3 +26,5 @@ export * from "./builtin/git.js";
 export * from "./git.js";
 export * from "./language.js";
 export * from "./clock.js";
+export * from "./schedule.js";
+export * from "./builtin/reminders.js";

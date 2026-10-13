@@ -66,6 +66,8 @@ export interface Scenario {
   guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null }): Promise<void>;
   /** The clock the time context, task dates and the scheduler read. `set` pins it (ms, Date, or ISO text); `advance` moves it forward. */
   clock: { set(at: number | string | Date): void; advance(ms: number): void; now(): number };
+  /** One scheduler pass at the fake clock's time, as the agent's minute loop would run it; returns once every post has landed. */
+  scheduler: { tick(): Promise<void> };
   /** Writes an availability rule as the admin API does; `botId` defaults to this bot and the guild to "guild-1". */
   availability(at: { level: "tenant" | "bot" | "guild" | "channel"; botId?: string; guildId?: string; channelId?: string }, rule: { kind: string; name: string; value: string }): Promise<void>;
   /** Paths are tenant-relative, e.g. "guilds/guild-1/channels/channel-1/brief.md". */
@@ -234,6 +236,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { workspaceStore } = await import("../../../../packages/skills/src/workspace/store.ts");
   const { setAvailabilityRule } = await import("../../../../packages/skills/src/availability.ts");
   const { skillRegistry } = await import("../../../../packages/skills/src/registry.ts");
+  const { schedulerTick } = await import("../../src/scheduler.ts");
 
   const tenant = await createTenant({ name: "Acme", slug: "acme" });
   const bot = await createBot({ tenantId: tenant.id, token: "scenario-token", guildIds: [GUILD.id] });
@@ -320,6 +323,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       advance: (ms) => { const fixed = clockNow() + ms; setClock(() => fixed); },
       now: () => clockNow(),
     },
+    scheduler: { tick: async () => { await schedulerTick(manager); await settle(); } },
     availability: async ({ level, botId = bot.id, guildId = GUILD.id, channelId }, rule) => {
       await setAvailabilityRule({ tenantId: tenant.id, level, botId, guildId, channelId }, rule as any, skillRegistry.getAllSkills());
     },
