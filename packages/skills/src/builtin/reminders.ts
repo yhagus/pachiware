@@ -63,7 +63,7 @@ export const remindersSkill: SkillModule = {
           recurrence: { type: "string", enum: [...RECURRENCES], description: 'How it repeats; "once" (the default) posts at `at` only' },
           time: { type: "string", description: 'Time of day for a repeating Reminder, e.g. "09:00", in this place\'s time zone' },
           weekdays: { type: "array", items: { type: "string" }, description: 'For weekly: the days it posts on, e.g. ["monday", "thursday"]' },
-          dayOfMonth: { type: "integer", minimum: 1, maximum: 31, description: "For monthly: the date it posts on; a month without that date uses its last day" },
+          dayOfMonth: { type: "integer", description: "For monthly: the date it posts on, 1 to 31; a month without that date uses its last day" },
           until: { type: "string", description: 'Last day a repeating Reminder may post, e.g. "2026-12-31"' },
         },
         required: ["text"],
