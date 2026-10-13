@@ -148,8 +148,12 @@ export interface SkillContext {
   /** The place's configured zone and language (the guild's, else the tenant's), for dates and for text the tool writes on its own. */
   timezone?: string;
   language?: "id" | "en";
+  /** One tool-free call to the bot's own model, set by the host; null when the provider failed. Memory compaction uses it. */
+  complete?: Completion;
   metadata?: Record<string, any>;
 }
+
+export type Completion = (request: { system: string; user: string }) => Promise<string | null>;
 
 export type ToolHandler = (args: any, context: SkillContext) => Promise<any>;
 

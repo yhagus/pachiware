@@ -48,3 +48,53 @@ discordScenario("in a DM both scopes mean the person's own Memory", async (s) =>
   expect(s.discord.botMessages.at(-1)?.content).toBe("kept in dm");
   expect(await s.workspace.read("dms/user-alice/MEMORY.md")).toMatch(/^- \d{4}-\d{2}-\d{2} \(Alice\): Alice reads mail at 8$/);
 });
+
+const TODAY = "2026-10-14", YESTERDAY_LINE = "- 2026-10-13 (Bob): Standup moved to 10:00";
+const oldLines = () => {
+  const lines: string[] = [];
+  while (lines.join("\n").length < 3900) lines.push(`- 2026-07-${String((lines.length % 28) + 1).padStart(2, "0")} (Alice): Old fact ${lines.length + 1} about the office layout and the badges`);
+  return lines;
+};
+const fullMemory = () => [...oldLines(), YESTERDAY_LINE].join("\n");
+const rememberOver = { tool: "remember", args: { scope: "channel", text: "Releases go out on Thursdays" } };
+
+discordScenario("a compaction that drops a line dated yesterday is discarded and the oldest lines beyond the cap go instead", async (s) => {
+  s.clock.set(`${TODAY}T09:00:00Z`);
+  await s.workspace.write(CHANNEL_MEMORY, fullMemory());
+  s.model.script(rememberOver, ["- 2026-07-01 (Alice): Old facts about the office", `- ${TODAY} (Alice): Releases go out on Thursdays`].join("\n"), "kept");
+  await s.discord.send(`${s.discord.mention} remember that releases go out on Thursdays`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("kept");
+
+  expect(s.model.tools[1]).toEqual([]);
+  expect(String(s.model.calls[1].at(-1)?.content)).toContain(YESTERDAY_LINE);
+
+  const lines = (await s.workspace.read(CHANNEL_MEMORY))!.split("\n");
+  expect(lines).toContain(YESTERDAY_LINE);
+  expect(lines).toContain(`- ${TODAY} (Alice): Releases go out on Thursdays`);
+  expect(lines[0]).not.toBe(oldLines()[0]);
+  expect(lines.at(-1)).toMatch(new RegExp(`^- ${TODAY} \\(bot\\): .+`));
+  expect(lines.join("\n").length).toBeLessThanOrEqual(4000);
+});
+
+discordScenario("a compaction that keeps every line from the last 30 days is stored with a dated line recording it", async (s) => {
+  s.clock.set(`${TODAY}T09:00:00Z`);
+  await s.workspace.write(CHANNEL_MEMORY, fullMemory());
+  const compacted = ["- 2026-07-28 (Alice): The office layout and badge facts, merged", YESTERDAY_LINE, `- ${TODAY} (Alice): Releases go out on Thursdays`].join("\n");
+  s.model.script(rememberOver, compacted, "kept");
+  await s.discord.send(`${s.discord.mention} remember that releases go out on Thursdays`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("kept");
+
+  const lines = (await s.workspace.read(CHANNEL_MEMORY))!.split("\n");
+  expect(lines.slice(0, 3).join("\n")).toBe(compacted);
+  expect(lines).toHaveLength(4);
+  expect(lines[3]).toMatch(new RegExp(`^- ${TODAY} \\(bot\\): .+`));
+});
+
+discordScenario("a remember that stays under the cap makes no compaction call", async (s) => {
+  s.clock.set(`${TODAY}T09:00:00Z`);
+  await s.workspace.write(CHANNEL_MEMORY, YESTERDAY_LINE);
+  s.model.script(rememberOver, "kept");
+  await s.discord.send(`${s.discord.mention} remember that releases go out on Thursdays`);
+  expect(s.model.calls).toHaveLength(2);
+  expect(await s.workspace.read(CHANNEL_MEMORY)).toBe(`${YESTERDAY_LINE}\n- ${TODAY} (Alice): Releases go out on Thursdays`);
+});
