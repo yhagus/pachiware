@@ -1,6 +1,7 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
 import { GIF_1PX, anthropicReply, attachment, image, openAIReply, useProfile } from "./support/images";
+import { pdf } from "./support/documents";
 
 discordScenario("an image-only mention to a text-only profile is answered with what the bot cannot do", async (s) => {
   const shot = await image(s, "screenshot.png", 300, 200);
@@ -60,13 +61,13 @@ discordScenario("images over the limit and unreadable images are skipped and nam
   await useProfile(s, { provider: "openai", model: "gpt-vision", acceptsImages: true }, { scripted: true });
   const broken = attachment(s, "broken.png", new TextEncoder().encode("not an image"));
   const huge = attachment(s, "huge.png", null, { size: 30 * 1024 * 1024, width: 9000, height: 9000 });
-  const notes = attachment(s, "notes.pdf", new TextEncoder().encode("%PDF"), { contentType: "application/pdf" });
+  const notes = attachment(s, "notes.pdf", pdf(["Notes"]), { contentType: "application/pdf" });
   const shots = await Promise.all(["a.png", "b.png", "c.png", "d.png", "e.png"].map((n) => image(s, n, 10, 10)));
   s.model.script("Four screenshots of the same dialog.");
   await s.discord.send(`${s.discord.mention} compare these`, { attachments: [broken, huge, notes, ...shots] });
   const turn = s.model.calls[0]!.find((m) => Array.isArray(m.content)) as any;
   expect(turn.content.filter((p: any) => p.type === "image")).toHaveLength(4);
-  expect(turn.content[0].text).toContain("[file: notes.pdf saved as channel/files/notes.pdf]");
+  expect(turn.content[0].text).toContain("[file: notes.pdf saved as channel/files/notes.pdf; text in channel/files/notes.md]");
   expect(s.http.requests.some((r) => r.url.includes("huge.png"))).toBe(false);
   expect(s.discord.botMessages.at(-1)?.content).toBe("Four screenshots of the same dialog.\nSkipped broken.png (could not be read as an image), huge.png (too large to download), e.png (over the 4-image limit).");
 });

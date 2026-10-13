@@ -1,0 +1,61 @@
+/** Document fixtures for Discord scenarios: a real one-page PDF and a real DOCX built from the given text, byte-stable per input. */
+import { deflateSync } from "node:zlib";
+
+const enc = new TextEncoder();
+
+/** A PDF with one line of Helvetica per entry and a valid xref table. The page stream is deflated, as real PDFs are, so the words are not in the raw bytes. */
+export function pdf(lines: string[]) {
+  // The page grows with the text, since pdf.js drops lines that fall below it.
+  const height = Math.max(792, lines.length * 14 + 144);
+  const content = deflateSync(`BT /F1 12 Tf 72 ${height - 72} Td 14 TL ${lines.map((l) => `(${l.replace(/[\\()]/g, "\\$&")}) Tj T*`).join(" ")} ET`);
+  const objects: (string | Uint8Array)[][] = [
+    ["<< /Type /Catalog /Pages 2 0 R >>"],
+    ["<< /Type /Pages /Kids [3 0 R] /Count 1 >>"],
+    [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 ${height}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>`],
+    [`<< /Length ${content.length} /Filter /FlateDecode >>\nstream\n`, content, "\nendstream"],
+    ["<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"],
+  ];
+  const parts: Uint8Array[] = [enc.encode("%PDF-1.4\n")];
+  let size = parts[0]!.length;
+  const push = (p: string | Uint8Array) => { const b = typeof p === "string" ? enc.encode(p) : p; parts.push(b); size += b.length; };
+  const offsets: number[] = [];
+  objects.forEach((o, i) => { offsets.push(size); push(`${i + 1} 0 obj\n`); o.forEach(push); push("\nendobj\n"); });
+  const xref = size;
+  push(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`);
+  push(`trailer\n<< /Root 1 0 R /Size ${objects.length + 1} >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Uint8Array(Buffer.concat(parts));
+}
+
+/** A DOCX with one paragraph per entry: the three parts Word needs, stored uncompressed. */
+export function docx(paragraphs: string[]) {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return zip({
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
+    "word/document.xml": `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraphs.map((p) => `<w:p><w:r><w:t xml:space="preserve">${esc(p)}</w:t></w:r></w:p>`).join("")}</w:body></w:document>`,
+  });
+}
+
+// Local headers, central directory, end record; method 0 (stored) so no deflate is needed.
+function zip(entries: Record<string, string>) {
+  const locals: Uint8Array[] = [], central: Uint8Array[] = [];
+  let offset = 0, count = 0;
+  for (const [name, text] of Object.entries(entries)) {
+    const nameBytes = enc.encode(name), data = enc.encode(text), crc = Bun.hash.crc32(data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint32(14, crc, true);
+    local.setUint32(18, data.length, true); local.setUint32(22, data.length, true); local.setUint16(26, nameBytes.length, true);
+    const cd = new DataView(new ArrayBuffer(46));
+    cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true); cd.setUint32(16, crc, true);
+    cd.setUint32(20, data.length, true); cd.setUint32(24, data.length, true); cd.setUint16(28, nameBytes.length, true); cd.setUint32(42, offset, true);
+    locals.push(new Uint8Array(local.buffer), nameBytes, data);
+    central.push(new Uint8Array(cd.buffer), nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+    count++;
+  }
+  const cdSize = central.reduce((n, b) => n + b.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, count, true); end.setUint16(10, count, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Uint8Array(Buffer.concat([...locals, ...central, new Uint8Array(end.buffer)]));
+}

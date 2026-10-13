@@ -118,7 +118,8 @@ export const workspaceSkill: SkillModule = {
       const outcome = await fileDocument(ctx.tenantId, ctx, candidates[0]!);
       if ("reason" in outcome) throw new Error(t.notFiled[outcome.reason]);
       await labelFolder(ctx, filesRoot(ctx)!);
-      return { path: outcome.path, name: candidates[0]!.name, messageId: message.id };
+      const text = !outcome.text ? {} : "path" in outcome.text ? { text: outcome.text.path } : { note: t.textNotExtracted };
+      return { path: outcome.path, name: candidates[0]!.name, messageId: message.id, ...text };
     },
     postBriefRound,
     recordBriefAnswers,

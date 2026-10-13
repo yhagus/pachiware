@@ -44,6 +44,7 @@ const en = {
   skip: { format: "not a PNG, JPEG, WebP or GIF", tooMany: (n: number) => `over the ${n}-image limit`, tooLarge: "too large to download", download: "could not be downloaded", unreadable: "could not be read as an image", tooBig: "could not be reduced under 5 MB" },
   // Filed documents
   notFiled: { type: "not filed: not a PDF, DOCX, XLSX, CSV, MD or TXT", tooLarge: "not filed: over 10 MB", download: "not filed: could not be downloaded", place: "not filed: no folder for this place" },
+  textNotExtracted: "its text could not be extracted",
   // Memory compaction, written into MEMORY.md as the bot
   memoryCompacted: (from: number, to: number) => `Memory compacted from ${plural(from, "line")} to ${to}; every line from the last 30 days kept.`,
   memoryCut: (dropped: number) => `Memory over its size; the ${plural(dropped, "oldest line")} dropped, every line from the last 30 days kept.`,
@@ -146,6 +147,7 @@ const id: typeof en = {
   skipped: (items) => `Dilewati: ${items.join(", ")}.`,
   skip: { format: "bukan PNG, JPEG, WebP, atau GIF", tooMany: (n) => `melebihi batas ${n} gambar`, tooLarge: "terlalu besar untuk diunduh", download: "tidak bisa diunduh", unreadable: "tidak bisa dibaca sebagai gambar", tooBig: "tidak bisa diperkecil di bawah 5 MB" },
   notFiled: { type: "tidak disimpan: bukan PDF, DOCX, XLSX, CSV, MD, atau TXT", tooLarge: "tidak disimpan: lebih dari 10 MB", download: "tidak disimpan: tidak bisa diunduh", place: "tidak disimpan: tidak ada folder untuk tempat ini" },
+  textNotExtracted: "teksnya tidak bisa diekstrak",
   memoryCompacted: (from, to) => `Memori dipadatkan dari ${from} baris menjadi ${to}; semua baris 30 hari terakhir dipertahankan.`,
   memoryCut: (dropped) => `Memori melebihi batas; ${dropped} baris tertua dihapus, semua baris 30 hari terakhir dipertahankan.`,
   breakdown: (n) => `**Rincian** · ${n} draf`,

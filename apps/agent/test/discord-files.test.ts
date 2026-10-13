@@ -1,30 +1,30 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
 import { attachment, image } from "./support/images";
+import { pdf } from "./support/documents";
 
-const pdf = (bytes: number) => new TextEncoder().encode("%PDF-1.4\n".padEnd(bytes, "x"));
 const turnOf = (s: any, call = 0) => s.model.calls[call]!.at(-2)!.content as string;
 
 discordScenario("a PDF sent with a mention is filed under files/ and the turn names the path", async (s) => {
-  const report = attachment(s, "report.pdf", pdf(2048), { contentType: "application/pdf" });
+  const report = attachment(s, "report.pdf", pdf(["Quarterly report"]), { contentType: "application/pdf" });
   s.model.script("Filed.");
   await s.discord.send(`${s.discord.mention} here is the report`, { attachments: [report] });
-  expect(turnOf(s)).toBe("Alice: here is the report [file: report.pdf saved as channel/files/report.pdf]");
+  expect(turnOf(s)).toBe("Alice: here is the report [file: report.pdf saved as channel/files/report.pdf; text in channel/files/report.md]");
   expect(s.http.requests.map((r) => r.url)).toEqual([report.url]);
-  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual(["guilds/guild-1/channels/channel-1/files/report.pdf"]);
-  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report.pdf")).toBe(new TextDecoder().decode(pdf(2048)));
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual(["guilds/guild-1/channels/channel-1/files/report.md", "guilds/guild-1/channels/channel-1/files/report.pdf"]);
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report.pdf")).toBe(new TextDecoder().decode(pdf(["Quarterly report"])));
 });
 
 discordScenario("a second file with the same name is kept beside the first as -2", async (s) => {
-  const first = attachment(s, "report.pdf", pdf(2048), { contentType: "application/pdf" });
-  const second = attachment(s, "report.pdf", pdf(100), { contentType: "application/pdf" });
+  const first = attachment(s, "report.pdf", pdf(["v1"]), { contentType: "application/pdf" });
+  const second = attachment(s, "report.pdf", pdf(["v2"]), { contentType: "application/pdf" });
   s.model.script("Filed.", "Filed again.");
   await s.discord.send(`${s.discord.mention} v1`, { attachments: [first] });
   await s.discord.send(`${s.discord.mention} v2`, { attachments: [second] });
-  expect(turnOf(s, 1)).toBe("Alice: v2 [file: report.pdf saved as channel/files/report-2.pdf]");
-  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual(["guilds/guild-1/channels/channel-1/files/report-2.pdf", "guilds/guild-1/channels/channel-1/files/report.pdf"]);
-  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report.pdf")).toBe(new TextDecoder().decode(pdf(2048)));
-  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report-2.pdf")).toBe(new TextDecoder().decode(pdf(100)));
+  expect(turnOf(s, 1)).toBe("Alice: v2 [file: report.pdf saved as channel/files/report-2.pdf; text in channel/files/report-2.md]");
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual(["guilds/guild-1/channels/channel-1/files/report-2.md", "guilds/guild-1/channels/channel-1/files/report-2.pdf", "guilds/guild-1/channels/channel-1/files/report.md", "guilds/guild-1/channels/channel-1/files/report.pdf"]);
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report.md")).toBe("v1\n");
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report-2.md")).toBe("v2\n");
 });
 
 discordScenario("a 12 MB file and a file of another type stay placeholders with the reason; images are unchanged", async (s) => {
@@ -41,7 +41,7 @@ discordScenario("a 12 MB file and a file of another type stay placeholders with 
 
 discordScenario("in an always-on channel a file sent without addressing the bot keeps a placeholder with the message id", async (s) => {
   await s.guildSettings({ alwaysChannelIds: ["channel-1"] });
-  const report = attachment(s, "report.pdf", pdf(2048), { contentType: "application/pdf" });
+  const report = attachment(s, "report.pdf", pdf(["Friday"]), { contentType: "application/pdf" });
   s.model.script("Seen.");
   const post = await s.discord.send("the report for Friday", { attachments: [report] });
   expect(turnOf(s)).toBe(`Alice: the report for Friday [file: report.pdf (message ${post.id})]`);
@@ -62,7 +62,7 @@ const saved = (turn: any) => (turn.toolResults[0].error ? `refused: ${turn.toolR
 
 discordScenario("in an always-on channel a file posted to colleagues is left alone; saveAttachment on that message files it", async (s) => {
   await s.guildSettings({ alwaysChannelIds: ["channel-1"] });
-  const report = attachment(s, "report.pdf", pdf(2048), { contentType: "application/pdf" });
+  const report = attachment(s, "report.pdf", pdf(["v1"]), { contentType: "application/pdf" });
   s.model.script("Seen.");
   const post = await s.discord.send("the report for Friday", { attachments: [report] });
   expect(turnOf(s)).toBe(`Alice: the report for Friday [file: report.pdf (message ${post.id})]`);
@@ -73,13 +73,13 @@ discordScenario("in an always-on channel a file posted to colleagues is left alo
   await s.discord.send(`${s.discord.mention} save that file`);
   expect(s.discord.botMessages.at(-1)?.content).toBe("Saved as channel/files/report.pdf");
   expect(s.http.requests.map((r) => r.url)).toEqual([report.url]);
-  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report.pdf")).toBe(new TextDecoder().decode(pdf(2048)));
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report.pdf")).toBe(new TextDecoder().decode(pdf(["v1"])));
 });
 
 discordScenario("saveAttachment picks the attachment by name, keeps a taken name beside the first, and refuses the same files the turn would", async (s) => {
   await s.guildSettings({ alwaysChannelIds: ["channel-1"], language: "en" });
-  const first = attachment(s, "report.pdf", pdf(2048), { contentType: "application/pdf" });
-  const second = attachment(s, "report.pdf", pdf(100), { contentType: "application/pdf" });
+  const first = attachment(s, "report.pdf", pdf(["v1"]), { contentType: "application/pdf" });
+  const second = attachment(s, "report.pdf", pdf(["v2"]), { contentType: "application/pdf" });
   const notes = attachment(s, "notes.md", null, { contentType: "text/markdown", size: 40 });
   const tool = attachment(s, "setup.exe", null, { contentType: "application/octet-stream", size: 500 });
   s.model.script("Filed.", "Seen.");
@@ -93,7 +93,7 @@ discordScenario("saveAttachment picks the attachment by name, keeps a taken name
   s.model.script({ tool: "saveAttachment", args: { messageId: post.id, name: "report.pdf" } }, saved);
   await s.discord.send(`${s.discord.mention} save the report`);
   expect(s.discord.botMessages.at(-1)?.content).toBe("Saved as channel/files/report-2.pdf");
-  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report-2.pdf")).toBe(new TextDecoder().decode(pdf(100)));
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report-2.pdf")).toBe(new TextDecoder().decode(pdf(["v2"])));
 
   s.model.script({ tool: "saveAttachment", args: { messageId: post.id, name: "setup.exe" } }, saved);
   await s.discord.send(`${s.discord.mention} and the installer`);
@@ -102,5 +102,5 @@ discordScenario("saveAttachment picks the attachment by name, keeps a taken name
   s.model.script({ tool: "saveAttachment", args: { messageId: "999999" } }, saved);
   await s.discord.send(`${s.discord.mention} save the file from message 999999`);
   expect(s.discord.botMessages.at(-1)?.content).toBe("refused: I can't find that message in this channel.");
-  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual(["guilds/guild-1/channels/channel-1/files/report-2.pdf", "guilds/guild-1/channels/channel-1/files/report.pdf"]);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual(["guilds/guild-1/channels/channel-1/files/report-2.md", "guilds/guild-1/channels/channel-1/files/report-2.pdf", "guilds/guild-1/channels/channel-1/files/report.md", "guilds/guild-1/channels/channel-1/files/report.pdf"]);
 });

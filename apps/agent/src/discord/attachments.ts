@@ -1,5 +1,5 @@
 import type { Message } from "discord.js";
-import { textIn, jumpLink, fileDocument, takenNames, type Language, type Strings } from "@pachiware/skills";
+import { textIn, jumpLink, fileDocument, takenNames, type Filed, type Language, type Strings } from "@pachiware/skills";
 import type { ImagePart } from "../llm/types.js";
 
 const MAX_IMAGES = 4;
@@ -24,6 +24,7 @@ const isSupported = (a: Attachment) => a.contentType ? /^image\/(png|jpeg|webp|g
 const placeholder = (a: Attachment, label: string) => `[${label}: ${a.name}${a.width && a.height ? `, ${a.width}×${a.height}` : ""}]`;
 // A file placeholder carries its message id so a later `saveAttachment` can find it.
 const filePlaceholder = (a: Attachment, msg: Message, note?: string) => `[file: ${a.name} (message ${msg.id})${note ? `: ${note}` : ""}]`;
+const textNote = (filed: Filed, t: Strings) => !filed.text ? "" : "path" in filed.text ? `; text in ${filed.text.path}` : `: ${t.textNotExtracted}`;
 /** What the turn says per filed or refused attachment, by attachment id. */
 export type FiledNotes = Map<string, string>;
 
@@ -47,7 +48,7 @@ export async function fileTurnDocuments(tenantId: string, items: { msg: Message;
       const names = taken.get(key) ?? (await takenNames(tenantId, where).catch(() => new Set<string>()));
       taken.set(key, names);
       const outcome = await fileDocument(tenantId, where, a, names).catch(() => ({ reason: "download" as const }));
-      notes.set(a.id, "path" in outcome ? `[file: ${a.name} saved as ${outcome.path}]` : filePlaceholder(a, msg, t.notFiled[outcome.reason]));
+      notes.set(a.id, "path" in outcome ? `[file: ${a.name} saved as ${outcome.path}${textNote(outcome, t)}]` : filePlaceholder(a, msg, t.notFiled[outcome.reason]));
     }
   }
   return notes;
