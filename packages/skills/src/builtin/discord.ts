@@ -1,5 +1,7 @@
 import type { SkillModule, SkillContext } from "../types.js";
 
+const MEMBER_LIMIT_DEFAULT = 10, MEMBER_LIMIT_MAX = 50;
+
 export const discordManagementSkill: SkillModule = {
   id: "discord_management",
   name: "Discord Management",
@@ -12,6 +14,8 @@ export const discordManagementSkill: SkillModule = {
     archiveChannel: { effect: "danger", requiresConfirmation: true },
     listChannels: { effect: "read" },
     setChannelTopic: { effect: "write", requiresConfirmation: false },
+    pinMessage: { effect: "write", requiresConfirmation: false, requiredPermissions: ["ManageMessages"] },
+    listMembers: { effect: "read" },
   },
   tools: [
     {
@@ -68,6 +72,30 @@ export const discordManagementSkill: SkillModule = {
           topic: { type: "string", description: "The new topic text" },
         },
         required: ["channelId", "topic"],
+      },
+    },
+    {
+      name: "pinMessage",
+      description: "Pins a message in a channel so it stays at the top. The person asking needs Manage Messages.",
+      parameters: {
+        type: "object",
+        properties: {
+          messageId: { type: "string", description: "Discord message ID" },
+          channelId: { type: "string", description: "Channel the message is in (default: the current channel)" },
+        },
+        required: ["messageId"],
+      },
+    },
+    {
+      name: "listMembers",
+      description: "Finds server members whose username or nickname starts with the query; returns id, display name, and roles.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Start of a username or nickname" },
+          limit: { type: "number", description: `Most results to return (default ${MEMBER_LIMIT_DEFAULT}, at most ${MEMBER_LIMIT_MAX})` },
+        },
+        required: ["query"],
       },
     },
   ],
@@ -167,6 +195,23 @@ export const discordManagementSkill: SkillModule = {
         message: `Updated topic for channel ${result.id} successfully.`,
         topic: result.topic,
       };
+    },
+
+    pinMessage: async (args: { messageId: string; channelId?: string }, context: SkillContext) => {
+      const channelId = args.channelId || context.channelId;
+      if (!channelId) throw new Error("Say which channel the message is in.");
+      if (!context.discord) throw new Error("Discord client is not connected.");
+      const pinned = await context.discord.pinMessage({ channelId, messageId: args.messageId });
+      return { success: true, message: `Pinned message ${pinned.id} in channel ${pinned.channelId}.`, ...pinned };
+    },
+
+    listMembers: async (args: { query: string; limit?: number }, context: SkillContext) => {
+      const query = args.query?.trim();
+      if (!query) throw new Error("Give the start of a username or nickname to search for.");
+      if (!context.discord) throw new Error("Discord client is not connected.");
+      const limit = Math.min(MEMBER_LIMIT_MAX, Math.max(1, Math.floor(Number(args.limit) || MEMBER_LIMIT_DEFAULT)));
+      const members = await context.discord.listMembers({ query, limit });
+      return { success: true, count: members.length, members };
     },
   },
 };

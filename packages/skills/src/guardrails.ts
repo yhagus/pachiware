@@ -46,7 +46,7 @@ export const markDone = (key: string) => { done.set(key, Date.now() + COOLDOWN_M
 
 export const policyOf = (skill: SkillModule, tool: string) => {
   const p = skill.toolPolicy?.[tool], effect = p?.effect ?? skill.effect ?? "read";
-  return { effect, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? effect !== "read", metered: p?.metered ?? false };
+  return { effect, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? effect !== "read", metered: p?.metered ?? false, requiredPermissions: p?.requiredPermissions };
 };
 
 // Phrases that try to rewrite the rules or pull out hidden material. Matching text is flagged, never obeyed.
@@ -117,9 +117,10 @@ export const GuardrailService = {
     const present: Record<string, unknown> = { tenant: ctx.tenantId, guild: ctx.guildId, channel: ctx.channelId, user: ctx.userId, role: a };
     for (const s of skill.allowedScopes ?? []) if (!present[s]) return this.denyOutOfScope(`This action only works inside a Discord server channel (missing ${s}).`);
     const policy = policyOf(skill, tool);
-    if (policy.effect !== "read" && skill.requiredPermissions?.length) {
+    const needs = policy.requiredPermissions ?? skill.requiredPermissions;
+    if (policy.effect !== "read" && needs?.length) {
       const perms = a?.permissions ?? [];
-      if (!perms.includes("Administrator") && !skill.requiredPermissions.some((p) => perms.includes(p))) return this.denyUnauthorized(`You need one of these Discord permissions to ask for this: ${skill.requiredPermissions.join(", ")}.`);
+      if (!perms.includes("Administrator") && !needs.some((p) => perms.includes(p))) return this.denyUnauthorized(`You need one of these Discord permissions to ask for this: ${needs.join(", ")}.`);
     }
     const who = ctx.userId ?? "anon";
     // A skill that confirms internally (git) runs its own duplicate guard behind Confirm, so the per-tool write limit and the checks below skip it.
