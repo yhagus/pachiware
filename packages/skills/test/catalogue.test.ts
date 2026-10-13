@@ -34,7 +34,7 @@ describe("tool catalogue", () => {
 
   test("tools keep their descriptions and every skill lists all its tools", () => {
     expect(skill("git_repositories").tools.length).toBe(86);
-    expect(skill("workspace").tools.length).toBe(11);
+    expect(skill("workspace").tools.length).toBe(13);
     expect(tool("repoList").description).toMatch(/^Lists repositories/);
   });
 });
