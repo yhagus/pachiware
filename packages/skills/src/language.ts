@@ -33,6 +33,8 @@ const en = {
   rejected: "This profile rejected the image; an admin can turn image input off for it.",
   skipped: (items: string[]) => `Skipped ${items.join(", ")}.`,
   skip: { format: "not a PNG, JPEG, WebP or GIF", tooMany: (n: number) => `over the ${n}-image limit`, tooLarge: "too large to download", download: "could not be downloaded", unreadable: "could not be read as an image", tooBig: "could not be reduced under 5 MB" },
+  // Filed documents
+  notFiled: { type: "not filed: not a PDF, DOCX, XLSX, CSV, MD or TXT", tooLarge: "not filed: over 10 MB", download: "not filed: could not be downloaded", place: "not filed: no folder for this place" },
   // Brief rounds
   breakdown: (n: number) => `**Breakdown** · ${plural(n, "draft")}`,
   draftPoint: (n: number) => `point ${n}`,
@@ -116,6 +118,7 @@ const id: typeof en = {
   rejected: "Profil ini menolak gambarnya; admin bisa mematikan input gambar untuk profil ini.",
   skipped: (items) => `Dilewati: ${items.join(", ")}.`,
   skip: { format: "bukan PNG, JPEG, WebP, atau GIF", tooMany: (n) => `melebihi batas ${n} gambar`, tooLarge: "terlalu besar untuk diunduh", download: "tidak bisa diunduh", unreadable: "tidak bisa dibaca sebagai gambar", tooBig: "tidak bisa diperkecil di bawah 5 MB" },
+  notFiled: { type: "tidak disimpan: bukan PDF, DOCX, XLSX, CSV, MD, atau TXT", tooLarge: "tidak disimpan: lebih dari 10 MB", download: "tidak disimpan: tidak bisa diunduh", place: "tidak disimpan: tidak ada folder untuk tempat ini" },
   breakdown: (n) => `**Rincian** · ${n} draf`,
   draftPoint: (n) => `poin ${n}`,
   blockedByDrafts: (ns) => `menunggu draf ${ns.join(", ")}`,

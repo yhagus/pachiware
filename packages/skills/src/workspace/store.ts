@@ -2,6 +2,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, read
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 export const MAX_FILE_BYTES = 256 * 1024;
+/** Filed documents (PDF, DOCX, ...) are stored as bytes and never read back as text through `read`. */
+export const MAX_BLOB_BYTES = 10 * 1024 * 1024;
 export const MAX_LIST_ENTRIES = 500;
 
 export class WorkspaceConflict extends Error {}
@@ -14,6 +16,8 @@ export interface WorkspaceStore {
   readFrontmatter(tenantId: string, path: string): Promise<{ content: string; version: string } | null>;
   /** Replacing an existing file needs the version last read; a file that changed since is refused (WorkspaceConflict). */
   write(tenantId: string, path: string, content: string, expectedVersion?: string): Promise<{ version: string }>;
+  /** A new binary file; refuses to replace one. */
+  writeBytes(tenantId: string, path: string, bytes: Uint8Array): Promise<{ version: string }>;
   list(tenantId: string, path: string): Promise<WorkspaceEntry[]>;
   /** Refuses to overwrite. */
   move(tenantId: string, from: string, to: string): Promise<void>;
@@ -68,12 +72,25 @@ export class LocalWorkspaceStore implements WorkspaceStore {
       if (current && expectedVersion === undefined) throw new WorkspaceConflict("File already exists. Read it first and pass its version to replace it.");
       if (current && versionOf(current) !== expectedVersion) throw new WorkspaceConflict("File changed since you read it. Read it again and redo your edit.");
       if (!current && expectedVersion !== undefined) throw new WorkspaceConflict("File no longer exists.");
-      mkdirSync(dirname(target), { recursive: true });
-      const final = this.locate(tenantId, path).target; // a symlinked parent swapped in meanwhile is caught here
-      const temp = join(dirname(final), `.${basename(final)}.${crypto.randomUUID().slice(0, 8)}.tmp`);
-      try { writeFileSync(temp, content); renameSync(temp, final); } finally { rmSync(temp, { force: true }); }
-      return { version: versionOf(statSync(final)) };
+      return this.place(tenantId, path, target, content);
     });
+  }
+
+  async writeBytes(tenantId: string, path: string, bytes: Uint8Array) {
+    if (bytes.byteLength > MAX_BLOB_BYTES) throw new Error(`File is too large (max ${MAX_BLOB_BYTES / 1024 / 1024} MB)`);
+    return this.serial(`${tenantId}/${path}`, () => {
+      const { target } = this.locate(tenantId, path);
+      if (existsSync(target)) throw new WorkspaceConflict("File already exists.");
+      return this.place(tenantId, path, target, bytes);
+    });
+  }
+
+  private place(tenantId: string, path: string, target: string, content: string | Uint8Array) {
+    mkdirSync(dirname(target), { recursive: true });
+    const final = this.locate(tenantId, path).target; // a symlinked parent swapped in meanwhile is caught here
+    const temp = join(dirname(final), `.${basename(final)}.${crypto.randomUUID().slice(0, 8)}.tmp`);
+    try { writeFileSync(temp, content); renameSync(temp, final); } finally { rmSync(temp, { force: true }); }
+    return { version: versionOf(statSync(final)) };
   }
 
   async readFrontmatter(tenantId: string, path: string) {
