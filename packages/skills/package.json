@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@pachiware/db": "workspace:*",
-    "drizzle-orm": "^0.39.3"
+    "drizzle-orm": "^0.39.3",
+    "mammoth": "^1.13.0",
+    "unpdf": "^1.8.1"
   }
 }
