@@ -9,6 +9,7 @@ import type { Message } from "discord.js";
 import type {
   DiscordClientAdapter,
   DiscordChannelInfo,
+  PostAccess,
 } from "@pachiware/skills";
 
 /** One message of a channel's history, as minutes need it. */
@@ -179,6 +180,26 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
       topic: args.topic,
       success: true,
     };
+  }
+
+  /** A text channel or thread of this guild that both the bot and the requester are allowed to see and post in. */
+  async postAccess(channelId: string, requesterId: string): Promise<PostAccess> {
+    const channel: any = await this.client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.guild || channel.isDMBased?.() || !channel.isTextBased?.() || (this.guildId && channel.guildId !== this.guildId)) return { ok: false, who: "unknown", missing: [] };
+    const [member, me] = await Promise.all([requesterId, this.client.user?.id ?? ""].map((id) => channel.guild.members.fetch(id).catch(() => null)));
+    const missingFor = (who: unknown, needs: string[]): string[] => (who && channel.permissionsFor(who)?.missing(needs)) ?? needs;
+    const inThread = channel.type !== ChannelType.PrivateThread || await channel.members.fetch(requesterId).then(() => true, () => false);
+    const requesterMissing = missingFor(member, ["ViewChannel"]);
+    if (requesterMissing.length || !inThread) return { ok: false, who: "requester", missing: requesterMissing };
+    const botMissing = missingFor(me, ["ViewChannel", channel.isThread() ? "SendMessagesInThreads" : "SendMessages"]);
+    return botMissing.length ? { ok: false, who: "bot", missing: botMissing } : { ok: true };
+  }
+
+  async sendMessage(args: { channelId: string; content: string }): Promise<{ id: string; channelId: string; url: string }> {
+    const channel: any = await this.client.channels.fetch(args.channelId).catch(() => null);
+    if (!channel?.isTextBased?.()) throw new Error(`Channel "${args.channelId}" was not found or is not a text channel.`);
+    const posted = await channel.send({ content: args.content, allowedMentions: { parse: [] } });
+    return { id: posted.id, channelId: posted.channelId ?? channel.id, url: posted.url };
   }
 
   /** Checks a requester may read a channel's history and the bot may read it and post minutes there. */

@@ -40,6 +40,7 @@ export type FakeUser = { id: string; name: string };
 export interface FakeMessage {
   id: string; channelId: string; guildId: string | null; author: FakeUser & { bot: boolean }; readonly url: string;
   content: string; embeds: any[]; components: any[]; files: any[];
+  /** As the bot sent it; absent when it posted a plain string. */ allowedMentions?: { parse?: string[]; users?: string[] };
   reactions: string[]; edits: Payload[]; reference?: { messageId: string }; thread?: FakeChannel;
 }
 export interface FakeChannel { id: string; guildId: string | null; parentId: string | null; ownerId: string | null; name: string; messages: FakeMessage[]; /** History reads (one per `messages.fetch` page). */ fetches: number }
@@ -168,6 +169,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     const mentioned = new Collection<string, any>([...body.content.matchAll(/<@!?(\w[\w-]*)>/g)].map(([, id]) => [id, { id }]));
     const message: any = {
       id: snowflake(), channelId: channel.id, guildId: channel.guildId, author: { ...author, username: author.name }, ...body,
+      allowedMentions: typeof payload === "string" ? undefined : (payload as any).allowedMentions,
       reactions: [], edits: [], reference: extra.reference ? { messageId: extra.reference } : undefined, thread: undefined,
       channel, guild: channel.guild,
       member: channel.guildId ? { displayName: author.name, roles: { cache: new Collection() }, permissions: { toArray: () => [] } } : null,
