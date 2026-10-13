@@ -191,4 +191,28 @@ describe("SQLite tenancy migration", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  test("backfills existing tenants with Asia/Jakarta and Indonesian, and leaves guild overrides empty", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-zones-"));
+    const database = join(directory, "zones.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+        await runMigrations();
+        for (const column of ["timezone", "language"]) { queryClient.exec("ALTER TABLE agents_config DROP COLUMN " + column); queryClient.exec("ALTER TABLE guild_configs DROP COLUMN " + column); }
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
+        queryClient.exec("INSERT INTO agents_config (tenant_id) VALUES ('t1')");
+        queryClient.exec("INSERT INTO bots (id,tenant_id,token_encrypted) VALUES ('b1','t1','x')");
+        queryClient.exec("INSERT INTO guild_configs (id,tenant_id,bot_id,guild_id) VALUES ('g1','t1','b1','guild-1')");
+        await runMigrations();
+        await runMigrations();
+        console.log(JSON.stringify({ tenant: queryClient.query("SELECT timezone, language FROM agents_config").get(), guild: queryClient.query("SELECT timezone, language FROM guild_configs").get() }));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual({ tenant: { timezone: "Asia/Jakarta", language: "id" }, guild: { timezone: null, language: null } });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

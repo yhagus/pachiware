@@ -38,7 +38,7 @@ export async function createTenant(input: { name: string; slug?: string; apiKeyI
     // Bun SQLite transactions must stay synchronous to retain rollback semantics.
     return db.transaction((tx: any) => {
       const row = tx.insert(tenants).values(values).returning().get();
-      tx.insert(agentsConfig).values({ tenantId: row.id, settings: { maxReActIterations: 32 } }).run();
+      tx.insert(agentsConfig).values({ tenantId: row.id, timezone: "Asia/Jakarta", language: "id", settings: { maxReActIterations: 32 } }).run();
       for (const skill of tx.select().from(skills).all()) {
         tx.insert(tenantSkills).values({ tenantId: row.id, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config }).run();
       }
@@ -104,7 +104,7 @@ export async function deleteBot(id: string) {
   await db.delete(availabilityRules).where(eq(availabilityRules.botId, id));
 }
 
-export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[] };
+export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null };
 export async function getGuildConfig(botId: string, guildId: string) {
   return (await db.select().from(guildConfigs).where(and(eq(guildConfigs.botId, botId), eq(guildConfigs.guildId, guildId))).limit(1))[0] || null;
 }
