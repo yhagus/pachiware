@@ -65,6 +65,7 @@ export const remindersSkill: SkillModule = {
           weekdays: { type: "array", items: { type: "string" }, description: 'For weekly: the days it posts on, e.g. ["monday", "thursday"]' },
           dayOfMonth: { type: "integer", description: "For monthly: the date it posts on, 1 to 31; a month without that date uses its last day" },
           until: { type: "string", description: 'Last day a repeating Reminder may post, e.g. "2026-12-31"' },
+          withTasks: { type: "boolean", description: "true: the post also lists the asker's open tasks (assigned to or created by them) visible from this place, so a morning DM Reminder doubles as their overview" },
         },
         required: ["text"],
       },
@@ -79,8 +80,8 @@ export const remindersSkill: SkillModule = {
       const timezone = ctx.timezone ?? DEFAULT_TIMEZONE, from = now();
       const recurrence: RecurrenceKind = args.recurrence === undefined || args.recurrence === null ? "once" : args.recurrence;
       if (!RECURRENCES.includes(recurrence)) throw new Error(`recurrence must be one of ${RECURRENCES.join(", ")}`);
-      const mentions = mentionIds(args.mentions, ctx.userId);
-      const base = { tenantId: ctx.tenantId, botId: ctx.botId, kind: "reminder" as const, guildId: ctx.guildId ?? null, channelId: ctx.channelId, ownerId: ctx.userId, ownerName: ctx.userName ?? null, text, mentions, timezone };
+      const mentions = mentionIds(args.mentions, ctx.userId), withTasks = args.withTasks === true || args.withTasks === "true";
+      const base = { tenantId: ctx.tenantId, botId: ctx.botId, kind: "reminder" as const, guildId: ctx.guildId ?? null, channelId: ctx.channelId, ownerId: ctx.userId, ownerName: ctx.userName ?? null, text, withTasks, mentions, timezone };
 
       if (recurrence === "once") {
         const at = parseWhen(args.at, timezone, from);
@@ -88,7 +89,7 @@ export const remindersSkill: SkillModule = {
         if (at <= from) throw new Error("That time has already passed; pick a later one.");
         const wall = wallClock(timezone, at);
         const [row] = await ctx.db.insert(schedules).values({ ...base, recurrence, timeOfDay: `${String(wall.hour).padStart(2, "0")}:${String(wall.minute).padStart(2, "0")}`, nextAt: new Date(at) }).returning({ id: schedules.id });
-        return { id: row!.id, at: isoInZone(timezone, at), recurrence, text, mentions, channelId: ctx.channelId };
+        return { id: row!.id, at: isoInZone(timezone, at), recurrence, text, mentions, withTasks, channelId: ctx.channelId };
       }
 
       const time = timeOfDay(args.time ?? args.at);
@@ -103,7 +104,7 @@ export const remindersSkill: SkillModule = {
       const next = nextOccurrence({ recurrence, weekdays, dayOfMonth, timeOfDay: time, timezone, until }, from);
       if (next === null) throw new Error("That end date comes before the first time it would post; pick a later one.");
       const [row] = await ctx.db.insert(schedules).values({ ...base, recurrence, weekdays, dayOfMonth, timeOfDay: time, until, nextAt: new Date(next) }).returning({ id: schedules.id });
-      return { id: row!.id, at: isoInZone(timezone, next), recurrence, time, ...(weekdays.length ? { weekdays } : {}), ...(dayOfMonth ? { dayOfMonth } : {}), ...(until ? { until: isoInZone(timezone, until.getTime()) } : {}), text, mentions, channelId: ctx.channelId };
+      return { id: row!.id, at: isoInZone(timezone, next), recurrence, time, ...(weekdays.length ? { weekdays } : {}), ...(dayOfMonth ? { dayOfMonth } : {}), ...(until ? { until: isoInZone(timezone, until.getTime()) } : {}), text, mentions, withTasks, channelId: ctx.channelId };
     },
   },
 };

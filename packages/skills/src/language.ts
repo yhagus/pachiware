@@ -123,6 +123,7 @@ const en = {
   // Reminders
   reminder: (text: string) => `Reminder: ${text}`,
   reminderLate: (day: number, month: number, time: string) => `-# Posted late: this was due ${day} ${MONTHS_EN[month - 1]}, ${time}.`,
+  openTasks: "Open tasks (status | due | owner | id | title):",
   // Channel history
   historyNoChannel: "I can't find that channel.",
   historyDm: "I read channel history only in server channels and threads, not in DMs.",
@@ -219,6 +220,7 @@ const id: typeof en = {
   minutesFooter: "Balas untuk mengoreksi",
   reminder: (text) => `Pengingat: ${text}`,
   reminderLate: (day, month, time) => `-# Terlambat: seharusnya diposting ${day} ${MONTHS_ID[month - 1]} ${time}.`,
+  openTasks: "Tugas terbuka (status | due | owner | id | title):",
   historyNoChannel: "Channel itu tidak ketemu.",
   historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
   historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,
