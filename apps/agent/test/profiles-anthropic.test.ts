@@ -47,7 +47,7 @@ describe("Anthropic profiles and image input", () => {
       const [call] = calls;
       assert(answer.content === "hello from claude", "answer not read: " + JSON.stringify(answer));
       assert(call.url === "https://api.anthropic.com/v1/messages" && call.headers["x-api-key"] === "sk-ant-profile" && call.headers["anthropic-version"], "wrong request: " + JSON.stringify(call));
-      assert(call.body.model === "claude-sonnet-5-5" && call.body.system === "Be brief." && JSON.stringify(call.body.messages) === JSON.stringify([{ role: "user", content: "hi" }]), "wrong body: " + JSON.stringify(call.body));
+      assert(call.body.model === "claude-sonnet-5-5" && JSON.stringify(call.body.system) === JSON.stringify([{ type: "text", text: "Be brief.", cache_control: { type: "ephemeral" } }]) && JSON.stringify(call.body.messages) === JSON.stringify([{ role: "user", content: "hi" }]), "wrong body: " + JSON.stringify(call.body));
       assert(!("temperature" in call.body), "current Claude models reject a non-default temperature");
     `);
     expect(code, stderr).toBe(0);
