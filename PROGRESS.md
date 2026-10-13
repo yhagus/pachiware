@@ -742,12 +742,13 @@ Harness review scored the bot 62/100 as an everyday administrative assistant (st
 - [x] ADR 0006: schedules live in the database, not the Workspace (time-indexed runtime state; must run on one process with SQLite and no Redis; no cron strings).
 - [x] Test seams agreed: the Discord scenario harness (gains a fake clock, a scheduler tick, and permission grants) for every behaviour; the subprocess API scenario with stubbed `fetch` for the router and the new console endpoints. No web UI tests.
 - [x] Spec #72 and sub-issues published, all ready-for-agent: #80 block 1 (start), then #73 persona and memory, #74 history and summary, #75 schedules and Reminders, #78 Discord tools (all blocked by #80); #76 Digest (blocked by #75); #77 filing (blocked by #73); #79 live eval (blocked by all).
-- [ ] #80 Block 1: time zone and language settings, time line in the turn context, task `dueAt` and `createdBy`, task writes without Confirm, router timeout/retry/cache_control/temperature 0.2, capability regex removed.
-- [ ] #73 Block 2: seeded editable persona, `remember` and `forget`, compaction keeping the last 30 days, folder conventions enforced.
-- [ ] #74 Block 3: `readChannelHistory`, rolling summary rewritten when the history window steps.
-- [ ] #75 Block 4: `schedules` table, scheduler loop, Reminder tools, console Reminders page.
-- [ ] #76 Block 5: Digest channels in guild settings, daily post of due and late tasks.
-- [ ] #77 Block 6: attachments filed with PDF and DOCX text extraction, `saveAttachment`, Decision and Note conventions.
-- [ ] #78 Block 7: `sendMessage` (Confirm), `pinMessage`, `listMembers`.
-- [ ] #79 Block 8: live eval briefs and judge criteria for daily assistant behaviours.
+- [x] Tickets published as sub-issues of the block issues, all ready-for-agent with native blocking (the block issues are groupers now, no agent label). Starting frontier: #81, #84, #87, #88, #95, #99, #100.
+- [ ] #80 Block 1: #81 time zone and language settings plus the time line in the turn context (start); #82 task due dates, creator, no-Confirm writes (after #81); #83 router timeout, retry, cache_control, temperature, fallback language (after #81).
+- [ ] #73 Block 2: #84 `remember` and `forget`; #85 persona default, regex removed, folder conventions (after #82, #84); #86 Memory compaction (after #84).
+- [ ] #74 Block 3: #87 `readChannelHistory`; #88 rolling conversation summary.
+- [ ] #75 Block 4: #89 `schedules` table, scheduler, one-shot Reminder (after #81); #90 recurrence and lateness, #91 list, cancel, limits, #93 console Reminders page (after #89); #92 `withTasks` (after #82, #89).
+- [ ] #76 Block 5: #94 daily Digest per channel (after #82, #90).
+- [ ] #77 Block 6: #95 attachments of addressing messages; #96 PDF and DOCX text, #97 `saveAttachment` (after #95); #98 Decision and Note conventions (after #85).
+- [ ] #78 Block 7: #99 `sendMessage` with Confirm; #100 `pinMessage` and `listMembers`.
+- [ ] #79 Block 8: #101 live eval for daily behaviours (after every ticket above).
 - Target after all blocks: about 90/100; the rest depends on the tenant's model, not the harness.
