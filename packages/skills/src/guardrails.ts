@@ -6,12 +6,12 @@ import { hasThreadConfirmation } from "./threadConfirmation.js";
 /**
  * observe: nothing is refused, would-be refusals are only logged.
  * write:   confirmation, rate/size limits and duplicate guard are enforced.
- * enforce: everything above plus scope, role, capability and prompt-injection refusals (default).
+ * enforce: everything above plus scope, role and prompt-injection refusals (default).
  */
 export type GuardrailMode = "observe" | "write" | "enforce";
 export const guardrailMode = (): GuardrailMode => (process.env.GUARDRAIL_MODE === "observe" || process.env.GUARDRAIL_MODE === "write" ? process.env.GUARDRAIL_MODE : "enforce");
 
-export type GuardrailKind = "out_of_scope" | "unauthorized" | "prompt_injection" | "confirmation_required" | "limit" | "duplicate" | "no_capability";
+export type GuardrailKind = "out_of_scope" | "unauthorized" | "prompt_injection" | "confirmation_required" | "limit" | "duplicate";
 export type GuardrailDecision = { allow: true } | { allow: false; kind: GuardrailKind; message: string };
 
 export type AuditEvent = "guardrail_denied" | "tool_denied" | "confirmation_requested" | "confirmation_accepted" | "confirmation_expired" | "prompt_injection_detected" | "thread_confirmation_requested" | "thread_confirmation_granted" | "thread_confirmation_denied" | "thread_confirmation_expired";
@@ -75,15 +75,9 @@ export function redact(text: string): string {
 /** Tool output is data. The tags tell the model so; a closing tag inside the data cannot end the block early. */
 export const asUntrusted = (source: string, text: string) => `<untrusted_data source="${source}">\n${text.replace(/<\/?untrusted_data[^>]*>/gi, "")}\n</untrusted_data>`;
 
-const CAPABILITY_WORDS: Record<string, RegExp> = {
-  tasks: /\b(tasks?|tugas|to-?do)\b/i,
-  discord_channels: /\b(channels?|kanal|channel topic)\b/i,
-  git: /\b(repos?|repositor(y|ies)|issues?|pull requests?|merge requests?|prs?|mrs?|branch(es)?|commits?|pipelines?|releases?)\b/i,
-};
-const ACTION = /\b(create|make|add|delete|remove|archive|close|merge|open|update|change|edit|assign|set|push|commit|rename|buat|bikin|tambah|hapus|arsip|tutup|gabung|ubah|ganti|tugaskan)\b/i;
 const DISCOVERY = /\b(what (can|do) you (do|support)|your (skills|tools|capabilities|abilities)|which (skills|tools)|apa (saja )?yang (bisa|dapat) (kamu|kau|anda)|kamu bisa apa|fitur apa)\b/i;
 
-export type RequestKind = "conversation" | "capability_discovery" | "action";
+export type RequestKind = "conversation" | "capability_discovery";
 
 export const GuardrailService = {
   allowConversation: (): GuardrailDecision => ({ allow: true }),
@@ -92,20 +86,12 @@ export const GuardrailService = {
   denyUnauthorized: (message: string) => deny("unauthorized", message),
   requireConfirmation: (message: string) => deny("confirmation_required", message),
   denyPromptInjection: (message = "I can't follow instructions that try to change my rules or reveal internal details.") => deny("prompt_injection", message),
-  denyNoCapability: (message: string) => deny("no_capability", message),
 
-  /** Runs before the ReAct loop: what kind of request is this, and can it be served at all? */
-  classify(message: string, activeSkills: SkillModule[]): { kind: RequestKind; decision: GuardrailDecision } {
+  /** Runs before the ReAct loop: refuses oversized and rule-rewriting messages. Whether a skill can serve the request is the model's call, from the prompt. */
+  classify(message: string): { kind: RequestKind; decision: GuardrailDecision } {
     if (message.length > MAX_INPUT) return { kind: "conversation", decision: deny("limit", `That message is too long (limit ${MAX_INPUT} characters). Please shorten it.`) };
     if (looksLikeInjection(message)) return { kind: "conversation", decision: this.denyPromptInjection() };
     if (DISCOVERY.test(message)) return { kind: "capability_discovery", decision: this.allowConversation() };
-    if (ACTION.test(message)) {
-      const have = new Set(activeSkills.flatMap((s) => s.capabilities ?? []));
-      for (const [capability, words] of Object.entries(CAPABILITY_WORDS)) {
-        if (words.test(message) && !have.has(capability)) return { kind: "action", decision: this.denyNoCapability("I can't do that here: that capability isn't enabled for this workspace. An admin can enable the matching skill in the console.") };
-      }
-      return { kind: "action", decision: this.allowConversation() };
-    }
     return { kind: "conversation", decision: this.allowConversation() };
   },
 

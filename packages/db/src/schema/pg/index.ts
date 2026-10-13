@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, boolean, jsonb, integer, real, index, uniqueIndex, foreignKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 
 /**
  * Agents Configuration Table
@@ -106,9 +107,7 @@ export const usageEvents = pgTable("usage_events", {
 export const agentsConfig = pgTable("agents_config", {
   tenantId: text("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
   name: text("name").notNull().default("Pachiware Agent"),
-  systemPrompt: text("system_prompt").notNull().default(
-    "You are Pachiware Agent, an intelligent autonomous system capable of channel management, task tracking, and problem solving. You execute actions via your available tools and communicate clearly and concisely."
-  ),
+  systemPrompt: text("system_prompt").notNull().default(DEFAULT_SYSTEM_PROMPT),
   defaultProvider: text("default_provider").notNull().default("openai"), // 'openai' | 'anthropic' | 'custom'
   defaultModel: text("default_model").notNull().default("gpt-4o"),
   temperature: real("temperature").notNull().default(0.2),

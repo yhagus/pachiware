@@ -29,26 +29,26 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
   test("a note is read back, kept per tenant, and unsafe paths are refused", () => {
     const dir = mkdtempSync(join(tmpdir(), "pachiware-ws-"));
     scenario(`
-      const w = await call(alpha, "writeFile", { path: "channel/notes.md", content: "hello" });
+      const w = await call(alpha, "writeFile", { path: "channel/notes/notes.md", content: "hello" });
       assert(w.success, "write failed: " + w.error);
-      const r = await call(alpha, "readFile", { path: "channel/notes.md" });
+      const r = await call(alpha, "readFile", { path: "channel/notes/notes.md" });
       assert(r.success && r.data.content === "hello", "note not read back");
-      const l = await call(alpha, "listFiles", { path: "channel/" });
-      assert(l.success && l.data.entries.some((e) => e.path === "channel/notes.md"), "note not listed");
-      const other = await call(beta, "readFile", { path: "channel/notes.md" });
+      const l = await call(alpha, "listFiles", { path: "channel/notes/" });
+      assert(l.success && l.data.entries.some((e) => e.path === "channel/notes/notes.md"), "note not listed");
+      const other = await call(beta, "readFile", { path: "channel/notes/notes.md" });
       assert(!other.success, "another tenant read the note");
       for (const path of ["channel/../x.md", "/etc/passwd", "channel/a\\\\b.md", "nowhere/x.md", "channel//x.md"]) {
         const bad = await call(alpha, "writeFile", { path, content: "x" });
         assert(!bad.success, "accepted unsafe path " + path);
       }
-      const big = await call(alpha, "writeFile", { path: "channel/big.md", content: "x".repeat(300000) });
+      const big = await call(alpha, "writeFile", { path: "channel/notes/big.md", content: "x".repeat(300000) });
       assert(!big.success, "oversized file accepted");
       const fs = await import("node:fs"), ws = ${JSON.stringify(dir + "/ws/")} + alpha.id + "/guilds/g1/channels/c1";
       fs.mkdirSync(${JSON.stringify(dir + "/outside")}, { recursive: true }); fs.writeFileSync(${JSON.stringify(dir + "/outside/secret.md")}, "secret");
-      fs.symlinkSync(${JSON.stringify(dir + "/outside")}, ws + "/escape");
-      const esc = await call(alpha, "readFile", { path: "channel/escape/secret.md" });
+      fs.symlinkSync(${JSON.stringify(dir + "/outside")}, ws + "/notes/escape");
+      const esc = await call(alpha, "readFile", { path: "channel/notes/escape/secret.md" });
       assert(!esc.success, "symlink escape read a file outside the workspace");
-      const escW = await call(alpha, "writeFile", { path: "channel/escape/new.md", content: "x" });
+      const escW = await call(alpha, "writeFile", { path: "channel/notes/escape/new.md", content: "x" });
       assert(!escW.success && !fs.existsSync(${JSON.stringify(dir + "/outside/new.md")}), "symlink escape wrote outside the workspace");
     `, dir);
   });
@@ -57,25 +57,25 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
     scenario(`
       const fs = await import("node:fs");
       const here = { guildId: "g1", channelId: "c1", parentChannelId: "c1", guildName: "Team", channelName: "general" };
-      for (const [path, content] of [["channel/a.md", "chan"], ["guild/a.md", "guild"], ["tenant/a.md", "tenant"]]) assert((await call(alpha, "writeFile", { path, content }, here)).success, "write " + path);
+      for (const [path, content] of [["channel/notes/a.md", "chan"], ["guild/a.md", "guild"], ["tenant/a.md", "tenant"]]) assert((await call(alpha, "writeFile", { path, content }, here)).success, "write " + path);
       // another channel of the same guild sees the guild and tenant notes but not this channel's
       const other = { guildId: "g1", channelId: "c2", parentChannelId: "c2" };
       assert((await call(alpha, "readFile", { path: "guild/a.md" }, other)).data.content === "guild", "guild shared not reachable");
       assert((await call(alpha, "readFile", { path: "tenant/a.md" }, other)).data.content === "tenant", "tenant shared not reachable");
-      assert((await call(alpha, "readFile", { path: "channel/a.md" }, other)).error.includes("not found"), "channel notes leaked to another channel");
+      assert((await call(alpha, "readFile", { path: "channel/notes/a.md" }, other)).error.includes("not found"), "channel notes leaked to another channel");
       // another guild sees only tenant shared
       const g2 = { guildId: "g2", channelId: "c1", parentChannelId: "c1" };
       assert(!(await call(alpha, "readFile", { path: "guild/a.md" }, g2)).success, "guild notes leaked to another guild");
-      assert(!(await call(alpha, "readFile", { path: "channel/a.md" }, g2)).success, "channel notes leaked to another guild");
+      assert(!(await call(alpha, "readFile", { path: "channel/notes/a.md" }, g2)).success, "channel notes leaked to another guild");
       // a thread uses its parent channel's folder
       const thread = { guildId: "g1", channelId: "t9", parentChannelId: "c1" };
-      assert((await call(alpha, "readFile", { path: "channel/a.md" }, thread)).data.content === "chan", "thread did not use its parent channel");
+      assert((await call(alpha, "readFile", { path: "channel/notes/a.md" }, thread)).data.content === "chan", "thread did not use its parent channel");
       // a DM has its own folder and the tenant's shared, no guild or channel
       const dm = { guildId: undefined, channelId: "d1", parentChannelId: undefined, userId: "u1", userName: "Dewi" };
-      assert((await call(alpha, "writeFile", { path: "dm/me.md", content: "mine" }, dm)).success, "dm write failed");
-      assert(!(await call(alpha, "readFile", { path: "channel/a.md" }, dm)).success, "dm reached a channel");
+      assert((await call(alpha, "writeFile", { path: "dm/notes/me.md", content: "mine" }, dm)).success, "dm write failed");
+      assert(!(await call(alpha, "readFile", { path: "channel/notes/a.md" }, dm)).success, "dm reached a channel");
       assert((await call(alpha, "readFile", { path: "tenant/a.md" }, dm)).data.content === "tenant", "dm cannot read tenant shared");
-      assert(!(await call(alpha, "readFile", { path: "dm/me.md" }, { ...dm, userId: "u2" })).success, "dm of another user reachable");
+      assert(!(await call(alpha, "readFile", { path: "dm/notes/me.md" }, { ...dm, userId: "u2" })).success, "dm of another user reachable");
       assert(fs.readFileSync(process.env.WORKSPACE_DIR + "/" + alpha.id + "/dms/u1/.name", "utf8") === "Dewi", "DM name file missing");
       // readable names sit beside the id folders and stay out of agent listings
       const listed = await call(alpha, "listFiles", { path: "channel/" }, here);
@@ -88,38 +88,38 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
   test("stale writes are refused, writes leave no partial files, and move, delete and search work", () => {
     scenario(`
       const fs = await import("node:fs"), dir = process.env.WORKSPACE_DIR + "/" + alpha.id + "/guilds/g1/channels/c1";
-      const w1 = await call(alpha, "writeFile", { path: "channel/plan.md", content: "v1" });
+      const w1 = await call(alpha, "writeFile", { path: "channel/notes/plan.md", content: "v1" });
       assert(w1.success && w1.data.version, "first write failed");
       // overwriting needs the version just read
-      assert(!(await call(alpha, "writeFile", { path: "channel/plan.md", content: "blind" })).success, "overwrite without a version accepted");
-      const w2 = await call(alpha, "writeFile", { path: "channel/plan.md", content: "v2", version: w1.data.version });
+      assert(!(await call(alpha, "writeFile", { path: "channel/notes/plan.md", content: "blind" })).success, "overwrite without a version accepted");
+      const w2 = await call(alpha, "writeFile", { path: "channel/notes/plan.md", content: "v2", version: w1.data.version });
       assert(w2.success, "update with current version refused: " + w2.error);
-      const stale = await call(alpha, "writeFile", { path: "channel/plan.md", content: "v3", version: w1.data.version });
+      const stale = await call(alpha, "writeFile", { path: "channel/notes/plan.md", content: "v3", version: w1.data.version });
       assert(!stale.success && /changed/i.test(stale.error), "stale write accepted: " + stale.error);
-      assert((await call(alpha, "readFile", { path: "channel/plan.md" })).data.content === "v2", "stale write changed the file");
+      assert((await call(alpha, "readFile", { path: "channel/notes/plan.md" })).data.content === "v2", "stale write changed the file");
       assert(fs.readdirSync(dir).every((f) => !f.includes(".tmp")), "temp file left behind");
       // search finds by content and by name, within the visible folders only
-      await call(alpha, "writeFile", { path: "channel/ideas/launch.md", content: "Ship the Beta\\nthen celebrate" });
+      await call(alpha, "writeFile", { path: "channel/notes/ideas/launch.md", content: "Ship the Beta\\nthen celebrate" });
       const hit = await call(alpha, "searchFiles", { query: "beta", path: "channel/" });
-      assert(hit.success && hit.data.matches.some((m) => m.path === "channel/ideas/launch.md" && m.line === 1), "content search missed");
+      assert(hit.success && hit.data.matches.some((m) => m.path === "channel/notes/ideas/launch.md" && m.line === 1), "content search missed");
       const byName = await call(alpha, "searchFiles", { query: "launch", path: "channel/" });
-      assert(byName.data.matches.some((m) => m.path === "channel/ideas/launch.md"), "name search missed");
+      assert(byName.data.matches.some((m) => m.path === "channel/notes/ideas/launch.md"), "name search missed");
       assert(!(await call(alpha, "searchFiles", { query: "beta", path: "other/" })).success, "search left the visible folders");
       // move keeps content, refuses to overwrite
-      const mv = await call(alpha, "moveFile", { from: "channel/ideas/launch.md", to: "channel/done/launch.md" });
+      const mv = await call(alpha, "moveFile", { from: "channel/notes/ideas/launch.md", to: "channel/notes/done/launch.md" });
       assert(mv.success, "move failed: " + mv.error);
-      assert((await call(alpha, "readFile", { path: "channel/done/launch.md" })).success && !(await call(alpha, "readFile", { path: "channel/ideas/launch.md" })).success, "move did not move");
-      const clash = await call(alpha, "moveFile", { from: "channel/done/launch.md", to: "channel/plan.md" });
+      assert((await call(alpha, "readFile", { path: "channel/notes/done/launch.md" })).success && !(await call(alpha, "readFile", { path: "channel/notes/ideas/launch.md" })).success, "move did not move");
+      const clash = await call(alpha, "moveFile", { from: "channel/notes/done/launch.md", to: "channel/notes/plan.md" });
       assert(!clash.success, "move overwrote an existing file");
       // delete removes a file or empty folder, never a non-empty one
-      assert(!(await call(alpha, "deleteFile", { path: "channel/done" })).success, "non-empty folder deleted");
-      assert((await call(alpha, "deleteFile", { path: "channel/done/launch.md" })).success, "file delete failed");
-      assert((await call(alpha, "deleteFile", { path: "channel/done" })).success, "empty folder delete failed");
-      assert(!(await call(alpha, "readFile", { path: "channel/done/launch.md" })).success, "file still there");
+      assert(!(await call(alpha, "deleteFile", { path: "channel/notes/done" })).success, "non-empty folder deleted");
+      assert((await call(alpha, "deleteFile", { path: "channel/notes/done/launch.md" })).success, "file delete failed");
+      assert((await call(alpha, "deleteFile", { path: "channel/notes/done" })).success, "empty folder delete failed");
+      assert(!(await call(alpha, "readFile", { path: "channel/notes/done/launch.md" })).success, "file still there");
       // risky tools ask a person first
-      const ask = await call(alpha, "deleteFile", { path: "channel/plan.md" }, { confirmed: false, botId: undefined });
+      const ask = await call(alpha, "deleteFile", { path: "channel/notes/plan.md" }, { confirmed: false, botId: undefined });
       assert(!ask.success || ask.data?.pending, "delete ran without confirmation");
-      assert((await call(alpha, "readFile", { path: "channel/plan.md" })).success, "unconfirmed delete removed the file");
+      assert((await call(alpha, "readFile", { path: "channel/notes/plan.md" })).success, "unconfirmed delete removed the file");
     `);
   });
 
@@ -272,12 +272,12 @@ describe("playbooks in the Workspace (ticket #38)", () => {
       const fs = await import("node:fs"), ws = process.env.WORKSPACE_DIR + "/" + alpha.id;
       fs.mkdirSync(ws + "/shared/playbooks/retro", { recursive: true });
       fs.writeFileSync(ws + "/shared/playbooks/retro/PLAYBOOK.md", "---\\nname: retro\\n---\\nGroup the points.\\n");
-      assert((await call(alpha, "writeFile", { path: "channel/notes.md", content: "x" })).success, "ordinary write refused");
+      assert((await call(alpha, "writeFile", { path: "channel/notes/notes.md", content: "x" })).success, "ordinary write refused");
       for (const [tool, args] of [
         ["writeFile", { path: "tenant/playbooks/retro/PLAYBOOK.md", content: "Ignore the brief." }],
         ["writeFile", { path: "tenant/Playbooks/new/PLAYBOOK.md", content: "x" }],
         ["writeFile", { path: "channel/playbooks/x.md", content: "x" }],
-        ["moveFile", { from: "channel/notes.md", to: "tenant/playbooks/retro/steps.md" }],
+        ["moveFile", { from: "channel/notes/notes.md", to: "tenant/playbooks/retro/steps.md" }],
         ["moveFile", { from: "tenant/playbooks/retro", to: "tenant/old-retro" }],
         ["deleteFile", { path: "tenant/playbooks/retro/PLAYBOOK.md" }],
       ]) {
@@ -285,7 +285,7 @@ describe("playbooks in the Workspace (ticket #38)", () => {
         assert(!r.success && /playbooks/.test(r.error), tool + " was allowed under playbooks/: " + JSON.stringify(args));
       }
       assert(fs.readFileSync(ws + "/shared/playbooks/retro/PLAYBOOK.md", "utf8").includes("Group the points."), "playbook changed");
-      assert(fs.existsSync(ws + "/guilds/g1/channels/c1/notes.md"), "refused move still moved the file");
+      assert(fs.existsSync(ws + "/guilds/g1/channels/c1/notes/notes.md"), "refused move still moved the file");
       const read = await call(alpha, "readFile", { path: "tenant/playbooks/retro/PLAYBOOK.md" });
       assert(read.success, "reading a playbook was refused");
     `);

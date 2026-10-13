@@ -51,8 +51,8 @@ discordScenario("a message context-menu command reaches the bot through the fake
 });
 
 discordScenario("a scenario reads what the agent wrote to the Workspace", async (s) => {
-  s.model.script({ tool: "writeFile", args: { path: "channel/notes.md", content: "# Standup\n- ship CSV export" } }, "Saved.");
+  s.model.script({ tool: "writeFile", args: { path: "channel/notes/standup.md", content: "# Standup\n- ship CSV export" } }, "Saved.");
   const ask = await s.discord.send(`${s.discord.mention} note: ship CSV export`);
   expect(s.discord.botMessages.at(-1)).toMatchObject({ channelId: ask.thread!.id, content: "Saved." });
-  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/notes.md")).toBe("# Standup\n- ship CSV export");
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/notes/standup.md")).toBe("# Standup\n- ship CSV export");
 });
