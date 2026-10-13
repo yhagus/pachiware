@@ -124,6 +124,7 @@ const en = {
   reminderNotYours: "That Reminder belongs to someone else; only its owner or someone with Manage Messages can cancel it.",
   reminderLimitOwner: (n: number) => `You already have ${n} active Reminders, the most one person can keep. Cancel one before setting another.`,
   reminderLimitTenant: (n: number) => `Reminders here are at their limit of ${n} active. Cancel one before setting another.`,
+  openTasks: "Open tasks (status | due | owner | id | title):",
   // Channel history
   historyNoChannel: "I can't find that channel.",
   historyDm: "I read channel history only in server channels and threads, not in DMs.",
@@ -223,6 +224,7 @@ const id: typeof en = {
   reminderNotYours: "Pengingat itu milik orang lain; hanya pemiliknya atau orang dengan Manage Messages yang bisa membatalkannya.",
   reminderLimitOwner: (n) => `Kamu sudah punya ${n} pengingat aktif, batas untuk satu orang. Batalkan satu dulu sebelum membuat yang baru.`,
   reminderLimitTenant: (n) => `Pengingat di sini sudah mencapai batas ${n} yang aktif. Batalkan satu dulu sebelum membuat yang baru.`,
+  openTasks: "Tugas terbuka (status | due | owner | id | title):",
   historyNoChannel: "Channel itu tidak ketemu.",
   historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
   historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,

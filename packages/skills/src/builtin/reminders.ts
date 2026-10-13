@@ -57,6 +57,7 @@ export const remindersSkill: SkillModule = {
           text: { type: "string", description: "What to post, in the asker's words" },
           at: { type: "string", description: 'When to post, e.g. "2026-03-06T15:00" or "15:00"; read in this place\'s time zone unless it carries an offset' },
           mentions: { type: "array", items: { type: "string" }, description: "Discord user ids to ping besides the asker" },
+          withTasks: { type: "boolean", description: "true: the post also lists the asker's open tasks (assigned to or created by them) visible from this place, so a morning DM Reminder doubles as their overview" },
         },
         required: ["text", "at"],
       },
@@ -83,14 +84,14 @@ export const remindersSkill: SkillModule = {
       const at = parseWhen(args.at, timezone, from);
       if (at === null) throw new Error('at must be a date and time such as "2026-03-06T15:00"');
       if (at <= from) throw new Error("That time has already passed; pick a later one.");
-      const mentions = mentionIds(args.mentions, ctx.userId);
+      const mentions = mentionIds(args.mentions, ctx.userId), withTasks = args.withTasks === true || args.withTasks === "true";
       const wall = wallClock(timezone, at);
       const [row] = await ctx.db.insert(schedules).values({
         tenantId: ctx.tenantId, botId: ctx.botId, kind: "reminder", guildId: ctx.guildId ?? null, channelId: ctx.channelId,
-        ownerId: ctx.userId, ownerName: ctx.userName ?? null, text, mentions, recurrence: "once",
+        ownerId: ctx.userId, ownerName: ctx.userName ?? null, text, withTasks, mentions, recurrence: "once",
         timeOfDay: `${String(wall.hour).padStart(2, "0")}:${String(wall.minute).padStart(2, "0")}`, timezone, nextAt: new Date(at),
       }).returning({ id: schedules.id });
-      return { id: row!.id, at: isoInZone(timezone, at), text, mentions, channelId: ctx.channelId };
+      return { id: row!.id, at: isoInZone(timezone, at), text, mentions, withTasks, channelId: ctx.channelId };
     },
     listReminders: async (_args, ctx) => {
       if (!ctx.userId) throw new Error("Reminders can only be listed from a Discord channel or DM.");
