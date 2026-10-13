@@ -175,7 +175,18 @@ export async function runSeed() {
     config: {},
   };
 
-  for (const skill of [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill]) {
+  // Tool definitions come from the registry (packages/skills/src/builtin/reminders.ts).
+  const remindersSkill = {
+    id: "reminders",
+    name: "Reminders",
+    description: "Post a message at a time a person chose, where they asked, pinging them.",
+    defaultEnabled: true,
+    handlerType: "builtin",
+    toolDefinitions: [],
+    config: {},
+  };
+
+  for (const skill of [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill]) {
     const existing = await db.select().from(skills).where(eq(skills.id, skill.id)).limit(1);
     if (existing.length === 0) {
       await db.insert(skills).values(skill);

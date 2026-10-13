@@ -98,6 +98,18 @@ export const availabilityRules = sqliteTable("availability_rules", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [uniqueIndex("availability_rules_key_idx").on(t.tenantId, t.level, sql`coalesce(${t.botId}, '')`, t.guildId, t.channelId, t.targetKind, t.targetName)]);
 
+export const schedules = sqliteTable("schedules", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id").notNull(),
+  kind: text("kind").$type<"reminder" | "digest">().notNull().default("reminder"), guildId: text("guild_id"), channelId: text("channel_id").notNull(),
+  ownerId: text("owner_id"), ownerName: text("owner_name"), text: text("text").notNull().default(""), withTasks: integer("with_tasks", { mode: "boolean" }).notNull().default(false),
+  mentions: text("mentions", { mode: "json" }).$type<string[]>().notNull().default([]),
+  recurrence: text("recurrence").$type<"once" | "daily" | "weekly" | "monthly">().notNull().default("once"), weekdays: text("weekdays", { mode: "json" }).$type<number[]>().notNull().default([]), dayOfMonth: integer("day_of_month"),
+  timeOfDay: text("time_of_day"), timezone: text("timezone").notNull(), until: integer("until", { mode: "timestamp_ms" }),
+  nextAt: integer("next_at", { mode: "timestamp_ms" }).notNull(), lastFiredAt: integer("last_fired_at", { mode: "timestamp_ms" }),
+  status: text("status").$type<"active" | "cancelled" | "done">().notNull().default("active"), attempts: integer("attempts").notNull().default(0), error: text("error"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [index("schedules_due_idx").on(t.status, t.nextAt), foreignKey({ columns: [t.tenantId, t.botId], foreignColumns: [bots.tenantId, bots.id] })]);
+
 export const usageEvents = sqliteTable("usage_events", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),
   type: text("type").notNull(), provider: text("provider"), model: text("model"),
@@ -241,6 +253,9 @@ export type NewBot = typeof bots.$inferInsert;
 
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type NewUsageEvent = typeof usageEvents.$inferInsert;
+
+export type Schedule = typeof schedules.$inferSelect;
+export type NewSchedule = typeof schedules.$inferInsert;
 
 export type TenantSkill = typeof tenantSkills.$inferSelect;
 export type NewTenantSkill = typeof tenantSkills.$inferInsert;
