@@ -5,6 +5,7 @@
  */
 import type { SkillContext, ToolDefinition, ToolResult } from "./types.js";
 import { writeBinding, jumpLink, type BindingPlace, type PlaybookBinding } from "./playbooks.js";
+import { today } from "./clock.js";
 import { briefState, authorsBrief, updateBrief, undescribedImages, optionLetter, hasCycle, oneLine as line, type BriefDraft, type BriefQuestion, type BriefState, type DraftCategory } from "./brief.js";
 import { checkDraft, type DraftViolation } from "./draftChecker.js";
 import { describedByAnswers, screenshotLines } from "./briefImages.js";
@@ -163,7 +164,7 @@ export function applyDraft(current: BriefState, binding: PlaybookBinding, args: 
     title: args.title === undefined ? undefined : line(args.title), summary: text("summary"), current: text("current"), desired: text("desired"),
     category: args.category, acceptance: items("acceptance"), outOfScope: items("outOfScope"), established: items("established"), openQuestions,
   }).filter(([, v]) => v !== undefined));
-  const draft: BriefDraft = { ...(before ?? { n, point: args.point as number, title: "", summary: "" }), ...changes, n, blockedBy, writtenAt: new Date().toISOString(), ...(before?.messageId ? { revisions: (before.revisions ?? 0) + 1 } : {}) };
+  const draft: BriefDraft = { ...(before ?? { n, point: args.point as number, title: "", summary: "" }), ...changes, n, blockedBy, writtenAt: today().toISOString(), ...(before?.messageId ? { revisions: (before.revisions ?? 0) + 1 } : {}) };
   if (!draft.current) delete draft.current;
   if (repo) draft.repo = repo; else delete draft.repo;
   if (labels?.length) draft.labels = labels; else delete draft.labels;

@@ -11,6 +11,7 @@ import { IntegrationDetail } from "@/pages/tenant/IntegrationDetail";
 import { IntegrationServers } from "@/pages/tenant/IntegrationServers";
 import { TenantSkills } from "@/pages/tenant/TenantSkills";
 import { TenantWorkspace } from "@/pages/tenant/TenantWorkspace";
+import { TenantSettings } from "@/pages/tenant/TenantSettings";
 import { IntegrationGitAccess } from "@/pages/tenant/IntegrationGitAccess";
 import { IntegrationAvailability } from "./pages/tenant/IntegrationAvailability";
 import { TenantProfiles } from "@/pages/tenant/TenantProfiles";
@@ -52,6 +53,7 @@ export default function App() {
             <Route path="git-accounts" element={<TenantGitAccounts />} />
             <Route path="skills" element={<TenantSkills />} />
             <Route path="workspace" element={<TenantWorkspace />} />
+            <Route path="settings" element={<TenantSettings />} />
             <Route path="git-accounts/:accountId" element={<GitRepos />} />
             <Route path="git-accounts/:accountId/repo" element={<GitRepoDetail />} />
             <Route path="integrations/:botId" element={<IntegrationDetail />}>

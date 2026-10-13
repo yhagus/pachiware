@@ -1,4 +1,25 @@
 import { HTTPException } from "hono/http-exception";
+import { canonicalTimezone, isLanguage, type Language } from "@pachiware/skills";
+
+export type PlaceSettings = { timezone?: string | null; language?: Language | null };
+/** `timezone` (canonical IANA name) and `language` from a settings body; `nullable` lets a guild clear its override. */
+export function placeSettings(body: Record<string, any>, nullable = false): PlaceSettings {
+  const out: PlaceSettings = {};
+  if (body.timezone !== undefined) {
+    if (body.timezone === null && nullable) out.timezone = null;
+    else {
+      const zone = canonicalTimezone(body.timezone);
+      if (!zone) throw new HTTPException(400, { message: "timezone must be an IANA zone name such as Asia/Jakarta" });
+      out.timezone = zone;
+    }
+  }
+  if (body.language !== undefined) {
+    if (body.language === null && nullable) out.language = null;
+    else if (!isLanguage(body.language)) throw new HTTPException(400, { message: 'language must be "id" or "en"' });
+    else out.language = body.language;
+  }
+  return out;
+}
 
 export function string(value: unknown, name: string, optional = false): string | undefined {
   if (optional && value === undefined) return undefined;

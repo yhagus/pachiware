@@ -143,6 +143,8 @@ export class AgentReActLoop {
       userName: input.context.userName,
       parentChannelId: input.context.skillContext?.parentChannelId,
       userId: input.context.userId,
+      timezone: input.context.timezone,
+      language: input.context.language,
       metadata: input.context.skillContext?.metadata,
       auth: {
         tenantId: input.tenantId, botId: input.botId, userId: input.context.userId, guildId: input.context.guildId, channelId: input.context.channelId,
@@ -165,6 +167,7 @@ export class AgentReActLoop {
         botId: input.botId,
         cacheKey: convId,
         tools: activeTools,
+        language: input.context.language,
       });
 
       if (response.imagesRejected) { imagesRejected = true; turn.content = input.message; }

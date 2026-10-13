@@ -74,6 +74,7 @@ export const guildConfigs = sqliteTable("guild_configs", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   botId: text("bot_id").notNull().references(() => bots.id, { onDelete: "cascade" }), guildId: text("guild_id").notNull(),
   systemPrompt: text("system_prompt"), useThreads: integer("use_threads", { mode: "boolean" }).notNull().default(true), alwaysChannelIds: text("always_channel_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
+  timezone: text("timezone"), language: text("language").$type<"id" | "en">(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 
@@ -127,7 +128,8 @@ export const agentsConfig = sqliteTable("agents_config", {
   customApiKeyEncrypted: text("custom_api_key_encrypted"),
   customModel: text("custom_model"),
 
-
+  timezone: text("timezone").notNull().default("Asia/Jakarta"),
+  language: text("language").$type<"id" | "en">().notNull().default("id"),
   settings: text("settings", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()

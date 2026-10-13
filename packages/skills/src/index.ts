@@ -25,3 +25,4 @@ export * from "./builtin/briefIssues.js";
 export * from "./builtin/git.js";
 export * from "./git.js";
 export * from "./language.js";
+export * from "./clock.js";

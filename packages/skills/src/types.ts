@@ -145,6 +145,9 @@ export interface SkillContext {
   confirmed?: boolean;
   /** Set by the host; the registry refuses it when its ids disagree with this context. */
   auth?: AuthorizationContext;
+  /** The place's configured zone and language (the guild's, else the tenant's), for dates and for text the tool writes on its own. */
+  timezone?: string;
+  language?: "id" | "en";
   metadata?: Record<string, any>;
 }
 

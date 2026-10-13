@@ -2,6 +2,7 @@ import type { SkillContext, ToolDefinition, ToolResult } from "./types.js";
 import { readBinding, writeBinding, rewriteBinding, type BindingPlace, type PlaybookBinding } from "./playbooks.js";
 import { groundingOf, openRepos, type BriefGrounding } from "./grounding.js";
 import { replyLanguage, textIn, MESSAGE_LIMIT, type Language } from "./language.js";
+import { today } from "./clock.js";
 
 /**
  * A brief's state lives in its thread's binding file (see `bindingPath`), next to the binding fields.
@@ -295,7 +296,7 @@ export const updateBrief = <T>(tenantId: string, place: BindingPlace, change: (s
 const MAX_INPUT_TEXT = 1000;
 /** Keeps a message from someone other than the author; it decides nothing until the author weighs it. */
 export const recordBriefInput = (tenantId: string, place: BindingPlace, entry: { messageId: string; userId: string; name: string; text: string }) =>
-  updateBrief(tenantId, place, (s) => ({ state: { ...s, input: [...s.input, { ...entry, text: entry.text.slice(0, MAX_INPUT_TEXT), at: new Date().toISOString(), round: s.round, seen: false }] }, value: true }));
+  updateBrief(tenantId, place, (s) => ({ state: { ...s, input: [...s.input, { ...entry, text: entry.text.slice(0, MAX_INPUT_TEXT), at: today().toISOString(), round: s.round, seen: false }] }, value: true }));
 
 /** Input the author's turn has not shown the model yet, marked as shown. */
 export const takeBriefInput = (tenantId: string, place: BindingPlace) =>

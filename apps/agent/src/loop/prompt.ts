@@ -1,11 +1,11 @@
 import { db, agentsConfig, getGuildConfig } from "@pachiware/db";
 import { eq } from "drizzle-orm";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { skillRegistry, loadMemory, loadTasks, workspaceStore, EFFECT_MEANING, type OffSummary } from "@pachiware/skills";
+import { skillRegistry, loadMemory, loadTasks, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, type OffSummary, type Language } from "@pachiware/skills";
 import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
 
-export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[] };
-const guildDefaults: GuildSettings = { systemPrompt: null, useThreads: true, alwaysChannelIds: [] };
+export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null };
+const guildDefaults: GuildSettings = { systemPrompt: null, useThreads: true, alwaysChannelIds: [], timezone: null, language: null };
 export const guildCacheKey = (tenantId: string, botId: string, guildId: string) => tenantKey(tenantId, `guild:${botId}:${guildId}`);
 
 export async function loadGuildSettings(tenantId: string, botId: string, guildId: string): Promise<GuildSettings> {
@@ -13,7 +13,7 @@ export async function loadGuildSettings(tenantId: string, botId: string, guildId
   const cached = await CacheService.get<GuildSettings>(key);
   if (cached) return cached;
   const row = await getGuildConfig(botId, guildId);
-  const settings = row ? { systemPrompt: row.systemPrompt, useThreads: row.useThreads, alwaysChannelIds: row.alwaysChannelIds } : guildDefaults;
+  const settings = row ? { systemPrompt: row.systemPrompt, useThreads: row.useThreads, alwaysChannelIds: row.alwaysChannelIds, timezone: row.timezone ?? null, language: row.language ?? null } : guildDefaults;
   await CacheService.set(key, settings, 120);
   return settings;
 }
@@ -36,7 +36,22 @@ export interface PromptContext {
   playbook?: { name: string; body: string };
   /** What availability rules turn off where the message came from. It changes only when an admin changes a rule, so it may sit in the cached prompt. */
   off?: OffSummary;
+  /** The zone of the place the message came from (the guild's, else the tenant's); only the per-turn context reads it. */
+  timezone?: string;
+  /** The configured language of the place, for text written with no message to detect from. */
+  language?: Language;
 }
+
+const tenantConfig = async (tenantId: string) => {
+  const cacheKey = tenantKey(tenantId, "agent:config");
+  let config = await CacheService.get<any>(cacheKey);
+  if (!config) {
+    const rows = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, tenantId)).limit(1);
+    config = rows[0] || { name: "Pachiware Agent", systemPrompt: "You are Pachiware Agent, an intelligent autonomous system capable of channel management, task tracking, and problem solving." };
+    await CacheService.set(cacheKey, config, 120);
+  }
+  return config;
+};
 
 /** The off-summary section, or null when nothing is off, so a tenant without rules keeps the prompt it had. */
 function offSection(off: OffSummary | undefined): string | null {
@@ -59,24 +74,7 @@ export class SystemPromptBuilder {
    * because providers cache the prompt prefix; anything that changes belongs in buildDynamic.
    */
   static async build(context: PromptContext): Promise<string> {
-    // 1. Fetch agent configuration (check Redis cache first)
-    const cacheKey = tenantKey(context.tenantId, "agent:config");
-    let config = await CacheService.get<any>(cacheKey);
-
-    if (!config) {
-      const rows = await db
-        .select()
-        .from(agentsConfig)
-        .where(eq(agentsConfig.tenantId, context.tenantId))
-        .limit(1);
-
-      config = rows[0] || {
-        name: "Pachiware Agent",
-        systemPrompt:
-          "You are Pachiware Agent, an intelligent autonomous system capable of channel management, task tracking, and problem solving.",
-      };
-      await CacheService.set(cacheKey, config, 120); // 2 minute cache
-    }
+    const config = await tenantConfig(context.tenantId);
 
     // 2. Base instructions & personality
     const promptSections: string[] = [];
@@ -151,6 +149,7 @@ ${toolNames.length > 0 ? toolNames : "None currently active."}
     if (context.channelName || context.channelId) lines.push(`Channel: ${context.channelName ? `#${context.channelName} ` : ""}(ID: ${context.channelId})`);
     if (context.userName) lines.push(`User: ${context.userName} (ID: ${context.userId})`);
     if (context.addressed !== undefined) lines.push(`Addresses you: ${context.addressed ? "yes" : "no"}`);
+    lines.push(`Now: ${describeTime(context.timezone ?? configuredTimezone(await tenantConfig(context.tenantId)))}`);
     const where = { tenantId: context.tenantId, guildId: context.guildId, channelId: context.channelId, parentChannelId: context.skillContext?.parentChannelId, userId: context.userId };
     try {
       const memory = await loadMemory(where);

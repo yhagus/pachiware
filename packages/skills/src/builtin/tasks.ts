@@ -2,6 +2,7 @@ import type { SkillModule, SkillContext } from "../types.js";
 import { visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
+import { today } from "../clock.js";
 
 export const taskManagementSkill: SkillModule = {
   id: "task_management",
@@ -86,7 +87,7 @@ export const taskManagementSkill: SkillModule = {
       if (args.title.length > 200) throw new Error("Task title is too long (max 200 characters)");
       if (args.priority !== undefined && !PRIORITIES.includes(args.priority)) throw new Error("Invalid task priority");
       const roots = visibleRoots(ctx), home = roots.channel ?? roots.dm ?? roots.tenant!;
-      const now = new Date().toISOString(), id = crypto.randomUUID();
+      const now = today().toISOString(), id = crypto.randomUUID();
       const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: args.assignedTo?.trim() || null, createdAt: now, updatedAt: now };
       await workspaceStore().write(ctx.tenantId, `${home}/tasks/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
       await labelFolder(ctx, roots.channel ? "channel" : roots.guild ? "guild" : roots.dm ? "dm" : "");
@@ -195,7 +196,7 @@ async function change(ctx: SkillContext, taskId: string, edit: (t: Task) => Task
   if (!hit) throw new Error(`Task with ID ${taskId} not found.`);
   const current = await store.read(ctx.tenantId, hit.path).catch(() => null), parsed = current && parseTask(current.content);
   if (!current || !parsed) throw new Error(`Task with ID ${taskId} not found.`);
-  const next = { ...edit(parsed), updatedAt: new Date().toISOString() };
+  const next = { ...edit(parsed), updatedAt: today().toISOString() };
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
   return next;

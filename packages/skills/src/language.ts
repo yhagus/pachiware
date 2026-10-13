@@ -17,6 +17,11 @@ export function languageOf(text: string, least = 3): Language | "unknown" {
 /** The language for the bot's own text about these messages: Indonesian when they read so, English otherwise. Chat is short, so two function words decide. */
 export const replyLanguage = (...texts: (string | null | undefined)[]): Language => (languageOf(texts.filter(Boolean).join("\n"), 2) === "id" ? "id" : "en");
 
+export const DEFAULT_LANGUAGE: Language = "id";
+export const isLanguage = (value: unknown): value is Language => value === "id" || value === "en";
+/** The language for text the bot writes with no message to detect from (Digest, Reminder framing, provider errors): the guild's override, else the tenant's. */
+export const configuredLanguage = (...levels: ({ language?: string | null } | null | undefined)[]): Language => levels.map((l) => l?.language).find(isLanguage) ?? DEFAULT_LANGUAGE;
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const list = (items: string[], and: string) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ${and} ${items.at(-1)}`);
 
@@ -27,6 +32,10 @@ const en = {
   nothingToAdd: "I have nothing to add here.",
   done: "Done.",
   failed: "Unable to process this request. Check your tenant configuration.",
+  // Provider errors
+  providerFailed: "I couldn't reach the model provider just now. Try again in a moment.",
+  providerNoKey: (provider: string) => `No ${provider} API key is set for this tenant, so I can't answer. An admin can add one in the console.`,
+  providerNoBaseUrl: "No base URL is set for the custom provider, so I can't answer. An admin can add one in the console.",
   // Images
   blind: "I can't see images with this profile.",
   describeImage: "Describe the image in words and I'll work from that.",
@@ -119,6 +128,9 @@ const id: typeof en = {
   nothingToAdd: "Tidak ada yang perlu saya tambahkan di sini.",
   done: "Selesai.",
   failed: "Permintaan ini tidak bisa diproses. Periksa konfigurasi tenant.",
+  providerFailed: "Penyedia modelnya tidak bisa saya hubungi saat ini. Coba lagi sebentar lagi.",
+  providerNoKey: (provider) => `Belum ada API key ${provider} untuk tenant ini, jadi saya belum bisa menjawab. Admin bisa menambahkannya di konsol.`,
+  providerNoBaseUrl: "Belum ada base URL untuk penyedia custom, jadi saya belum bisa menjawab. Admin bisa menambahkannya di konsol.",
   blind: "Saya tidak bisa melihat gambar dengan profil ini.",
   describeImage: "Jelaskan gambarnya dengan kata-kata, nanti saya kerjakan dari situ.",
   rejected: "Profil ini menolak gambarnya; admin bisa mematikan input gambar untuk profil ini.",

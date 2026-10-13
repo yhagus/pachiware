@@ -1,9 +1,24 @@
 import { Hono } from "hono";
-import { db, tenants, apiKeys, createTenant, getTenantBySlug, getTenantById, updateTenant, deleteTenant } from "@pachiware/db";
+import { db, tenants, apiKeys, agentsConfig, createTenant, getTenantBySlug, getTenantById, updateTenant, deleteTenant } from "@pachiware/db";
 import { eq, ne } from "drizzle-orm";
 import { discordBotManager } from "../../discord/client.js";
-import { object, string } from "../validation.js";
+import { CacheService, tenantKey } from "../../cache/redis.js";
+import { object, string, placeSettings } from "../validation.js";
 export const tenantAdminRoutes = new Hono();
+// The tenant's default time zone and language; a guild may override both on its own config.
+const settingsOut = (row: { timezone: string; language: string }) => ({ timezone: row.timezone, language: row.language });
+tenantAdminRoutes.get("/:id/settings", async (c) => {
+  const [row] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, c.req.param("id"))).limit(1);
+  return row && await getTenantById(c.req.param("id")) ? c.json({ success: true, settings: settingsOut(row) }) : c.json({ error: "Tenant not found" }, 404);
+});
+tenantAdminRoutes.put("/:id/settings", async (c) => {
+  const tenantId = c.req.param("id");
+  if (!await getTenantById(tenantId)) return c.json({ error: "Tenant not found" }, 404);
+  const values = placeSettings(object(await c.req.json(), "body"));
+  const [row] = await db.update(agentsConfig).set({ ...values, updatedAt: new Date() }).where(eq(agentsConfig.tenantId, tenantId)).returning();
+  await CacheService.del(tenantKey(tenantId, "agent:config"));
+  return row ? c.json({ success: true, settings: settingsOut(row) }) : c.json({ error: "Tenant not found" }, 404);
+});
 tenantAdminRoutes.post("/", async (c) => {
   const body = object(await c.req.json(), "body");
   const name = string(body.name, "name")!;

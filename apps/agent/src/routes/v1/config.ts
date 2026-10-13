@@ -4,7 +4,7 @@ import type { TenantEnv } from "../../middleware/tenant.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 import { LLMRouter } from "../../llm/router.js";
 import { isProvider } from "../../llm/providers.js";
-import { maskConfig, object } from "../validation.js";
+import { maskConfig, object, placeSettings } from "../validation.js";
 
 export const configRoutes = new Hono<TenantEnv>();
 configRoutes.get("/", async (c) => {
@@ -33,6 +33,7 @@ configRoutes.put("/", async (c) => {
     values.maxTokens = body.maxTokens;
   }
   if (body.settings !== undefined) values.settings = object(body.settings, "settings");
+  Object.assign(values, placeSettings(body));
   for (const field of ["openaiApiKeyEncrypted", "anthropicApiKeyEncrypted", "customApiKeyEncrypted"]) {
     if (body[field] === undefined) continue;
     if (body[field] !== null && typeof body[field] !== "string") return c.json({ error: `${field} must be a string or null` }, 400);

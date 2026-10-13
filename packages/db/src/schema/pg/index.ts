@@ -58,6 +58,7 @@ export const guildConfigs = pgTable("guild_configs", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   botId: text("bot_id").notNull().references(() => bots.id, { onDelete: "cascade" }), guildId: text("guild_id").notNull(),
   systemPrompt: text("system_prompt"), useThreads: boolean("use_threads").notNull().default(true), alwaysChannelIds: jsonb("always_channel_ids").$type<string[]>().notNull().default([]),
+  timezone: text("timezone"), language: text("language").$type<"id" | "en">(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 
@@ -115,8 +116,8 @@ export const agentsConfig = pgTable("agents_config", {
   customApiKeyEncrypted: text("custom_api_key_encrypted"),
   customModel: text("custom_model"),
 
-  // Discord Gateway
-
+  timezone: text("timezone").notNull().default("Asia/Jakarta"),
+  language: text("language").$type<"id" | "en">().notNull().default("id"),
   settings: jsonb("settings").default({}).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .default(sql`CURRENT_TIMESTAMP`)
