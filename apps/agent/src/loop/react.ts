@@ -145,6 +145,10 @@ export class AgentReActLoop {
       userId: input.context.userId,
       timezone: input.context.timezone,
       language: input.context.language,
+      complete: async ({ system, user }) => {
+        const response = await llmRouter.complete([{ role: "system", content: system }, { role: "user", content: user }], { tenantId: input.tenantId, botId: input.botId, tools: [], language: input.context.language }).catch(() => null);
+        return response && response.finishReason !== "error" ? response.content : null;
+      },
       metadata: input.context.skillContext?.metadata,
       auth: {
         tenantId: input.tenantId, botId: input.botId, userId: input.context.userId, guildId: input.context.guildId, channelId: input.context.channelId,

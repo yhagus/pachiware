@@ -98,7 +98,7 @@ export const agentsConfig = pgTable("agents_config", {
   ),
   defaultProvider: text("default_provider").notNull().default("openai"), // 'openai' | 'anthropic' | 'custom'
   defaultModel: text("default_model").notNull().default("gpt-4o"),
-  temperature: real("temperature").notNull().default(0.7),
+  temperature: real("temperature").notNull().default(0.2),
   maxTokens: integer("max_tokens").notNull().default(4096),
 
   // OpenAI Provider
