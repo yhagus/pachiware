@@ -107,5 +107,6 @@ export * from "./runtime-store.js";
 export * from "./dialect.js";
 export * from "./crypto.js";
 export * from "./tenancy.js";
+export * from "./persona.js";
 export { eq, desc, asc, sql, and, or } from "drizzle-orm";
 export default db;
