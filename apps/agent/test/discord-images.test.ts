@@ -56,7 +56,7 @@ discordScenario("images of the replied-to message reach the model", async (s) =>
   expect(turn.content.slice(1).map((p: any) => [p.type, p.mediaType])).toEqual([["image", "image/png"]]);
 });
 
-discordScenario("images over the limit, unsupported files, and unreadable images are skipped and named in one line", async (s) => {
+discordScenario("images over the limit and unreadable images are skipped and named in one line; a document beside them is filed", async (s) => {
   await useProfile(s, { provider: "openai", model: "gpt-vision", acceptsImages: true }, { scripted: true });
   const broken = attachment(s, "broken.png", new TextEncoder().encode("not an image"));
   const huge = attachment(s, "huge.png", null, { size: 30 * 1024 * 1024, width: 9000, height: 9000 });
@@ -66,8 +66,9 @@ discordScenario("images over the limit, unsupported files, and unreadable images
   await s.discord.send(`${s.discord.mention} compare these`, { attachments: [broken, huge, notes, ...shots] });
   const turn = s.model.calls[0]!.find((m) => Array.isArray(m.content)) as any;
   expect(turn.content.filter((p: any) => p.type === "image")).toHaveLength(4);
+  expect(turn.content[0].text).toContain("[file: notes.pdf saved as channel/files/notes.pdf]");
   expect(s.http.requests.some((r) => r.url.includes("huge.png"))).toBe(false);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("Four screenshots of the same dialog.\nSkipped broken.png (could not be read as an image), huge.png (too large to download), notes.pdf (not a PNG, JPEG, WebP or GIF), e.png (over the 4-image limit).");
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Four screenshots of the same dialog.\nSkipped broken.png (could not be read as an image), huge.png (too large to download), e.png (over the 4-image limit).");
 });
 
 discordScenario("a text-only profile answers the text, sends no image, and says it cannot see images", async (s) => {

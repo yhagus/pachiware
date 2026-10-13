@@ -1,5 +1,5 @@
 import type { Message } from "discord.js";
-import { textIn, jumpLink, type Language, type Strings } from "@pachiware/skills";
+import { textIn, jumpLink, fileDocument, takenNames, type Language, type Strings } from "@pachiware/skills";
 import type { ImagePart } from "../llm/types.js";
 
 const MAX_IMAGES = 4;
@@ -22,10 +22,35 @@ const attachmentsOf = (m: Message | null | undefined): Attachment[] => (m?.attac
 const isImage = (a: Attachment) => !!a.contentType?.startsWith("image/") || IMAGE_NAME.test(a.name);
 const isSupported = (a: Attachment) => a.contentType ? /^image\/(png|jpeg|webp|gif)$/.test(a.contentType) : SUPPORTED_NAME.test(a.name);
 const placeholder = (a: Attachment, label: string) => `[${label}: ${a.name}${a.width && a.height ? `, ${a.width}×${a.height}` : ""}]`;
+// A file placeholder carries its message id so a later `saveAttachment` can find it.
+const filePlaceholder = (a: Attachment, msg: Message, note?: string) => `[file: ${a.name} (message ${msg.id})${note ? `: ${note}` : ""}]`;
+/** What the turn says per filed or refused attachment, by attachment id. */
+export type FiledNotes = Map<string, string>;
 
 /** The message text plus a placeholder per attachment, which is what conversation history keeps. */
-export function withPlaceholders(text: string, msg: Message) {
-  return [text, ...attachmentsOf(msg).map((a) => placeholder(a, isImage(a) ? "image" : "file"))].filter(Boolean).join(" ");
+export function withPlaceholders(text: string, msg: Message, filed?: FiledNotes) {
+  return [text, ...attachmentsOf(msg).map((a) => isImage(a) ? placeholder(a, "image") : filed?.get(a.id) ?? filePlaceholder(a, msg))].filter(Boolean).join(" ");
+}
+
+/**
+ * Files the documents of the messages that address the bot into the turn's `files/` folder before the turn runs,
+ * and says per attachment where it landed or why it did not. Attachments of other messages keep their placeholder.
+ */
+export async function fileTurnDocuments(tenantId: string, items: { msg: Message; direct?: boolean }[], language?: Language): Promise<FiledNotes> {
+  const t = textIn(language), notes: FiledNotes = new Map();
+  const taken = new Map<string, Set<string>>();
+  for (const { msg, direct } of items) {
+    if (direct === false) continue;
+    const where = { guildId: msg.guildId ?? undefined, channelId: msg.channelId, parentChannelId: msg.channel.isThread() ? msg.channel.parentId ?? undefined : undefined, userId: msg.author.id };
+    const key = `${where.guildId ?? "dm"}:${where.parentChannelId ?? where.channelId}:${where.userId}`;
+    for (const a of attachmentsOf(msg).filter((a) => !isImage(a))) {
+      const names = taken.get(key) ?? (await takenNames(tenantId, where).catch(() => new Set<string>()));
+      taken.set(key, names);
+      const outcome = await fileDocument(tenantId, where, a, names).catch(() => ({ reason: "download" as const }));
+      notes.set(a.id, "path" in outcome ? `[file: ${a.name} saved as ${outcome.path}]` : filePlaceholder(a, msg, t.notFiled[outcome.reason]));
+    }
+  }
+  return notes;
 }
 
 /**
@@ -40,11 +65,11 @@ export async function gatherTurnImages(messages: Message[], acceptsImages: () =>
   const referenced = (await Promise.all(messages.filter((m) => m.reference?.messageId).map((m) => m.fetchReference().catch(() => null))))
     .flatMap(of).filter(isImage);
   const seen = new Set<string>();
-  const candidates = [...own, ...referenced].filter((a) => !seen.has(a.id) && !!seen.add(a.id));
+  const candidates = [...own, ...referenced].filter((a) => isImage(a) && !seen.has(a.id) && !!seen.add(a.id));
   const context = referenced.map((a) => placeholder(a, "image in the replied-to message")).join(" ");
   const result: TurnImages = { images: [], context, notes: [], blind: false, shots: [] };
   if (!candidates.length) return result;
-  const blind = candidates.some(isImage) && !(await acceptsImages());
+  const blind = !(await acceptsImages());
   const skipped: string[] = [];
   for (const a of candidates) {
     const from = holding.get(a.id)!;
