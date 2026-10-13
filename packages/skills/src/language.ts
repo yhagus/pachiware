@@ -22,6 +22,8 @@ export const isLanguage = (value: unknown): value is Language => value === "id" 
 /** The language for text the bot writes with no message to detect from (Digest, Reminder framing, provider errors): the guild's override, else the tenant's. */
 export const configuredLanguage = (...levels: ({ language?: string | null } | null | undefined)[]): Language => levels.map((l) => l?.language).find(isLanguage) ?? DEFAULT_LANGUAGE;
 
+const MONTHS_EN = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
+const MONTHS_ID = "Jan Feb Mar Apr Mei Jun Jul Agu Sep Okt Nov Des".split(" ");
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const list = (items: string[], and: string) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ${and} ${items.at(-1)}`);
 
@@ -124,6 +126,7 @@ const en = {
   reminderNotYours: "That Reminder belongs to someone else; only its owner or someone with Manage Messages can cancel it.",
   reminderLimitOwner: (n: number) => `You already have ${n} active Reminders, the most one person can keep. Cancel one before setting another.`,
   reminderLimitTenant: (n: number) => `Reminders here are at their limit of ${n} active. Cancel one before setting another.`,
+  reminderLate: (day: number, month: number, time: string) => `-# Posted late: this was due ${day} ${MONTHS_EN[month - 1]}, ${time}.`,
   openTasks: "Open tasks (status | due | owner | id | title):",
   // Channel history
   historyNoChannel: "I can't find that channel.",
@@ -224,6 +227,7 @@ const id: typeof en = {
   reminderNotYours: "Pengingat itu milik orang lain; hanya pemiliknya atau orang dengan Manage Messages yang bisa membatalkannya.",
   reminderLimitOwner: (n) => `Kamu sudah punya ${n} pengingat aktif, batas untuk satu orang. Batalkan satu dulu sebelum membuat yang baru.`,
   reminderLimitTenant: (n) => `Pengingat di sini sudah mencapai batas ${n} yang aktif. Batalkan satu dulu sebelum membuat yang baru.`,
+  reminderLate: (day, month, time) => `-# Terlambat: seharusnya diposting ${day} ${MONTHS_ID[month - 1]} ${time}.`,
   openTasks: "Tugas terbuka (status | due | owner | id | title):",
   historyNoChannel: "Channel itu tidak ketemu.",
   historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
