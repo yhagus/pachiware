@@ -125,7 +125,7 @@ export const agentsConfig = sqliteTable("agents_config", {
   ),
   defaultProvider: text("default_provider").notNull().default("openai"),
   defaultModel: text("default_model").notNull().default("gpt-4o"),
-  temperature: real("temperature").notNull().default(0.7),
+  temperature: real("temperature").notNull().default(0.2),
   maxTokens: integer("max_tokens").notNull().default(4096),
 
   openaiApiKeyEncrypted: text("openai_api_key_encrypted"),

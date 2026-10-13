@@ -7,6 +7,8 @@ import { recordBriefAnswers, recordBriefAnswersTool, writeIssueDraft, writeIssue
 import { describeBriefImages, describeBriefImagesTool } from "../briefImages.js";
 import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 import { forget, memoryScope, remember } from "../workspace/memory.js";
+import { fileDocument, filesRoot, isDocument } from "../workspace/files.js";
+import { textIn } from "../language.js";
 
 const pathArg = { type: "string", description: 'Path starting with a folder name, e.g. "channel/notes/ideas.md"' };
 const scopeArg = { type: "string", enum: ["channel", "guild"], description: 'Whose Memory: "channel" for this channel, "guild" for the whole server (needs Manage Server). In a DM both mean the person\'s own Memory.' };
@@ -38,7 +40,7 @@ export const workspaceSkill: SkillModule = {
   description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
   capabilities: ["workspace"],
   allowedScopes: ["tenant"],
-  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, searchFiles: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true }, remember: { effect: "write", requiresConfirmation: false }, forget: { effect: "write", requiresConfirmation: false } },
+  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, searchFiles: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true }, remember: { effect: "write", requiresConfirmation: false }, forget: { effect: "write", requiresConfirmation: false }, saveAttachment: { effect: "write", requiresConfirmation: false } },
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "readFile", description: "Reads a Markdown file from the Workspace.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
@@ -49,6 +51,7 @@ export const workspaceSkill: SkillModule = {
     { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
     { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name; say nothing about it unless asked. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { scope: scopeArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["scope", "text"] } },
     { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { scope: scopeArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["scope", "match"] } },
+    { name: "saveAttachment", description: "Files one attachment of a message in this channel under files/, when a person asks to keep a file that was not sent to the bot. Same rules as files sent to the bot: PDF, DOCX, XLSX, CSV, MD or TXT, 10 MB at most, a taken name gets -2.", parameters: { type: "object", properties: { messageId: { type: "string", description: 'The message id from the file placeholder, e.g. "[file: report.pdf (message 123)]"' }, name: { type: "string", description: "Attachment name, when the message holds more than one file" } }, required: ["messageId"] } },
     postBriefRoundTool,
     recordBriefAnswersTool,
     writeIssueDraftTool,
@@ -99,6 +102,23 @@ export const workspaceSkill: SkillModule = {
       if (!match) throw new Error("match is required");
       const scope = memoryScopeFor(ctx, args.scope);
       return { scope, removed: await forget(ctx, scope, match) };
+    },
+    saveAttachment: async (args, ctx) => {
+      const t = textIn(ctx.language);
+      const messageId = typeof args.messageId === "string" ? args.messageId.trim() : "";
+      if (!messageId) throw new Error("messageId is required");
+      const message = ctx.discord && ctx.channelId ? await ctx.discord.fetchMessage({ channelId: ctx.channelId, messageId }) : null;
+      if (!message) throw new Error(t.saveNoMessage);
+      const wanted = typeof args.name === "string" ? args.name.trim().toLowerCase() : "";
+      // Without a name, an image beside one document is not an ambiguity: the document is meant.
+      const documents = message.attachments.filter((a) => isDocument(a.name));
+      const candidates = wanted ? message.attachments.filter((a) => a.name.toLowerCase() === wanted) : documents.length ? documents : message.attachments;
+      if (!candidates.length) throw new Error(t.saveNoFile);
+      if (candidates.length > 1) throw new Error(t.saveWhich(candidates.map((a) => a.name)));
+      const outcome = await fileDocument(ctx.tenantId, ctx, candidates[0]!);
+      if ("reason" in outcome) throw new Error(t.notFiled[outcome.reason]);
+      await labelFolder(ctx, filesRoot(ctx)!);
+      return { path: outcome.path, name: candidates[0]!.name, messageId: message.id };
     },
     postBriefRound,
     recordBriefAnswers,

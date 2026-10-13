@@ -11,6 +11,7 @@ import {
   type DiscordClientAdapter,
   type DiscordChannelInfo,
   type DiscordMemberInfo,
+  type DiscordMessageInfo,
   type Language,
   type PostAccess,
   listOf,
@@ -239,6 +240,17 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     if (!channel?.isTextBased?.()) throw new Error(`Channel "${args.channelId}" was not found or is not a text channel.`);
     const posted = await channel.send({ content: args.content, allowedMentions: { parse: [] } });
     return { id: posted.id, channelId: posted.channelId ?? channel.id, url: posted.url };
+  }
+
+  async fetchMessage(args: { channelId: string; messageId: string }): Promise<DiscordMessageInfo | null> {
+    const channel: any = await this.client.channels.fetch(args.channelId).catch(() => null);
+    if (!channel?.isTextBased?.()) return null;
+    const message = await channel.messages.fetch(args.messageId).catch(() => null);
+    if (!message) return null;
+    return {
+      id: message.id, channelId: message.channelId ?? channel.id, authorId: message.author?.id ?? "",
+      attachments: [...(message.attachments?.values() ?? [])].map((a: any) => ({ id: a.id, name: a.name ?? "attachment", url: a.url, size: a.size ?? 0, contentType: a.contentType ?? null })),
+    };
   }
 
   /** Checks a requester may read a channel's history and the bot may read it and post minutes there. */
