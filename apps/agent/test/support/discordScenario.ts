@@ -11,6 +11,7 @@
  *     expect(await s.workspace.read("guilds/guild-1/channels/channel-1/notes.md")).toContain("...");
  *     const [first] = s.discord.history([{ content: "said an hour ago", at: Date.now() - 3600_000 }]);
  *     s.discord.deny("channel-1", s.discord.bob.id, ["ReadMessageHistory"]);
+ *     s.discord.grant(s.discord.alice, ["ManageGuild"]);
  *   });
  *
  * Each scenario runs in its own `bun test` subprocess with a fresh SQLite database and Workspace folder, so
@@ -75,6 +76,8 @@ export interface Scenario {
     history(messages: PastMessage[], options?: { channel?: FakeChannel | string }): FakeMessage[];
     /** Takes permissions (names such as "ReadMessageHistory") from a user or the bot in a channel; a thread also inherits its parent's. */
     deny(channel: FakeChannel | string, userId: string, permissions: string[]): void;
+    /** Gives a user guild permissions (discord.js names such as "ManageGuild", "ManageMessages", "Administrator"); every user starts with none. */
+    grant(user: FakeUser | string, permissions: string[]): void;
     send(content: string, options?: { author?: FakeUser; channel?: FakeChannel | string; replyTo?: FakeMessage; attachments?: any[] }): Promise<FakeMessage>;
     /** Clicks the button whose label or custom id matches. */
     click(message: FakeMessage, button: string, options?: { user?: FakeUser }): Promise<FakeInteraction>;
@@ -139,6 +142,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const botMessages: FakeMessage[] = [];
 
   const denied = new Map<string, Map<string, string[]>>();
+  const granted = new Map<string, string[]>();
+  const memberOf = (user: FakeUser) => ({ displayName: user.name, roles: { cache: new Collection() }, permissions: { toArray: () => granted.get(user.id) ?? [] } });
   const deniedIn = (channel: any, userId: string): string[] => [...(denied.get(channel.id)?.get(userId) ?? []), ...(channel.parentId ? deniedIn(channels.get(channel.parentId) ?? { id: channel.parentId }, userId) : [])];
   const makeChannel = (id: string, o: ChannelOptions = {}) => {
     if (channels.has(id)) return channels.get(id);
@@ -170,7 +175,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       id: snowflake(), channelId: channel.id, guildId: channel.guildId, author: { ...author, username: author.name }, ...body,
       reactions: [], edits: [], reference: extra.reference ? { messageId: extra.reference } : undefined, thread: undefined,
       channel, guild: channel.guild,
-      member: channel.guildId ? { displayName: author.name, roles: { cache: new Collection() }, permissions: { toArray: () => [] } } : null,
+      member: channel.guildId ? memberOf(author) : null,
       mentions: { users: mentioned },
       attachments: new Collection((extra.attachments ?? []).map((a, i) => [a.id ?? String(i), a])),
       createdTimestamp: extra.at ?? Date.now(),
@@ -267,7 +272,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     let replyMessage: FakeMessage | null = null;
     const record = (kind: FakeInteraction["responses"][number]["kind"], payload: any) => { interaction.responses.push({ kind, payload: payload === undefined ? undefined : typeof payload === "string" ? payload : { ...payload, ...normalize(payload) } }); };
     Object.assign(interaction, {
-      id: snowflake(), user: { ...user, username: user.name }, member: { displayName: user.name, roles: { cache: new Collection() }, permissions: { toArray: () => [] } },
+      id: snowflake(), user: { ...user, username: user.name }, member: memberOf(user),
       channel, channelId: channel.id, guildId: channel.guildId, guild: channel.guild, replied: false, deferred: false,
       isButton: () => false, isMessageContextMenuCommand: () => false, isContextMenuCommand: () => false, isChatInputCommand: () => false, isCommand: () => false, isRepliable: () => true, isStringSelectMenu: () => false, isModalSubmit: () => false,
       reply: async (p: any) => { record("reply", p); interaction.replied = true; if (!p?.ephemeral) replyMessage = await post(channel, BOT_USER, p); return replyMessage; },
@@ -309,6 +314,10 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         const byUser = denied.get(id) ?? new Map<string, string[]>();
         denied.set(id, byUser);
         byUser.set(userId, [...(byUser.get(userId) ?? []), ...permissions]);
+      },
+      grant: (user, permissions) => {
+        const id = typeof user === "string" ? user : user.id;
+        granted.set(id, [...new Set([...(granted.get(id) ?? []), ...permissions])]);
       },
       send: async (content, { author = alice, channel, replyTo, attachments } = {}) => {
         const message = post(channelOf(channel), { ...author, bot: false }, content, { reference: replyTo?.id, attachments });
