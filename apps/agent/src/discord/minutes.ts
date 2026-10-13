@@ -1,5 +1,5 @@
 import type { Message } from "discord.js";
-import { workspaceStore, renderFrontmatter, parseFrontmatter, safeId, asUntrusted, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, type Language, type Playbook } from "@pachiware/skills";
+import { workspaceStore, renderFrontmatter, parseFrontmatter, safeId, asUntrusted, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, type Language, type Playbook } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { replyQuietly } from "./replyStyle.js";
 import { speakerName } from "./routing.js";
@@ -54,7 +54,7 @@ export interface MinutesRun {
 export type MinutesPayload = { embeds: any[]; files: { attachment: Buffer; name: string }[]; allowedMentions: { parse: [] } };
 
 /** Reads the range, has the model write the content, then posts and stores the minutes. Returns what to tell the requester when it could not. */
-export async function writeMinutes(run: MinutesRun, now = Date.now()): Promise<string | null> {
+export async function writeMinutes(run: MinutesRun, now = clockNow()): Promise<string | null> {
   const range = run.parentId ? {} : run.startId ? { startId: run.startId } : { since: now - RECENT_MS };
   const { messages, cut } = await run.adapter.readHistory(run.channelId, { ...range, skipIds: run.skipIds }, now);
   const language = replyLanguage(messages.filter((m) => !m.own).map((m) => m.text).join("\n")), t = textIn(language);
@@ -85,7 +85,7 @@ export function minutesFileOf(message: Message): string | null {
 
 export interface MinutesReply { tenantId: string; botId: string; guildId: string; minutesMessage: Message; reply: Message; text: string }
 /** A reply to posted minutes: the requester's corrects them in place, anyone else's is recorded as input. */
-export async function correctMinutes(c: MinutesReply, now = Date.now()) {
+export async function correctMinutes(c: MinutesReply, now = clockNow()) {
   const answer = replyQuietly(c.reply);
   const path = recordPath(c.guildId, c.minutesMessage);
   const stored = await workspaceStore().read(c.tenantId, path);

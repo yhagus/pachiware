@@ -1,7 +1,7 @@
 import { cachedTokensOf } from "./usage.js";
 import { db, agentsConfig, bots, profiles, usageEvents, decryptSecret, eq, and } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { skillRegistry } from "@pachiware/skills";
+import { skillRegistry, textIn, configuredLanguage } from "@pachiware/skills";
 import type { ChatMessage, ContentPart, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
 import { providerBaseUrl, providerHeaders, isProvider, PROVIDERS, DEFAULT_MODELS, ANTHROPIC_TEST_MODEL } from "./providers.js";
@@ -87,7 +87,7 @@ export class LLMRouter {
       dbConfig = { ...dbConfig, defaultProvider: profile.provider, defaultModel: profile.model, [`${profile.provider}ApiKey`]: key, [`${profile.provider}BaseUrl`]: profile.baseUrl, [`${profile.provider}Model`]: profile.model };
     }
     const provider = options.provider || dbConfig.defaultProvider;
-    const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature, maxTokens: options.maxTokens ?? dbConfig.maxTokens };
+    const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature, maxTokens: options.maxTokens ?? dbConfig.maxTokens, language: configuredLanguage({ language: options.language }, dbConfig) };
     const call = (list: ChatMessage[]) => {
       switch (provider) {
         case "anthropic": return this.callAnthropic(list, resolved, dbConfig);
@@ -347,7 +347,7 @@ export class LLMRouter {
       return this.handleMissingApiKey("custom", messages, options);
     }
     if (!baseUrl) {
-      return { content: "No custom provider base URL configured for this tenant. Configure it in the operator console.", toolCalls: [], finishReason: "error" };
+      return { content: textIn(options.language).providerNoBaseUrl, toolCalls: [], finishReason: "error" };
     }
 
     // Reuse OpenAI wire format
@@ -441,16 +441,13 @@ export class LLMRouter {
     }
   }
 
-  /**
-   * Graceful fallback when API key is missing or invalid.
-   * Can automatically parse common user commands to demonstrate tool calling in development.
-   */
+  // The answers below are what the person reads when no model could answer, so they come in the place's configured language.
   private handleMissingApiKey(
     providerName: string,
     messages: ChatMessage[],
     options: LLMRequestOptions
   ): LLMResponse {
-    return { content: `No ${providerName} API key configured for this tenant. Configure credentials in the operator console.`, toolCalls: [], finishReason: "error" };
+    return { content: textIn(options.language).providerNoKey(providerName), toolCalls: [], finishReason: "error" };
   }
 
   private rejected(status: number, messages: ChatMessage[], options: LLMRequestOptions): LLMResponse {
@@ -463,11 +460,7 @@ export class LLMRouter {
     messages: ChatMessage[],
     options: LLMRequestOptions
   ): LLMResponse {
-    return {
-      content: `I encountered an issue reaching the LLM provider (${errorReason}). Please verify your API key and base URL in the Web Management settings.`,
-      toolCalls: [],
-      finishReason: "error",
-    };
+    return { content: textIn(options.language).providerFailed, toolCalls: [], finishReason: "error" };
   }
 
   // The profile Test action: a text request, then a tiny PNG in the provider's own image shape.

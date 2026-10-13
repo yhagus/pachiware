@@ -6,6 +6,7 @@ import {
   PermissionFlagsBits,
 } from "discord.js";
 import type { Message } from "discord.js";
+import { now as clockNow } from "@pachiware/skills";
 import type {
   DiscordClientAdapter,
   DiscordChannelInfo,
@@ -199,7 +200,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
    * Reads a channel or thread backwards, 100 messages per call, at most 5 calls and 24 hours back.
    * Other bots and system messages are skipped; a whole thread includes its starter message.
    */
-  async readHistory(channelId: string, range: HistoryRange = {}, now = Date.now()): Promise<{ messages: HistoryMessage[]; cut: HistoryCut | null }> {
+  async readHistory(channelId: string, range: HistoryRange = {}, now = clockNow()): Promise<{ messages: HistoryMessage[]; cut: HistoryCut | null }> {
     const channel: any = await this.client.channels.fetch(channelId);
     const inRange = (m: Message) => (!range.startId || BigInt(m.id) >= BigInt(range.startId)) && m.createdTimestamp >= (range.since ?? 0);
     const read: Message[] = [];

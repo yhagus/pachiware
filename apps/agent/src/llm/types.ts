@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolCall } from "@pachiware/skills";
+import type { ToolDefinition, ToolCall, Language } from "@pachiware/skills";
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -38,4 +38,6 @@ export interface LLMRequestOptions {
   cacheKey?: string;
   tools?: ToolDefinition[];
   provider?: "openai" | "anthropic" | "custom";
+  /** The configured language of the place, for a fallback answer when the provider fails; the tenant's when absent. */
+  language?: Language;
 }

@@ -59,7 +59,9 @@ export interface Scenario {
   http: { on(match: string | RegExp, respond: (req: HttpRequest) => unknown): void; passthrough(match: string | RegExp): void; requests: HttpRequest[] };
   /** Attaches a git account to the bot and opens these repositories in the guild. */
   git(options?: { provider?: "github" | "gitlab"; repos?: string[] }): Promise<{ id: string }>;
-  guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[] }): Promise<void>;
+  guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null }): Promise<void>;
+  /** The clock the time context, task dates and the scheduler read. `set` pins it (ms, Date, or ISO text); `advance` moves it forward. */
+  clock: { set(at: number | string | Date): void; advance(ms: number): void; now(): number };
   /** Writes an availability rule as the admin API does; `botId` defaults to this bot and the guild to "guild-1". */
   availability(at: { level: "tenant" | "bot" | "guild" | "channel"; botId?: string; guildId?: string; channelId?: string }, rule: { kind: string; name: string; value: string }): Promise<void>;
   /** Paths are tenant-relative, e.g. "guilds/guild-1/channels/channel-1/brief.md". */
@@ -173,7 +175,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       member: channel.guildId ? { displayName: author.name, roles: { cache: new Collection() }, permissions: { toArray: () => [] } } : null,
       mentions: { users: mentioned },
       attachments: new Collection((extra.attachments ?? []).map((a, i) => [a.id ?? String(i), a])),
-      createdTimestamp: extra.at ?? Date.now(),
+      createdTimestamp: extra.at ?? clockNow(),
       get url() { return `https://discord.com/channels/${channel.guildId ?? "@me"}/${channel.id}/${message.id}`; },
       react: async (emoji: string) => { message.reactions.push(emoji); },
       reply: async (p: string | Payload) => post(channel, BOT_USER, p, { reference: message.id }),
@@ -198,6 +200,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   }
   mock.module("discord.js", () => ({ ...discordjs, Client: FakeClient }));
 
+  const { now: clockNow, setClock } = await import("../../../../packages/skills/src/clock.ts");
   const { runMigrations } = await import("../../../../packages/db/src/migrate.ts");
   const { runSeed } = await import("../../../../packages/db/src/seed.ts");
   const dbModule = await import("../../../../packages/db/src/index.ts");
@@ -291,6 +294,11 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       return account;
     },
     guildSettings: async (input) => { await upsertGuildConfig(tenant.id, bot.id, GUILD.id, input); await CacheService.del(guildCacheKey(tenant.id, bot.id, GUILD.id)); },
+    clock: {
+      set: (at) => { let fixed = at instanceof Date ? at.getTime() : typeof at === "string" ? Date.parse(at) : at; if (Number.isNaN(fixed)) throw new Error(`Not a time: ${String(at)}`); setClock(() => fixed); },
+      advance: (ms) => { const fixed = clockNow() + ms; setClock(() => fixed); },
+      now: () => clockNow(),
+    },
     availability: async ({ level, botId = bot.id, guildId = GUILD.id, channelId }, rule) => {
       await setAvailabilityRule({ tenantId: tenant.id, level, botId, guildId, channelId }, rule as any, skillRegistry.getAllSkills());
     },

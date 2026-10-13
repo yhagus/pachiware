@@ -37,6 +37,7 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | GET | `/api/admin/tenants/:id` | `{tenant}` |
 | PATCH | `/api/admin/tenants/:id` | `{name?, status?: active or suspended, metadata?}`; slug immutable |
 | DELETE | `/api/admin/tenants/:id` | Soft delete; stops tenant bots |
+| GET, PUT | `/api/admin/tenants/:id/settings` | `{timezone, language}`: the tenant's defaults (seeded `Asia/Jakarta`, `id`). PUT is partial; `timezone` must be an IANA name, `language` `id` or `en` |
 | POST | `/api/admin/api-keys` | `{name?}` -> raw key once |
 | GET | `/api/admin/api-keys` | `{apiKeys}` (prefix, metadata, `tenantCount`) |
 | DELETE | `/api/admin/api-keys/:keyId` | Revoke key |
@@ -81,7 +82,7 @@ All `/api/v1/*` requests require `Authorization: Bearer <API key>`. Except `/api
 
 | Method | Tenant Endpoint | Purpose |
 | --- | --- | --- |
-| GET, PUT | `/api/v1/config` | Prompt, model, settings, provider credentials |
+| GET, PUT | `/api/v1/config` | Prompt, model, settings, provider credentials, `timezone` (IANA) and `language` (`id` or `en`) |
 | POST | `/api/v1/config/test/llm` | `{provider, apiKey?, baseUrl?}`; masked key uses saved tenant credential |
 | POST | `/api/v1/chat` | `{message, conversationId?}` -> reply, steps, tools, conversation ID |
 | GET | `/api/v1/conversations` | Tenant conversations |
@@ -108,7 +109,7 @@ Credential config fields are `openaiApiKeyEncrypted`, `anthropicApiKeyEncrypted`
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/admin/bots/:botId/guilds/:guildId/config` | `{systemPrompt, useThreads, alwaysChannelIds}`; defaults when unset |
-| PUT | `/api/admin/bots/:botId/guilds/:guildId/config` | Partial update. `systemPrompt` ≤ 8000 chars (empty clears), `useThreads` boolean, `alwaysChannelIds` string[] (max 50) |
+| GET | `/api/admin/bots/:botId/guilds/:guildId/config` | `{systemPrompt, useThreads, alwaysChannelIds, timezone, language}`; defaults when unset (`timezone` and `language` null mean the tenant's) |
+| PUT | `/api/admin/bots/:botId/guilds/:guildId/config` | Partial update. `systemPrompt` ≤ 8000 chars (empty clears), `useThreads` boolean, `alwaysChannelIds` string[] (max 50), `timezone` IANA name or null, `language` `id`, `en` or null |
 
 `systemPrompt` is appended to the tenant prompt under "Server instructions" for that server only. The bot answers DMs, its own threads, `alwaysChannelIds` channels, and @mentions or replies to it. With `useThreads`, a mention opens a thread and the conversation continues there without mentions. Guild conversations are shared per channel or thread, and turns are prefixed with the speaker's name.

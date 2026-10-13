@@ -4,7 +4,7 @@ import { ne, and, or, desc, sql } from "drizzle-orm";
 import { discordBotManager } from "../../discord/client.js";
 import { guildCacheKey, loadGuildSettings } from "../../loop/prompt.js";
 import { CacheService } from "../../cache/redis.js";
-import { object, string, stringArray } from "../validation.js";
+import { object, string, stringArray, placeSettings } from "../validation.js";
 import { botFields, assertProfile, assertGitAccounts, botsOut } from "../v1/bots.js";
 import { botAvailabilityRoutes } from "../availability.js";
 export const botAdminRoutes = new Hono();
@@ -49,7 +49,7 @@ botAdminRoutes.get("/bots/:botId/guilds", (c) => {
   const guilds = discordBotManager.getGuilds(c.req.param("botId")!);
   return c.json({ success: true, connected: guilds !== null, guilds: guilds ?? [] });
 });
-const guildSettingsOut = (s: Awaited<ReturnType<typeof loadGuildSettings>>) => ({ systemPrompt: s.systemPrompt ?? "", useThreads: s.useThreads, alwaysChannelIds: s.alwaysChannelIds });
+const guildSettingsOut = (s: Awaited<ReturnType<typeof loadGuildSettings>>) => ({ systemPrompt: s.systemPrompt ?? "", useThreads: s.useThreads, alwaysChannelIds: s.alwaysChannelIds, timezone: s.timezone, language: s.language });
 botAdminRoutes.get("/bots/:botId/guilds/:guildId/config", async (c) => {
   const [bot] = await db.select().from(bots).where(eq(bots.id, c.req.param("botId")!)).limit(1);
   return c.json({ success: true, config: guildSettingsOut(await loadGuildSettings(bot.tenantId, bot.id, c.req.param("guildId")!)) });
@@ -67,6 +67,7 @@ botAdminRoutes.put("/bots/:botId/guilds/:guildId/config", async (c) => {
     input.useThreads = body.useThreads;
   }
   if (body.alwaysChannelIds !== undefined) input.alwaysChannelIds = stringArray(body.alwaysChannelIds, "alwaysChannelIds").slice(0, 50);
+  Object.assign(input, placeSettings(body, true));
   await upsertGuildConfig(bot.tenantId, bot.id, guildId, input);
   await CacheService.del(guildCacheKey(bot.tenantId, bot.id, guildId));
   return c.json({ success: true, config: guildSettingsOut(await loadGuildSettings(bot.tenantId, bot.id, guildId)) });
