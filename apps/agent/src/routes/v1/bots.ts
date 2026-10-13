@@ -6,6 +6,7 @@ import type { TenantEnv } from "../../middleware/tenant.js";
 import { DiscordBotManager, discordBotManager } from "../../discord/client.js";
 import { object, string, stringArray, publicBot } from "../validation.js";
 import { botAvailabilityRoutes } from "../availability.js";
+import { botReminderRoutes } from "../reminders.js";
 
 export const botRoutes = new Hono<TenantEnv>();
 // A profile can only be attached to integrations of the tenant that owns it.
@@ -84,3 +85,4 @@ botRoutes.post("/:id/test", async (c) => {
   return c.json(await DiscordBotManager.testToken(token));
 });
 botAvailabilityRoutes(botRoutes, "/:id", "id", (c) => c.get("tenantId"));
+botReminderRoutes(botRoutes, "/:id", "id", (c) => c.get("tenantId"));
