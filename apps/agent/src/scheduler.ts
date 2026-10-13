@@ -1,6 +1,6 @@
 import { db, schedules, agentsConfig, eq, and, type Schedule } from "@pachiware/db";
 import { asc, lte } from "drizzle-orm";
-import { now, nextOccurrence, LATE_LIMIT_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn } from "@pachiware/skills";
+import { now, nextOccurrence, LATE_LIMIT_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, loadTasks, workspaceStore, dueMoment, taskLine, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import type { DiscordBotManager } from "./discord/client.js";
 
@@ -29,20 +29,39 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
   const client = manager.clientOf(row.botId);
   if (!client) return;
   if (at - row.nextAt.getTime() > LATE_LIMIT_MS) { await moveOn(row, at, null); return; }
-  try { await post(client, row); }
+  try { await post(client, row, at); }
   catch (error: any) { await failed(row, error?.message || String(error)); return; }
   await moveOn(row, at, new Date(at));
 }
 
 /** The one message that pings: the owner and the people named when the Reminder was made. */
-async function post(client: any, row: Schedule) {
+async function post(client: any, row: Schedule, at: number) {
   const channel: any = await client.channels.fetch(row.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) throw new Error("The channel is gone or cannot be posted in.");
   const [agent] = await db.select({ language: agentsConfig.language }).from(agentsConfig).where(eq(agentsConfig.tenantId, row.tenantId)).limit(1);
   const guild = row.guildId ? await loadGuildSettings(row.tenantId, row.botId, row.guildId) : null;
-  const users = [...new Set([row.ownerId, ...row.mentions].filter((id): id is string => !!id))];
-  const content = [...users.map((id) => `<@${id}>`), textIn(configuredLanguage(guild, agent)).reminder(row.text)].join(" ").slice(0, MESSAGE_LIMIT);
-  await channel.send({ content, allowedMentions: { users } });
+  const users = [...new Set([row.ownerId, ...row.mentions].filter((id): id is string => !!id))], strings = textIn(configuredLanguage(guild, agent));
+  const head = [...users.map((id) => `<@${id}>`), strings.reminder(row.text)].join(" ").slice(0, MESSAGE_LIMIT);
+  const lines = row.withTasks ? await ownerTaskLines(row, channel.isThread?.() ? channel.parentId ?? undefined : undefined, strings, at) : [];
+  await channel.send({ content: withinLimit(head, lines), allowedMentions: { users } });
+}
+
+/** The owner's open tasks (assigned to or created by them, by id or name) in the folders visible from the posting place, soonest due first, as the turn context lists them. Empty without any. */
+async function ownerTaskLines(row: Schedule, parentChannelId: string | undefined, strings: Strings, at: number): Promise<string[]> {
+  if (!row.ownerId) return [];
+  const mine = new Set([row.ownerId, row.ownerName].filter((v): v is string => !!v));
+  const where = { tenantId: row.tenantId, guildId: row.guildId ?? undefined, channelId: row.channelId, parentChannelId, userId: row.ownerId };
+  const open = (await loadTasks(workspaceStore(), where)).map((f) => f.task)
+    .filter((t) => t.status !== "completed" && [t.assignedTo, t.createdBy, t.createdByName].some((v) => v && mine.has(v)))
+    .sort((a, b) => (dueMoment(a.dueAt, row.timezone) ?? Infinity) - (dueMoment(b.dueAt, row.timezone) ?? Infinity) || a.createdAt.localeCompare(b.createdAt));
+  return open.length ? [strings.openTasks, ...open.map((t) => taskLine(t, row.timezone, at))] : [];
+}
+
+/** Whole lines only: a task list that would cross Discord's limit stops at the last line that fits. */
+function withinLimit(head: string, lines: string[]): string {
+  let content = head;
+  for (const line of lines) { if (content.length + 1 + line.length > MESSAGE_LIMIT) break; content += `\n${line}`; }
+  return content;
 }
 
 async function moveOn(row: Schedule, at: number, firedAt: Date | null) {
