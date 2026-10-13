@@ -34,6 +34,16 @@ function writable(path: unknown) {
   return path;
 }
 
+const TOP_FOLDERS = ["tasks", "notes", "decisions", "files", "minutes", "threads"], TOP_FILE = "MEMORY.md";
+/** A channel's or DM's top level is fixed so people find things in the console; deeper folders are free. */
+function creatable(ctx: SkillContext, path: unknown) {
+  writable(path);
+  if (typeof path !== "string") return path;
+  const [root, top, ...rest] = path.replace(/\/$/, "").split("/");
+  if ((root === "channel" || root === "dm") && top !== undefined && !(rest.length ? TOP_FOLDERS.includes(top) : top === TOP_FILE)) throw new Error(textIn(ctx.language).folderRefused([...TOP_FOLDERS, TOP_FILE]));
+  return path;
+}
+
 export const workspaceSkill: SkillModule = {
   id: "workspace",
   name: "Workspace",
@@ -70,13 +80,13 @@ export const workspaceSkill: SkillModule = {
     },
     writeFile: async (args, ctx) => {
       if (typeof args.content !== "string") throw new Error("content is required");
-      const path = resolvePath(ctx, writable(args.path));
+      const path = resolvePath(ctx, creatable(ctx, args.path));
       const { version } = await workspaceStore().write(ctx.tenantId, path, args.content, typeof args.version === "string" ? args.version : undefined);
       await labelFolder(ctx, String(args.path).split("/")[0]!);
       return { success: true, path: args.path, version };
     },
     moveFile: async (args, ctx) => {
-      await workspaceStore().move(ctx.tenantId, resolvePath(ctx, writable(args.from)), resolvePath(ctx, writable(args.to)));
+      await workspaceStore().move(ctx.tenantId, resolvePath(ctx, writable(args.from)), resolvePath(ctx, creatable(ctx, args.to)));
       return { success: true, from: args.from, to: args.to };
     },
     deleteFile: async (args, ctx) => {
