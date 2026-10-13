@@ -3,6 +3,8 @@ import { wallClock, wallToInstant } from "./clock.js";
 
 /** A row later than this is skipped rather than posted (ADR 0006). */
 export const LATE_LIMIT_MS = 6 * 60 * 60_000;
+/** A row later than this posts with the late note; under it is the minute loop's own delay. */
+export const LATE_NOTE_MS = 5 * 60_000;
 /** Posting failures before a row is marked done with an error note. */
 export const MAX_POST_ATTEMPTS = 3;
 

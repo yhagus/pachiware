@@ -1,6 +1,6 @@
 import { db, schedules, agentsConfig, eq, and, type Schedule } from "@pachiware/db";
 import { asc, lte } from "drizzle-orm";
-import { now, nextOccurrence, LATE_LIMIT_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn } from "@pachiware/skills";
+import { now, nextOccurrence, wallClock, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import type { DiscordBotManager } from "./discord/client.js";
 
@@ -28,21 +28,24 @@ async function pass(manager: DiscordBotManager, at: number) {
 async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
   const client = manager.clientOf(row.botId);
   if (!client) return;
-  if (at - row.nextAt.getTime() > LATE_LIMIT_MS) { await moveOn(row, at, null); return; }
-  try { await post(client, row); }
+  const late = at - row.nextAt.getTime();
+  if (late > LATE_LIMIT_MS) { await moveOn(row, at, null); return; }
+  try { await post(client, row, late > LATE_NOTE_MS); }
   catch (error: any) { await failed(row, error?.message || String(error)); return; }
   await moveOn(row, at, new Date(at));
 }
 
-/** The one message that pings: the owner and the people named when the Reminder was made. */
-async function post(client: any, row: Schedule) {
+/** The one message that pings: the owner and the people named when the Reminder was made. A late post says when it was due, in the row's zone. */
+async function post(client: any, row: Schedule, late: boolean) {
   const channel: any = await client.channels.fetch(row.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) throw new Error("The channel is gone or cannot be posted in.");
   const [agent] = await db.select({ language: agentsConfig.language }).from(agentsConfig).where(eq(agentsConfig.tenantId, row.tenantId)).limit(1);
   const guild = row.guildId ? await loadGuildSettings(row.tenantId, row.botId, row.guildId) : null;
+  const t = textIn(configuredLanguage(guild, agent));
   const users = [...new Set([row.ownerId, ...row.mentions].filter((id): id is string => !!id))];
-  const content = [...users.map((id) => `<@${id}>`), textIn(configuredLanguage(guild, agent)).reminder(row.text)].join(" ").slice(0, MESSAGE_LIMIT);
-  await channel.send({ content, allowedMentions: { users } });
+  const lines = [[...users.map((id) => `<@${id}>`), t.reminder(row.text)].join(" ")];
+  if (late) { const w = wallClock(row.timezone, row.nextAt.getTime()); lines.push(t.reminderLate(w.day, w.month, `${String(w.hour).padStart(2, "0")}:${String(w.minute).padStart(2, "0")}`)); }
+  await channel.send({ content: lines.join("\n").slice(0, MESSAGE_LIMIT), allowedMentions: { users } });
 }
 
 async function moveOn(row: Schedule, at: number, firedAt: Date | null) {

@@ -22,6 +22,8 @@ export const isLanguage = (value: unknown): value is Language => value === "id" 
 /** The language for text the bot writes with no message to detect from (Digest, Reminder framing, provider errors): the guild's override, else the tenant's. */
 export const configuredLanguage = (...levels: ({ language?: string | null } | null | undefined)[]): Language => levels.map((l) => l?.language).find(isLanguage) ?? DEFAULT_LANGUAGE;
 
+const MONTHS_EN = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
+const MONTHS_ID = "Jan Feb Mar Apr Mei Jun Jul Agu Sep Okt Nov Des".split(" ");
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const list = (items: string[], and: string) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ${and} ${items.at(-1)}`);
 
@@ -120,6 +122,7 @@ const en = {
   minutesFooter: "Reply to correct",
   // Reminders
   reminder: (text: string) => `Reminder: ${text}`,
+  reminderLate: (day: number, month: number, time: string) => `-# Posted late: this was due ${day} ${MONTHS_EN[month - 1]}, ${time}.`,
   // Channel history
   historyNoChannel: "I can't find that channel.",
   historyDm: "I read channel history only in server channels and threads, not in DMs.",
@@ -215,6 +218,7 @@ const id: typeof en = {
   minutesCutHours: (n, when) => `Dipotong ke ${n} jam terakhir: semua sebelum ${when} tidak disertakan.`,
   minutesFooter: "Balas untuk mengoreksi",
   reminder: (text) => `Pengingat: ${text}`,
+  reminderLate: (day, month, time) => `-# Terlambat: seharusnya diposting ${day} ${MONTHS_ID[month - 1]} ${time}.`,
   historyNoChannel: "Channel itu tidak ketemu.",
   historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
   historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,
