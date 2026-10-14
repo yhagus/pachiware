@@ -1,0 +1,63 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "task-casual-indonesian",
+  "turns": [
+    {
+      "n": 1,
+      "message": "eh tolong catat ya, aku harus kirim invoice ke Pak Budi hari Jumat",
+      "replies": [
+        "Dicatat: kirim invoice ke Pak Budi, jatuh tempo Jumat 16 Oktober 2026."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Kirim invoice ke Pak Budi",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "apa aja yang jatuh tempo minggu ini?",
+      "replies": [
+        "Jatuh tempo minggu ini:\npending | due 2026-10-16 | unassigned | 58b828e3 | Kirim invoice ke Pak Budi"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Kirim invoice ke Pak Budi",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

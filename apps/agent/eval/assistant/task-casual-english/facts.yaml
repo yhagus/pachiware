@@ -1,0 +1,11 @@
+# A task from casual English wording with an owner and "tomorrow"; then a request with nothing to point at. Spec #72, stories 5, 8, 16.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - Booking the venue is Bob's task, due tomorrow, Thursday 15 October 2026
+turns:
+  - tasks:
+      - { title: venue, status: pending, dueAt: "2026-10-15", assignedTo: Bob, createdByName: Alice }
+  - ambiguous: there is only one task here, already Bob's, so "the other one" points at nothing; the bot must ask which task is meant.
+    tasks:
+      - { title: venue, status: pending, dueAt: "2026-10-15", assignedTo: Bob }

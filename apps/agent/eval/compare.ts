@@ -3,7 +3,11 @@
  * drafts that pass; trials are averaged per brief, and profiles are compared as paired per-brief differences with a
  * standard error. pass^k counts briefs where every trial passed. Cost and latency come from the usage events.
  */
+import type { AssistantJudged } from "./assistantJudge";
 import type { JudgedResult } from "./judge";
+
+/** A graded trial of either eval; both carry the fixture, coverage, question rate and one verdict per draft or turn. */
+export type ScoredResult = JudgedResult | AssistantJudged;
 
 export interface TrialUsage {
   prompt: number; completion: number;
@@ -12,7 +16,7 @@ export interface TrialUsage {
   /** Wall time of the whole trial. */
   ms: number;
 }
-export interface TrialResult { profile: string; trial: number; result: JudgedResult; usage: TrialUsage }
+export interface TrialResult { profile: string; trial: number; result: ScoredResult; usage: TrialUsage }
 /** USD per million tokens. */
 export interface Price { input: number; output: number }
 export interface ProfileInfo { name: string; provider: string; model: string; price?: Price }
@@ -35,7 +39,7 @@ export interface Summary { profiles: ProfileSummary[]; pairs: ({ a: string; b: s
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
-export const trialScore = (r: JudgedResult) => (r.verdicts.length ? r.verdicts.filter((v) => v.passed).length / r.verdicts.length : 0);
+export const trialScore = (r: ScoredResult) => (r.verdicts.length ? r.verdicts.filter((v) => v.passed).length / r.verdicts.length : 0);
 
 /** Mean of b − a over the briefs both scored, with the standard error of that mean (null below two briefs). */
 export function pairedDifference(a: Map<string, number>, b: Map<string, number>): PairedDifference {

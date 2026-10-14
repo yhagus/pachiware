@@ -1,0 +1,110 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "due-dates-relative",
+  "turns": [
+    {
+      "n": 1,
+      "message": "add a task: send the deck to the client, due Friday",
+      "replies": [
+        "Added: Send the deck to the client, due Friday 16 October."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Send the deck to the client",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "another one: call the venue in two hours",
+      "replies": [
+        "Added: Call the venue, due today at 11:00."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Call the venue",
+            "status": "pending",
+            "dueAt": "2026-10-14T11:00:00+07:00",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Send the deck to the client",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 3,
+      "message": "and renew the domain tomorrow",
+      "replies": [
+        "Added: Renew the domain, due tomorrow, Thursday 15 October."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Call the venue",
+            "status": "pending",
+            "dueAt": "2026-10-14T11:00:00+07:00",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Renew the domain",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Send the deck to the client",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

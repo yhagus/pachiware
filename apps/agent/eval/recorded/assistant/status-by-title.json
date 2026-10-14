@@ -1,0 +1,110 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "status-by-title",
+  "turns": [
+    {
+      "n": 1,
+      "message": "the venue is booked",
+      "replies": [
+        "Book the venue is completed."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Book the venue",
+            "status": "completed",
+            "dueAt": "2026-10-13",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Send the invoice",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "I started on the invoice",
+      "replies": [
+        "Send the invoice is in progress."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Book the venue",
+            "status": "completed",
+            "dueAt": "2026-10-13",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Send the invoice",
+            "status": "in_progress",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 3,
+      "message": "what is still open?",
+      "replies": [
+        "Still open:\nin_progress | due 2026-10-16 | Alice | 00000002 | Send the invoice"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Book the venue",
+            "status": "completed",
+            "dueAt": "2026-10-13",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Send the invoice",
+            "status": "in_progress",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

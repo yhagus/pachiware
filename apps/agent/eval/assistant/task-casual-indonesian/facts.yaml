@@ -1,0 +1,13 @@
+# A task from casual Indonesian wording; "hari Jumat" against a Wednesday clock. Spec #72, stories 1, 5, 16, 18.
+language: id
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - Tugas kirim invoice ke Pak Budi tercatat dengan jatuh tempo Jumat, 16 Oktober 2026
+  - Minggu ini hanya ada satu tugas yang jatuh tempo, yaitu kirim invoice ke Pak Budi
+turns:
+  - tasks:
+      - { title: invoice, status: pending, dueAt: "2026-10-16", createdByName: Alice }
+  - tasks:
+      - { title: invoice, status: pending, dueAt: "2026-10-16" }
+    taskList: true
+    replyContains: ["2026-10-16"]

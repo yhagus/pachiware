@@ -1,0 +1,63 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "task-casual-english",
+  "turns": [
+    {
+      "n": 1,
+      "message": "can you note that Bob has to book the venue by tomorrow?",
+      "replies": [
+        "Added: Book the venue, Bob, due Thursday 15 October."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Book the venue",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "and give the other one to him too",
+      "replies": [
+        "Which task do you mean? The only one here is Book the venue, and it is already Bob's."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Book the venue",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

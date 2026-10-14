@@ -1,0 +1,24 @@
+# Status changes named by title, without Confirm, over two seeded tasks; then the open list in the fixed format. Spec #72, stories 8, 10, 18.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  tasks:
+    - { title: Book the venue, status: pending, dueAt: "2026-10-13" }
+    - { title: Send the invoice, status: pending, dueAt: "2026-10-16", assignedTo: Alice }
+mustCover:
+  - Book the venue is completed
+  - Send the invoice is in progress
+  - The only task still open is Send the invoice, due Friday 16 October
+turns:
+  - tasks:
+      - { title: venue, status: completed }
+      - { title: invoice, status: pending }
+  - tasks:
+      - { title: venue, status: completed }
+      - { title: invoice, status: in_progress, dueAt: "2026-10-16", assignedTo: Alice }
+  - tasks:
+      - { title: venue, status: completed }
+      - { title: invoice, status: in_progress }
+    taskList: true
+    replyContains: [invoice]
+    replyLacks: [venue]

@@ -1,0 +1,53 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "file-search",
+  "turns": [
+    {
+      "n": 1,
+      "message": "here is the Q3 report",
+      "replies": [
+        "Filed as q3-report.pdf under files/, with its text beside it."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [
+          "files/q3-report.md",
+          "files/q3-report.pdf"
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "which file mentions the budget?",
+      "replies": [
+        "q3-report.md: The Q3 budget is 12 million."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [
+          "files/q3-report.md",
+          "files/q3-report.pdf"
+        ],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}
