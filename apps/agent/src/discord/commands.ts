@@ -11,7 +11,7 @@ export type CommandData = { name: string; type: number };
  * A bulk overwrite replaces every command type in its scope, so slash commands belong in this same list.
  */
 export async function guildCommands(place: { tenantId: string; botId: string; guildId: string }, playbooks: Playbook[]): Promise<CommandData[]> {
-  const listed = new Set(await playbooksListedIn(place, playbooks.map((p) => p.name)));
+  const listed = new Set(await playbooksListedIn(place, playbooks));
   const menus = [...new Set(playbooks.filter((p) => listed.has(p.name)).map((p) => p.menu).filter((m): m is string => !!m))].slice(0, MENU_LIMIT);
   return menus.map((name) => ({ name, type: MESSAGE_COMMAND }));
 }

@@ -19,8 +19,14 @@ export interface Playbook {
   words: string[];
   requires: string[];
   optional: string[];
+  /** `default: off`: off for the tenant until a tenant rule says on (ADR 0005). */
+  defaultOff: boolean;
   /** Tools withheld in the playbook's threads; a name no tool has is ignored. */
   closes: string[];
+  /** Playbooks whose bodies join this one's prompt at start, bringing their required skills and closed tools. */
+  loads: string[];
+  /** False for a reference: no menu or trigger word, so it is only ever loaded by another playbook. */
+  start: boolean;
   /** `repository: required`: the playbook cannot start where git scope allows no repository (ADR 0007). */
   repository?: "required";
   body: string;
@@ -52,13 +58,71 @@ export function parsePlaybook(name: string, text: string, source: Playbook["sour
   const parsed = parseFrontmatter(text);
   if (!parsed || !parsed.body.trim()) return null;
   const f = parsed.fields, trigger = typeof f.trigger === "object" && f.trigger ? f.trigger as Record<string, unknown> : { word: f.trigger };
-  const menu = typeof trigger.menu === "string" && trigger.menu.trim() ? trigger.menu.trim().slice(0, 32) : null;
+  const start = f.start !== false && f.start !== "false";
+  const menu = start && typeof trigger.menu === "string" && trigger.menu.trim() ? trigger.menu.trim().slice(0, 32) : null;
   return {
-    name, source, menu, body: parsed.body.trim(),
+    name, source, menu, start, body: parsed.body.trim(),
     description: typeof f.description === "string" ? f.description : "",
-    words: list(trigger.word ?? trigger.words).map((w) => w.toLowerCase()).filter((w) => WORD.test(w)),
-    requires: list(f.requires), optional: list(f.optional), closes: list(f.closes),
+    words: start ? list(trigger.word ?? trigger.words).map((w) => w.toLowerCase()).filter((w) => WORD.test(w)) : [],
+    requires: list(f.requires), optional: list(f.optional), closes: list(f.closes), loads: list(f.loads), defaultOff: f.default === "off",
     ...(f.repository === "required" ? { repository: "required" as const } : {}),
+  };
+}
+
+/** How many loads deep a chain may go: wayfinder -> grill-with-docs -> grilling is two. */
+export const MAX_LOAD_DEPTH = 3;
+export type ChainProblem = { cycle: string[] } | { tooDeep: string[] } | { missing: string };
+/** What is wrong with a chain, said after the playbook's name: "wayfinder loads itself through ...". */
+export const chainProblemText = (p: ChainProblem) =>
+  "cycle" in p ? `loads itself through ${p.cycle.join(" -> ")}` : "tooDeep" in p ? `has a chain deeper than ${MAX_LOAD_DEPTH}: ${p.tooDeep.join(" -> ")}` : `loads ${p.missing}, which does not exist`;
+
+type Loader = Pick<Playbook, "name" | "loads">;
+/** The playbooks a start brings in, the started one first and each loaded one once in load order, or the first problem on the way. `all` is every playbook of the tenant. */
+export function playbookChain(root: Loader, all: Loader[]): { chain: string[] } | { problem: ChainProblem } {
+  const chain: string[] = [];
+  const walk = (p: Loader, path: string[]): ChainProblem | null => {
+    if (!chain.includes(p.name)) chain.push(p.name);
+    const at = [...path, p.name];
+    for (const name of p.loads) {
+      if (at.includes(name)) return { cycle: [...at, name] };
+      if (at.length > MAX_LOAD_DEPTH) return { tooDeep: [...at, name] };
+      const loaded = all.find((x) => x.name === name);
+      const problem = loaded ? walk(loaded, at) : { missing: name };
+      if (problem) return problem;
+    }
+    return null;
+  };
+  const problem = walk(root, []);
+  return problem ? { problem } : { chain };
+}
+
+/**
+ * Why saving `content` at `path` would break a chain: a cycle, or a chain deeper than MAX_LOAD_DEPTH, that was not there before,
+ * the saved playbook's own chain checked first. A load of a playbook that does not exist yet is allowed; the start refuses it.
+ */
+export async function playbookSaveProblem(tenantId: string, path: string, content: string): Promise<string | null> {
+  const m = new RegExp(`^${TENANT_PLAYBOOKS_DIR}/([^/]+)/${PLAYBOOK_FILE}$`).exec(path);
+  const saved = m && parsePlaybook(m[1]!, content, "tenant");
+  if (!saved) return null;
+  const before = await listPlaybooks(tenantId), after = [saved, ...before.filter((p) => p.name !== saved.name)];
+  const broken = (p: Loader, all: Loader[]) => { const found = playbookChain(p, all); return "problem" in found && !("missing" in found.problem) ? chainProblemText(found.problem) : null; };
+  for (const p of after) {
+    const problem = broken(p, after), old = before.find((x) => x.name === p.name);
+    if (problem && (!old || broken(old, before) !== problem)) return `${p.name} ${problem}`;
+  }
+  return null;
+}
+
+/** The started playbook with its chain folded in: the loaded bodies after its own, and requires, optional, closes and a required repository combined. A broken chain leaves it as it is; the availability check refuses it anyway. */
+export function withLoads(playbook: Playbook, all: Playbook[]): Playbook {
+  const found = playbookChain(playbook, all);
+  if ("problem" in found || found.chain.length < 2) return playbook;
+  const chain = found.chain.map((name) => name === playbook.name ? playbook : all.find((p) => p.name === name)!);
+  const union = (key: "requires" | "optional" | "closes") => [...new Set(chain.flatMap((p) => p[key]))];
+  return {
+    ...playbook, requires: union("requires"), optional: union("optional"), closes: union("closes"),
+    ...(chain.some((p) => p.repository === "required") ? { repository: "required" as const } : {}),
+    body: [playbook.body, ...chain.slice(1).map((p) => `#### Loaded playbook: ${p.name}\n\n${p.body}`)].join("\n\n"),
   };
 }
 
