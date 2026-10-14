@@ -27,6 +27,8 @@ export interface Playbook {
   loads: string[];
   /** False for a reference: no menu or trigger word, so it is only ever loaded by another playbook. */
   start: boolean;
+  /** `run: in-place` answers where the playbook was started; the default `thread` opens and binds a playbook thread. */
+  run: "thread" | "in-place";
   /** `repository: required`: the playbook cannot start where git scope allows no repository (ADR 0007). */
   repository?: "required";
   body: string;
@@ -65,6 +67,7 @@ export function parsePlaybook(name: string, text: string, source: Playbook["sour
     description: typeof f.description === "string" ? f.description : "",
     words: start ? list(trigger.word ?? trigger.words).map((w) => w.toLowerCase()).filter((w) => WORD.test(w)) : [],
     requires: list(f.requires), optional: list(f.optional), closes: list(f.closes), loads: list(f.loads), defaultOff: f.default === "off",
+    run: f.run === "in-place" ? "in-place" : "thread",
     ...(f.repository === "required" ? { repository: "required" as const } : {}),
   };
 }

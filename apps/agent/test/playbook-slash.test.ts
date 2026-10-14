@@ -115,3 +115,33 @@ discordScenario("a mention with a playbook's name starts it like its trigger wor
   expect(s.model.calls[0]![0]!.content).toContain("Group the points into went well, went badly, and try next.");
   expect(s.model.calls[1]![0]!.content).toContain("### Playbook: issue-draft");
 });
+
+discordScenario("a run: in-place playbook answers where it was started, from a slash command, its menu, or a mention, and opens no thread", async (s) => {
+  await s.workspace.write("shared/playbooks/plainer/PLAYBOOK.md", `---\nname: plainer\ndescription: Says it plainer\ntrigger: {"menu": "Say it plainer"}\nrun: in-place\n---\nRewrite the message in plain words.\n`);
+  await s.restart();
+  s.model.script("Plain from slash.", "Plain from menu.", "Plain from mention.");
+
+  const slash = await s.discord.slash("plainer", { text: "the deploy is idempotent" });
+  const [target] = s.discord.history([{ content: "We shard by tenant hash", author: s.discord.bob, at: Date.now() - 60_000 }]);
+  const menu = await s.discord.contextMenu("Say it plainer", target!);
+  const ask = await s.discord.send(`${s.discord.mention} plainer: eventual consistency`);
+
+  for (const call of s.model.calls) expect(call[0]!.content).toContain("Rewrite the message in plain words.");
+  expect(s.model.calls[0]!.map((m) => m.content)).toContain("Alice: the deploy is idempotent");
+  expect(s.model.calls[1]!.map((m) => m.content)).toContain("Bob: We shard by tenant hash");
+  expect(s.model.calls[2]!.map((m) => m.content)).toContain("Alice: eventual consistency");
+  expect(s.discord.botMessages.map((m) => [m.channelId, m.content, m.reference?.messageId])).toEqual([
+    ["channel-1", "Plain from slash.", undefined],
+    ["channel-1", "Plain from menu.", target!.id],
+    ["channel-1", "Plain from mention.", ask.id],
+  ]);
+  for (const run of [slash, menu]) {
+    expect(run.responses).toEqual([
+      { kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) },
+      { kind: "editReply", payload: expect.objectContaining({ content: "Answering here with the plainer playbook." }) },
+    ]);
+  }
+  expect(target!.thread).toBeUndefined();
+  expect(ask.thread).toBeUndefined();
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/threads").catch(() => [])).toEqual([]);
+});
