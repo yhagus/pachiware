@@ -1,8 +1,9 @@
 /**
- * Drives one daily-behaviour fixture at the Discord seam: the clock is pinned, settings, grants, seeded tasks and
- * attachments are put in place, the brief is sent with a mention and the follow-ups in the thread it opened. After
- * every turn the replies and the Workspace and schedule state are recorded, so the checks and the judge read a plain
- * output, live or from `recorded/assistant/`. Database modules load lazily, inside the scenario's subprocess.
+ * Drives one daily-behaviour fixture at the Discord seam: the clock is pinned, settings, grants, members, seeded tasks
+ * (in the brief's channel or another) and attachments are put in place, the brief is sent with a mention and the
+ * follow-ups in the thread it opened. After every turn the replies and the Workspace and schedule state are recorded,
+ * so the checks and the judge read a plain output, live or from `recorded/assistant/`. Database modules load lazily,
+ * inside the scenario's subprocess.
  */
 import type { Scenario } from "../test/support/discordScenario";
 import { checkAssistantOutput, type AssistantFailure } from "./assistantChecks";
@@ -12,7 +13,11 @@ import type { TrialResult } from "./compare";
 import type { Ask } from "./judge";
 import { usageOf } from "./run";
 
-export interface TaskState { title: string; status: string; dueAt: string | null; /** The Assignee's name. */ assignedTo: string | null; createdByName: string | null }
+export interface TaskState {
+  title: string; status: string; dueAt: string | null; /** The Assignee's name. */ assignedTo: string | null; createdByName: string | null;
+  /** "#launch" for a task outside the brief's channel; absent for the brief's channel. */ channel?: string;
+  /** Its Progress note lines, oldest first; absent when it has none. */ notes?: string[];
+}
 export interface ReminderState { text: string; recurrence: string; weekdays: number[]; timeOfDay: string | null; timezone: string; nextAt: string; status: string; mentions: string[] }
 export interface AssistantState { tasks: TaskState[]; memory: { channel: string[]; guild: string[] }; files: string[]; reminders: ReminderState[] }
 export interface AssistantTurn {
@@ -32,13 +37,20 @@ export interface AssistantResult extends AssistantOutput { failures: AssistantFa
 const GUILD = "guild-1", CHANNEL_ID = "channel-1", CHANNEL = `guilds/${GUILD}/channels/${CHANNEL_ID}`, GUILD_SHARED = `guilds/${GUILD}/shared`;
 const seedId = (i: number) => `${String(i + 1).padStart(8, "0")}-0000-4000-8000-000000000000`;
 
+/** The channels of the guild that tasks are seeded in besides the brief's, each created in the fake guild. */
+function seededChannels(s: Scenario, tasks: SeedTask[] = []) {
+  const ids = [...new Set(tasks.flatMap((t) => (t.channel ? [t.channel.replace(/^#/, "")] : [])))];
+  for (const id of ids) s.discord.channel(id);
+  return ids;
+}
+
 async function seedTasks(s: Scenario, tasks: SeedTask[]) {
   const { render, slug } = await import("../../../packages/skills/src/builtin/tasks.ts");
   const { parseAssignee } = await import("../../../packages/skills/src/builtin/assignee.ts");
   const at = new Date(s.clock.now()).toISOString();
   for (const [i, t] of tasks.entries()) {
-    const id = seedId(i);
-    await s.workspace.write(`${CHANNEL}/tasks/${slug(t.title)}-${id.slice(0, 8)}.md`, render({ id, title: t.title, description: null, status: (t.status ?? "pending") as any, priority: "medium", assignedTo: parseAssignee(t.assignedTo), dueAt: t.dueAt ?? null, createdBy: s.discord.alice.id, createdByName: s.discord.alice.name, createdAt: at, updatedAt: at }));
+    const id = seedId(i), folder = t.channel ? `guilds/${GUILD}/channels/${t.channel.replace(/^#/, "")}` : CHANNEL;
+    await s.workspace.write(`${folder}/tasks/${slug(t.title)}-${id.slice(0, 8)}.md`, render({ id, title: t.title, description: null, status: (t.status ?? "pending") as any, priority: "medium", assignedTo: parseAssignee(t.assignedTo), dueAt: t.dueAt ?? null, createdBy: s.discord.alice.id, createdByName: s.discord.alice.name, createdAt: at, updatedAt: at }));
   }
 }
 
@@ -48,13 +60,18 @@ async function attachmentsOf(s: Scenario, fixture: AssistantFixture) {
   return (fixture.facts.attachments ?? []).map((a) => attachment(s, a.name, pdf(a.pdf), { contentType: "application/pdf" }));
 }
 
-async function stateOf(s: Scenario): Promise<AssistantState> {
-  const { loadTasks } = await import("../../../packages/skills/src/builtin/tasks.ts");
+async function stateOf(s: Scenario, channels: string[]): Promise<AssistantState> {
+  const { loadTasks, readInFull, noteLine, taskChannelOf } = await import("../../../packages/skills/src/builtin/tasks.ts");
   const { workspaceStore } = await import("../../../packages/skills/src/workspace/store.ts");
   const { schedules, eq } = await import("../../../packages/db/src/index.ts") as any;
   const lines = async (path: string) => ((await s.workspace.read(path)) ?? "").split("\n").filter((l) => l.trim());
-  const tasks = (await loadTasks(workspaceStore(), { tenantId: s.tenant.id, guildId: GUILD, channelId: CHANNEL_ID })).map(({ task: t }) => ({ title: t.title, status: t.status, dueAt: t.dueAt, assignedTo: t.assignedTo?.name ?? null, createdByName: t.createdByName }))
-    .sort((a, b) => a.title.localeCompare(b.title));
+  const store = workspaceStore(), found = new Map<string, Awaited<ReturnType<typeof loadTasks>>[number]>();
+  for (const channelId of [CHANNEL_ID, ...channels]) for (const f of await loadTasks(store, { tenantId: s.tenant.id, guildId: GUILD, channelId })) found.set(f.path, f);
+  const full = await readInFull(store, s.tenant.id, [...found.values()]);
+  const tasks: TaskState[] = [...found.values()].map(({ path }, i) => {
+    const t = full[i]!, channel = taskChannelOf(path)?.channelId, notes = (t.notes ?? []).map(noteLine);
+    return { title: t.title, status: t.status, dueAt: t.dueAt, assignedTo: t.assignedTo?.name ?? null, createdByName: t.createdByName, ...(channel && channel !== CHANNEL_ID && { channel: `#${channel}` }), ...(notes.length && { notes }) };
+  }).sort((a, b) => a.title.localeCompare(b.title));
   const files = (await s.workspace.list(`${CHANNEL}/files`)).map((p) => p.slice(CHANNEL.length + 1)).filter((p) => !p.split("/").pop()!.startsWith(".")).sort();
   const rows: any[] = await s.db.select().from(schedules).where(eq(schedules.kind, "reminder"));
   const reminders = rows.sort((a, b) => a.nextAt.getTime() - b.nextAt.getTime() || a.text.localeCompare(b.text))
@@ -70,6 +87,9 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
   s.clock.set(facts.clock);
   if (facts.settings) await s.guildSettings({ timezone: facts.settings.timezone ?? null, language: facts.settings.language ?? null });
   if (facts.grants?.length) s.discord.grant(s.discord.alice, facts.grants);
+  // Someone who has posted in the guild is a member its search finds.
+  if (facts.members?.length) s.discord.history(facts.members.map((author) => ({ content: "hello", author })), { channel: s.discord.channel("lobby") });
+  const channels = seededChannels(s, facts.seed?.tasks);
   if (facts.seed?.tasks?.length) await seedTasks(s, facts.seed.tasks);
   s.discord.unlimited(s.discord.alice);
   const turns: AssistantTurn[] = [];
@@ -81,7 +101,7 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
     thread ??= sent.thread;
     const posted = s.discord.botMessages.slice(seen);
     seen = s.discord.botMessages.length;
-    turns.push({ n: i + 1, message, replies: posted.map(textOf).filter(Boolean), confirm: posted.some((m) => m.components.length > 0), pings: [...new Set(posted.flatMap((m) => m.allowedMentions?.users ?? []))], state: await stateOf(s) });
+    turns.push({ n: i + 1, message, replies: posted.map(textOf).filter(Boolean), confirm: posted.some((m) => m.components.length > 0), pings: [...new Set(posted.flatMap((m) => m.allowedMentions?.users ?? []))], state: await stateOf(s, channels) });
   }
   const posts: AssistantOutput["posts"] = [];
   if (facts.then) {

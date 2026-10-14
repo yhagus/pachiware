@@ -1,0 +1,15 @@
+# A name that matches two members: the bot asks once, naming both, and files nothing; the answer settles it. Spec #120, story 3.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+members:
+  - { id: user-dewi-l, name: Dewi, username: dewi.lestari }
+  - { id: user-dewi-a, name: Dewi Anggraini, username: dewi }
+mustCover:
+  - '"Dewi" matches two members, Dewi (dewi.lestari) and Dewi Anggraini (dewi), so the bot asked which one was meant'
+  - Sending the brand guide to the printer is Dewi Anggraini's task, due Friday 16 October
+turns:
+  - ambiguous: '"Dewi" is the display name of one member and the username of another; the bot must ask which Dewi is meant, naming both, and create nothing.'
+    tasks: []
+    replyContains: [Anggraini, dewi.lestari]
+  - tasks:
+      - { title: brand guide, status: pending, dueAt: "2026-10-16", assignedTo: Dewi Anggraini, createdByName: Alice }

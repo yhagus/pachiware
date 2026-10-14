@@ -1,0 +1,95 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "plate-across-channels",
+  "turns": [
+    {
+      "n": 1,
+      "message": "what's on my plate?",
+      "replies": [
+        "#channel-1\npending | due 2026-10-15 | Alice | 00000001 | Review the pricing page\n\n#launch\npending | due 2026-10-16 | Alice | 00000002 | Write the release notes"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Record the demo video",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Bob",
+            "createdByName": "Alice",
+            "channel": "#launch"
+          },
+          {
+            "title": "Review the pricing page",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Write the release notes",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice",
+            "channel": "#launch"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "and what did I hand off to others?",
+      "replies": [
+        "#launch\npending | due 2026-10-15 | Bob | 00000003 | Record the demo video"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Record the demo video",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Bob",
+            "createdByName": "Alice",
+            "channel": "#launch"
+          },
+          {
+            "title": "Review the pricing page",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Write the release notes",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice",
+            "channel": "#launch"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

@@ -1,0 +1,83 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "cancel-with-reason",
+  "turns": [
+    {
+      "n": 1,
+      "message": "batalin aja booking venue buat gathering, acaranya jadi online",
+      "replies": [
+        "Dibatalkan: Booking venue untuk gathering. Alasannya dicatat: acaranya jadi online."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Booking venue untuk gathering",
+            "status": "cancelled",
+            "dueAt": "2026-10-20",
+            "assignedTo": null,
+            "createdByName": "Alice",
+            "notes": [
+              "- 2026-10-14 Alice: Cancelled: acaranya jadi online"
+            ]
+          },
+          {
+            "title": "Pesan katering",
+            "status": "pending",
+            "dueAt": "2026-10-19",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "yang masih jalan apa aja?",
+      "replies": [
+        "Yang masih jalan:\npending | due 2026-10-19 | unassigned | 00000002 | Pesan katering"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Booking venue untuk gathering",
+            "status": "cancelled",
+            "dueAt": "2026-10-20",
+            "assignedTo": null,
+            "createdByName": "Alice",
+            "notes": [
+              "- 2026-10-14 Alice: Cancelled: acaranya jadi online"
+            ]
+          },
+          {
+            "title": "Pesan katering",
+            "status": "pending",
+            "dueAt": "2026-10-19",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

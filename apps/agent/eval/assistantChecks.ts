@@ -28,6 +28,10 @@ function taskFailures(expected: ExpectedTask[], tasks: AssistantState["tasks"]):
     };
     field("status"); field("dueAt"); field("createdByName");
     field("assignedTo", (a, b) => (a ?? null) === (b ?? null) || (typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase()));
+    if (e.channel !== undefined && (task.channel ?? null) !== (e.channel ?? null)) out.push(`Task "${task.title}": channel is ${task.channel ?? "this channel"}, expected ${e.channel ?? "this channel"}.`);
+    const notes = task.notes ?? [];
+    if (e.notes?.length === 0 && notes.length) out.push(`Task "${task.title}": has ${notes.length} Progress note${notes.length === 1 ? "" : "s"}, expected none.`);
+    for (const phrase of e.notes ?? []) if (!notes.some((n) => has(n, phrase))) out.push(`Task "${task.title}": no Progress note contains "${phrase}"; notes: ${notes.join(" / ") || "none"}.`);
   }
   return out;
 }

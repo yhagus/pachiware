@@ -95,6 +95,71 @@ discordScenario("dry run: reminder-weekly sets Monday and Thursday 09:00 and the
   expect(output.posts).toEqual([{ text: `<@${s.discord.alice.id}> Reminder: post the standup`, pings: [s.discord.alice.id] }]);
 });
 
+discordScenario("dry run: assign-ambiguous-name asks which Dewi, files nothing, then files the task for the one named", async (s) => {
+  s.model.script(
+    { tool: "createTask", args: { title: "Send the brand guide to the printer", assignedTo: "Dewi", dueAt: "2026-10-16" } },
+    (turn) => (turn.toolResults[0].ambiguous ? "Which Dewi do you mean: Dewi (dewi.lestari) or Dewi Anggraini (dewi)?" : `not ambiguous: ${JSON.stringify(turn.toolResults[0])}`),
+    { tool: "createTask", args: { title: "Send the brand guide to the printer", assignedTo: "Dewi Anggraini", dueAt: "2026-10-16" } },
+    "Added: Send the brand guide to the printer, Dewi Anggraini, due Friday 16 October.",
+  );
+  const output = await dryRun(s, "assign-ambiguous-name");
+  expect(output.turns[0].replies).toEqual(["Which Dewi do you mean: Dewi (dewi.lestari) or Dewi Anggraini (dewi)?"]);
+  expect(output.turns[0].state.tasks).toEqual([]);
+});
+
+discordScenario("dry run: assign-unknown-name records Pak Hendra by name only and says so", async (s) => {
+  s.model.script(
+    { tool: "assignTask", args: { taskId: "00000001", assignedTo: "Pak Hendra" } },
+    (turn) => (/recorded by name only/.test(turn.toolResults[0].message) ? "Get the catering quote is now Pak Hendra's. He is recorded by name only: no member here matches, so I cannot reach him." : `no name-only note: ${turn.toolResults[0].message}`),
+  );
+  const output = await dryRun(s, "assign-unknown-name");
+  expect(output.turns[0].replies[0]).toContain("name only");
+});
+
+discordScenario("dry run: progress-note keeps Alice's report as a Progress note and shows it when asked", async (s) => {
+  s.model.script(
+    { tool: "addProgressNote", args: { taskId: "00000001", text: "Half done, waiting on screenshots from design" } },
+    "Noted on Draft the launch post: half done, waiting on screenshots from design.",
+    { tool: "showTask", args: { taskId: "00000001" } },
+    (turn) => `${turn.toolResults[0].task}\n${turn.toolResults[0].notes.join("\n")}`,
+  );
+  const output = await dryRun(s, "progress-note");
+  expect(output.turns[0].state.tasks[0].notes).toEqual(["- 2026-10-14 Alice: Half done, waiting on screenshots from design"]);
+  expect(output.turns[1].replies).toEqual(["pending | due 2026-10-16 | Alice | 00000001 | Draft the launch post\n- 2026-10-14 Alice: Half done, waiting on screenshots from design"]);
+});
+
+discordScenario("dry run: cancel-with-reason cancels the venue with its reason as a note, and the open list leaves it out", async (s) => {
+  s.model.script(
+    { tool: "updateTaskStatus", args: { taskId: "00000001", status: "cancelled", reason: "acaranya jadi online" } },
+    "Dibatalkan: Booking venue untuk gathering. Alasannya dicatat: acaranya jadi online.",
+    (turn) => `Yang masih jalan:\n${contextLines(turn, /^pending \| .*$/gm).join("\n")}`,
+  );
+  const output = await dryRun(s, "cancel-with-reason");
+  expect(output.turns[0].state.tasks.find((t: any) => t.status === "cancelled").notes).toEqual(["- 2026-10-14 Alice: Cancelled: acaranya jadi online"]);
+  expect(output.turns[1].replies).toEqual(["Yang masih jalan:\npending | due 2026-10-19 | unassigned | 00000002 | Pesan katering"]);
+});
+
+discordScenario("dry run: task-reference-ambiguous lists both invoice tasks and asks once, then completes the Acme one", async (s) => {
+  s.model.script(
+    (turn) => `Two tasks are about an invoice:\n${contextLines(turn, /^.*\| Send the invoice to .*$/gm).join("\n")}\nWhich one is done?`,
+    { tool: "updateTaskStatus", args: { taskId: "00000001", status: "completed" } },
+    "Send the invoice to Acme is completed.",
+  );
+  const output = await dryRun(s, "task-reference-ambiguous");
+  expect(output.turns[0].replies).toEqual(["Two tasks are about an invoice:\npending | due 2026-10-16 | unassigned | 00000001 | Send the invoice to Acme\npending | due 2026-10-20 | unassigned | 00000002 | Send the invoice to Globex\nWhich one is done?"]);
+});
+
+discordScenario("dry run: plate-across-channels lists Alice's tasks in this channel and #launch, then what she handed to Bob", async (s) => {
+  const grouped = (r: any) => r.groups.map((g: any) => `${g.group}\n${g.tasks.map((t: any) => t.line).join("\n")}`).join("\n\n");
+  s.model.script(
+    { tool: "listTasks", args: { scope: "mine" } }, (turn) => grouped(turn.toolResults[0]),
+    { tool: "listTasks", args: { scope: "delegated" } }, (turn) => grouped(turn.toolResults[0]),
+  );
+  const output = await dryRun(s, "plate-across-channels");
+  expect(output.turns[0].replies).toEqual(["#channel-1\npending | due 2026-10-15 | Alice | 00000001 | Review the pricing page\n\n#launch\npending | due 2026-10-16 | Alice | 00000002 | Write the release notes"]);
+  expect(output.turns[1].replies).toEqual(["#launch\npending | due 2026-10-15 | Bob | 00000003 | Record the demo video"]);
+});
+
 discordScenario("dry run: a judge over HTTP grades a daily-behaviour trial, and the report reads per turn", async (s) => {
   const { runAssistantTrial } = await import(`${EVAL()}/assistantRun.ts`);
   const { loadAssistantFixtures } = await import(`${EVAL()}/assistantFixtures.ts`);

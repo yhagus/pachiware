@@ -1,0 +1,37 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "assign-unknown-name",
+  "turns": [
+    {
+      "n": 1,
+      "message": "give the catering quote to Pak Hendra from the vendor",
+      "replies": [
+        "Get the catering quote is now Pak Hendra's. He is recorded by name only: no member here matches, so I cannot reach him."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Get the catering quote",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Pak Hendra",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

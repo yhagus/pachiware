@@ -16,6 +16,16 @@ discordScenario("the first model call carries the administrative-assistant perso
   expect(prompt.indexOf("administrative assistant")).toBeLessThan(prompt.indexOf("### Policy"));
 });
 
+discordScenario("the persona describes project work in the glossary's terms and keeps \"owner\" for Reminders", async (s) => {
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const persona = systemPrompt(s.model.calls[0]!).split("### Policy")[0]!;
+  for (const term of ["Project", "Assignee", "Personal task", "Progress note"]) expect(persona).toContain(term);
+  for (const name of ["editTask", "addProgressNote", "showTask", "tickChecklistItem", "moveTask", "scope mine", "scope delegated", "query", "cancelled"]) expect(persona).toContain(name);
+  const ownerLines = persona.split("\n").filter((line) => /\bowners?\b/i.test(line));
+  expect(ownerLines.every((line) => line.includes("Reminder"))).toBe(true);
+});
+
 discordScenario("a question about channels reaches the model when the Discord skill is off, instead of a regex refusal", async (s) => {
   const { tenantSkills, and, eq } = await import("../../../packages/db/src/index.ts");
   await s.db.update(tenantSkills).set({ isEnabled: false }).where(and(eq(tenantSkills.tenantId, s.tenant.id), eq(tenantSkills.skillId, "discord_management")));

@@ -18,7 +18,10 @@ Think it through in a few sentences first. Then end your reply with one line of 
 {"reasoning": "<one or two sentences>", "verdict": "yes" | "no" | "unknown"}`;
 
 const stateText = (s: AssistantState) => [
-  `Tasks: ${s.tasks.length ? "" : "none"}`, ...s.tasks.map((t) => `- ${t.status} | ${t.dueAt ? `due ${t.dueAt}` : "no due date"} | ${t.assignedTo ?? "unassigned"} | ${t.title} (created by ${t.createdByName ?? "unknown"})`),
+  `Tasks: ${s.tasks.length ? "" : "none"}`, ...s.tasks.flatMap((t) => [
+    `- ${t.status} | ${t.dueAt ? `due ${t.dueAt}` : "no due date"} | ${t.assignedTo ?? "unassigned"} | ${t.title} (created by ${t.createdByName ?? "unknown"}${t.channel ? `, in ${t.channel}` : ""})`,
+    ...(t.notes ?? []).map((n) => `  Progress note ${n.replace(/^- /, "")}`),
+  ]),
   `Channel Memory: ${s.memory.channel.length ? "" : "empty"}`, ...s.memory.channel.map((l) => `  ${l}`),
   `Server Memory: ${s.memory.guild.length ? "" : "empty"}`, ...s.memory.guild.map((l) => `  ${l}`),
   `Files under files/: ${s.files.join(", ") || "none"}`,

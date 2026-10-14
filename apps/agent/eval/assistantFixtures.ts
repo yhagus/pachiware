@@ -1,7 +1,7 @@
 /**
  * Daily-behaviour fixtures, one folder per brief under `assistant/`: `brief.md` (the first message, sent with a
  * mention), `follow-ups.md` (later messages, split on `---` lines, sent in the thread the bot opened), and `facts.yaml`:
- * the fixed clock, settings and grants, anything to seed or attach, the must-cover facts, one `turns` entry per message
+ * the fixed clock, settings, grants and members, anything to seed (in the brief's channel or another) or attach, the must-cover facts, one `turns` entry per message
  * with the Workspace and schedule state expected after it, and `then`, a scheduler tick after the conversation.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -9,13 +9,17 @@ import { join } from "node:path";
 import type { Language } from "../../../packages/skills/src/language";
 import { EVAL_DIR } from "./repository";
 
-export interface ExpectedTask { /** A phrase the title contains, case-insensitive. */ title: string; status?: string; dueAt?: string | null; assignedTo?: string | null; createdByName?: string }
+export interface ExpectedTask {
+  /** A phrase the title contains, case-insensitive. */ title: string; status?: string; dueAt?: string | null; assignedTo?: string | null; createdByName?: string;
+  /** The channel of a task outside the brief's channel, such as "#launch"; null for the brief's channel. */ channel?: string | null;
+  /** Phrases its Progress notes contain, each in some note; an empty list means no note at all. */ notes?: string[];
+}
 export interface MemoryFacts { has?: string[]; lacks?: string[] }
 export interface ExpectedReminder { text?: string; recurrence: string; weekdays?: number[]; timeOfDay?: string; nextAt: string; mentions?: string[] }
 export interface TurnFacts {
   /** What the bot must ask about: the request is ambiguous, so nothing may change. */
   ambiguous?: string;
-  /** Every task visible from the channel after this turn. */
+  /** Every task after this turn: the brief's channel's, plus those of the channels `seed.tasks` names. */
   tasks?: ExpectedTask[];
   memory?: { channel?: MemoryFacts; guild?: MemoryFacts };
   /** Every file under the channel's files/ after this turn. */
@@ -27,7 +31,10 @@ export interface TurnFacts {
   /** The reply lists tasks, so one line at least is in the fixed format. */
   taskList?: boolean;
 }
-export interface SeedTask { title: string; status?: string; dueAt?: string | null; assignedTo?: string | null }
+export interface SeedTask {
+  title: string; status?: string; dueAt?: string | null; assignedTo?: string | null;
+  /** Another channel of the guild to file it in, by name (it is created); the brief's channel when left out. */ channel?: string;
+}
 export interface AssistantFacts {
   language: Language;
   /** The instant the conversation starts at. */
@@ -35,6 +42,8 @@ export interface AssistantFacts {
   settings?: { timezone?: string; language?: Language };
   /** Guild permissions the author holds, discord.js names. */
   grants?: string[];
+  /** Guild members besides Alice and Bob; `name` is the display name, `username` defaults to it. */
+  members?: { id: string; name: string; username?: string }[];
   seed?: { tasks?: SeedTask[] };
   /** Attached to the brief; `pdf` lines become a real one-page PDF. */
   attachments?: { name: string; pdf: string[] }[];
@@ -69,7 +78,7 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
     if (!mustCover.length) throw new Error(`Fixture ${name} names no must-cover fact`);
     for (const [i, t] of (raw.turns as any[]).entries()) { strings(t.replyContains, `${name} turn ${i + 1} replyContains`); strings(t.replyLacks, `${name} turn ${i + 1} replyLacks`); strings(t.files, `${name} turn ${i + 1} files`); }
     if (raw.then && (typeof raw.then.clock !== "string" || Number.isNaN(Date.parse(raw.then.clock)) || !Array.isArray(raw.then.posts))) throw new Error(`Fixture ${name}: then needs a clock and a list of posts`);
-    const facts: AssistantFacts = { language: raw.language, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), seed: raw.seed, attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
+    const facts: AssistantFacts = { language: raw.language, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), members: raw.members, seed: raw.seed, attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
     return { name, messages, facts };
   });
 }

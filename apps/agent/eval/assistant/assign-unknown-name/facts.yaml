@@ -1,0 +1,13 @@
+# A name no member has: the task is assigned to that name only, and the reply says the bot cannot reach him. Spec #120, stories 4, 5.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  tasks:
+    - { title: Get the catering quote, status: pending, dueAt: "2026-10-16" }
+mustCover:
+  - The catering quote is now Pak Hendra's task
+  - Pak Hendra was recorded by name only, so the bot cannot reach him
+turns:
+  - tasks:
+      - { title: catering, status: pending, dueAt: "2026-10-16", assignedTo: Pak Hendra }
+    replyContains: [Pak Hendra, name only]

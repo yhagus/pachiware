@@ -1,0 +1,15 @@
+# A progress report made to the bot is kept as a Progress note on the task, by its reporter; asking about the task shows it. Spec #120, stories 17, 18, 24.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  tasks:
+    - { title: Draft the launch post, status: pending, dueAt: "2026-10-16", assignedTo: Alice }
+mustCover:
+  - The launch post draft is half done and waits on screenshots from design, as Alice reported on 14 October
+turns:
+  - tasks:
+      - { title: launch post, dueAt: "2026-10-16", assignedTo: Alice, notes: [screenshots] }
+  - tasks:
+      - { title: launch post, dueAt: "2026-10-16", assignedTo: Alice, notes: [screenshots] }
+    taskList: true
+    replyContains: [screenshots]

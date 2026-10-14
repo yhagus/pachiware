@@ -1,0 +1,23 @@
+# "The invoice" fits two tasks: the bot lists both as task lines and asks once, changing nothing; the answer settles it. Spec #120, story 26.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  tasks:
+    - { title: Send the invoice to Acme, status: pending, dueAt: "2026-10-16" }
+    - { title: Send the invoice to Globex, status: pending, dueAt: "2026-10-20" }
+    - { title: Book the venue, status: pending }
+mustCover:
+  - Two tasks are about an invoice, Acme's and Globex's
+  - Send the invoice to Acme is completed; the Globex invoice is still pending
+turns:
+  - ambiguous: two tasks are about an invoice, to Acme and to Globex; the bot must list both and ask which one is done, changing nothing.
+    tasks:
+      - { title: Acme, status: pending }
+      - { title: Globex, status: pending }
+      - { title: venue, status: pending }
+    taskList: true
+    replyContains: [Acme, Globex]
+  - tasks:
+      - { title: Acme, status: completed }
+      - { title: Globex, status: pending }
+      - { title: venue, status: pending }

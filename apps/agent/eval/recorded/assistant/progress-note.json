@@ -1,0 +1,69 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "progress-note",
+  "turns": [
+    {
+      "n": 1,
+      "message": "the launch post draft is half done, I'm waiting on screenshots from design",
+      "replies": [
+        "Noted on Draft the launch post: half done, waiting on screenshots from design."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Draft the launch post",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice",
+            "notes": [
+              "- 2026-10-14 Alice: Half done, waiting on screenshots from design"
+            ]
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "how is the launch post going?",
+      "replies": [
+        "pending | due 2026-10-16 | Alice | 00000001 | Draft the launch post\n- 2026-10-14 Alice: Half done, waiting on screenshots from design"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Draft the launch post",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice",
+            "notes": [
+              "- 2026-10-14 Alice: Half done, waiting on screenshots from design"
+            ]
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

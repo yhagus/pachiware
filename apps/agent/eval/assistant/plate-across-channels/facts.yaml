@@ -1,0 +1,26 @@
+# The asker's tasks across two project channels, grouped by channel, and then the tasks they delegated. Spec #120, stories 31, 34, 36.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  tasks:
+    - { title: Review the pricing page, status: pending, dueAt: "2026-10-15", assignedTo: Alice }
+    - { title: Write the release notes, status: pending, dueAt: "2026-10-16", assignedTo: Alice, channel: launch }
+    - { title: Record the demo video, status: pending, dueAt: "2026-10-15", assignedTo: Bob, channel: launch }
+mustCover:
+  - Alice has two tasks, Review the pricing page in this channel (due Thursday 15 October) and Write the release notes in #launch (due Friday 16 October)
+  - The task Alice handed off is Record the demo video, Bob's, in #launch
+turns:
+  - tasks:
+      - { title: pricing page, assignedTo: Alice, channel: null }
+      - { title: release notes, assignedTo: Alice, channel: "#launch" }
+      - { title: demo video, assignedTo: Bob, channel: "#launch" }
+    taskList: true
+    replyContains: [pricing page, release notes, "#launch"]
+    replyLacks: [demo video]
+  - tasks:
+      - { title: pricing page, assignedTo: Alice }
+      - { title: release notes, assignedTo: Alice }
+      - { title: demo video, assignedTo: Bob }
+    taskList: true
+    replyContains: [demo video, Bob]
+    replyLacks: [pricing page, release notes]

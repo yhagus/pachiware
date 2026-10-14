@@ -46,6 +46,17 @@ describe("code checks on one run", () => {
     expect(checks(withTurn(1, { state: state([venue, { ...venue, title: "Book the venue again" }]) }), plain)).toEqual(["1 tasks: 2 tasks exist, expected 1."]);
   });
 
+  test("a task's Progress notes and its channel are compared when the facts give them", () => {
+    const f: AssistantFixture = { ...fixture, facts: { ...fixture.facts, turns: [{ tasks: [{ title: "venue", notes: ["deposit"] }, { title: "poster", channel: "#launch", notes: [] }] }, {}] } };
+    const poster = { ...venue, title: "Print the poster", channel: "#launch" };
+    expect(checks(withTurn(1, { state: state([{ ...venue, notes: ["- 2026-10-14 Alice: paid the deposit"] }, poster]) }), f)).toEqual([]);
+    expect(checks(withTurn(1, { state: state([{ ...venue, notes: ["- 2026-10-14 Alice: called them"] }, { ...poster, channel: undefined, notes: ["- 2026-10-14 Alice: printed"] }]) }), f)).toEqual([
+      '1 tasks: Task "Book the venue": no Progress note contains "deposit"; notes: - 2026-10-14 Alice: called them.',
+      '1 tasks: Task "Print the poster": channel is this channel, expected #launch.',
+      '1 tasks: Task "Print the poster": has 1 Progress note, expected none.',
+    ]);
+  });
+
   test("an ambiguous turn must leave the Workspace as it was", () => {
     expect(checks(withTurn(2, { state: state([venue, { ...venue, title: "Other" }]) }))).toEqual([
       "2 acted: The request was ambiguous, but the Workspace changed.",
@@ -119,7 +130,8 @@ describe("fixtures and recorded runs", () => {
 
   test("the briefs cover every daily behaviour named in the spec, in both languages", () => {
     const names = fixtures.map((f) => f.name);
-    for (const name of ["task-casual-indonesian", "task-casual-english", "due-dates-relative", "status-by-title", "remember-forget", "file-search", "reminder-weekly"]) expect(names).toContain(name);
+    for (const name of ["task-casual-indonesian", "task-casual-english", "due-dates-relative", "status-by-title", "remember-forget", "file-search", "reminder-weekly",
+      "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels"]) expect(names).toContain(name);
     expect(new Set(fixtures.map((f) => f.facts.language))).toEqual(new Set(["en", "id"]));
     for (const f of fixtures) {
       expect(f.facts.mustCover.length).toBeGreaterThan(0);

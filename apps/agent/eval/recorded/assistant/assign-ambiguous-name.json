@@ -1,0 +1,55 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "assign-ambiguous-name",
+  "turns": [
+    {
+      "n": 1,
+      "message": "add a task for Dewi: send the brand guide to the printer by Friday",
+      "replies": [
+        "Which Dewi do you mean: Dewi (dewi.lestari) or Dewi Anggraini (dewi)?"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "Dewi Anggraini",
+      "replies": [
+        "Added: Send the brand guide to the printer, Dewi Anggraini, due Friday 16 October."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Send the brand guide to the printer",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Dewi Anggraini",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

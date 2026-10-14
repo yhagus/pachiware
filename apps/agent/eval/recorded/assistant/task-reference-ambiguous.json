@@ -1,0 +1,91 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "task-reference-ambiguous",
+  "turns": [
+    {
+      "n": 1,
+      "message": "mark the invoice as done",
+      "replies": [
+        "Two tasks are about an invoice:\npending | due 2026-10-16 | unassigned | 00000001 | Send the invoice to Acme\npending | due 2026-10-20 | unassigned | 00000002 | Send the invoice to Globex\nWhich one is done?"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Book the venue",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Send the invoice to Acme",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Send the invoice to Globex",
+            "status": "pending",
+            "dueAt": "2026-10-20",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "the Acme one",
+      "replies": [
+        "Send the invoice to Acme is completed."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Book the venue",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Send the invoice to Acme",
+            "status": "completed",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Send the invoice to Globex",
+            "status": "pending",
+            "dueAt": "2026-10-20",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}
