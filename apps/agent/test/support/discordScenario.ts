@@ -8,6 +8,7 @@
  *     const msg = await s.discord.send(`${s.discord.mention} list repos`);
  *     await s.discord.click(s.discord.botMessages.at(-1)!, "Confirm");
  *     await s.discord.contextMenu("Draft issues", msg);
+ *     await s.discord.slash("issue-draft", { text: "login loops on Safari", file: attachment(s, "log.txt", bytes) });
  *     expect(await s.workspace.read("guilds/guild-1/channels/channel-1/notes.md")).toContain("...");
  *     const [first] = s.discord.history([{ content: "said an hour ago", at: Date.now() - 3600_000 }]);
  *     s.discord.deny("channel-1", s.discord.bob.id, ["ReadMessageHistory"]);
@@ -101,6 +102,8 @@ export interface Scenario {
     /** Clicks the button whose label or custom id matches. */
     click(message: FakeMessage, button: string, options?: { user?: FakeUser }): Promise<FakeInteraction>;
     contextMenu(commandName: string, target: FakeMessage, options?: { user?: FakeUser }): Promise<FakeInteraction>;
+    /** Runs a slash command with its `text` and `file` options; Discord offers only the commands registered in the guild, so it must be one. */
+    slash(commandName: string, options?: { text?: string; file?: any; user?: FakeUser; channel?: FakeChannel | string }): Promise<FakeInteraction>;
     /** Starts another bot of the tenant in the guild; every later `send` reaches both bots. Clicks and commands still go to the default bot. */
     addBot(options?: { name?: string }): Promise<FakeBot>;
   };
@@ -219,6 +222,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       get url() { return `https://discord.com/channels/${channel.guildId ?? "@me"}/${channel.id}/${message.id}`; },
       react: async (emoji: string) => { message.reactions.push(emoji); },
       pin: async () => { message.pinned = true; },
+      delete: async () => { for (const list of [channel.messages, postedBy.get(author.id)]) { const at = list?.indexOf(message) ?? -1; if (at >= 0) list!.splice(at, 1); } return message; },
       reply: async (p: string | Payload) => post(channel, BOT_USER, p, { reference: message.id }),
       edit: async (p: string | Payload) => { const next = normalize(p); message.edits.push(next); Object.assign(message, typeof p === "string" ? { content: p } : Object.fromEntries(Object.entries(next).filter(([k]) => k in (p as object)))); return message; },
       fetchReference: async () => { const ref = message.reference && channel.messages.find((m: FakeMessage) => m.id === message.reference.messageId); if (!ref) throw new Error("Unknown Message"); return ref; },
@@ -448,6 +452,20 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       contextMenu: async (commandName, target, { user = alice } = {}) => {
         const interaction = responder({ responses: [] }, channels.get(target.channelId), user);
         Object.assign(interaction, { isMessageContextMenuCommand: () => true, isContextMenuCommand: () => true, isCommand: () => true, commandName, commandType: ApplicationCommandType.Message, targetId: target.id, targetMessage: target });
+        if (!client.emit(Events.InteractionCreate, interaction)) throw new Error("The bot does not listen for interactions");
+        await settle();
+        return interaction;
+      },
+      slash: async (commandName, { text, file, user = alice, channel } = {}) => {
+        const where = channelOf(channel);
+        await settle();
+        if (!commandsIn(GUILD.id)?.some((c) => c.type === ApplicationCommandType.ChatInput && c.name === commandName)) throw new Error(`No slash command /${commandName} is registered in ${GUILD.id}`);
+        const interaction = responder({ responses: [] }, where, user);
+        const values: Record<string, unknown> = { text, file };
+        Object.assign(interaction, {
+          isChatInputCommand: () => true, isCommand: () => true, commandName, commandType: ApplicationCommandType.ChatInput,
+          options: { getString: (name: string) => (values[name] as string | undefined) ?? null, getAttachment: (name: string) => values[name] ?? null },
+        });
         if (!client.emit(Events.InteractionCreate, interaction)) throw new Error("The bot does not listen for interactions");
         await settle();
         return interaction;

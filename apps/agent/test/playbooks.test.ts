@@ -37,7 +37,7 @@ discordScenario("a tenant playbook with a built-in's name replaces it, and a new
   await s.workspace.write("shared/playbooks/issue-draft/PLAYBOOK.md", `---\nname: issue-draft\ndescription: Our own drafting rules\ntrigger: {"menu": "Draft issues", "word": "issue"}\nrequires: ["workspace"]\n---\nAlways ask which sprint the work belongs to.\n`);
   await s.workspace.write("shared/playbooks/retro/PLAYBOOK.md", `---\nname: retro\ndescription: Collects a retrospective\ntrigger: {"menu": "Run retro", "word": "retro"}\nrequires: workspace\n---\nGroup the points into went well, went badly, and try next.\n`);
   await s.restart();
-  expect(s.discord.registeredCommands.map((c) => c.name).sort()).toEqual(["Draft issues", "Run retro", "Write minutes"]);
+  expect(s.discord.registeredCommands.filter((c) => c.type === 3).map((c) => c.name).sort()).toEqual(["Draft issues", "Run retro", "Write minutes"]);
 
   s.model.script("Which sprint?", "Grouped.", "Grouped again.");
   await s.discord.contextMenu("Draft issues", await s.discord.send("- login loops on Safari"));

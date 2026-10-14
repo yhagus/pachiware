@@ -61,7 +61,7 @@ discordScenario("up to fifteen menu commands are registered in a guild", async (
   }
   await s.restart();
   // Playbooks come in name order: issue-draft and minutes, then the retros.
-  expect(s.discord.registeredCommands.map((c) => c.name)).toEqual(["Draft issues", "Write minutes", ...Array.from({ length: 13 }, (_, i) => `Retro ${i + 1}`)]);
+  expect(s.discord.registeredCommands.filter((c) => c.type === 3).map((c) => c.name)).toEqual(["Draft issues", "Write minutes", ...Array.from({ length: 13 }, (_, i) => `Retro ${i + 1}`)]);
 });
 
 const RETRO = `---\nname: retro\ndescription: Group the points\ntrigger: {"menu": "Run retro"}\ndefault: off\n---\nGroup the points.\n`;
