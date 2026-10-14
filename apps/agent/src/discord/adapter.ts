@@ -267,6 +267,12 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     return found.filter((c): c is FoundChannel => !!c);
   }
 
+  async sharedGuilds(userId: string): Promise<{ id: string; name: string }[]> {
+    const served = [...this.client.guilds.cache.values()].filter((g: any) => !this.allowedGuildIds.length || this.allowedGuildIds.includes(g.id));
+    const isMember = await Promise.all(served.map((g: any) => g.members.fetch(userId).then(() => true, () => false)));
+    return served.filter((_, i) => isMember[i]).map((g: any) => ({ id: g.id, name: g.name ?? g.id }));
+  }
+
   /** A text channel or thread of this guild that both the bot and the requester are allowed to see and post in. */
   async postAccess(channelId: string, requesterId: string): Promise<PostAccess> {
     const channel: any = await this.client.channels.fetch(channelId).catch(() => null);

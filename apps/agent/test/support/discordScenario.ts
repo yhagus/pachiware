@@ -50,7 +50,8 @@ export interface FakeMessage {
   reactions: string[]; edits: Payload[]; reference?: { messageId: string }; thread?: FakeChannel; pinned: boolean;
 }
 export interface FakeChannel { id: string; guildId: string | null; parentId: string | null; ownerId: string | null; name: string; messages: FakeMessage[]; /** History reads (one per `messages.fetch` page). */ fetches: number }
-export type ChannelOptions = { thread?: boolean; parentId?: string; ownerId?: string; dm?: boolean; private?: boolean; members?: string[] };
+/** `guild` places a channel in a guild the bot joined with `joinGuild`; the default is "guild-1". */
+export type ChannelOptions = { thread?: boolean; parentId?: string; ownerId?: string; dm?: boolean; private?: boolean; members?: string[]; guild?: string };
 /** A message written before the bot was listening; `at` is its creation time in ms. */
 export type PastMessage = { content: string; author?: FakeUser & { bot?: boolean }; at?: number; attachments?: any[] };
 /** A button click or context-menu command as the bot received it, with every response it made. */
@@ -87,8 +88,11 @@ export interface Scenario {
     readonly commandOverwrites: { guildId: string | null; commands: any[] }[];
     /** The commands the bot last registered in this guild, or null when it sent none there. */
     commandsIn(guildId: string): any[] | null;
-    /** The bot joins another guild, as when someone invites it; `setUp: false` leaves it out of the guilds the bot is set up for. */
-    joinGuild(id: string, name?: string, options?: { setUp?: boolean }): Promise<void>;
+    /**
+     * The bot joins another guild, as when someone invites it; `setUp: false` leaves it out of the guilds the bot is set up for.
+     * With `members`, only they (and whoever later posts there) are in it: Discord says "Unknown Member" for anyone else. Without, everyone is.
+     */
+    joinGuild(id: string, name?: string, options?: { setUp?: boolean; members?: FakeUser[] }): Promise<void>;
     /** Discord refuses (or, with false, accepts again) the bot's command overwrites in a guild. */
     refuseCommands(guildId: string, refused?: boolean): void;
     /** A private thread admits only the bot plus `members`. */
@@ -161,15 +165,23 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const fail = (message: string) => { failures.push(message); return new Error(message); };
 
   const BOT_USER = { id: "bot-user", name: "Pachiware", bot: true };
-  const GUILD: any = { id: "guild-1", name: "Acme" };
   const alice = { id: "user-alice", name: "Alice" }, bob = { id: "user-bob", name: "Bob" };
-  // Everyone who has posted, plus the two defaults: what the guild's member search can find.
-  const members = new Map<string, FakeUser>([[alice.id, alice], [bob.id, bob]]);
-  const member = (u: FakeUser) => ({ id: u.id, user: { id: u.id, username: u.username ?? u.name }, guild: GUILD, displayName: u.name, roles: { cache: new Collection() } });
-  GUILD.members = {
-    fetch: async (id: string) => member(members.get(id) ?? { id, name: id }),
-    search: async ({ query, limit = 1 }: { query: string; limit?: number }) => new Collection([...members.values()].filter((u) => [u.name, u.username ?? u.name].some((n) => n.toLowerCase().startsWith(query.toLowerCase()))).slice(0, limit).map((u) => [u.id, member(u)] as [string, any])),
+  // Each guild's known people: its starting members plus everyone who has posted there, what its member search can find.
+  // A guild made without a member list (guild-1 included) treats anyone else as a member too; one with a list does not.
+  const membersOf = new Map<string, Map<string, FakeUser>>();
+  const guilds = new Map<string, any>();
+  const makeGuild = (id: string, name: string, list?: FakeUser[]) => {
+    const guild: any = { id, name }, known = new Map<string, FakeUser>((list ?? [alice, bob]).map((u) => [u.id, u]));
+    const member = (u: FakeUser) => ({ id: u.id, user: { id: u.id, username: u.username ?? u.name }, guild, displayName: u.name, roles: { cache: new Collection() } });
+    guild.members = {
+      fetch: async (userId: string) => { const u = known.get(userId); if (!u && list) throw new Error("Unknown Member"); return member(u ?? { id: userId, name: userId }); },
+      search: async ({ query, limit = 1 }: { query: string; limit?: number }) => new Collection([...known.values()].filter((u) => [u.name, u.username ?? u.name].some((n) => n.toLowerCase().startsWith(query.toLowerCase()))).slice(0, limit).map((u) => [u.id, member(u)] as [string, any])),
+    };
+    membersOf.set(id, known);
+    guilds.set(id, guild);
+    return guild;
   };
+  const GUILD = makeGuild("guild-1", "Acme");
   let nextId = 1000n;
   const snowflake = () => String(nextId++);
   const channels = new Map<string, any>();
@@ -192,8 +204,10 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const deniedIn = (channel: any, userId: string): string[] => [...(denied.get(channel.id)?.get(userId) ?? []), ...(channel.parentId ? deniedIn(channels.get(channel.parentId) ?? { id: channel.parentId }, userId) : [])];
   const makeChannel = (id: string, o: ChannelOptions = {}) => {
     if (channels.has(id)) return channels.get(id);
+    const guild = o.dm ? null : guilds.get(o.guild ?? GUILD.id);
+    if (guild === undefined) throw new Error(`No guild "${o.guild}": joinGuild it first`);
     const channel: any = {
-      id, name: id, guildId: o.dm ? null : GUILD.id, guild: o.dm ? null : GUILD, parentId: o.thread ? o.parentId ?? "channel-1" : null, ownerId: o.ownerId ?? null,
+      id, name: id, guildId: guild?.id ?? null, guild, parentId: o.thread ? o.parentId ?? "channel-1" : null, ownerId: o.ownerId ?? null,
       type: o.dm ? ChannelType.DM : o.thread ? (o.private ? ChannelType.PrivateThread : ChannelType.PublicThread) : ChannelType.GuildText,
       messages: [] as FakeMessage[], fetches: 0,
       permissionsFor: (who: string | { id: string }) => new PermissionsBitField(PermissionsBitField.All).remove("Administrator", ...(deniedIn(channel, typeof who === "string" ? who : who.id) as any[])),
@@ -236,7 +250,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     };
     channel.messages.push(message);
     if (postedBy.has(author.id)) postedBy.get(author.id)!.push(message);
-    else if (channel.guildId && !members.has(author.id)) members.set(author.id, { id: author.id, name: author.name, username: author.username });
+    else if (channel.guildId && !membersOf.get(channel.guildId)!.has(author.id)) membersOf.get(channel.guildId)!.set(author.id, { id: author.id, name: author.name, username: author.username });
     return message;
   };
 
@@ -278,7 +292,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     static running = new Map<string, FakeClient>();
     botUser = BOT_USER;
     user = { id: BOT_USER.id, tag: "Pachiware#0001", username: BOT_USER.name };
-    guilds = { cache: new Collection<string, any>([[GUILD.id, GUILD]]), fetch: async () => GUILD };
+    guilds = { cache: new Collection<string, any>([[GUILD.id, GUILD]]), fetch: async (id?: string) => (id && guilds.get(id)) || GUILD };
     channels = { cache: channels as Map<string, any>, fetch: async (id: string) => as(this.botUser, channels.get(id) ?? null) };
     application = { id: "app-1", commands: {
       fetch: async () => new Collection(globalOf(this.botUser.id).map((c: any) => [c.name, c])),
@@ -424,14 +438,14 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       commandOverwrites: overwrites,
       commandsIn,
       refuseCommands: (guildId, refused = true) => { if (refused) refusedGuilds.add(guildId); else refusedGuilds.delete(guildId); },
-      joinGuild: async (id, name = id, { setUp = true } = {}) => {
+      joinGuild: async (id, name = id, { setUp = true, members } = {}) => {
         if (setUp) {
           // Stands in for the admin adding the guild, without the restart that would resend every guild's commands.
           const runtime = (manager as any).clients.get(bot.id);
           runtime.guildIds = [...runtime.guildIds, id];
           await updateBot(bot.id, { guildIds: runtime.guildIds });
         }
-        const guild = { id, name };
+        const guild = makeGuild(id, name, members);
         client.guilds.cache.set(id, guild);
         client.emit(Events.GuildCreate, guild);
         await settle();

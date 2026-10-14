@@ -135,6 +135,7 @@ const en = {
   reminderLimitTenant: (n: number) => `Reminders here are at their limit of ${n} active. Cancel one before setting another.`,
   reminderLate: (day: number, month: number, time: string) => `-# Posted late: this was due ${day} ${MONTHS_EN[month - 1]}, ${time}.`,
   openTasks: "Open tasks (status | due | assignee | id | title):",
+  personalTasks: "Personal tasks",
   // Digest
   digestDueToday: "**Due today**",
   digestLate: "**Late**",
@@ -247,6 +248,7 @@ const id: typeof en = {
   reminderLimitTenant: (n) => `Pengingat di sini sudah mencapai batas ${n} yang aktif. Batalkan satu dulu sebelum membuat yang baru.`,
   reminderLate: (day, month, time) => `-# Terlambat: seharusnya diposting ${day} ${MONTHS_ID[month - 1]} ${time}.`,
   openTasks: "Tugas terbuka (status | due | assignee | id | title):",
+  personalTasks: "Tugas pribadi",
   digestDueToday: "**Jatuh tempo hari ini**",
   digestLate: "**Terlambat**",
   daysLate: (n) => `terlambat ${n} hari`,

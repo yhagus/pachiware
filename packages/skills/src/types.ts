@@ -83,6 +83,8 @@ export interface DiscordClientAdapter {
    * Searched in every guild the bot serves that `userId` is a member of, each with whether they can view it; threads are never returned.
    */
   findChannels(text: string, userId: string): Promise<FoundChannel[]>;
+  /** The guilds the bot serves that `userId` is a member of. */
+  sharedGuilds(userId: string): Promise<{ id: string; name: string }[]>;
   /** The same adapter bound to another guild of the bot, so member search and lookups happen there. */
   forGuild(guildId: string): DiscordClientAdapter;
   /** Whether the bot may post in a channel and the requester may see it; "unknown" covers a channel outside this guild or a DM. */

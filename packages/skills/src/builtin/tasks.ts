@@ -56,7 +56,7 @@ export const taskManagementSkill: SkillModule = {
           scope: {
             type: "string",
             enum: ["here", "mine", "delegated"],
-            description: "here (default): this channel's tasks. mine: tasks assigned to the asker in every channel of this server they can view. delegated: tasks the asker created that are assigned to someone else, in those same channels",
+            description: "here (default): this channel's tasks. mine: tasks assigned to the asker in every channel of this server they can view (in a DM: of every server they share with the bot), plus their Personal tasks. delegated: tasks the asker created that are assigned to someone else, in those same channels",
           },
           status: {
             type: "string",
@@ -446,12 +446,18 @@ export async function viewableProjects(store: WorkspaceStore, tenantId: string, 
 }
 
 export const PERSONAL_TASKS = "Personal tasks";
-/** The folders a `mine` or `delegated` view of this turn draws from: every project channel of the current guild the asker can view, then the asker's Personal tasks. */
+/**
+ * The folders a `mine` or `delegated` view of this turn draws from, then the asker's Personal tasks: in a guild, every project channel of it the asker can view;
+ * in a DM, those of every guild the bot shares with the asker, each label naming its guild, as "#ops (Beta)".
+ */
 export async function scopeSources(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "userId" | "discord">): Promise<TaskSource[]> {
   const user = safeId(ctx.userId);
   if (!user) return [];
-  const projects = ctx.guildId ? await viewableProjects(store, ctx.tenantId, ctx.discord, ctx.guildId, user) : [];
-  return [...projects, { label: PERSONAL_TASKS, folder: `dms/${user}` }];
+  const personal = { label: PERSONAL_TASKS, folder: `dms/${user}` };
+  if (ctx.guildId) return [...await viewableProjects(store, ctx.tenantId, ctx.discord, ctx.guildId, user), personal];
+  const guilds = (await ctx.discord?.sharedGuilds(user).catch(() => [])) ?? [];
+  const projects = await Promise.all(guilds.map(async (g) => (await viewableProjects(store, ctx.tenantId, ctx.discord, g.id, user)).map((p) => ({ ...p, label: `${p.label} (${g.name})` }))));
+  return [...projects.flat(), personal];
 }
 
 /** Every valid task in the given sources, frontmatter only (`readInFull` the ones printed). */

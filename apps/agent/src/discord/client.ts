@@ -102,6 +102,11 @@ export class DiscordBotManager {
     const runtime = this.clients.get(botId);
     return runtime?.connected ? runtime.client : null;
   }
+  /** A Discord adapter of a running, connected bot, bound to `guildId` and limited to the guilds the bot serves. */
+  adapterOf(botId: string, guildId?: string): DiscordJSAdapter | null {
+    const runtime = this.clients.get(botId);
+    return runtime?.connected ? new DiscordJSAdapter(runtime.client, guildId || runtime.guildIds[0], runtime.guildIds) : null;
+  }
   /** Resolves once no gateway event, burst, or reply is still being handled. */
   async idle() {
     while (this.inflight.size || this.bursts.size || this.operations.size || this.commandTimers.size) await new Promise((r) => setTimeout(r, 5));

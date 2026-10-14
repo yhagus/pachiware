@@ -1,6 +1,6 @@
 import { db, schedules, agentsConfig, eq, and, type Schedule } from "@pachiware/db";
 import { asc, lte } from "drizzle-orm";
-import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, loadTasks, readInFull, workspaceStore, dueMoment, taskLine, isOpen, isAssignee, type Strings } from "@pachiware/skills";
+import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, readInFull, workspaceStore, taskLine, isOpen, scopeSources, tasksIn, inScope, groupTasks, PERSONAL_TASKS, type DiscordClientAdapter, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines } from "./digest.js";
 import type { DiscordBotManager } from "./discord/client.js";
@@ -31,13 +31,13 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
   if (!client) return;
   const late = at - row.nextAt.getTime();
   if (late > LATE_LIMIT_MS) { await moveOn(row, at, null); return; }
-  try { await post(client, row, at, late > LATE_NOTE_MS); }
+  try { await post(client, manager.adapterOf(row.botId, row.guildId ?? undefined), row, at, late > LATE_NOTE_MS); }
   catch (error: any) { await failed(row, error?.message || String(error)); return; }
   await moveOn(row, at, new Date(at));
 }
 
 /** A Reminder is the one message that pings: the owner and the people named when it was made; a late one says when it was due, in the row's zone. A Digest pings nobody and is skipped on a day with nothing to report. */
-async function post(client: any, row: Schedule, at: number, late: boolean) {
+async function post(client: any, discord: DiscordClientAdapter | null, row: Schedule, at: number, late: boolean) {
   const channel: any = await client.channels.fetch(row.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) throw new Error("The channel is gone or cannot be posted in.");
   const [agent] = await db.select({ language: agentsConfig.language }).from(agentsConfig).where(eq(agentsConfig.tenantId, row.tenantId)).limit(1);
@@ -51,20 +51,23 @@ async function post(client: any, row: Schedule, at: number, late: boolean) {
   const users = [...new Set([row.ownerId, ...row.mentions].filter((id): id is string => !!id))];
   let head = [...users.map((id) => `<@${id}>`), strings.reminder(row.text)].join(" ");
   if (late) { const w = wallClock(row.timezone, row.nextAt.getTime()); head += `\n${strings.reminderLate(w.day, w.month, hhmm(w.hour, w.minute))}`; }
-  const lines = row.withTasks ? await ownerTaskLines(row, channel.isThread?.() ? channel.parentId ?? undefined : undefined, strings, at) : [];
+  const lines = row.withTasks ? await ownerTaskLines(row, discord, strings, at) : [];
   await channel.send({ content: withinLimit(head.slice(0, MESSAGE_LIMIT), lines), allowedMentions: { users } });
 }
 
-/** The owner's open tasks (assigned to or created by them, by id or name) in the folders visible from the posting place, soonest due first, as the turn context lists them. Empty without any. */
-async function ownerTaskLines(row: Schedule, parentChannelId: string | undefined, strings: Strings, at: number): Promise<string[]> {
+/**
+ * The owner's open `mine` tasks, as they would list them from where the Reminder posts: assigned to them or kept as their Personal tasks,
+ * in every project channel they can view (from a DM, in every guild the bot shares with them), one heading per channel, soonest due first. Empty without any.
+ */
+async function ownerTaskLines(row: Schedule, discord: DiscordClientAdapter | null, strings: Strings, at: number): Promise<string[]> {
   if (!row.ownerId) return [];
-  const mine = new Set([row.ownerId, row.ownerName].filter((v): v is string => !!v));
-  const where = { tenantId: row.tenantId, guildId: row.guildId ?? undefined, channelId: row.channelId, parentChannelId, userId: row.ownerId };
-  const store = workspaceStore(), found = (await loadTasks(store, where))
-    .filter(({ task: t }) => isOpen(t) && (isAssignee(t.assignedTo, { id: row.ownerId, names: [...mine] }) || [t.createdBy, t.createdByName].some((v) => v && mine.has(v))));
-  const open = (await readInFull(store, row.tenantId, found))
-    .sort((a, b) => (dueMoment(a.dueAt, row.timezone) ?? Infinity) - (dueMoment(b.dueAt, row.timezone) ?? Infinity) || a.createdAt.localeCompare(b.createdAt));
-  return open.length ? [strings.openTasks, ...open.map((t) => taskLine(t, row.timezone, at))] : [];
+  const store = workspaceStore(), owner = { userId: row.ownerId, userName: row.ownerName ?? undefined };
+  const sources = await scopeSources(store, { tenantId: row.tenantId, guildId: row.guildId ?? undefined, userId: row.ownerId, discord: discord ?? undefined });
+  const groups = groupTasks((await tasksIn(store, row.tenantId, sources)).filter((f) => isOpen(f.task) && inScope("mine", owner)(f)), sources, row.timezone);
+  const full = await readInFull(store, row.tenantId, groups.flatMap((g) => g.tasks));
+  let i = 0;
+  const lines = groups.flatMap((g) => [g.source.label === PERSONAL_TASKS ? strings.personalTasks : g.source.label, ...g.tasks.map(() => taskLine(full[i++]!, row.timezone, at))]);
+  return lines.length ? [strings.openTasks, ...lines] : [];
 }
 
 /** Whole lines only: a task list that would cross Discord's limit stops at the last line that fits. */
