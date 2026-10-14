@@ -156,10 +156,7 @@ function allows(levels: LevelRules[], kind: TargetKind, name: string): boolean {
   return optIn < 0 || values.slice(optIn + 1).includes("on");
 }
 
-/**
- * The highest of the tenant, the bot, and this guild that turns each playbook off (a `default: off` the tenant left alone counts as the tenant's);
- * a playbook left out is listed in the guild's command list. An opt_in counts as listed, since a channel below can say on; channel rules and skills are checked at use.
- */
+/** The highest of tenant, bot, and guild that turns each playbook off; opt_in is not off, since a channel below can still say on. */
 export async function playbooksOffAbove(place: { tenantId: string; botId: string; guildId: string }, playbooks: Pick<Playbook, "name" | "defaultOff">[]): Promise<Map<string, AvailabilityLevel>> {
   const levels = withDefaults(await rulesAt(place), playbooks).slice(0, AVAILABILITY_LEVELS.indexOf("channel"));
   return new Map(playbooks.flatMap(({ name }): [string, AvailabilityLevel][] => {

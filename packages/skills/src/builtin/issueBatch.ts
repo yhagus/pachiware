@@ -7,11 +7,7 @@ import { safeId } from "../workspace/paths.js";
 import { parseFrontmatter, renderFrontmatter } from "../playbooks.js";
 import { acct, repoP, CONFIRM, useRepo, str, num, labelsP, labelsOf, clip } from "./gitShared.js";
 
-/**
- * Batch issue tools: one Git write confirmation for up to 25 issues, pressed only by the asker; a thread grant never
- * covers it. Progress is saved per batch in the channel's Workspace folder, so running the same batch again after a
- * failure (or a restart) does only what is missing.
- */
+/** Up to 25 issue changes behind one Confirm only the asker can press; saved progress lets a rerun of the same batch do only what is missing. */
 export const CREATE_ISSUES = "repoCreateIssues", UPDATE_ISSUES = "repoUpdateIssues";
 export const MAX_BATCH = 25;
 
