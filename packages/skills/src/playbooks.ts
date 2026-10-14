@@ -143,6 +143,8 @@ export interface PlaybookBinding {
   channelId: string;
   threadId: string;
   authorId: string;
+  /** The bot that started the thread and alone answers in it; absent on bindings written before it was recorded. */
+  botId?: string;
   sourceMessageId: string;
   startedAt: string;
   [field: string]: unknown;
