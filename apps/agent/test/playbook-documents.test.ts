@@ -1,24 +1,13 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
+import { stubDocsRepo, gitWrites } from "./support/docsRepo";
 
 /** A tenant playbook that writes documents, started by "@bot docs: ...". */
 async function addDocs(s: Scenario) {
   await s.workspace.write("shared/playbooks/docs/PLAYBOOK.md", `---\ndescription: Keeps the glossary and decisions\ntrigger: {"word": "docs"}\nrequires: ["workspace", "git_repositories"]\n---\nWrite the glossary and decision records with writePlaybookDocument.\n`);
 }
 
-/** acme/api on GitHub with default branch "main": branches exist once created, files never exist before. */
-function stubDocsRepo(s: Scenario) {
-  const api = "api.github.com/repos/acme/api", branches = new Set<string>(["main"]);
-  s.http.on(`GET ${api}`, () => ({ full_name: "acme/api", default_branch: "main" }));
-  s.http.on(`GET ${api}/branches/`, (req) => (branches.has(decodeURIComponent(req.url.split("/branches/")[1]!)) ? { name: "x" } : new Response("", { status: 404 })));
-  s.http.on(`GET ${api}/git/ref/heads/main`, () => ({ object: { sha: "c0ffee" } }));
-  s.http.on(`POST ${api}/git/refs`, (req) => { branches.add(req.body.ref.replace("refs/heads/", "")); return {}; });
-  s.http.on(`GET ${api}/contents/`, () => new Response("", { status: 404 }));
-  s.http.on(`PUT ${api}/contents/`, () => ({}));
-  s.http.on(`POST ${api}/pulls`, () => ({ number: 7, html_url: "https://github.com/acme/api/pull/7" }));
-}
-
-const writes = (s: Scenario, from = 0) => s.http.requests.slice(from).filter((r) => r.method !== "GET").map((r) => `${r.method} ${new URL(r.url).pathname}`);
+const writes = gitWrites;
 const confirmation = (s: Scenario) => s.discord.botMessages.findLast((m) => m.components?.length)!;
 const textOf = (m: any) => [m.content, ...(m.embeds ?? []).map((e: any) => e.description)].join("\n");
 

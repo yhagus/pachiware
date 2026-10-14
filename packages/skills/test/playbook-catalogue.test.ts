@@ -27,6 +27,29 @@ describe("built-in playbooks", () => {
     expect(named("grill-me")!.loads).toEqual(["grilling"]);
   });
 
+  test("the repository playbooks are imported off with the git skill; those that act on a repository require one, and grill-with-docs loads grilling and domain-modeling", () => {
+    for (const name of ["grill-with-docs", "domain-modeling", "to-spec", "code-review", "pr"]) {
+      expect([name, named(name)?.defaultOff, named(name)?.start, named(name)?.requires.includes("git_repositories")]).toEqual([name, true, true, true]);
+    }
+    for (const name of ["to-spec", "code-review", "pr"]) expect([name, named(name)!.repository]).toEqual([name, "required"]);
+    // Document playbooks fall back to the channel's Workspace folder where no repository is allowed (ADR 0007).
+    for (const name of ["grill-with-docs", "domain-modeling"]) expect([name, named(name)!.repository]).toEqual([name, undefined]);
+    expect(named("grill-with-docs")!.loads).toEqual(["grilling", "domain-modeling"]);
+    expect(files("domain-modeling")).toEqual(expect.arrayContaining(["GLOSSARY-FORMAT.md", "ADR-FORMAT.md"]));
+    for (const name of ["grill-with-docs", "domain-modeling"]) expect([name, text(name).includes("`writePlaybookDocument`")]).toEqual([name, true]);
+  });
+
+  test("pr also carries HumanLayer's MIT notice for its Summary section", () => {
+    const notice = readFileSync(join(BUILTIN_PLAYBOOKS_DIR, "pr", "LICENSE.md"), "utf8");
+    expect(notice).toContain("Copyright (c) 2026 HumanLayer");
+    expect(notice.split("The above copyright notice and this permission notice shall be included").length).toBe(3);
+  });
+
+  test("ask-matt points at every playbook a person can start", () => {
+    const router = text("ask-matt");
+    for (const p of playbooks.filter((x) => x.start && x.name !== "ask-matt")) expect([p.name, router.includes(`\`/${p.name}\``)]).toEqual([p.name, true]);
+  });
+
   test("every imported playbook is off by default and carries the MIT notice of its upstream", () => {
     expect(imported.length).toBeGreaterThan(0);
     for (const p of imported) {
