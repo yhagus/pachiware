@@ -8,7 +8,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, anyRepositoryAllowed, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, anyRepositoryAllowed, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachments.js";
@@ -31,16 +31,25 @@ const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
 /** Where a message's availability rules come from: a thread follows its parent channel. */
 const placeOf = (tenantId: string, botId: string, m: Message) => availabilityPlace({ tenantId, botId, guildId: m.guildId ?? undefined, channelId: m.channelId, parentChannelId: m.channel.isThread() ? m.channel.parentId ?? undefined : undefined });
-/** Why the playbook cannot start where `at` was posted: it is off there, skills it requires are, or it needs a repository and git scope allows none. Null when it can start. */
+/**
+ * Why the playbook cannot start where `at` was posted: it, a playbook it loads, or a skill its chain requires is off there, or its chain
+ * needs a repository and git scope allows none. Null when it can start.
+ */
 async function playbookRefusal(tenantId: string, botId: string, playbook: Playbook, at: Message, language?: Language) {
-  const cause = (await skillRegistry.availableAt(placeOf(tenantId, botId, at), [playbook])).playbookCause(playbook.name);
+  const playbooks = await listPlaybooks(tenantId);
+  const cause = (await skillRegistry.availableAt(placeOf(tenantId, botId, at), playbooks)).playbookCause(playbook.name);
   const t = textIn(language);
   if (!cause) {
     const parentChannelId = at.channel.isThread() ? at.channel.parentId ?? undefined : undefined;
-    const noRepository = playbook.repository === "required" && !await anyRepositoryAllowed({ tenantId, botId, guildId: at.guildId ?? undefined, channelId: at.channelId, parentChannelId });
+    const noRepository = withLoads(playbook, playbooks).repository === "required" && !await anyRepositoryAllowed({ tenantId, botId, guildId: at.guildId ?? undefined, channelId: at.channelId, parentChannelId });
     return noRepository ? t.repositoryNone(playbook.name) : null;
   }
-  return cause.off === "playbook" ? t.playbookOff(playbook.name) : t.skillsOff(playbook.name, cause.skills.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id));
+  switch (cause.off) {
+    case "playbook": return t.playbookOff(playbook.name);
+    case "loads": return t.loadsOff(playbook.name, cause.playbook);
+    case "chain": return t.chainBroken(playbook.name, cause.problem);
+    case "skills": return t.skillsOff(playbook.name, cause.skills.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id));
+  }
 }
 export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
@@ -178,8 +187,8 @@ export class DiscordBotManager {
     const bound = msg.guildId && parentId ? await boundPlaybook(runtime.tenantId, { guildId: msg.guildId, channelId: parentId, threadId: channelId0 }) : null;
     // A playbook thread is its starting bot's alone; a binding from before bots were recorded is open to any.
     if (bound?.binding.botId && bound.binding.botId !== botId) return;
-    // A playbook no longer available here ends its thread's binding; the message that finds out gets the one note instead of an answer.
-    if (bound && (await skillRegistry.availableAt(placeOf(runtime.tenantId, botId, msg), [bound.playbook])).playbookCause(bound.playbook.name)) {
+    // A playbook no longer available here, or one its chain loads, ends its thread's binding; the message that finds out gets the one note instead of an answer.
+    if (bound && (await skillRegistry.availableAt(placeOf(runtime.tenantId, botId, msg))).playbookCause(bound.playbook.name)) {
       const ended = await rewriteBinding(runtime.tenantId, bindingPlace(bound.binding), ({ binding }) => binding.status === "active" ? { binding: { ...binding, status: "cancelled" as const }, value: true } : null).catch(() => null);
       if (ended) await replyQuietly(msg)(textIn(replyLanguage(msg.content)).playbookEnded(bound.playbook.name));
       return;
@@ -357,7 +366,8 @@ export class DiscordBotManager {
       const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const repository = opts.binding && threadRepositoryOf(opts.binding);
-      const playbook = opts.playbook && { name: opts.playbook.name, body: opts.playbook.body, closes: opts.playbook.closes, ...(repository ? { repository } : {}) };
+      const chained = opts.playbook && withLoads(opts.playbook, await listPlaybooks(runtime.tenantId));
+      const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes, ...(repository ? { repository } : {}) };
       const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId), language);
       // The brief's author still gets a round: it asks them to describe the screenshot.
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);

@@ -2,7 +2,7 @@ import { db, availabilityRules } from "@pachiware/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { EFFECT_MEANING, type Effect, type SkillModule, type ToolDefinition } from "./types.js";
 import { policyOf } from "./guardrails.js";
-import { listPlaybooks, type Playbook } from "./playbooks.js";
+import { listPlaybooks, playbookChain, chainProblemText, type Playbook } from "./playbooks.js";
 
 export const EFFECTS = Object.keys(EFFECT_MEANING) as Effect[];
 
@@ -26,8 +26,11 @@ export interface LevelKey { tenantId: string; level: AvailabilityLevel; botId?: 
 /** Where a message came from; a thread passes its parent channel. */
 export interface Place { tenantId: string; botId?: string; guildId?: string; channelId?: string }
 
-/** Why a playbook cannot start: the playbook itself is off, or skills it requires are off (their ids). */
-export type PlaybookCause = { off: "playbook" } | { off: "skills"; skills: string[] };
+/**
+ * Why a playbook cannot start: the playbook itself is off, a playbook its chain loads is off (or gone), its chain is broken
+ * (a cycle or too deep), or skills some playbook of its chain requires are off (their ids).
+ */
+export type PlaybookCause = { off: "playbook" } | { off: "loads"; playbook: string } | { off: "chain"; problem: string } | { off: "skills"; skills: string[] };
 
 export interface Availability {
   /** Tools of the tenant's enabled skills that are available here, sorted by name. A playbook's tools follow their playbook. */
@@ -170,12 +173,18 @@ function withDefaults(levels: LevelRules[], playbooks: Pick<Playbook, "name" | "
 }
 
 /** What is available at a place. `skills` are the skills the tenant has switched on, `playbooks` the tenant's playbooks. */
-export async function resolveAvailability(place: Place, skills: SkillModule[], playbooks: Pick<Playbook, "name" | "requires" | "defaultOff">[]): Promise<Availability> {
+export async function resolveAvailability(place: Place, skills: SkillModule[], playbooks: Pick<Playbook, "name" | "requires" | "loads" | "defaultOff">[]): Promise<Availability> {
   const ruled = await rulesAt(place), levels = withDefaults(ruled, playbooks);
   const skillOn = (id: string) => skills.some((s) => s.id === id) && allows(levels, "skill", id);
+  // A chain runs whole or not at all: every playbook it loads must be on, and every skill any of them requires.
   const causes = new Map(playbooks.map((p): [string, PlaybookCause | null] => {
     if (!allows(levels, "playbook", p.name)) return [p.name, { off: "playbook" }];
-    const off = p.requires.filter((id) => !skillOn(id));
+    const found = playbookChain(p, playbooks);
+    if ("problem" in found) return [p.name, "missing" in found.problem ? { off: "loads", playbook: found.problem.missing } : { off: "chain", problem: chainProblemText(found.problem) }];
+    const chain = found.chain.map((name) => playbooks.find((x) => x.name === name)!);
+    const loadedOff = chain.slice(1).find((x) => !allows(levels, "playbook", x.name));
+    if (loadedOff) return [p.name, { off: "loads", playbook: loadedOff.name }];
+    const off = [...new Set(chain.flatMap((x) => x.requires))].filter((id) => !skillOn(id));
     return [p.name, off.length ? { off: "skills", skills: off } : null];
   }));
   // A playbook tool follows its playbook instead of its own rule; every tool still obeys its effect.
