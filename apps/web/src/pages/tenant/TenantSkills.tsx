@@ -35,26 +35,45 @@ function Effects({ off, onChange }: { off: Off | null; onChange: (effect: ToolEf
   );
 }
 
+/**
+ * Why a playbook's chain keeps it from starting. A loaded playbook switched off is read from the live switches, so the line follows a
+ * toggle on this page; a missing playbook or a broken chain comes from the agent. Its own switch already shows when it is off itself.
+ */
+function cannotStart(p: PlaybookSummary, off: Off | null, names: Set<string>): string | null {
+  const offLoad = p.chain.find((name: string) => off?.has(targetKey("playbook", name)));
+  if (offLoad) return `loads ${offLoad} (off)`;
+  if (p.cause?.off === "loads" && !names.has(p.cause.playbook)) return `loads ${p.cause.playbook}, which does not exist`;
+  if (p.cause?.off === "chain") return p.cause.problem;
+  return null;
+}
+
 /** A playbook switched off cannot start for any bot of this tenant; its tools go with it. `skillName` names the skills it needs. */
 function Playbooks({ playbooks, off, skillName, onChange }: { playbooks: PlaybookSummary[]; off: Off | null; skillName: (id: string) => string; onChange: (playbook: string, on: boolean) => void }) {
+  const names = new Set(playbooks.map((p) => p.name));
   return (
     <Card className="py-0">
       <CardContent className="px-0">
         <div className="p-4 pb-3">
           <div className="font-medium">Playbooks</div>
-          <div className="text-xs text-muted-foreground">Switching a playbook off stops it from starting for every bot of this tenant, and hides the tools that serve it.</div>
+          <div className="text-xs text-muted-foreground">Switching a playbook off stops it, and every playbook that loads it, from starting for every bot of this tenant, and hides the tools that serve it.</div>
         </div>
         <ul className="divide-y border-t">
-          {playbooks.map((p) => (
-            <li key={p.name} className="flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <div className="break-all font-mono text-sm">{p.name}</div>
-                <div className="text-xs text-muted-foreground">{p.description}</div>
-                {p.requires.length > 0 && <div className="text-xs text-muted-foreground">Needs {p.requires.map(skillName).join(", ")}.</div>}
-              </div>
-              <Switch checked={!off?.has(targetKey("playbook", p.name))} disabled={!off} onCheckedChange={(v: boolean) => onChange(p.name, v)} aria-label={`${p.name} playbook available`} />
-            </li>
-          ))}
+          {playbooks.map((p) => {
+            const blocked = cannotStart(p, off, names);
+            return (
+              <li key={p.name} className="flex items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="break-all font-mono text-sm">{p.name}</div>
+                  <div className="text-xs text-muted-foreground">{p.description}</div>
+                  {!p.start && <div className="text-xs text-muted-foreground">Reference: other playbooks load it; nobody starts it directly.</div>}
+                  {p.requires.length > 0 && <div className="text-xs text-muted-foreground">Needs {p.requires.map(skillName).join(", ")}.</div>}
+                  {p.loads.length > 0 && <div className="break-words text-xs text-muted-foreground">Loads {(p.chain.length ? p.chain : p.loads).join(", ")}.</div>}
+                  {blocked && <div className="break-words text-xs font-medium">Cannot start: {blocked}.</div>}
+                </div>
+                <Switch checked={!off?.has(targetKey("playbook", p.name))} disabled={!off} onCheckedChange={(v: boolean) => onChange(p.name, v)} aria-label={`${p.name} playbook available`} />
+              </li>
+            );
+          })}
         </ul>
       </CardContent>
     </Card>

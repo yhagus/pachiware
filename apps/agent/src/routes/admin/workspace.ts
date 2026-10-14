@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { getTenantById } from "@pachiware/db";
-import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, TENANT_PLAYBOOKS_DIR } from "@pachiware/skills";
+import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, TENANT_PLAYBOOKS_DIR } from "@pachiware/skills";
 import { object, string } from "../validation.js";
 
 export const workspaceAdminRoutes = new Hono();
@@ -64,7 +64,9 @@ workspaceAdminRoutes.put("/tenants/:id/workspace/file", route(async (c, t) => {
   const body = object(await c.req.json(), "body");
   if (typeof body.content !== "string") throw new RangeError("content is required");
   const version = body.version === undefined ? undefined : string(body.version, "version")!;
-  const path = writable(body.path), saved = await workspaceStore().write(t, path, body.content, version);
+  const path = writable(body.path), problem = await playbookSaveProblem(t, path, body.content);
+  if (problem) return c.json({ error: `Not saved: ${problem}.` }, 400);
+  const saved = await workspaceStore().write(t, path, body.content, version);
   changed(t, path);
   return c.json({ success: true, ...saved });
 }));
