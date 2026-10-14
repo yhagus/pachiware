@@ -100,3 +100,33 @@ discordScenario("a brief already inside a thread is followed in that thread", as
   expect(s.discord.botMessages.at(-1)).toMatchObject({ channelId: "thread-9", content: "Got it." });
   expect(s.model.calls[1]![0]!.content).toContain("### Playbook: issue-draft");
 });
+
+discordScenario("an issue-draft thread withholds the plain repository reads and issue writes that a plain conversation offers", async (s) => {
+  await s.git({ repos: ["acme/api"] });
+  s.model.script("Plain answer.", "Drafting.");
+  await s.discord.send(`${s.discord.mention} what is our deploy day?`);
+  await s.discord.send(`${s.discord.mention} issue: login loops on Safari`);
+  const [plain, brief] = s.model.tools as [string[], string[]];
+  expect(plain.filter((t) => !brief.includes(t)).sort()).toEqual(["repoComments", "repoCommit", "repoCommits", "repoCompare", "repoCreateIssue", "repoIssue", "repoIssues", "repoLabels", "repoMergeRequest", "repoMergeRequestDiff", "repoMergeRequests", "repoReadFile", "repoSearchCode", "repoSetLabels"]);
+  expect(brief).toEqual(expect.arrayContaining(["briefRead", "createBriefIssues", "repoUpdateIssue"]));
+});
+
+discordScenario("a tenant playbook's closed tools are withheld in its thread and refused when called anyway; an unknown name is ignored", async (s) => {
+  await s.workspace.write("shared/playbooks/retro/PLAYBOOK.md", `---\nname: retro\ndescription: Collects a retrospective\ntrigger: {"word": "retro"}\ncloses: ["createTask", "noSuchTool"]\n---\nGroup the points into went well, went badly, and try next.\n`);
+  s.model.script(
+    { tool: "createTask", args: { title: "Shorter standups" } },
+    (turn) => {
+      expect(turn.toolResults[0]!.error).toContain("retro playbook");
+      return "Grouped.";
+    },
+    "Plain answer.",
+  );
+  const retro = await s.discord.send(`${s.discord.mention} retro: standups ran long`);
+  expect(retro.thread).toBeDefined();
+  expect(s.discord.botMessages.map((m) => [m.channelId, m.content])).toEqual([[retro.thread!.id, "Grouped."]]);
+  expect(s.model.tools[0]).not.toContain("createTask");
+  expect(s.model.tools[0]).toContain("listTasks");
+
+  await s.discord.send(`${s.discord.mention} add a task`, { channel: "channel-2" });
+  expect(s.model.tools[2]).toContain("createTask");
+});
