@@ -16,7 +16,7 @@ const declared: Record<string, [Effect, string]> = {
   repoOpenPullRequest: [W, "Issues & PRs"], repoUpdateMergeRequest: [W, "Issues & PRs"], repoReviewMergeRequest: [W, "Issues & PRs"], repoRequestReviewers: [W, "Issues & PRs"],
   repoRebaseMergeRequest: [W, "Issues & PRs"], repoMergeMergeRequest: [W, "Issues & PRs"], repoDeleteComment: [D, "Issues & PRs"],
 
-  repoWriteFile: [W, "Code"], repoCommitFiles: [W, "Code"], repoMoveFile: [W, "Code"], repoDeleteFile: [W, "Code"], repoCreateBranch: [W, "Code"], repoCreateTag: [W, "Code"],
+  repoWriteFile: [W, "Code"], writePlaybookDocument: [W, "Code"], repoCommitFiles: [W, "Code"], repoMoveFile: [W, "Code"], repoDeleteFile: [W, "Code"], repoCreateBranch: [W, "Code"], repoCreateTag: [W, "Code"],
   repoCreateRelease: [W, "Code"], repoWiki: [W, "Code"], repoWriteDefaultBranch: [D, "Code"], repoDeleteBranch: [D, "Code"], repoDeleteTag: [D, "Code"],
   repoDeleteRelease: [D, "Code"], repoSnippets: [D, "Code"],
 
