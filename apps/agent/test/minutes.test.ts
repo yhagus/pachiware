@@ -230,3 +230,66 @@ discordScenario("minutes are refused in DMs", async (s) => {
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([expect.stringContaining("not in DMs")]);
   expect(s.model.calls).toEqual([]);
 });
+
+discordScenario("/minutes in a channel posts minutes of its recent history there, with no thread or binding", async (s) => {
+  const { alice, bob } = s.discord;
+  const now = Date.now(), hour = 3600_000;
+  s.discord.history([
+    { content: "yesterday's topic", author: bob, at: now - 4 * hour },
+    { content: "We keep Postgres, agreed", author: alice, at: now - 2 * hour },
+    { content: "Agreed", author: bob, at: now - hour },
+  ]);
+  s.model.script(JSON.stringify({ title: "Database", decided: [{ text: "Keep Postgres", ref: 2 }], open: [], actions: [] }));
+  const run = await s.discord.slash("minutes");
+
+  const sent = s.model.calls[0]!.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+  expect(sent).toContain("We keep Postgres, agreed");
+  expect(sent).not.toContain("yesterday's topic");
+  expect(s.discord.botMessages).toHaveLength(1);
+  expect(s.discord.botMessages[0]).toMatchObject({ channelId: "channel-1" });
+  expect(s.discord.botMessages[0]!.thread).toBeUndefined();
+  expect(s.discord.botMessages[0]!.embeds[0].title).toBe("Database");
+  expect(run.responses).toEqual([
+    { kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) },
+    { kind: "editReply", payload: expect.objectContaining({ content: "Writing minutes of the last 3 hours here." }) },
+  ]);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toHaveLength(1);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/threads").catch(() => [])).toEqual([]);
+});
+
+discordScenario("/minutes inside a thread covers the whole thread and posts there", async (s) => {
+  const { alice, bob } = s.discord;
+  const now = Date.now(), hour = 3600_000;
+  s.discord.history([{ content: "channel chatter outside the thread", author: bob, at: now - hour }]);
+  const [starter] = s.discord.history([{ content: "Should we move the standup to 10?", author: alice, at: now - 5 * hour }]);
+  const thread = s.discord.channel(starter!.id, { thread: true, parentId: "channel-1", ownerId: alice.id });
+  starter!.thread = thread;
+  s.discord.history([{ content: "10 is fine by me", author: bob, at: now - 4 * hour }], { channel: thread });
+  s.model.script(JSON.stringify({ title: "Standup time", decided: [{ text: "Standup moves to 10", ref: 2 }], open: [], actions: [] }));
+  const run = await s.discord.slash("minutes", { channel: thread });
+
+  const sent = s.model.calls[0]!.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+  expect(sent).toContain("Should we move the standup to 10?");
+  expect(sent).toContain("10 is fine by me");
+  expect(sent).not.toContain("channel chatter outside the thread");
+  expect(s.discord.botMessages.map((m) => m.channelId)).toEqual([thread.id]);
+  expect(run.responses.at(-1)).toEqual({ kind: "editReply", payload: expect.objectContaining({ content: "Writing minutes of this whole thread." }) });
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toHaveLength(1);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/threads").catch(() => [])).toEqual([]);
+});
+
+discordScenario("/minutes refusals stay private: history the person cannot read, or minutes off here", async (s) => {
+  const { alice, bob } = s.discord;
+  s.discord.history([{ content: "We ship Friday, agreed", author: alice, at: Date.now() - 60_000 }]);
+  s.discord.deny("channel-1", bob.id, ["ReadMessageHistory"]);
+  await s.availability({ level: "channel", channelId: "channel-2" }, { kind: "playbook", name: "minutes", value: "off" });
+  s.discord.history([{ content: "We ship Monday, agreed", author: alice, at: Date.now() - 60_000 }], { channel: "channel-2" });
+
+  const unreadable = await s.discord.slash("minutes", { user: bob });
+  const off = await s.discord.slash("minutes", { channel: "channel-2" });
+
+  expect(unreadable.responses).toEqual([{ kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) }, { kind: "editReply", payload: expect.objectContaining({ content: expect.stringContaining("Read Message History") }) }]);
+  expect(off.responses).toEqual([{ kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) }, { kind: "editReply", payload: expect.objectContaining({ content: "The minutes playbook is off here. An admin can turn it on in the console." }) }]);
+  expect(s.discord.botMessages).toEqual([]);
+  expect(s.model.calls).toEqual([]);
+});

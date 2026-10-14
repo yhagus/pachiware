@@ -3,6 +3,7 @@ name: minutes
 description: Writes minutes of a thread or a stretch of a channel: what was decided, what is still open, and who does what next.
 trigger: {"menu": "Write minutes", "word": "minutes"}
 requires: ["workspace"]
+run: in-place
 ---
 You write the minutes of a Discord discussion. The messages are numbered, and every item you write points to the number of the message it comes from.
 

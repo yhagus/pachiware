@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
+import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type SendableChannels, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
 import { db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, getTenantById, updateBot, eq } from "@pachiware/db";
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
@@ -14,7 +14,7 @@ import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replySt
 import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachments.js";
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
 import { llmRouter } from "../llm/router.js";
-import { MINUTES_PLAYBOOK, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
+import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
 
 const BURST_MS = 2500;
 // Admin edits often come in a run (several rules saved one after another); one registration covers them.
@@ -33,12 +33,28 @@ const slashTurn = (line: Message, i: ChatInputCommandInteraction, file: Attachme
   author: { value: i.user }, member: { value: i.member },
   attachments: { value: new Map(file ? [[file.id, file]] : []) },
 });
+/**
+ * A slash command run in place has no message to answer, so its turn stands in for one from the person in that channel: their file as
+ * its attachment, and a reply to it posted to the channel.
+ */
+const commandTurn = (i: ChatInputCommandInteraction, channel: SendableChannels, file: Attachment | null): Message => ({
+  id: i.id, guildId: i.guildId, guild: i.guild, channelId: i.channelId, channel, author: i.user, member: i.member, content: "",
+  attachments: new Map(file ? [[file.id, file]] : []), reply: (payload: any) => channel.send(payload), react: async () => {},
+}) as unknown as Message;
 // A guild member from the cache has a roles collection; one sent raw with an interaction has an id array.
 const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
 const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
 /** Where something was asked: a message, or the channel a command was run in. */
 type Where = Pick<Message, "guildId" | "channelId" | "channel">;
+/**
+ * How an in-place playbook was started. `message` is what it answers: a menu command's target, the mention itself, or for a slash command
+ * (which works on the channel or thread it was run in) a stand-in from the person; `text` is the target's content, the mention's text, or the command's option.
+ */
+type InPlaceStart = {
+  from: "menu" | "mention" | "slash"; message: Message; actor: Actor; text: string; language?: Language;
+  refuse(text: string): Promise<unknown>; ack?(text: string): Promise<unknown>; fail(text: string): Promise<unknown>;
+};
 /** Where a message's availability rules come from: a thread follows its parent channel. */
 const placeOf = (tenantId: string, botId: string, m: Where) => availabilityPlace({ tenantId, botId, guildId: m.guildId ?? undefined, channelId: m.channelId, parentChannelId: m.channel.isThread() ? m.channel.parentId ?? undefined : undefined });
 /**
@@ -280,7 +296,7 @@ export class DiscordBotManager {
     }, this.burstMs);
     this.bursts.set(key, burst);
   }
-  /** "@bot issue: points" starts the playbook whose trigger word leads the message; "@bot minutes" needs no points. */
+  /** "@bot issue: points" starts the playbook whose trigger word leads the message; an in-place one such as "@bot minutes" needs no points. */
   private async triggerPlaybook(runtime: BotRuntime, botId: string, msg: Message, text: string, bound: boolean) {
     const m = TRIGGER.exec(text) ?? WORD_ONLY.exec(text);
     if (!m) return false;
@@ -288,8 +304,8 @@ export class DiscordBotManager {
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.words.includes(word) || (p.name === word && p.start));
     if (!playbook) return false;
     const say = replyQuietly(msg);
-    if (playbook.name === MINUTES_PLAYBOOK) {
-      await this.runMinutes(runtime, botId, playbook, msg, msg.author.id, { skipIds: [msg.id], refuse: say, fail: say }, replyLanguage(text));
+    if (playbook.run === "in-place") {
+      await this.runInPlace(runtime, botId, playbook, { from: "mention", message: msg, actor: actorOf(msg), text: m[2]?.trim() ?? "", language: replyLanguage(text), refuse: say, fail: say });
       return true;
     }
     if (bound || !msg.guildId || !m[2]?.trim()) return false;
@@ -302,7 +318,7 @@ export class DiscordBotManager {
   private async briefFromMinutes(runtime: BotRuntime, botId: string, msg: Message, minutes: Message, text: string) {
     if (!new RegExp(`<@!?${runtime.client.user?.id}>`).test(msg.content)) return false;
     const said = text.toLowerCase();
-    const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.name !== MINUTES_PLAYBOOK && p.words.some((w) => new RegExp(`(?<![\\p{L}\\p{N}_])${w}s?(?![\\p{L}\\p{N}_])`, "u").test(said)));
+    const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.run === "thread" && p.words.some((w) => new RegExp(`(?<![\\p{L}\\p{N}_])${w}s?(?![\\p{L}\\p{N}_])`, "u").test(said)));
     if (!playbook) return false;
     const say = replyQuietly(msg);
     const brief = await minutesBrief(runtime.tenantId, minutes, namedNumbers(text), replyLanguage(text));
@@ -323,17 +339,17 @@ export class DiscordBotManager {
     if (!i.guildId || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say(t.wrongServer);
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.menu === i.commandName);
     if (!playbook) return say(t.commandGone);
-    if (playbook.name === MINUTES_PLAYBOOK) {
-      return this.runMinutes(runtime, botId, playbook, target, i.user.id, {
-        startId: target.id, refuse: say,
-        ack: () => say(target.channel.isThread() ? t.minutesOfThread : t.minutesFromHere),
+    const actor = { id: i.user.id, name: speakerName({ member: i.member as any, author: i.user }), member: i.member };
+    if (playbook.run === "in-place") {
+      return this.runInPlace(runtime, botId, playbook, {
+        from: "menu", message: target, actor, text: target.content.trim(), language, refuse: say, ack: say,
         fail: (content) => i.followUp({ content, ephemeral: true }).catch(() => {}),
-      }, language);
+      });
     }
     // Run on posted minutes, the brief is their action items rather than the embed's text.
     const minutes = target.author.id === runtime.client.user?.id && minutesFileOf(target) ? await minutesBrief(runtime.tenantId, target, [], language) : null;
     if (minutes && "error" in minutes) return say(minutes.error);
-    const opened = await this.openPlaybook(runtime, botId, playbook, target, minutes?.text ?? target.content.trim(), { id: i.user.id, name: speakerName({ member: i.member as any, author: i.user }), member: i.member }, { fromMinutes: minutes ?? undefined });
+    const opened = await this.openPlaybook(runtime, botId, playbook, target, minutes?.text ?? target.content.trim(), actor, { fromMinutes: minutes ?? undefined });
     if ("error" in opened) return say(opened.error);
     await say(t.following(playbook.name, opened.thread.id));
     await opened.start();
@@ -345,15 +361,20 @@ export class DiscordBotManager {
     // Discord drops an interaction left unanswered for 3 seconds, so defer before the tenant and Workspace lookups.
     if (!await i.deferReply({ ephemeral: true }).then(() => true, () => false)) return;
     const text = i.options.getString("text")?.trim() ?? "", file = i.options.getAttachment("file");
-    const t = textIn(replyLanguage(text));
+    const language = replyLanguage(text), t = textIn(language);
     const say = (content: string) => i.editReply({ content }).catch(() => {});
     if ((await getTenantById(runtime.tenantId))?.status !== "active") return say(t.botOff);
     if (!i.guildId || !i.channel?.isSendable() || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say(t.wrongServer);
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.name === i.commandName && p.start);
-    // Minutes answer in place, and from a slash command there is no message to answer; #106 gives /minutes the channel's recent history.
-    if (!playbook || playbook.name === MINUTES_PLAYBOOK) return say(t.commandGone);
+    if (!playbook) return say(t.commandGone);
     const channel = i.channel;
     const actor = { id: i.user.id, name: speakerName({ member: i.member as any, author: i.user }), member: i.member };
+    if (playbook.run === "in-place") {
+      return this.runInPlace(runtime, botId, playbook, {
+        from: "slash", message: commandTurn(i, channel, file), actor, text, language, refuse: say, ack: say,
+        fail: (content) => i.followUp({ content, ephemeral: true }).catch(() => {}),
+      });
+    }
     const opened = await this.openPlaybook(runtime, botId, playbook, { guildId: i.guildId, channelId: i.channelId, channel }, text, actor, {
       announce: () => channel.send({ content: t.started(i.user.id, playbook.name), allowedMentions: { parse: [] } }).catch(() => null),
       turnOf: (line) => slashTurn(line, i, file),
@@ -392,17 +413,30 @@ export class DiscordBotManager {
     const turn = o.turnOf?.(source) ?? source;
     return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, turn, [{ msg: turn, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
   }
-  /** Minutes post in place, replying to `at`: no thread is opened or bound. */
-  private async runMinutes(runtime: BotRuntime, botId: string, playbook: Playbook, at: Message, requesterId: string, o: { startId?: string; skipIds?: string[]; refuse(text: string): Promise<unknown>; ack?(): Promise<unknown>; fail(text: string): Promise<unknown> }, language?: Language) {
-    const adapter = new DiscordJSAdapter(runtime.client, at.guildId || runtime.guildIds[0]);
-    const refusal = (at.guildId && await playbookRefusal(runtime.tenantId, botId, playbook, at, language)) || await minutesRefusal(adapter, at.channelId, requesterId, language);
+  /**
+   * A `run: in-place` playbook answers where it was started: no thread is opened or bound. Minutes have their own writer; any other
+   * in-place playbook gets one agent turn there. `refuse` and `ack` speak to the person (privately for a command), `fail` after the ack.
+   */
+  private async runInPlace(runtime: BotRuntime, botId: string, playbook: Playbook, o: InPlaceStart) {
+    const { message: at, language } = o, t = textIn(language);
+    const thread = at.channel.isThread();
+    if (playbook.name === MINUTES_PLAYBOOK) {
+      const adapter = new DiscordJSAdapter(runtime.client, at.guildId || runtime.guildIds[0]);
+      const refusal = (at.guildId && await playbookRefusal(runtime.tenantId, botId, playbook, at, language)) || await minutesRefusal(adapter, at.channelId, o.actor.id, language);
+      if (refusal) { await o.refuse(refusal); return; }
+      await o.ack?.(thread ? t.minutesOfThread : o.from === "menu" ? t.minutesFromHere : t.minutesRecent(RECENT_MS / 3600_000));
+      if ("sendTyping" in at.channel) await at.channel.sendTyping().catch(() => {});
+      const error = await writeMinutes({
+        tenantId: runtime.tenantId, botId, adapter, playbook, guildId: at.guildId!, channelId: at.channelId, parentId: thread ? at.channel.parentId : null, requesterId: o.actor.id,
+        startId: o.from === "menu" ? at.id : undefined, skipIds: o.from === "mention" ? [at.id] : undefined, post: (payload) => at.reply(payload),
+      }).catch(() => t.minutesFailed);
+      if (error) await o.fail(error);
+      return;
+    }
+    const refusal = at.guildId && await playbookRefusal(runtime.tenantId, botId, playbook, at, language);
     if (refusal) { await o.refuse(refusal); return; }
-    await o.ack?.();
-    if ("sendTyping" in at.channel) await at.channel.sendTyping().catch(() => {});
-    const parentId = at.channel.isThread() ? at.channel.parentId : null;
-    const error = await writeMinutes({ tenantId: runtime.tenantId, botId, adapter, playbook, guildId: at.guildId!, channelId: at.channelId, parentId, requesterId, startId: o.startId, skipIds: o.skipIds, post: (payload) => at.reply(payload) })
-      .catch(() => textIn(language).minutesFailed);
-    if (error) await o.fail(error);
+    await o.ack?.(t.answeringHere(playbook.name));
+    await this.serialize(`conv:${botId}:${at.channelId}`, () => this.reply(runtime, botId, at, [{ msg: at, text: o.text }], at.channelId, null, { actor: o.actor, playbook }));
   }
   private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean } = {}) {
     const target = thread ?? msg.channel;

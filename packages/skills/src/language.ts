@@ -97,6 +97,7 @@ const en = {
   commandGone: "This command is no longer available.",
   following: (playbook: string, thread: string) => `Following the ${playbook} playbook in <#${thread}>.`,
   started: (userId: string, playbook: string) => `<@${userId}> started the ${playbook} playbook.`,
+  answeringHere: (playbook: string) => `Answering here with the ${playbook} playbook.`,
   // Confirmations
   toolOffSinceAsked: "This tool was turned off here after you asked, so I won't run it. An admin can turn it back on in the console.",
   // Posting in another channel
@@ -106,6 +107,7 @@ const en = {
   // Minutes
   minutesOfThread: "Writing minutes of this whole thread.",
   minutesFromHere: "Writing minutes from this message to now.",
+  minutesRecent: (hours: number) => `Writing minutes of the last ${hours} hours here.`,
   minutesDm: "I write minutes only in server channels and threads, not in DMs.",
   minutesNeedPermission: (names: string) => `You need ${names} here to get minutes of it, so I won't write them.`,
   minutesNotMember: "This is a private thread you are not a member of, so I won't write minutes of it.",
@@ -211,12 +213,14 @@ const id: typeof en = {
   commandGone: "Perintah ini sudah tidak tersedia.",
   following: (playbook, thread) => `Mengikuti playbook ${playbook} di <#${thread}>.`,
   started: (userId, playbook) => `<@${userId}> memulai playbook ${playbook}.`,
+  answeringHere: (playbook) => `Menjawab di sini dengan playbook ${playbook}.`,
   toolOffSinceAsked: "Tool ini dimatikan di sini setelah kamu memintanya, jadi tidak saya jalankan. Admin bisa menyalakannya lagi di konsol.",
   postNoChannel: "Channel itu tidak saya temukan di server ini.",
   postNeedView: "Kamu tidak bisa melihat channel itu, jadi tidak saya kirim ke sana.",
   postBotMissing: (names) => `Saya tidak bisa mengirim ke sana karena tidak punya izin ${names} di channel itu. Admin server bisa memberikannya.`,
   minutesOfThread: "Menulis notula seluruh thread ini.",
   minutesFromHere: "Menulis notula dari pesan ini sampai sekarang.",
+  minutesRecent: (hours) => `Menulis notula ${hours} jam terakhir di sini.`,
   minutesDm: "Saya hanya menulis notula di channel dan thread server, bukan di DM.",
   minutesNeedPermission: (names) => `Kamu perlu ${names} di sini untuk mendapat notulanya, jadi tidak saya tulis.`,
   minutesNotMember: "Ini thread privat dan kamu bukan anggotanya, jadi notulanya tidak saya tulis.",
