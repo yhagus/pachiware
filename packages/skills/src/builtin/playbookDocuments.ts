@@ -73,7 +73,7 @@ export const playbookDocumentTools: ToolDefinition[] = [
   { name: "writePlaybookDocument", description: "In a playbook thread: writes the glossary or one decision record, replacing the whole file. With a thread repository it commits to the thread's own branch (never the default branch) after the person presses Confirm; the first write opens the thread's one pull request, later writes add commits to it. Read the current file from that branch with repoReadFile first. Without a repository allowed here, the glossary is kept in the channel's Workspace folder and a decision becomes a Decision there.",
     parameters: { type: "object", properties: {
       kind: { type: "string", enum: [...KINDS] },
-      path: { type: "string", description: "Path in the repository, e.g. CONTEXT.md or docs/adr/0003-use-postgres.md; ignored without a repository" },
+      path: { type: "string", description: "Path in the repository, e.g. GLOSSARY.md or docs/adr/0003-use-postgres.md; ignored without a repository" },
       title: { type: "string", description: "Commit message; for a decision without a repository, also its file name" },
       content: { type: "string", description: "Full new file content (markdown)" },
     }, required: ["kind", "title", "content"] } },
