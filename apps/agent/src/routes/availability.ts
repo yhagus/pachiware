@@ -1,5 +1,6 @@
 import type { Context, Hono } from "hono";
-import { skillRegistry, listAvailabilityRules, inheritedAvailability, setAvailabilityRule, clearAvailabilityRule, AvailabilityError, type LevelKey } from "@pachiware/skills";
+import { skillRegistry, listAvailabilityRules, inheritedAvailability, setAvailabilityRule, clearAvailabilityRule, listPlaybooks, AvailabilityError, type LevelKey } from "@pachiware/skills";
+import { guildSlashStatus } from "../discord/commands.js";
 import { db, bots } from "@pachiware/db";
 import { and, eq, ne } from "drizzle-orm";
 import { object } from "./validation.js";
@@ -14,7 +15,9 @@ export function availabilityRoutes(app: Hono<any>, path: string, level: (c: Cont
     const key = await level(c);
     return key ? handle(c, key) : c.json({ error: "Not found" }, 404);
   };
-  const out = async (c: Context<any>, key: LevelKey) => c.json({ success: true, rules: await listAvailabilityRules(key), inherited: await inheritedAvailability(key, skillRegistry.getAllSkills(), await skillRegistry.getActiveSkills(key.tenantId)) });
+  // Commands are registered per guild, so only a guild's view says which playbooks have a slash command there.
+  const slash = async (key: LevelKey) => key.level === "guild" ? { slash: await guildSlashStatus({ tenantId: key.tenantId, botId: key.botId!, guildId: key.guildId! }, await listPlaybooks(key.tenantId)) } : {};
+  const out = async (c: Context<any>, key: LevelKey) => c.json({ success: true, rules: await listAvailabilityRules(key), inherited: await inheritedAvailability(key, skillRegistry.getAllSkills(), await skillRegistry.getActiveSkills(key.tenantId)), ...await slash(key) });
   app.get(path, withLevel(out));
   app.put(path, withLevel(async (c, key) => {
     const body = object(await c.req.json().catch(() => null), "body");

@@ -100,7 +100,10 @@ export interface AvailabilityRule { kind: AvailabilityKind; name: string; value:
 export type AvailabilityLevelName = "tenant" | "bot" | "guild" | "channel";
 /** What the levels above leave a target: `off` is the highest level that turns it off, `optIn` the lowest that made it opt-in. Unlisted targets are available from above. */
 export interface InheritedAvailability { kind: AvailabilityKind; name: string; available: boolean; off?: AvailabilityLevelName; optIn?: AvailabilityLevelName; }
-export interface LevelAvailability { rules: AvailabilityRule[]; inherited: InheritedAvailability[]; }
+/** Whether a playbook has a slash command in a server, and if not, why. */
+export type SlashStatus = { playbook: string } & ({ status: "registered" } | { status: "not_registered"; reason: "reference" } | { status: "not_registered"; reason: "off"; level: AvailabilityLevelName } | { status: "name_unusable" });
+/** `slash` comes with a server's view only: commands are registered per server. */
+export interface LevelAvailability { rules: AvailabilityRule[]; inherited: InheritedAvailability[]; slash?: SlashStatus[]; }
 /** Why a playbook cannot start for the tenant, as the agent resolved it when the list loaded. */
 export type PlaybookCause = { off: "playbook" } | { off: "loads"; playbook: string } | { off: "chain"; problem: string } | { off: "skills"; skills: string[] };
 /**
@@ -150,8 +153,8 @@ export const api = {
   updateProfile: (id: string, data: ProfileInput) => fetchJSON<{ profile: Profile }>(`/api/admin/profiles/${id}`, json("PATCH", data)),
   workspaceTree: (tenantId: string, path = "") => fetchJSON<{ entries: WorkspaceEntry[] }>(`/api/admin/tenants/${tenantId}/workspace/tree?path=${encodeURIComponent(path)}`),
   workspaceRead: (tenantId: string, path: string) => fetchJSON<{ content: string; version: string; readOnly?: boolean }>(`/api/admin/tenants/${tenantId}/workspace/file?path=${encodeURIComponent(path)}`),
-  workspaceWrite: (tenantId: string, path: string, content: string, version?: string) => fetchJSON<{ version: string }>(`/api/admin/tenants/${tenantId}/workspace/file`, json("PUT", { path, content, version })),
-  workspaceMove: (tenantId: string, from: string, to: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/move`, json("POST", { from, to })),
+  workspaceWrite: (tenantId: string, path: string, content: string, version?: string) => fetchJSON<{ version: string; warning?: string }>(`/api/admin/tenants/${tenantId}/workspace/file`, json("PUT", { path, content, version })),
+  workspaceMove: (tenantId: string, from: string, to: string) => fetchJSON<{ success: boolean; warning?: string }>(`/api/admin/tenants/${tenantId}/workspace/move`, json("POST", { from, to })),
   workspaceDelete: (tenantId: string, path: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/file?path=${encodeURIComponent(path)}`, json("DELETE")),
   copyPlaybook: (tenantId: string, name: string) => fetchJSON<{ path: string }>(`/api/admin/tenants/${tenantId}/workspace/playbooks/${encodeURIComponent(name)}/override`, json("POST")),
   deletePlaybook: (tenantId: string, name: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/playbooks/${encodeURIComponent(name)}`, json("DELETE")),
