@@ -18,8 +18,8 @@ skillAdminRoutes.get("/tenants/:id/skills", async (c) => {
     const { groups = [], tools = [] } = code.get(s.id) ?? {};
     return { id: s.id, name: s.name, description: s.description, groups, tools, toolCount: tools.length, isEnabled: state.isEnabled };
   }).sort((a: any, b: any) => a.name.localeCompare(b.name)),
-  // Playbooks are availability targets too: built-in and the tenant's own, each with the skills it requires.
-  playbooks: (await listPlaybooks(id)).map((p) => ({ name: p.name, description: p.description, requires: p.requires })) });
+  // Playbooks are availability targets too: built-in and the tenant's own, each with the skills it requires and whether it starts off.
+  playbooks: (await listPlaybooks(id)).map((p) => ({ name: p.name, description: p.description, requires: p.requires, defaultOff: p.defaultOff })) });
 });
 skillAdminRoutes.patch("/tenants/:id/skills/:skillId", async (c) => {
   const body = await c.req.json().catch(() => null);

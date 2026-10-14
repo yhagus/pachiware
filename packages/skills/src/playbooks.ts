@@ -19,6 +19,8 @@ export interface Playbook {
   words: string[];
   requires: string[];
   optional: string[];
+  /** `default: off`: off for the tenant until a tenant rule says on (ADR 0005). */
+  defaultOff: boolean;
   /** Tools withheld in the playbook's threads; a name no tool has is ignored. */
   closes: string[];
   /** `repository: required`: the playbook cannot start where git scope allows no repository (ADR 0007). */
@@ -57,7 +59,7 @@ export function parsePlaybook(name: string, text: string, source: Playbook["sour
     name, source, menu, body: parsed.body.trim(),
     description: typeof f.description === "string" ? f.description : "",
     words: list(trigger.word ?? trigger.words).map((w) => w.toLowerCase()).filter((w) => WORD.test(w)),
-    requires: list(f.requires), optional: list(f.optional), closes: list(f.closes),
+    requires: list(f.requires), optional: list(f.optional), closes: list(f.closes), defaultOff: f.default === "off",
     ...(f.repository === "required" ? { repository: "required" as const } : {}),
   };
 }

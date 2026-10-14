@@ -67,13 +67,16 @@ export async function listAvailabilityRules(key: LevelKey): Promise<Availability
 }
 
 /** Why a rule cannot be written at this level, or null. `skills` is every registered skill. */
-export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; value: string }, skills: SkillModule[], playbooks: string[] = []): string | null {
+export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; value: string }, skills: SkillModule[], playbooks: Pick<Playbook, "name" | "defaultOff">[] = []): string | null {
   if (!(TARGET_KINDS as readonly string[]).includes(rule.kind)) return `kind must be one of ${TARGET_KINDS.join(", ")}`;
   if (!(RULE_VALUES as readonly string[]).includes(rule.value)) return `value must be one of ${RULE_VALUES.join(", ")}`;
+  const playbook = rule.kind === "playbook" ? playbooks.find((p) => p.name === rule.name) : undefined;
+  if (rule.kind === "playbook" && !playbook) return `Unknown playbook "${rule.name}"`;
   if (rule.value === "opt_in" && key.level !== "bot" && key.level !== "guild") return "opt_in is only for a bot or a guild: it makes each level below say on";
-  if (rule.value === "on" && key.level !== "guild" && key.level !== "channel") return "on is only for a guild or a channel, under an opt_in above it";
+  if (rule.value === "on" && key.level === "tenant") {
+    if (!playbook?.defaultOff) return "on at the tenant is only for a playbook that starts off (default: off); everything else is on unless a rule turns it off";
+  } else if (rule.value === "on" && key.level !== "guild" && key.level !== "channel") return "on is only for a guild or a channel, under an opt_in above it";
   if (rule.kind === "effect" && !(EFFECTS as readonly string[]).includes(rule.name)) return `Unknown effect "${rule.name}": use ${EFFECTS.join(", ")}`;
-  if (rule.kind === "playbook" && !playbooks.includes(rule.name)) return `Unknown playbook "${rule.name}"`;
   if (rule.kind === "skill") {
     if (!skills.some((s) => s.id === rule.name)) return `Unknown skill "${rule.name}"`;
     if (key.level === "tenant") return "Use the skill switch to turn a skill off for the tenant";
@@ -88,11 +91,11 @@ export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; v
 }
 
 export async function setAvailabilityRule(key: LevelKey, rule: AvailabilityRule, skills: SkillModule[]): Promise<void> {
-  const playbooks = rule.kind === "playbook" ? (await listPlaybooks(key.tenantId)).map((p) => p.name) : [];
+  const playbooks = rule.kind === "playbook" ? await listPlaybooks(key.tenantId) : [];
   const problem = ruleProblem(key, rule, skills, playbooks);
   if (problem) throw new AvailabilityError(problem);
-  if (rule.value !== "off") {
-    const above = (await rulesAt(key)).slice(0, AVAILABILITY_LEVELS.indexOf(key.level));
+  if (rule.value !== "off" && key.level !== "tenant") {
+    const above = withDefaults(await rulesAt(key), playbooks).slice(0, AVAILABILITY_LEVELS.indexOf(key.level));
     // A tool is also off where its skill or its effect is off.
     const skill = rule.kind === "tool" ? skills.find((s) => s.tools.some((t) => t.name === rule.name)) : undefined;
     const covering: Target[] = [rule, ...(skill ? [{ kind: "skill", name: skill.id }, { kind: "effect", name: policyOf(skill, rule.name).effect }] as Target[] : [])];
@@ -132,7 +135,7 @@ async function rulesAt(place: Place): Promise<LevelRules[]> {
 export async function inheritedAvailability(key: LevelKey, skills: SkillModule[], enabled: SkillModule[]): Promise<{ kind: TargetKind; name: string; available: boolean; off?: AvailabilityLevel; optIn?: AvailabilityLevel }[]> {
   const depth = AVAILABILITY_LEVELS.indexOf(key.level);
   if (depth === 0) return [];
-  const levels = (await rulesAt(key)).slice(0, depth);
+  const levels = withDefaults(await rulesAt(key), await listPlaybooks(key.tenantId)).slice(0, depth);
   for (const s of skills) if (!enabled.some((e) => e.id === s.id)) { const off: AvailabilityRule = { kind: "skill", name: s.id, value: "off" }; levels[0]!.set(targetKey(off), off); }
   const targets = new Map(levels.flatMap((rules) => [...rules]));
   return [...targets.keys()].sort().map((k) => {
@@ -156,9 +159,19 @@ export async function playbooksListedIn(place: { tenantId: string; botId: string
   return names.filter((name) => !levels.some((rules) => valueAt(rules, { kind: "playbook", name }) === "off"));
 }
 
+/** A `default: off` playbook the tenant has no rule on is off at the tenant, as if the tenant had said so (ADR 0005). */
+function withDefaults(levels: LevelRules[], playbooks: Pick<Playbook, "name" | "defaultOff">[]): LevelRules[] {
+  const tenant = new Map(levels[0]);
+  for (const p of playbooks) {
+    const off: AvailabilityRule = { kind: "playbook", name: p.name, value: "off" };
+    if (p.defaultOff && !tenant.has(targetKey(off))) tenant.set(targetKey(off), off);
+  }
+  return [tenant, ...levels.slice(1)];
+}
+
 /** What is available at a place. `skills` are the skills the tenant has switched on, `playbooks` the tenant's playbooks. */
-export async function resolveAvailability(place: Place, skills: SkillModule[], playbooks: Pick<Playbook, "name" | "requires">[]): Promise<Availability> {
-  const levels = await rulesAt(place);
+export async function resolveAvailability(place: Place, skills: SkillModule[], playbooks: Pick<Playbook, "name" | "requires" | "defaultOff">[]): Promise<Availability> {
+  const ruled = await rulesAt(place), levels = withDefaults(ruled, playbooks);
   const skillOn = (id: string) => skills.some((s) => s.id === id) && allows(levels, "skill", id);
   const causes = new Map(playbooks.map((p): [string, PlaybookCause | null] => {
     if (!allows(levels, "playbook", p.name)) return [p.name, { off: "playbook" }];
@@ -177,7 +190,8 @@ export async function resolveAvailability(place: Place, skills: SkillModule[], p
     skills: skills.filter((s) => !skillOn(s.id)).map((s) => s.name),
     effects: EFFECTS.filter((e) => !allows(levels, "effect", e)),
     someToolsOff: skills.filter((s) => skillOn(s.id) && s.tools.some((t) => !s.toolPolicy?.[t.name]?.playbook && !allows(levels, "tool", t.name))).map((s) => s.name),
-    playbooks: [...causes].filter(([, cause]) => cause?.off === "playbook").map(([name]) => name),
+    // A playbook off only by its default is not taken away by a rule, so the model is not told about it.
+    playbooks: [...causes].filter(([name, cause]) => cause?.off === "playbook" && !allows(ruled, "playbook", name)).map(([name]) => name),
   };
   return {
     off,
