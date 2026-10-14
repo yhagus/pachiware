@@ -78,6 +78,13 @@ export interface DiscordClientAdapter {
    * A channel the bot cannot resolve, a DM, or a user outside the channel's guild is never viewable.
    */
   channelView(channelId: string, userId: string): Promise<ChannelView>;
+  /**
+   * The text channels a person means by `text`: a `<#id>` mention, or a name with or without `#` in any letter case (spaces read as hyphens).
+   * Searched in every guild the bot serves that `userId` is a member of, each with whether they can view it; threads are never returned.
+   */
+  findChannels(text: string, userId: string): Promise<FoundChannel[]>;
+  /** The same adapter bound to another guild of the bot, so member search and lookups happen there. */
+  forGuild(guildId: string): DiscordClientAdapter;
   /** Whether the bot may post in a channel and the requester may see it; "unknown" covers a channel outside this guild or a DM. */
   postAccess(channelId: string, requesterId: string): Promise<PostAccess>;
   /** Posts plain text with no pings. */
@@ -113,6 +120,8 @@ export interface DiscordMessageInfo { id: string; channelId: string; authorId: s
 
 /** A guild channel as the bot resolved it (null when it could not), and whether the user asked about can view it. */
 export interface ChannelView { channel: { id: string; name: string; guildId: string } | null; canView: boolean }
+/** A guild text channel found by name or mention, and whether the person who named it can view it. */
+export interface FoundChannel { id: string; name: string; guildId: string; guildName: string; canView: boolean }
 
 export type PostAccess = { ok: true } | { ok: false; who: "requester" | "bot" | "unknown"; missing: string[] };
 

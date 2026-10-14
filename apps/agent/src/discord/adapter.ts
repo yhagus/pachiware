@@ -10,6 +10,7 @@ import {
   type ChannelHistory,
   type ChannelView,
   type DiscordClientAdapter,
+  type FoundChannel,
   type DiscordChannelInfo,
   type DiscordMemberInfo,
   type DiscordMessageInfo,
@@ -65,8 +66,15 @@ const memberInfo = (m: any, guildId: string): DiscordMemberInfo => ({
   roles: [...(m.roles?.cache?.values() ?? [])].filter((r: any) => r.id !== guildId).map((r: any) => r.name),
 });
 
+const PROJECT_CHANNELS = new Set<number>([ChannelType.GuildText, ChannelType.GuildAnnouncement]);
+
 export class DiscordJSAdapter implements DiscordClientAdapter {
-  constructor(private client: Client, private guildId?: string) {}
+  /** `allowedGuildIds`: the guilds this bot serves (empty = every guild it is in); channel lookups by name stay inside them. */
+  constructor(private client: Client, private guildId?: string, private allowedGuildIds: string[] = []) {}
+
+  forGuild(guildId: string): DiscordClientAdapter {
+    return new DiscordJSAdapter(this.client, guildId, this.allowedGuildIds);
+  }
 
   private async getGuild(): Promise<Guild> {
     if (this.guildId) {
@@ -239,6 +247,24 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     // Seeing a private thread's parent is not enough: the user must have been added to the thread.
     const inThread = channel.type !== ChannelType.PrivateThread || await channel.members.fetch(userId).then(() => true, () => false);
     return { channel: found, canView: inThread };
+  }
+
+  async findChannels(text: string, userId: string): Promise<FoundChannel[]> {
+    const key = String(text ?? "").trim(), mentioned = /^<#(\w[\w-]*)>$/.exec(key)?.[1];
+    const name = key.replace(/^#/, "").trim().toLowerCase().replace(/\s+/g, "-");
+    if (!mentioned && !name) return [];
+    const served = (c: any) => c?.guild && !c.isThread?.() && !c.isDMBased?.() && PROJECT_CHANNELS.has(c.type) && (!this.allowedGuildIds.length || this.allowedGuildIds.includes(c.guild.id));
+    const candidates: any[] = mentioned
+      ? [await this.client.channels.fetch(mentioned).catch(() => null)].filter(served)
+      : [...this.client.channels.cache.values()].filter((c: any) => served(c) && c.name?.toLowerCase() === name);
+    const members = new Map<string, Promise<unknown>>();
+    const memberIn = (guild: any) => members.get(guild.id) ?? members.set(guild.id, guild.members.fetch(userId).catch(() => null)).get(guild.id)!;
+    const found = await Promise.all(candidates.map(async (c): Promise<FoundChannel | null> => {
+      if (!(await memberIn(c.guild))) return null; // a guild the person is not in stays unknown to them
+      const view = await this.channelView(c.id, userId);
+      return { id: c.id, name: c.name ?? c.id, guildId: c.guild.id, guildName: c.guild.name ?? c.guild.id, canView: view.canView };
+    }));
+    return found.filter((c): c is FoundChannel => !!c);
   }
 
   /** A text channel or thread of this guild that both the bot and the requester are allowed to see and post in. */

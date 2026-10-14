@@ -1,4 +1,4 @@
-import type { SkillModule, SkillContext, DiscordClientAdapter } from "../types.js";
+import type { SkillModule, SkillContext, DiscordClientAdapter, FoundChannel } from "../types.js";
 import { safeId, visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
@@ -28,7 +28,7 @@ export const taskManagementSkill: SkillModule = {
   tools: [
     {
       name: "createTask",
-      description: "Creates a new task, filed in the current channel's folder.",
+      description: "Creates a new task, filed in the current channel's project. In a DM it is the person's Personal task, unless they name a project channel to file it in.",
       parameters: {
         type: "object",
         properties: {
@@ -39,7 +39,8 @@ export const taskManagementSkill: SkillModule = {
             enum: ["low", "medium", "high", "urgent"],
             description: "Task priority level (default: medium)",
           },
-          assignedTo: { type: "string", description: "Optional assignee: a mention, \"me\" for the asker, or a name (matched to a server member, else recorded by name only)" },
+          assignedTo: { type: "string", description: "Optional assignee: a mention, \"me\" for the asker, or a name (matched to a server member, else recorded by name only). A Personal task takes only the asker or a name" },
+          channel: { type: "string", description: "Only in a DM, when the person names a project channel to file the task in (\"catat di #laporan-q4\"): the channel as they wrote it, #name or <#id>. Leave it out for a Personal task" },
           dueAt: { type: "string", description: DUE_AT_HINT },
           discordChannelId: { type: "string", description: "Legacy channel ID; the current turn's channel determines the Workspace folder" },
         },
@@ -162,14 +163,15 @@ export const taskManagementSkill: SkillModule = {
     },
   ],
   handlers: {
-    createTask: async (args: { title: string; description?: string; priority?: Priority; assignedTo?: string; dueAt?: string | null; discordChannelId?: string }, ctx: SkillContext) => {
+    createTask: async (args: { title: string; description?: string; priority?: Priority; assignedTo?: string; channel?: string; dueAt?: string | null; discordChannelId?: string }, asker: SkillContext) => {
       checkTitle(args.title);
       if (args.priority !== undefined && !PRIORITIES.includes(args.priority)) throw new Error("Invalid task priority");
-      const dueAt = dueAtArg(args.dueAt, zoneOf(ctx));
+      const dueAt = dueAtArg(args.dueAt, zoneOf(asker));
+      const ctx = typeof args.channel === "string" && args.channel.trim() ? await filingPlace(asker, args.channel) : asker;
       const who = typeof args.assignedTo === "string" && args.assignedTo.trim() ? await resolveAssignee(args.assignedTo, ctx) : null;
       if (who && "candidates" in who) return ambiguousAssignee(args.assignedTo!, who.candidates);
       const roots = visibleRoots(ctx), home = roots.channel ?? roots.dm ?? roots.tenant!;
-      if (who && !who.nameOnly) await mustView(ctx, `${home}/tasks/`, who.assignee);
+      if (who && !who.nameOnly) await mustHold(ctx, `${home}/tasks/`, who.assignee);
       const at = today().toISOString(), id = crypto.randomUUID();
       const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: who?.assignee ?? null, dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at };
       await workspaceStore().write(ctx.tenantId, `${home}/tasks/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
@@ -191,7 +193,7 @@ export const taskManagementSkill: SkillModule = {
       const tasks = sources ? await tasksIn(store, ctx.tenantId, sources) : await loadTasks(store, ctx), whose = inScope(scope, ctx);
       const found = (args.query ? await matching(store, ctx.tenantId, tasks, args.query) : tasks)
         .map((f) => ({ f, t: f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
-        .filter(({ t }) => (args.status === "all" || (args.status ? t.status === args.status : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(t))
+        .filter(({ f, t }) => (args.status === "all" || (args.status ? t.status === args.status : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(f))
         .filter((x) => (after === undefined || (x.due !== null && x.due >= after)) && (before === undefined || (x.due !== null && x.due <= before)) && (late === undefined || x.late === late))
         .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.t.createdAt.localeCompare(b.t.createdAt) : b.t.createdAt.localeCompare(a.t.createdAt)));
       if (sources) {
@@ -223,7 +225,7 @@ export const taskManagementSkill: SkillModule = {
       const who = await resolveAssignee(args.assignedTo, ctx);
       if ("candidates" in who) return ambiguousAssignee(args.assignedTo, who.candidates);
       const updated = await change(ctx, args.taskId, async (t, path) => {
-        if (!who.nameOnly) await mustView(ctx, path, who.assignee);
+        if (!who.nameOnly) await mustHold(ctx, path, who.assignee);
         return { ...t, assignedTo: who.assignee };
       });
       return { success: true, message: `Task "${updated.title}" assigned to @${assigneeLabel(updated.assignedTo)}.${who.nameOnly ? nameOnlyNote(who.assignee) : ""}`, task: updated };
@@ -267,6 +269,15 @@ export const taskManagementSkill: SkillModule = {
     },
   },
 };
+
+/** The turn as if it were in the project channel a person named from a DM: still their turn, in that channel's guild. Throws, creating nothing, when they cannot file there. */
+async function filingPlace(ctx: SkillContext, channel: string): Promise<SkillContext> {
+  if (ctx.guildId) throw new Error("Naming a channel to file a task in works from a DM. Here, the task belongs to this channel; ask in the other channel instead. Nothing was created.");
+  const found = await findProject(ctx, channel);
+  if (!found.ok) throw new Error(`${found.why} Nothing was created.`);
+  const { id, name, guildId, guildName } = found.channel;
+  return { ...ctx, guildId, guildName, channelId: id, channelName: name, parentChannelId: undefined, discord: ctx.discord?.forGuild(guildId) };
+}
 
 function checkTitle(title: unknown): asserts title is string {
   if (typeof title !== "string" || !title.trim()) throw new Error("Task title is required");
@@ -386,9 +397,10 @@ export function renderBody(description: string | null, notes: readonly ProgressN
 
 export interface Found { path: string; version: string; task: Task }
 const MAX_FILES = 500, MAX_DEPTH = 8;
-/** Every valid task under the folders this turn can see. ponytail: reads files per call; add an index when a Workspace outgrows MAX_FILES task files. */
+/** Every valid task under the folders this turn can see: in a DM only the person's Personal tasks. ponytail: reads files per call; add an index when a Workspace outgrows MAX_FILES task files. */
 export async function loadTasks(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "userId">, shortId?: string): Promise<Found[]> {
-  return walkTasks(store, ctx.tenantId, Object.values(visibleRoots(ctx)), shortId);
+  const roots = visibleRoots(ctx);
+  return walkTasks(store, ctx.tenantId, roots.dm ? [roots.dm] : Object.values(roots), shortId);
 }
 
 /** Every valid task under `roots`, frontmatter only, at most MAX_FILES Markdown files in all. */
@@ -433,20 +445,23 @@ export async function viewableProjects(store: WorkspaceStore, tenantId: string, 
   });
 }
 
-/** The folders a `mine` or `delegated` view of this turn draws from: every project channel of the current guild the asker can view. */
+export const PERSONAL_TASKS = "Personal tasks";
+/** The folders a `mine` or `delegated` view of this turn draws from: every project channel of the current guild the asker can view, then the asker's Personal tasks. */
 export async function scopeSources(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "userId" | "discord">): Promise<TaskSource[]> {
-  if (!ctx.guildId || !ctx.userId) return [];
-  return viewableProjects(store, ctx.tenantId, ctx.discord, ctx.guildId, ctx.userId);
+  const user = safeId(ctx.userId);
+  if (!user) return [];
+  const projects = ctx.guildId ? await viewableProjects(store, ctx.tenantId, ctx.discord, ctx.guildId, user) : [];
+  return [...projects, { label: PERSONAL_TASKS, folder: `dms/${user}` }];
 }
 
 /** Every valid task in the given sources, frontmatter only (`readInFull` the ones printed). */
 export const tasksIn = (store: WorkspaceStore, tenantId: string, sources: readonly TaskSource[]) => walkTasks(store, tenantId, sources.map((s) => s.folder));
 
-/** Whether a task belongs to a scope for the asker: `mine` when they are its Assignee, `delegated` when they created it for someone else; `here` keeps every task. */
-export function inScope(scope: Scope, asker: Pick<SkillContext, "userId" | "userName">): (t: Task) => boolean {
+/** Whether a task belongs to a scope for the asker: `mine` when they are its Assignee or it is one of their Personal tasks, `delegated` when they created it for someone else; `here` keeps every task. */
+export function inScope(scope: Scope, asker: Pick<SkillContext, "userId" | "userName">): (f: Pick<Found, "path" | "task">) => boolean {
   const person = { id: asker.userId, names: [asker.userName] };
-  if (scope === "mine") return (t) => isAssignee(t.assignedTo, person);
-  if (scope === "delegated") return (t) => !!asker.userId && t.createdBy === asker.userId && !!t.assignedTo && !isAssignee(t.assignedTo, person);
+  if (scope === "mine") return ({ path, task: t }) => isAssignee(t.assignedTo, person) || (!!asker.userId && personalOwnerOf(path) === asker.userId);
+  if (scope === "delegated") return ({ task: t }) => !!asker.userId && t.createdBy === asker.userId && !!t.assignedTo && !isAssignee(t.assignedTo, person);
   return () => true;
 }
 
@@ -516,20 +531,46 @@ export function taskChannelOf(path: string): { guildId: string; channelId: strin
   return m ? { guildId: m[1]!, channelId: m[2]! } : null;
 }
 
-/** Whether an Assignee may hold the task at `path`: a member must be able to view its channel. Name-only Assignees, tasks outside a channel folder, and turns without Discord always may. */
-async function canView(ctx: SkillContext, path: string, assignee: Assignee): Promise<{ ok: true } | { ok: false; channel: string }> {
+/**
+ * The project channel a person names (`#laporan-q4`, `laporan-q4`, or `<#id>`), searched across every server the bot shares with them.
+ * Fails, saying why, when no such channel is found, when they cannot view it, or when the name fits channels in several servers.
+ * The reason ends without saying what was left undone, so each caller adds that ("Nothing was created.").
+ */
+export async function findProject(ctx: Pick<SkillContext, "userId" | "discord">, text: unknown): Promise<{ ok: true; channel: FoundChannel } | { ok: false; why: string }> {
+  const asked = typeof text === "string" ? text.trim().slice(0, 100) : "";
+  if (!asked) return { ok: false, why: "Name the project channel." };
+  const shown = /^<#[\w-]+>$/.test(asked) ? asked : `#${asked.replace(/^#/, "")}`;
+  if (!ctx.discord || !ctx.userId) return { ok: false, why: `Channel ${shown} cannot be looked up here.` };
+  const found = await ctx.discord.findChannels(asked, ctx.userId).catch(() => []), viewable = found.filter((c) => c.canView);
+  if (viewable.length === 1) return { ok: true, channel: viewable[0]! };
+  if (viewable.length > 1) return { ok: false, why: `${shown} names channels in several servers: ${viewable.map((c) => `<#${c.id}> in ${c.guildName}`).join(", ")}. Ask which one is meant, then name it by that mention.` };
+  if (found.length) return { ok: false, why: `You cannot view #${found[0]!.name}, so it cannot be used for this task.` };
+  return { ok: false, why: `No channel ${shown} was found in the servers you share with the bot.` };
+}
+
+/** Whose Personal tasks a task file is, from its path: `dms/<user>/…`; null for project and shared folders. */
+export const personalOwnerOf = (path: string): string | null => /^dms\/([\w-]+)\//.exec(path)?.[1] ?? null;
+
+/**
+ * Whether an Assignee may hold the task at `path`, and if not, why not, naming the ways out.
+ * A Personal task is only ever its own person's or a name-only Assignee's; a project task's member must be able to view its channel.
+ * Name-only Assignees, shared folders, and turns without Discord always may.
+ */
+async function canHold(ctx: SkillContext, path: string, assignee: Assignee): Promise<{ ok: true } | { ok: false; why: string }> {
+  const owner = personalOwnerOf(path);
+  if (owner) return !assignee.id || assignee.id === owner ? { ok: true } : { ok: false, why: `${assignee.name} cannot be the assignee of a Personal task: only you, or someone known by name only, can. Handing work to another member belongs in a project. Nothing was changed. Name the project channel to file the task there, or keep it for yourself.` };
   const home = taskChannelOf(path);
   if (!home || !assignee.id || !ctx.discord) return { ok: true };
   const view = await ctx.discord.channelView(home.channelId, assignee.id).catch(() => ({ channel: null, canView: false }));
-  return view.canView ? { ok: true } : { ok: false, channel: `#${view.channel?.name ?? home.channelId}` };
+  if (view.canView) return { ok: true };
+  const channel = `#${view.channel?.name ?? home.channelId}`;
+  return { ok: false, why: `${assignee.name} cannot view ${channel}, so they cannot be this task's assignee. Nothing was changed. Add them to ${channel}, or assign someone else.` };
 }
 
-/** Throws, naming the channel and both ways out, when a member cannot view the channel of the task at `path`. */
-async function mustView(ctx: SkillContext, path: string, assignee: Assignee) {
-  const view = await canView(ctx, path, assignee);
-  if (view.ok) return;
-  const { channel } = view;
-  throw new Error(`${assignee.name} cannot view ${channel}, so they cannot be this task's assignee. Nothing was changed. Add them to ${channel}, or assign someone else.`);
+/** Throws `canHold`'s reason when the Assignee may not hold the task at `path`. */
+async function mustHold(ctx: SkillContext, path: string, assignee: Assignee) {
+  const held = await canHold(ctx, path, assignee);
+  if (!held.ok) throw new Error(held.why);
 }
 
 async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: string) => Task | Promise<Task>): Promise<Task> {
@@ -541,7 +582,7 @@ async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: s
   const edited = await edit(parsed, hit.path);
   // A name-only Assignee the edit kept is linked when its name now matches exactly one member who can view the task's channel.
   const linked = edited.assignedTo === parsed.assignedTo ? await linkAssignee(edited.assignedTo, ctx) : edited.assignedTo;
-  const assignedTo = linked !== edited.assignedTo && linked && !(await canView(ctx, hit.path, linked)).ok ? edited.assignedTo : linked;
+  const assignedTo = linked !== edited.assignedTo && linked && !(await canHold(ctx, hit.path, linked)).ok ? edited.assignedTo : linked;
   const next = { ...edited, assignedTo, updatedAt: today().toISOString() };
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
