@@ -187,7 +187,7 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
       const done = await call(alpha, "updateTaskStatus", { taskId: task.id, status: "in_progress" });
       assert(done.success && done.data.task.status === "in_progress", "status update failed: " + done.error);
       assert(!(await call(alpha, "updateTaskStatus", { taskId: task.id, status: "bogus" })).success, "invalid status accepted");
-      assert((await call(alpha, "assignTask", { taskId: task.id, assignedTo: "dewi" })).data.task.assignedTo === "dewi", "assign failed");
+      assert((await call(alpha, "assignTask", { taskId: task.id, assignedTo: "dewi" })).data.task.assignedTo?.name === "dewi", "assign failed");
       assert((await call(alpha, "listTasks", { assignedTo: "dewi", status: "in_progress" })).data.tasks.length === 1, "assignee filter failed");
       assert(!(await call(beta, "updateTaskStatus", { taskId: task.id, status: "completed" })).success, "another tenant updated the task");
       assert(!(await call(alpha, "createTask", { title: "  " })).success, "empty title accepted");
@@ -229,7 +229,7 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
       // active tasks are listed from files
       await call(alpha, "createTask", { title: "Ship launch page" });
       const withTask = await turn(alpha);
-      assert(withTask.includes("Active tasks (status | due | owner | id | title):") && /^pending \\| no due date \\| unassigned \\| [0-9a-f]{8} \\| Ship launch page$/m.test(withTask), "active tasks missing: " + withTask);
+      assert(withTask.includes("Active tasks (status | due | assignee | id | title):") && /^pending \\| no due date \\| unassigned \\| [0-9a-f]{8} \\| Ship launch page$/m.test(withTask), "active tasks missing: " + withTask);
     `);
   });
 
@@ -254,7 +254,7 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
       assert(files(process.env.WORKSPACE_DIR + "/" + beta.id + "/shared/tasks").length === 1, "other tenant task not filed under its own tenant");
       // the agent reads them back with its own tools
       const listed = await call(alpha, "listTasks", { status: "in_progress" });
-      assert(listed.data.tasks.some((t) => t.title === "Channel task" && t.assignedTo === "dewi"), "exported task not readable");
+      assert(listed.data.tasks.some((t) => t.title === "Channel task" && t.assignedTo?.name === "dewi"), "exported task not readable");
       // rerun: nothing duplicated, even after the agent moved one into a subfolder
       const only = files(ws + "/guilds/g1/channels/c1/tasks")[0];
       await call(alpha, "moveFile", { from: "channel/tasks/" + only, to: "channel/tasks/web/renamed.md" });

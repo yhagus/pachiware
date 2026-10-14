@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { object } from "../validation.js";
-import { DEFAULT_TIMEZONE, loadAllTasks, normalizeDueAt, parseTask, PRIORITIES, render, slug, STATUSES, type Task, WorkspaceConflict, workspaceStore } from "@pachiware/skills";
+import { DEFAULT_TIMEZONE, loadAllTasks, normalizeDueAt, parseAssignee, parseTask, PRIORITIES, render, slug, STATUSES, type Task, WorkspaceConflict, workspaceStore } from "@pachiware/skills";
 import type { TenantEnv } from "../../middleware/tenant.js";
 
 export const taskRoutes = new Hono<TenantEnv>();
@@ -26,7 +26,7 @@ taskRoutes.post("/", async (c) => {
   validateTask(body);
   if (typeof body.title !== "string" || !body.title.trim()) return c.json({ success: false, error: "Task title is required." }, 400);
   const now = new Date().toISOString();
-  const task: Task = { id: crypto.randomUUID(), title: body.title.trim(), description: body.description?.trim() || null, status: "pending", priority: body.priority || "medium", assignedTo: body.assignedTo?.trim() || null, dueAt: dueAtOf(body), createdBy: null, createdByName: null, createdAt: now, updatedAt: now };
+  const task: Task = { id: crypto.randomUUID(), title: body.title.trim(), description: body.description?.trim() || null, status: "pending", priority: body.priority || "medium", assignedTo: parseAssignee(body.assignedTo), dueAt: dueAtOf(body), createdBy: null, createdByName: null, createdAt: now, updatedAt: now };
   const tenantId = c.get("tenantId"), store = workspaceStore();
   await store.write(tenantId, taskFile(task), render(task));
   await ensureLabel(tenantId, "shared", "Shared"); await ensureLabel(tenantId, "shared/tasks", "Tasks");
@@ -40,7 +40,7 @@ taskRoutes.patch("/:id", async (c) => {
   if (!hit) return c.json({ success: false, error: "Task not found." }, 404);
   const current = await workspaceStore().read(tenantId, hit.path), parsed = current && parseTask(current.content);
   if (!current || !parsed) return c.json({ success: false, error: "Task not found." }, 404);
-  const next: Task = { ...parsed, ...(body.title === undefined ? {} : { title: body.title.trim() }), ...(body.description === undefined ? {} : { description: body.description }), ...(body.status === undefined ? {} : { status: body.status }), ...(body.priority === undefined ? {} : { priority: body.priority }), ...(body.assignedTo === undefined ? {} : { assignedTo: body.assignedTo }), ...(body.dueAt === undefined ? {} : { dueAt: dueAtOf(body) }), updatedAt: new Date().toISOString() };
+  const next: Task = { ...parsed, ...(body.title === undefined ? {} : { title: body.title.trim() }), ...(body.description === undefined ? {} : { description: body.description }), ...(body.status === undefined ? {} : { status: body.status }), ...(body.priority === undefined ? {} : { priority: body.priority }), ...(body.assignedTo === undefined ? {} : { assignedTo: parseAssignee(body.assignedTo) }), ...(body.dueAt === undefined ? {} : { dueAt: dueAtOf(body) }), updatedAt: new Date().toISOString() };
   try { await workspaceStore().write(tenantId, hit.path, render(next), current.version); } catch (e) { if (e instanceof WorkspaceConflict) return c.json({ success: false, error: e.message }, 409); throw e; }
   return c.json({ success: true, message: "Task updated successfully.", task: next });
 });

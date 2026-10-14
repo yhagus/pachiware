@@ -12,7 +12,7 @@ import type { TrialResult } from "./compare";
 import type { Ask } from "./judge";
 import { usageOf } from "./run";
 
-export interface TaskState { title: string; status: string; dueAt: string | null; assignedTo: string | null; createdByName: string | null }
+export interface TaskState { title: string; status: string; dueAt: string | null; /** The Assignee's name. */ assignedTo: string | null; createdByName: string | null }
 export interface ReminderState { text: string; recurrence: string; weekdays: number[]; timeOfDay: string | null; timezone: string; nextAt: string; status: string; mentions: string[] }
 export interface AssistantState { tasks: TaskState[]; memory: { channel: string[]; guild: string[] }; files: string[]; reminders: ReminderState[] }
 export interface AssistantTurn {
@@ -34,10 +34,11 @@ const seedId = (i: number) => `${String(i + 1).padStart(8, "0")}-0000-4000-8000-
 
 async function seedTasks(s: Scenario, tasks: SeedTask[]) {
   const { render, slug } = await import("../../../packages/skills/src/builtin/tasks.ts");
+  const { parseAssignee } = await import("../../../packages/skills/src/builtin/assignee.ts");
   const at = new Date(s.clock.now()).toISOString();
   for (const [i, t] of tasks.entries()) {
     const id = seedId(i);
-    await s.workspace.write(`${CHANNEL}/tasks/${slug(t.title)}-${id.slice(0, 8)}.md`, render({ id, title: t.title, description: null, status: (t.status ?? "pending") as any, priority: "medium", assignedTo: t.assignedTo ?? null, dueAt: t.dueAt ?? null, createdBy: s.discord.alice.id, createdByName: s.discord.alice.name, createdAt: at, updatedAt: at }));
+    await s.workspace.write(`${CHANNEL}/tasks/${slug(t.title)}-${id.slice(0, 8)}.md`, render({ id, title: t.title, description: null, status: (t.status ?? "pending") as any, priority: "medium", assignedTo: parseAssignee(t.assignedTo), dueAt: t.dueAt ?? null, createdBy: s.discord.alice.id, createdByName: s.discord.alice.name, createdAt: at, updatedAt: at }));
   }
 }
 
@@ -52,7 +53,7 @@ async function stateOf(s: Scenario): Promise<AssistantState> {
   const { workspaceStore } = await import("../../../packages/skills/src/workspace/store.ts");
   const { schedules, eq } = await import("../../../packages/db/src/index.ts") as any;
   const lines = async (path: string) => ((await s.workspace.read(path)) ?? "").split("\n").filter((l) => l.trim());
-  const tasks = (await loadTasks(workspaceStore(), { tenantId: s.tenant.id, guildId: GUILD, channelId: CHANNEL_ID })).map(({ task: t }) => ({ title: t.title, status: t.status, dueAt: t.dueAt, assignedTo: t.assignedTo, createdByName: t.createdByName }))
+  const tasks = (await loadTasks(workspaceStore(), { tenantId: s.tenant.id, guildId: GUILD, channelId: CHANNEL_ID })).map(({ task: t }) => ({ title: t.title, status: t.status, dueAt: t.dueAt, assignedTo: t.assignedTo?.name ?? null, createdByName: t.createdByName }))
     .sort((a, b) => a.title.localeCompare(b.title));
   const files = (await s.workspace.list(`${CHANNEL}/files`)).map((p) => p.slice(CHANNEL.length + 1)).filter((p) => !p.split("/").pop()!.startsWith(".")).sort();
   const rows: any[] = await s.db.select().from(schedules).where(eq(schedules.kind, "reminder"));

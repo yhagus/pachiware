@@ -1,5 +1,6 @@
 import { db, tasks } from "@pachiware/db";
 import { parseTask, PRIORITIES, STATUSES, render, slug, type Task } from "../builtin/tasks.js";
+import { parseAssignee } from "../builtin/assignee.js";
 import { safeId } from "./paths.js";
 import { workspaceStore, type WorkspaceStore } from "./store.js";
 
@@ -41,7 +42,7 @@ export async function exportTasks(store: WorkspaceStore = workspaceStore()) {
     const task: Task = {
       id: row.id, title: String(row.title).trim() || "Untitled", description: row.description?.trim() || null,
       status: (STATUSES as readonly string[]).includes(row.status) ? row.status : "pending", priority: (PRIORITIES as readonly string[]).includes(row.priority) ? row.priority : "medium",
-      assignedTo: row.assignedTo || null, dueAt: null, createdBy: null, createdByName: null, createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt),
+      assignedTo: parseAssignee(row.assignedTo), dueAt: null, createdBy: null, createdByName: null, createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt),
     };
     await store.write(row.tenantId, `${home}/tasks/${slug(task.title)}-${short}.md`, render(task));
     await label(store, row.tenantId, home, guild && channel ? `#${channel}` : guild ? `Guild ${guild}` : "Shared");

@@ -38,7 +38,7 @@ const behaviourPrompt = (f: AssistantFixture, r: AssistantResult, t: AssistantTu
     : "The request is clear. Did the bot act on it without asking a question back? A short line saying what changed is acting; a question instead of acting is not. Answer \"no\" when it asked instead of acting, or when it declined."}`;
 };
 const supportedPrompt = (f: AssistantFixture, r: AssistantResult, t: AssistantTurn) =>
-  `${conversation(f, r.turns, t.n)}\n\n## Recorded state after turn ${t.n}\n${stateText(t.state)}\n\n## Reference facts\n${bullets(f.facts.mustCover)}\n\n## Question\nLook only at the bot's replies in turn ${t.n}. Is every statement they make about tasks, Memory, files or Reminders supported by the recorded state, the reference facts, or the conversation? Answer "no" when a reply claims something the state does not show, such as a task, due date, owner, Memory line, file or Reminder that is not there.`;
+  `${conversation(f, r.turns, t.n)}\n\n## Recorded state after turn ${t.n}\n${stateText(t.state)}\n\n## Reference facts\n${bullets(f.facts.mustCover)}\n\n## Question\nLook only at the bot's replies in turn ${t.n}. Is every statement they make about tasks, Memory, files or Reminders supported by the recorded state, the reference facts, or the conversation? Answer "no" when a reply claims something the state does not show, such as a task, due date, assignee, Memory line, file or Reminder that is not there.`;
 
 export interface AssistantJudgement {
   facts: ({ fact: string } & Graded)[];

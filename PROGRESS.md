@@ -824,3 +824,4 @@ Started from a review of the harness as a management assistant (2026-10-14): tas
   - #131 move a task
   - #132 persona and daily-behaviour eval (last, so the persona is frozen once)
 - [ ] Implement #121–#132.
+  - [x] #121 Assignee is a member (id plus name) or a name only; legacy plain-text `assignedTo` parses as a name; filter matches name in any case, id, or mention; task line column renamed owner to assignee (persona frozen into old defaults, turn context, Reminders with tasks, eval checks). Helpers `parseAssignee`, `renderAssignee`, `assigneeLabel`, `assigneeMatches`, `isAssignee` in `packages/skills/src/builtin/assignee.ts`. 3 new scenarios in `task-assignee.test.ts`, persona migration test extended; full suite 512 pass, 0 fail.

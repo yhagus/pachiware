@@ -1,10 +1,10 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
 
-const task = (f: { id: string; title: string; status?: string; assignedTo?: string | null; dueAt?: string | null; createdBy: string; createdByName: string }) =>
+const task = (f: { id: string; title: string; status?: string; assignedTo?: string | { id: string; name: string } | null; dueAt?: string | null; createdBy: string; createdByName: string }) =>
   `---\nid: "${f.id}"\ntitle: "${f.title}"\nstatus: "${f.status ?? "pending"}"\npriority: "medium"\nassignedTo: ${JSON.stringify(f.assignedTo ?? null)}\ndueAt: ${JSON.stringify(f.dueAt ?? null)}\ncreatedBy: "${f.createdBy}"\ncreatedByName: "${f.createdByName}"\ncreatedAt: "2026-03-01T00:00:00.000Z"\nupdatedAt: "2026-03-01T00:00:00.000Z"\n---\n`;
 
-discordScenario("a DM Reminder with withTasks appends the owner's open DM tasks, in the task list format, and not another person's", async (s) => {
+discordScenario("a DM Reminder with withTasks appends the owner's open DM tasks, assigned by id or by name, in the task list format, and not another person's", async (s) => {
   s.clock.set("2026-03-06T20:00:00+07:00");
   const dm = s.discord.channel("dm-alice", { dm: true }), alice = s.discord.alice, bob = s.discord.bob;
   s.model.script({ tool: "createTask", args: { title: "Pay the rent", dueAt: "2026-03-07" } }, "Filed.");
@@ -12,6 +12,7 @@ discordScenario("a DM Reminder with withTasks appends the owner's open DM tasks,
   s.model.script({ tool: "createTask", args: { title: "Call the dentist", assignedTo: "Alice" } }, "Filed.");
   await s.discord.send("task: call the dentist", { channel: dm });
   await s.workspace.write(`dms/${alice.id}/tasks/bobs-aaaaaaaa.md`, task({ id: "aaaaaaaa-0000-4000-8000-000000000001", title: "Bob's errand", assignedTo: "Bob", createdBy: bob.id, createdByName: bob.name }));
+  await s.workspace.write(`dms/${alice.id}/tasks/handover-dddddddd.md`, task({ id: "dddddddd-0000-4000-8000-000000000004", title: "Take the handover", assignedTo: { id: alice.id, name: "Ali" }, dueAt: "2026-03-08", createdBy: bob.id, createdByName: bob.name }));
   await s.workspace.write(`dms/${alice.id}/tasks/done-bbbbbbbb.md`, task({ id: "bbbbbbbb-0000-4000-8000-000000000002", title: "Already done", status: "completed", createdBy: alice.id, createdByName: alice.name }));
   await s.workspace.write("guilds/guild-1/channels/channel-1/tasks/channel-cccccccc.md", task({ id: "cccccccc-0000-4000-8000-000000000003", title: "Channel work", createdBy: alice.id, createdByName: alice.name }));
   const files = await s.workspace.list(`dms/${alice.id}/tasks`);
@@ -29,8 +30,9 @@ discordScenario("a DM Reminder with withTasks appends the owner's open DM tasks,
   expect(post.allowedMentions).toEqual({ users: [alice.id] });
   expect(post.content).toBe([
     `<@${alice.id}> Pengingat: morning overview`,
-    "Tugas terbuka (status | due | owner | id | title):",
+    "Tugas terbuka (status | due | assignee | id | title):",
     `pending | due 2026-03-07 | unassigned | ${rent} | Pay the rent`,
+    "pending | due 2026-03-08 | Ali | dddddddd | Take the handover",
     `pending | no due date | Alice | ${dentist} | Call the dentist`,
   ].join("\n"));
 });

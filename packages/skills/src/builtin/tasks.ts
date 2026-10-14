@@ -2,6 +2,7 @@ import type { SkillModule, SkillContext } from "../types.js";
 import { visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
+import { assigneeLabel, assigneeMatches, parseAssignee, renderAssignee, type Assignee } from "./assignee.js";
 import { DEFAULT_TIMEZONE, now, offsetText, today, zoneOffset, zonedTime } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
@@ -51,7 +52,7 @@ export const taskManagementSkill: SkillModule = {
             enum: ["pending", "in_progress", "completed", "all"],
             description: "Filter by status (default is all active)",
           },
-          assignedTo: { type: "string", description: "Filter by assignee username or ID" },
+          assignedTo: { type: "string", description: "Filter by assignee: a name in any letter case, or a member's ID or mention" },
           dueAfter: { type: "string", description: "Only tasks due at or after this date (YYYY-MM-DD, from the start of that day) or date-time; tasks without a due date are left out" },
           dueBefore: { type: "string", description: "Only tasks due at or before this date (YYYY-MM-DD, to the end of that day) or date-time; tasks without a due date are left out" },
           late: { type: "boolean", description: "true: only tasks past their due date and not completed; false: only tasks that are not late" },
@@ -108,7 +109,7 @@ export const taskManagementSkill: SkillModule = {
       const dueAt = dueAtArg(args.dueAt, zoneOf(ctx));
       const roots = visibleRoots(ctx), home = roots.channel ?? roots.dm ?? roots.tenant!;
       const at = today().toISOString(), id = crypto.randomUUID();
-      const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: args.assignedTo?.trim() || null, dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at };
+      const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: parseAssignee(args.assignedTo), dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at };
       await workspaceStore().write(ctx.tenantId, `${home}/tasks/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
       await labelFolder(ctx, roots.channel ? "channel" : roots.guild ? "guild" : roots.dm ? "dm" : "");
       if (roots.channel) await labelFolder(ctx, "guild");
@@ -123,7 +124,7 @@ export const taskManagementSkill: SkillModule = {
       const byDue = after !== undefined || before !== undefined || late !== undefined;
       const found = (await loadTasks(workspaceStore(), ctx))
         .map((f) => ({ ...f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
-        .filter((t) => (!args.status || args.status === "all" || t.status === args.status) && (!args.assignedTo || t.assignedTo === args.assignedTo))
+        .filter((t) => (!args.status || args.status === "all" || t.status === args.status) && (!args.assignedTo || assigneeMatches(t.assignedTo, args.assignedTo)))
         .filter((t) => (after === undefined || (t.due !== null && t.due >= after)) && (before === undefined || (t.due !== null && t.due <= before)) && (late === undefined || t.late === late))
         .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.createdAt.localeCompare(b.createdAt) : b.createdAt.localeCompare(a.createdAt)))
         .map(({ due: _, ...t }) => t);
@@ -138,8 +139,9 @@ export const taskManagementSkill: SkillModule = {
 
     assignTask: async (args: { taskId: string; assignedTo: string }, ctx: SkillContext) => {
       if (typeof args.assignedTo !== "string" || !args.assignedTo.trim()) throw new Error("assignedTo is required");
-      const updated = await change(ctx, args.taskId, (t) => ({ ...t, assignedTo: args.assignedTo.trim() }));
-      return { success: true, message: `Task "${updated.title}" assigned to @${updated.assignedTo}.`, task: updated };
+      const assignedTo = parseAssignee(args.assignedTo);
+      const updated = await change(ctx, args.taskId, (t) => ({ ...t, assignedTo }));
+      return { success: true, message: `Task "${updated.title}" assigned to @${assigneeLabel(updated.assignedTo)}.`, task: updated };
     },
 
     setTaskDueDate: async (args: { taskId: string; dueAt?: string | null }, ctx: SkillContext) => {
@@ -188,21 +190,21 @@ function dueBound(value: unknown, timeZone: string, edge: "start" | "end"): numb
 }
 /** Late: past its due moment and not completed. */
 export const isLate = (task: Pick<Task, "dueAt" | "status">, timeZone: string, at = now()): boolean => { const due = dueMoment(task.dueAt, timeZone); return task.status !== "completed" && due !== null && at > due; };
-/** The one-line task format the turn context and the Digest share: status, due, owner, id prefix, title. */
-export const taskLine = (t: Task, timeZone: string, at = now()) => `${t.status} | ${t.dueAt ? `due ${t.dueAt}${isLate(t, timeZone, at) ? ", late" : ""}` : "no due date"} | ${t.assignedTo ?? "unassigned"} | ${t.id.slice(0, 8)} | ${t.title}`;
+/** The one-line task format every task list shares: status, due, assignee, id prefix, title. */
+export const taskLine = (t: Task, timeZone: string, at = now()) => `${t.status} | ${t.dueAt ? `due ${t.dueAt}${isLate(t, timeZone, at) ? ", late" : ""}` : "no due date"} | ${assigneeLabel(t.assignedTo)} | ${t.id.slice(0, 8)} | ${t.title}`;
 
 export const STATUSES = ["pending", "in_progress", "completed"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 type Status = (typeof STATUSES)[number];
 type Priority = (typeof PRIORITIES)[number];
-export interface Task { id: string; title: string; description: string | null; status: Status; priority: Priority; assignedTo: string | null; dueAt: string | null; createdBy: string | null; createdByName: string | null; createdAt: string; updatedAt: string }
+export interface Task { id: string; title: string; description: string | null; status: Status; priority: Priority; assignedTo: Assignee | null; dueAt: string | null; createdBy: string | null; createdByName: string | null; createdAt: string; updatedAt: string }
 
 export const slug = (title: string) => title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "") || "task";
 
 /** Frontmatter is one `key: JSON value` per line, which is also valid YAML; hand-edited bare values (status: pending) are accepted too. */
 export function render(t: Task) {
   const q = JSON.stringify;
-  return `---\nid: ${q(t.id)}\ntitle: ${q(t.title)}\nstatus: ${q(t.status)}\npriority: ${q(t.priority)}\nassignedTo: ${q(t.assignedTo)}\ndueAt: ${q(t.dueAt)}\ncreatedBy: ${q(t.createdBy)}\ncreatedByName: ${q(t.createdByName)}\ncreatedAt: ${q(t.createdAt)}\nupdatedAt: ${q(t.updatedAt)}\n---\n${t.description ?? ""}\n`;
+  return `---\nid: ${q(t.id)}\ntitle: ${q(t.title)}\nstatus: ${q(t.status)}\npriority: ${q(t.priority)}\nassignedTo: ${renderAssignee(t.assignedTo)}\ndueAt: ${q(t.dueAt)}\ncreatedBy: ${q(t.createdBy)}\ncreatedByName: ${q(t.createdByName)}\ncreatedAt: ${q(t.createdAt)}\nupdatedAt: ${q(t.updatedAt)}\n---\n${t.description ?? ""}\n`;
 }
 /** A task file, or null when it is not a valid one: a broken file is skipped, never trusted. */
 export function parseTask(text: string): Task | null {
@@ -220,7 +222,7 @@ export function parseTask(text: string): Task | null {
   if (typeof id !== "string" || !/^[0-9a-f-]{8,36}$/i.test(id) || typeof title !== "string" || !title.trim() || !STATUSES.includes(status) || !PRIORITIES.includes(priority) || !validDate(f.createdAt) || !validDate(f.updatedAt)) return null;
   const str = (v: unknown) => (typeof v === "string" && v ? v : null);
   const dueAt = str(f.dueAt);
-  return { id, title, description: m[2]!.trim() || null, status, priority, assignedTo: str(f.assignedTo), dueAt: dueAt && (DATE_ONLY.test(dueAt) || DATE_TIME.test(dueAt)) ? dueAt : null, createdBy: str(f.createdBy), createdByName: str(f.createdByName), createdAt: str(f.createdAt) ?? "", updatedAt: str(f.updatedAt) ?? "" };
+  return { id, title, description: m[2]!.trim() || null, status, priority, assignedTo: parseAssignee(f.assignedTo), dueAt: dueAt && (DATE_ONLY.test(dueAt) || DATE_TIME.test(dueAt)) ? dueAt : null, createdBy: str(f.createdBy), createdByName: str(f.createdByName), createdAt: str(f.createdAt) ?? "", updatedAt: str(f.updatedAt) ?? "" };
 }
 
 interface Found { path: string; version: string; task: Task }

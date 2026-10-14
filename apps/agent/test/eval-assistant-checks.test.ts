@@ -70,7 +70,7 @@ describe("code checks on one run", () => {
     expect(checks(withTurn(1, { replies: ["Open:\npending | due 2026-10-15 | Bob | 0a1b2c3d | Book the venue"] }), f)).toEqual([]);
     expect(checks(withTurn(1, { replies: ["Open: the venue booking and the invoice"] }), f)).toEqual([
       '1 format: The reply mentions "invoice".',
-      "1 format: No line in the fixed task format (status | due | owner | id | title).",
+      "1 format: No line in the fixed task format (status | due | assignee | id | title).",
     ]);
     expect(checks(withTurn(1, { replies: ["pending | due 2026-10-15 | Bob | 0a1b2c3d | Book it"] }), f)).toEqual(['1 format: The reply does not mention "venue".']);
   });
