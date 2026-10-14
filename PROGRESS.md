@@ -720,7 +720,7 @@ Planning only for now. The decisions are worked on the wayfinder map [#50](https
 - [x] #53 levels: Tenant → Bot → (bot, guild) → channel; availability rules only narrow, no rule inherits, bot and guild may require opt-in below. Glossary gained Availability rule; ADR 0005 records why availability inherits while git scope does not.
 - [x] Fog graduated into #60: who may start a playbook or call a tool.
 - [x] #54 tool groups and effects: read / write / danger, a multi-action tool takes its riskiest action, tags only describe and are rule targets, git has six groups, playbook-only tools follow their playbook, everything declared in code. Glossary gained Effect.
-- [ ] Grilling #60 who may use it, #59 git tools and batch confirmation, #56 slash command flow, #57 playbook loading playbook, #58 state of imported playbooks; prototype #55 admin UI.
+- [x] Grilling #60 who may use it, #59 git tools and batch confirmation, #56 slash command flow, #57 playbook loading playbook, #58 state of imported playbooks; #55 admin UI settled without a prototype (the #69 views suffice). Decisions are commented on each ticket (2026-10-14).
 - [x] Spec published early for track B and the level model: #61 (ready-for-agent). Test seams: the Discord scenario harness (offered tools per call) and the admin HTTP API. Track A tickets stay open on map #50.
 - [x] Tickets for spec #61 published as sub-issues with native blocking, all ready-for-agent: #62 tool catalogue (start), #63 availability tracer bullet, then #64 effect rules, #65 opt-in, #66 playbook availability, #67 Confirm re-check, #68 off-summary in the prompt, #69 admin views per bot, guild, and channel.
 - [x] Implementation of #61 on branch `feat/availability-rules` (tickets #62–#69, one implementer worktree each, #64–#67 in parallel):
@@ -732,7 +732,7 @@ Planning only for now. The decisions are worked on the wayfinder map [#50](https
   - [x] Code review (Standards + Spec) fixed on the same branch: `on`/`opt_in` beneath an `off` refused (story 20), rule writes are an atomic upsert (no 500 on concurrent PUTs on Postgres), a test pins playbook tools obeying effect rules, tenant playbook switches (story 11), one route helper and one target key, effect wording typed by `Effect`, shared web skill helpers, `@/` imports, glossary Availability rule includes the tenant, audit metadata documented (`effect`, older rows `risk`).
   - [x] Kept on purpose: brief tools are no longer offered when Workspace is off (issue-draft needs it, so they could not be used anyway); a Confirm refused because the tool is off keeps the change queued.
   - [x] Verification: `bun test` 302 pass, 0 fail. `bun run typecheck` reports only `apps/web` lines (291; the root config does not resolve the web `@/` alias, `apps/web/tsconfig.json` alone reports 0); web build passes. The PostgreSQL migration was read but not run (no local Postgres).
-- [ ] Track A of map #50 (slash commands, imported playbooks, playbook loading, state, git tools, who may use it, admin UI prototype) is still open.
+- [x] Track A collapsed into spec [#103](https://github.com/yhagus/pachiware/issues/103) together with bug #71; tickets #55–#60 and #71 closed, map #50 closed (2026-10-14). Implementation is phase 30.
 
 ## Phase 29 — Administrative assistant: time, due dates, memory, reminders, digest, filing (spec #72)
 
@@ -763,3 +763,19 @@ Harness review scored the bot 62/100 as an everyday administrative assistant (st
 - [x] Fast-forwarded into `main` and pushed; spec #72 and block issues #73–#80 closed; the feature branch was removed from the remote.
 - [ ] Hand calibration of the assistant judge (rubric 0.1), as for the issue-draft judge.
 - Target after all blocks: about 90/100; the rest depends on the tenant's model, not the harness.
+
+## Phase 30 — Playbook catalogue and slash commands (spec #103)
+
+Track A of map #50. A grilling session (2026-10-14) settled every open ticket; the spec is issue [#103](https://github.com/yhagus/pachiware/issues/103). Tickets are cut in a later session.
+
+- [x] Glossary: Playbook allows references that are only loaded; Availability rule notes playbooks that start off for the tenant; new term Playbook thread (bound to playbook, bot, and person; only that bot answers); a playbook cannot start while a loaded playbook is off.
+- [x] ADR 0007: playbook documents (glossary, decision records) and tracker state live in the target repository through one pull request per thread; the Workspace is the fallback (glossary file, Decisions). ADR 0005 notes that imported playbooks start off for the tenant.
+- [x] Decisions recorded in the spec:
+  - All commands at guild scope, one overwrite per bot per guild with slash and menus (15 menus, #71), the global list cleared once. Registered unless off at tenant, bot, or guild; channel rules, required skills, and loaded playbooks are refused privately at use. One shape `/<name> text file`. Defer, public line, playbook thread, binding with the bot id.
+  - New frontmatter: `run` (`in-place` for minutes and wait-what), `default: off`, `loads` (static, transitive to depth 3, no cycles), `closes` (replaces the hard-coded closed tools), `start: false` for references.
+  - Thirteen mattpocock/skills imported as playbooks a person can start, plus codebase-design and writing-for-agents as references; all off by default.
+  - Git: labels on create and as a filter, `repoLinkIssues`, `repoSubIssue`, batch `repoCreateIssues` and `repoUpdateIssues` (25 items, one own Confirm, resumable).
+  - Out of scope: role rules and "always confirm", web fetch (research, teach), installing from a URL, model-invoked playbooks, moving `tenant_skills`.
+- [x] #70 fixed on `main` (`5ed2aeb`): context-menu commands defer privately before the tenant and Workspace lookups and edit that reply. The scenario harness throws on a second initial response and keeps a privately deferred reply private. `bun test` 419 pass, 0 fail; `bun run typecheck` unchanged (325 pre-existing `apps/web` alias errors from the root config).
+- [x] Found while grilling: #102, plain git write tools (`repoCommitFiles`, `repoWriteFile`, `repoDeleteFile`, `repoMoveFile`) reach the default branch without the owner check.
+- [ ] Cut spec #103 into tickets.
