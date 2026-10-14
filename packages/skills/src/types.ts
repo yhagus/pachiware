@@ -115,7 +115,7 @@ export const EFFECT_MEANING: Record<Effect, string> = {
   danger: "actions that cannot be undone or that change access, security or settings, such as deleting a repository or archiving a channel",
 };
 /** What a tool needs from the context: the identifier must be present and is the only data it may touch. */
-export type SkillScope = "tenant" | "guild" | "channel" | "user" | "role";
+export type SkillScope = "tenant" | "guild" | "channel" | "user";
 
 /** Roles and Discord permission names of the person asking, read by the host from the gateway. */
 export interface MemberAuth { roleIds: string[]; permissions: string[] }
