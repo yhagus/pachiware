@@ -225,3 +225,33 @@ test("the admin skills catalogue lists the tenant's playbooks with the skills th
   assert(byName["issue-draft"] && byName["issue-draft"].requires.includes("workspace"), "built-in playbook: " + JSON.stringify(playbooks));
   assert(byName.retro && JSON.stringify(byName.retro.requires) === JSON.stringify(["task_management"]) && byName.retro.description === "Group the points", "tenant playbook: " + JSON.stringify(playbooks));
 `));
+
+test("a default-off playbook is turned on at the tenant and only then reaches the levels below", () => run(`
+  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
+  const { workspaceStore } = await imp("packages/skills/src/workspace/store.ts");
+  await workspaceStore().write(t.id, "shared/playbooks/retro/PLAYBOOK.md", '---\\nname: retro\\ntrigger: {"word": "retro"}\\ndefault: off\\n---\\nGroup the points.\\n');
+  const tenant = "/api/admin/tenants/" + t.id + "/availability", botUrl = "/api/admin/bots/" + bot.id + "/availability";
+  const retro = (body) => JSON.stringify(body.inherited.filter((e) => e.name === "retro"));
+
+  assert(retro((await call("GET", botUrl, h)).body) === JSON.stringify([{ kind: "playbook", name: "retro", available: false, off: "tenant" }]), "a bot inherits it off: " + JSON.stringify((await call("GET", botUrl, h)).body));
+  const early = await call("PUT", botUrl, h, { kind: "playbook", name: "retro", value: "opt_in" });
+  assert(early.status === 400 && /off at the tenant/.test(early.body.error), "a bot cannot opt in before the tenant turns it on: " + JSON.stringify(early.body));
+
+  const on = await call("PUT", tenant, h, { kind: "playbook", name: "retro", value: "on" });
+  assert(on.status === 200 && JSON.stringify(on.body.rules) === JSON.stringify([{ kind: "playbook", name: "retro", value: "on" }]), "tenant on: " + JSON.stringify(on.body));
+  assert(retro((await call("GET", botUrl, h)).body) === JSON.stringify([{ kind: "playbook", name: "retro", available: true }]), "a bot inherits it on: " + JSON.stringify((await call("GET", botUrl, h)).body));
+  assert((await call("PUT", botUrl, h, { kind: "playbook", name: "retro", value: "opt_in" })).status === 200, "a bot narrows it once it is on");
+  const botOn = await call("PUT", botUrl, h, { kind: "playbook", name: "retro", value: "on" });
+  assert(botOn.status === 400, "on below the tenant still needs a guild or channel: " + JSON.stringify(botOn.body));
+
+  const ordinary = await call("PUT", tenant, h, { kind: "playbook", name: "issue-draft", value: "on" });
+  assert(ordinary.status === 400 && /default: off/.test(ordinary.body.error), "tenant on for an ordinary playbook: " + JSON.stringify(ordinary.body));
+  const tool = await call("PUT", tenant, h, { kind: "tool", name: "createTask", value: "on" });
+  assert(tool.status === 400, "tenant on for a tool: " + JSON.stringify(tool.body));
+  assert(JSON.stringify((await call("GET", tenant, h)).body.rules) === JSON.stringify([{ kind: "playbook", name: "retro", value: "on" }]), "a refused rule was stored");
+
+  const playbooks = (await call("GET", "/api/admin/tenants/" + t.id + "/skills", h)).body.playbooks;
+  const byName = Object.fromEntries(playbooks.map((p) => [p.name, p]));
+  assert(byName.retro.defaultOff === true && byName["issue-draft"].defaultOff === false, "the catalogue marks default-off playbooks: " + JSON.stringify(playbooks));
+`));

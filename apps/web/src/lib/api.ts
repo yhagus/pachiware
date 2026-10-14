@@ -101,7 +101,8 @@ export type AvailabilityLevelName = "tenant" | "bot" | "guild" | "channel";
 /** What the levels above leave a target: `off` is the highest level that turns it off, `optIn` the lowest that made it opt-in. Unlisted targets are available from above. */
 export interface InheritedAvailability { kind: AvailabilityKind; name: string; available: boolean; off?: AvailabilityLevelName; optIn?: AvailabilityLevelName; }
 export interface LevelAvailability { rules: AvailabilityRule[]; inherited: InheritedAvailability[]; }
-export interface PlaybookSummary { name: string; description: string; requires: string[]; }
+/** `defaultOff`: the playbook is off for the tenant until a tenant rule says on. */
+export interface PlaybookSummary { name: string; description: string; requires: string[]; defaultOff: boolean; }
 /** One level of availability rules: the tenant, a bot, a guild of that bot, or a channel of that guild. */
 export type AvailabilityLevel = { tenantId: string } | { botId: string; guildId?: string; channelId?: string };
 const availabilityPath = (l: AvailabilityLevel) => "tenantId" in l

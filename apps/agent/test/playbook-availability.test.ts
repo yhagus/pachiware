@@ -69,3 +69,34 @@ discordScenario("a playbook's write tools obey a write effect rule while the pla
   expect(s.model.tools[0]).not.toContain("postBriefRound");
   expect(s.model.tools[0]).toContain("readPlaybookFile");
 });
+
+const RETRO = `---\nname: retro\ndescription: Group the points\ntrigger: {"word": "retro"}\ndefault: off\n---\nGroup the points.\n`;
+
+discordScenario("a default-off playbook is off everywhere with no rules and is refused with off here", async (s) => {
+  await s.workspace.write("shared/playbooks/retro/PLAYBOOK.md", RETRO);
+  const run = await s.discord.send(`${s.discord.mention} retro: login loops, slow export`);
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual([expect.stringMatching(/retro playbook is off here/)]);
+  expect(run.thread).toBeUndefined();
+  expect(s.model.calls).toEqual([]);
+});
+
+discordScenario("a default-off playbook turned on at the tenant starts everywhere a channel rule does not narrow it", async (s) => {
+  await s.workspace.write("shared/playbooks/retro/PLAYBOOK.md", RETRO);
+  await s.availability({ level: "tenant" }, { kind: "playbook", name: "retro", value: "on" });
+  await s.availability({ level: "channel", channelId: "channel-2" }, { kind: "playbook", name: "retro", value: "off" });
+  s.model.script("Grouping.");
+  const started = await s.discord.send(`${s.discord.mention} retro: login loops, slow export`);
+  expect(started.thread).toBeDefined();
+  expect(s.model.calls[0]![0]!.content).toContain("### Playbook: retro");
+
+  await s.discord.send(`${s.discord.mention} retro: login loops`, { channel: "channel-2" });
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Grouping.", expect.stringMatching(/retro playbook is off here/)]);
+  expect(s.model.calls).toHaveLength(1);
+});
+
+discordScenario("a default-off playbook no rule mentions leaves the prompt as it was", async (s) => {
+  await s.workspace.write("shared/playbooks/retro/PLAYBOOK.md", RETRO);
+  s.model.script("Hello.");
+  await s.discord.send(`${s.discord.mention} hi`);
+  expect(s.model.calls[0]![0]!.content).not.toContain("Turned off here");
+});
