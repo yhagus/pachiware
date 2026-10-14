@@ -778,4 +778,5 @@ Track A of map #50. A grilling session (2026-10-14) settled every open ticket; t
   - Out of scope: role rules and "always confirm", web fetch (research, teach), installing from a URL, model-invoked playbooks, moving `tenant_skills`.
 - [x] #70 fixed on `main` (`5ed2aeb`): context-menu commands defer privately before the tenant and Workspace lookups and edit that reply. The scenario harness throws on a second initial response and keeps a privately deferred reply private. `bun test` 419 pass, 0 fail; `bun run typecheck` unchanged (325 pre-existing `apps/web` alias errors from the root config).
 - [x] Found while grilling: #102, plain git write tools (`repoCommitFiles`, `repoWriteFile`, `repoDeleteFile`, `repoMoveFile`) reach the default branch without the owner check.
+- [x] Spec #103 finalised with `/to-spec` and labelled ready-for-agent. Two test seams: the Discord scenario harness (extended with guild command overwrites and slash interactions; it also covers the new git tools through its stubbed provider HTTP) and the admin HTTP API, plus the existing registry test.
 - [ ] Cut spec #103 into tickets.
