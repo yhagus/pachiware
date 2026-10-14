@@ -36,8 +36,8 @@ const en = {
   failed: "Unable to process this request. Check your tenant configuration.",
   // Provider errors
   providerFailed: "I couldn't reach the model provider just now. Try again in a moment.",
-  providerNoKey: (provider: string) => `No ${provider} API key is set for this tenant, so I can't answer. An admin can add one in the console.`,
-  providerNoBaseUrl: "No base URL is set for the custom provider, so I can't answer. An admin can add one in the console.",
+  providerNoKey: (provider: string) => `No ${provider} API key is set for this tenant, so I can't answer. An admin has to add the API key first.`,
+  providerNoBaseUrl: "No base URL is set for the custom provider, so I can't answer. An admin has to add the base URL first.",
   // Images
   blind: "I can't see images with this profile.",
   describeImage: "Describe the image in words and I'll work from that.",
@@ -152,8 +152,8 @@ const id: typeof en = {
   done: "Selesai.",
   failed: "Permintaan ini tidak bisa diproses. Periksa konfigurasi tenant.",
   providerFailed: "Penyedia modelnya tidak bisa saya hubungi saat ini. Coba lagi sebentar lagi.",
-  providerNoKey: (provider) => `Belum ada API key ${provider} untuk tenant ini, jadi saya belum bisa menjawab. Admin bisa menambahkannya di konsol.`,
-  providerNoBaseUrl: "Belum ada base URL untuk penyedia custom, jadi saya belum bisa menjawab. Admin bisa menambahkannya di konsol.",
+  providerNoKey: (provider) => `Belum ada API key ${provider} untuk tenant ini, jadi saya belum bisa menjawab. Admin perlu menambahkan API key-nya dulu.`,
+  providerNoBaseUrl: "Belum ada base URL untuk penyedia custom, jadi saya belum bisa menjawab. Admin perlu menambahkan base URL-nya dulu.",
   blind: "Saya tidak bisa melihat gambar dengan profil ini.",
   describeImage: "Jelaskan gambarnya dengan kata-kata, nanti saya kerjakan dari situ.",
   rejected: "Profil ini menolak gambarnya; admin bisa mematikan input gambar untuk profil ini.",
