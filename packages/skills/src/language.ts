@@ -94,6 +94,7 @@ const en = {
   wrongServer: "Playbooks run only in the servers this bot is set up for.",
   commandGone: "This command is no longer available.",
   following: (playbook: string, thread: string) => `Following the ${playbook} playbook in <#${thread}>.`,
+  started: (userId: string, playbook: string) => `<@${userId}> started the ${playbook} playbook.`,
   // Confirmations
   toolOffSinceAsked: "This tool was turned off here after you asked, so I won't run it. An admin can turn it back on in the console.",
   // Posting in another channel
@@ -205,6 +206,7 @@ const id: typeof en = {
   wrongServer: "Playbook hanya berjalan di server yang sudah disiapkan untuk bot ini.",
   commandGone: "Perintah ini sudah tidak tersedia.",
   following: (playbook, thread) => `Mengikuti playbook ${playbook} di <#${thread}>.`,
+  started: (userId, playbook) => `<@${userId}> memulai playbook ${playbook}.`,
   toolOffSinceAsked: "Tool ini dimatikan di sini setelah kamu memintanya, jadi tidak saya jalankan. Admin bisa menyalakannya lagi di konsol.",
   postNoChannel: "Channel itu tidak saya temukan di server ini.",
   postNeedView: "Kamu tidak bisa melihat channel itu, jadi tidak saya kirim ke sana.",

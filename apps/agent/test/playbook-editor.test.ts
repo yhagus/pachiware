@@ -44,7 +44,7 @@ discordScenario("a playbook override copied and edited in the editor changes the
   const edited = file.body.content.replace('"menu": "Draft issues"', '"menu": "Draft tickets"').replace(/This thread is bound[^\n]*/, "Always ask which sprint the work belongs to.");
   expect((await call("PUT", "file", { path: "shared/playbooks/issue-draft/PLAYBOOK.md", content: edited, version: file.body.version })).status).toBe(200);
   await s.settle();
-  expect(s.discord.registeredCommands.map((c) => c.name).sort()).toEqual(["Draft tickets", "Write minutes"]);
+  expect(s.discord.registeredCommands.filter((c) => c.type === 3).map((c) => c.name).sort()).toEqual(["Draft tickets", "Write minutes"]);
 
   s.model.script("Which sprint?");
   await s.discord.contextMenu("Draft tickets", await s.discord.send("- login loops on Safari"));
@@ -58,13 +58,13 @@ discordScenario("deleting a playbook override makes the built-in effective again
   await s.workspace.write("shared/playbooks/issue-draft/PLAYBOOK.md", `---\nname: issue-draft\ntrigger: {"menu": "Draft tickets", "word": "issue"}\nrequires: ["workspace"]\n---\nAlways ask which sprint the work belongs to.\n`);
   await s.workspace.write("shared/playbooks/issue-draft/refs/checklist.md", "- sprint\n");
   await s.restart();
-  expect(s.discord.registeredCommands.map((c) => c.name).sort()).toEqual(["Draft tickets", "Write minutes"]);
+  expect(s.discord.registeredCommands.filter((c) => c.type === 3).map((c) => c.name).sort()).toEqual(["Draft tickets", "Write minutes"]);
 
   expect(await call("DELETE", "playbooks/issue-draft")).toEqual({ status: 200, body: { success: true } });
   expect(await s.workspace.list("shared/playbooks")).toEqual([]);
   expect((await call("DELETE", "playbooks/issue-draft")).status).toBe(404);
   await s.settle();
-  expect(s.discord.registeredCommands.map((c) => c.name).sort()).toEqual(["Draft issues", "Write minutes"]);
+  expect(s.discord.registeredCommands.filter((c) => c.type === 3).map((c) => c.name).sort()).toEqual(["Draft issues", "Write minutes"]);
   expect((await call("GET", "tree?path=playbooks")).body.entries[0].overridden).toBe(false);
 
   s.model.script("Drafting.");
@@ -78,8 +78,8 @@ discordScenario("a tenant playbook saved or removed with the file routes updates
   const call = (method: string, path: string, body?: unknown) => app.request(`/api/admin/tenants/${s.tenant.id}/workspace/${path}`, { method, headers, body: body && JSON.stringify(body) });
   await call("PUT", "file", { path: "shared/playbooks/retro/PLAYBOOK.md", content: `---\nname: retro\ntrigger: {"menu": "Run retro"}\n---\nGroup the points.\n` });
   await s.settle();
-  expect(s.discord.registeredCommands.map((c) => c.name).sort()).toEqual(["Draft issues", "Run retro", "Write minutes"]);
+  expect(s.discord.registeredCommands.filter((c) => c.type === 3).map((c) => c.name).sort()).toEqual(["Draft issues", "Run retro", "Write minutes"]);
   await call("DELETE", "file?path=shared/playbooks/retro/PLAYBOOK.md");
   await s.settle();
-  expect(s.discord.registeredCommands.map((c) => c.name).sort()).toEqual(["Draft issues", "Write minutes"]);
+  expect(s.discord.registeredCommands.filter((c) => c.type === 3).map((c) => c.name).sort()).toEqual(["Draft issues", "Write minutes"]);
 });
