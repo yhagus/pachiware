@@ -463,11 +463,12 @@ Provider-side prompt caching only hits when the request starts with an identical
 
 - [x] `isNoise` (`discord/routing.ts`): emoji-only, custom-emoji-only and punctuation-only messages are ignored unless they carry an attachment
 - [x] Owned threads no longer answer everything: reply only on mention, reply-to-bot, or when the bot sent the previous message; skip messages that mention other users or reply to a human. Always-on channels answer everything not aimed elsewhere. DMs unchanged
-- [x] Burst coalescing in guild channels (2.5 s debounce, `BURST_MS`): one reply for a batch, speakers kept as `Name: text` lines. Threads and DMs still reply per message
+- [x] Burst coalescing in guild channels (2.5 s debounce, `BURST_MS`): one reply for a batch, speakers kept as `Name: text` lines. DMs and a thread opened by a mention on that same turn reply per message; messages in an existing thread, playbook threads included, are coalesced like channel messages
 - [x] Rate-limit hit now reacts with ⏳ instead of replying
 - [x] Tests: `conversations.test.ts` (routing, noise), `discord.test.ts` (mock updated, waits out the debounce)
 - [ ] Verify on a live server: emoji in thread, two humans talking, 5 rapid messages
-- Known limit: the "previous message is the bot's" check costs one Discord API fetch per thread message. Thread messages are not debounced, so a spammer's burst there still gets one reply per message that follows a bot message (only the first, since the next one's previous message is a human).
+- Known limit: the "previous message is the bot's" check costs one Discord API fetch per thread message. The check runs per message before the burst window, so in a shared thread a quick run of messages after a bot reply is answered for the first one only; the rest never reach the burst.
+- Decision (#29, 2026-10-14): existing threads stay debounced; the earlier note that threads reply per message was wrong, not the code. Speaking rules already drop unaddressed thread messages before the burst, so coalescing only matters where every message is answered, such as a playbook thread, where an author's answer split over several quick messages should get one reply, not one per fragment.
 
 ## Phase 16 — Git accounts for repository access
 
