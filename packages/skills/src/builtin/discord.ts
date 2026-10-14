@@ -276,7 +276,7 @@ export const discordManagementSkill: SkillModule = {
       const channelId = args.channelId?.trim().replace(/^<#([^>]+)>$/, "$1") || context.channelId;
       if (!channelId) throw new Error("Name a channel to read: this conversation is not in one.");
       if (!context.discord || !context.userId) throw new Error("Channel history can only be read from Discord.");
-      return context.discord.readChannelHistory({ channelId, requesterId: context.userId, since: args.since, limit: args.limit });
+      return context.discord.readChannelHistory({ channelId, requesterId: context.userId, since: args.since, limit: args.limit, language: context.language });
     },
   },
 };

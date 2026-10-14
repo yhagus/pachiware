@@ -49,8 +49,21 @@ discordScenario("a channel named by mention is read for someone who can read it 
   expect(refused.error).not.toContain("blue palette");
 });
 
+discordScenario("a refusal comes in the guild's configured language", async (s) => {
+  await s.guildSettings({ useThreads: false, language: "id" });
+  const { alice, bob } = s.discord;
+  const design = s.discord.channel("channel-design");
+  s.discord.history([{ content: "Let's go with the blue palette", author: alice, at: Date.now() - 600_000 }], { channel: design });
+  s.discord.deny(design, bob.id, ["ReadMessageHistory"]);
+  s.model.script({ tool: "readChannelHistory", args: { channelId: "<#channel-design>" } }, (turn) => `history: ${JSON.stringify(turn.toolResults[0])}`);
+
+  await s.discord.send(`${s.discord.mention} what was discussed in <#channel-design> this morning?`, { author: bob });
+  const refused = JSON.parse(s.discord.botMessages.at(-1)!.content.replace(/^history: /, ""));
+  expect(refused).toEqual({ error: "Kamu perlu Read Message History di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan." });
+});
+
 discordScenario("since and limit narrow the history, and the bot missing a permission or a DM is refused", async (s) => {
-  await s.guildSettings({ useThreads: false });
+  await s.guildSettings({ useThreads: false, language: "en" });
   const { alice, bob } = s.discord;
   const minute = 60_000, now = Date.now();
   s.discord.history([
