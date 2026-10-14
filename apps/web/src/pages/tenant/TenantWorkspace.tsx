@@ -24,6 +24,8 @@ export function TenantWorkspace() {
   const [open, setOpen] = useState<{ path: string; content: string; version: string; readOnly?: boolean } | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  // A save that worked but left the playbook without a slash command; it stays until another file opens.
+  const [warning, setWarning] = useState<string | null>(null);
 
   const load = useCallback(() => api.workspaceTree(tenant.id, dir).then((r) => setEntries(r.entries)).catch((e) => { toast.error(e.message); setEntries([]); }), [tenant.id, dir]);
   useEffect(() => { setEntries(null); void load(); }, [load]);
@@ -35,15 +37,16 @@ export function TenantWorkspace() {
   const playbook = inPlaybook && { name: inPlaybook[2]!, builtin: !inPlaybook[1], ofBuiltin: builtins.find((b) => crumb(b.path) === inPlaybook[2]) };
 
   const show = async (path: string) => {
-    try { const f = await api.workspaceRead(tenant.id, path); setOpen({ path, ...f }); setDraft(null); setConflict(false); } catch (e) { toast.error((e as Error).message); }
+    try { const f = await api.workspaceRead(tenant.id, path); setOpen({ path, ...f }); setDraft(null); setConflict(false); setWarning(null); } catch (e) { toast.error((e as Error).message); }
   };
   const act = async (job: () => Promise<unknown>, done: string) => { try { await job(); toast.success(done); await load(); return true; } catch (e) { toast.error((e as Error).message); return false; } };
 
   const save = async () => {
     if (!open || draft === null) return;
     try {
-      const { version } = await api.workspaceWrite(tenant.id, open.path, draft, open.version);
-      setOpen({ ...open, content: draft, version }); setDraft(null); setConflict(false); toast.success("Saved");
+      const { version, warning } = await api.workspaceWrite(tenant.id, open.path, draft, open.version);
+      setOpen({ ...open, content: draft, version }); setDraft(null); setConflict(false); setWarning(warning ?? null);
+      if (warning) toast.warning("Saved with a warning"); else toast.success("Saved");
     } catch (e) {
       const msg = (e as Error).message;
       if (/changed/i.test(msg)) setConflict(true); else toast.error(msg);
@@ -58,7 +61,11 @@ export function TenantWorkspace() {
   };
   const rename = (e: WorkspaceEntry) => {
     const name = window.prompt("New path (use / to move into another folder)", e.path);
-    if (name && name !== e.path) void act(async () => { await api.workspaceMove(tenant.id, e.path, name.trim()); if (open?.path === e.path) setOpen(null); }, "Moved");
+    if (name && name !== e.path) void act(async () => {
+      const { warning } = await api.workspaceMove(tenant.id, e.path, name.trim());
+      if (open?.path === e.path) setOpen(null);
+      if (warning) toast.warning(warning, { duration: 10000 });
+    }, "Moved");
   };
   // These change folders, so they skip act's reload of the current one.
   const copyPlaybook = async (name: string) => {
@@ -146,6 +153,7 @@ export function TenantWorkspace() {
                   <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void show(open.path)}>Reload the latest</Button><Button size="sm" variant="ghost" onClick={() => setConflict(false)}>Keep editing</Button></div>
                 </div>
               )}
+              {warning && <p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">{warning}</p>}
               {draft !== null ? (
                 <textarea aria-label={`Edit ${open.path}`} value={draft} onChange={(e) => setDraft(e.target.value)} rows={18} className="w-full rounded-md border bg-background p-3 font-mono text-sm focus-visible:outline-2 focus-visible:outline-ring" />
               ) : (

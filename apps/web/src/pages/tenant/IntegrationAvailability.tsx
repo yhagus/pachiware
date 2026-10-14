@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type AvailabilityKind, type AvailabilityLevel, type AvailabilityLevelName, type AvailabilityValue, type Guild, type InheritedAvailability, type LevelAvailability, type PlaybookSummary, type SkillTool, type TenantSkill, type ToolEffect } from "@/lib/api";
+import { api, type AvailabilityKind, type AvailabilityLevel, type AvailabilityLevelName, type AvailabilityValue, type Guild, type InheritedAvailability, type LevelAvailability, type PlaybookSummary, type SkillTool, type SlashStatus, type TenantSkill, type ToolEffect } from "@/lib/api";
 import { EFFECTS, effectCounts, sections, targetKey as key } from "@/lib/skills";
 import { useIntegration } from "@/pages/tenant/IntegrationDetail";
 
@@ -47,6 +47,15 @@ function inheritedNote(i: InheritedAvailability | undefined, level: Level): stri
   if (i.optIn && !i.available) return `Opt-in at ${WHERE[i.optIn]}: off until ${level === "guild" ? "this server or a channel" : "this channel"} turns it on.`;
   if (i.optIn) return `Opt-in at ${WHERE[i.optIn]}, turned on for this server.`;
   return null;
+}
+
+/** Why a playbook has no slash command in this server, or null when it has one (its row shows a badge) or the view is not a server's. */
+function slashNote(s: SlashStatus | undefined): string | null {
+  if (!s || s.status === "registered") return null;
+  if (s.status === "name_unusable") return "No slash command: Discord takes only names of 1 to 32 lowercase letters, digits, - or _.";
+  if (s.reason === "reference") return "No slash command: a reference that other playbooks load, never started on its own.";
+  // Off above this server already has its own note naming the level.
+  return s.level === "guild" ? "No slash command here: this server turns it off." : "No slash command here.";
 }
 
 function RuleSelect({ id, level, inherited, own, offAbove, busy, onPick, label }: { id: string; level: Level; inherited: InheritedAvailability | undefined; own: AvailabilityValue | undefined; offAbove: boolean; busy: boolean; onPick: (c: Choice) => void; label: string }) {
@@ -140,6 +149,7 @@ export function IntegrationAvailability() {
     if (o === "on" || o === "opt_in") return o;
     return i && !i.available ? "waiting" : "on";
   };
+  const slashStatus = new Map<string, SlashStatus>(state?.slash?.map((s: SlashStatus) => [s.playbook, s]));
   const skillName = (id: string) => catalogue?.skills.find((s) => s.id === id)?.name ?? id;
 
   const pick = async (kind: AvailabilityKind, name: string, c: Choice) => {
@@ -252,10 +262,12 @@ export function IntegrationAvailability() {
           </Section>
 
           {catalogue.playbooks.length > 0 && (
-            <Section title="Playbooks" hint="A playbook starts only where it and every skill it needs are on. Its tools follow it.">
+            <Section title="Playbooks" hint={`A playbook starts only where it and every skill it needs are on. Its tools follow it.${state.slash ? " The slash command badge shows it is in this server's / picker; channel rules are checked when someone uses it." : ""}`}>
               {catalogue.playbooks.map((p) => {
                 const blocked = p.requires.filter((id) => outcome("skill", id) === "off" || outcome("skill", id) === "waiting").map(skillName);
-                return <Row key={p.name} title={p.name} description={p.description} notes={[note("playbook", p.name), blocked.length > 0 && `Cannot start here: needs ${blocked.join(", ")}, which ${blocked.length === 1 ? "is" : "are"} off.`]} control={control("playbook", p.name, `${p.name} playbook`)} />;
+                const slash = slashStatus.get(p.name);
+                return <Row key={p.name} title={p.name} description={p.description} badge={slash?.status === "registered" && <Badge variant="outline" className="font-mono">/{p.name}</Badge>}
+                  notes={[note("playbook", p.name), blocked.length > 0 && `Cannot start here: needs ${blocked.join(", ")}, which ${blocked.length === 1 ? "is" : "are"} off.`, slashNote(slash)]} control={control("playbook", p.name, `${p.name} playbook`)} />;
               })}
             </Section>
           )}

@@ -1,8 +1,9 @@
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { getTenantById } from "@pachiware/db";
-import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, TENANT_PLAYBOOKS_DIR } from "@pachiware/skills";
+import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, TENANT_PLAYBOOKS_DIR, PLAYBOOK_FILE } from "@pachiware/skills";
 import { object, string } from "../validation.js";
+import { slashNameUsable } from "../../discord/commands.js";
 
 export const workspaceAdminRoutes = new Hono();
 
@@ -28,6 +29,16 @@ const changed = (tenantId: string, ...paths: string[]) => {
 };
 
 /** Runs a route for an existing tenant and turns the store's refusals into 400 and 409 answers. */
+/** A saved or moved playbook a person can start whose name Discord cannot use still works by mention and menu, but gets no slash command: say so. */
+async function slashWarning(tenantId: string, path: string) {
+  const name = new RegExp(`^${TENANT_PLAYBOOKS_DIR}/([^/]+)(/${PLAYBOOK_FILE})?$`).exec(path)?.[1];
+  const playbook = name && !slashNameUsable(name) ? await loadPlaybook(tenantId, name) : null;
+  if (!playbook?.start) return {};
+  const ways = [playbook.words.length && `by mention with ${playbook.words.map((w) => `"${w}:"`).join(" or ")}`, playbook.menu && `from the message menu "${playbook.menu}"`].filter(Boolean);
+  const still = ways.length ? `It still starts ${ways.join(" and ")}.` : "Give it a trigger word or a menu label, or rename it, so people can start it.";
+  return { warning: `${name} gets no slash command: Discord takes only names of 1 to 32 lowercase letters, digits, - or _. ${still}` };
+}
+
 const route = (job: (c: Context, tenantId: string) => Promise<Response>) => async (c: Context) => {
   const tenantId = c.req.param("id")!;
   if (!await getTenantById(tenantId)) return c.json({ error: "Tenant not found" }, 404);
@@ -68,13 +79,13 @@ workspaceAdminRoutes.put("/tenants/:id/workspace/file", route(async (c, t) => {
   if (problem) return c.json({ error: `Not saved: ${problem}.` }, 400);
   const saved = await workspaceStore().write(t, path, body.content, version);
   changed(t, path);
-  return c.json({ success: true, ...saved });
+  return c.json({ success: true, ...saved, ...await slashWarning(t, path) });
 }));
 workspaceAdminRoutes.post("/tenants/:id/workspace/move", route(async (c, t) => {
   const body = object(await c.req.json(), "body"), from = writable(body.from), to = writable(body.to);
   await workspaceStore().move(t, from, to);
   changed(t, from, to);
-  return c.json({ success: true });
+  return c.json({ success: true, ...await slashWarning(t, to) });
 }));
 workspaceAdminRoutes.delete("/tenants/:id/workspace/file", route(async (c, t) => {
   const path = writable(c.req.query("path"));
