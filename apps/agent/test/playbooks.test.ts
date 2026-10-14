@@ -101,13 +101,16 @@ discordScenario("a brief already inside a thread is followed in that thread", as
   expect(s.model.calls[1]![0]!.content).toContain("### Playbook: issue-draft");
 });
 
-discordScenario("an issue-draft thread withholds the plain repository reads and issue writes that a plain conversation offers", async (s) => {
+discordScenario("an issue-draft thread withholds the plain repository reads, issue writes, and playbook state tools that a plain conversation offers", async (s) => {
   await s.git({ repos: ["acme/api"] });
   s.model.script("Plain answer.", "Drafting.");
   await s.discord.send(`${s.discord.mention} what is our deploy day?`);
   await s.discord.send(`${s.discord.mention} issue: login loops on Safari`);
   const [plain, brief] = s.model.tools as [string[], string[]];
-  expect(plain.filter((t) => !brief.includes(t)).sort()).toEqual(["repoComments", "repoCommit", "repoCommits", "repoCompare", "repoCreateIssue", "repoIssue", "repoIssues", "repoLabels", "repoMergeRequest", "repoMergeRequestDiff", "repoMergeRequests", "repoReadFile", "repoSearchCode", "repoSetLabels"]);
+  expect(plain.filter((t) => !brief.includes(t)).sort()).toEqual([
+    "playbookRepositories", "repoComments", "repoCommit", "repoCommits", "repoCompare", "repoCreateIssue", "repoCreateIssues", "repoIssue", "repoIssues", "repoLabels",
+    "repoLinkIssues", "repoMergeRequest", "repoMergeRequestDiff", "repoMergeRequests", "repoReadFile", "repoSearchCode", "repoSetLabels", "repoSubIssue", "repoUpdateIssues", "writePlaybookDocument",
+  ]);
   expect(brief).toEqual(expect.arrayContaining(["briefRead", "createBriefIssues", "repoUpdateIssue"]));
 });
 
