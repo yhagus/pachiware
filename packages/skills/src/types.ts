@@ -70,6 +70,8 @@ export interface DiscordClientAdapter {
 
   /** Discord's member search: people whose username or nickname starts with `query`; no privileged intent. */
   listMembers(args: { query: string; limit: number }): Promise<DiscordMemberInfo[]>;
+  /** One member of the guild by user id; null when they are not in it. */
+  getMember(userId: string): Promise<DiscordMemberInfo | null>;
 
   /** Whether the bot may post in a channel and the requester may see it; "unknown" covers a channel outside this guild or a DM. */
   postAccess(channelId: string, requesterId: string): Promise<PostAccess>;
@@ -99,7 +101,7 @@ export interface ChannelHistory {
   note?: string;
 }
 
-export interface DiscordMemberInfo { id: string; displayName: string; roles: string[] }
+export interface DiscordMemberInfo { id: string; displayName: string; username?: string; roles: string[] }
 
 export interface DiscordAttachmentInfo { id: string; name: string; url: string; size: number; contentType: string | null }
 export interface DiscordMessageInfo { id: string; channelId: string; authorId: string; attachments: DiscordAttachmentInfo[] }
