@@ -8,7 +8,8 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, withLoads, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, anyRepositoryAllowed, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { guildCommands } from "./commands.js";
 import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachments.js";
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
@@ -16,9 +17,11 @@ import { llmRouter } from "../llm/router.js";
 import { MINUTES_PLAYBOOK, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
 
 const BURST_MS = 2500;
-const MESSAGE_COMMAND = 3; // ApplicationCommandType.Message
+// Admin edits often come in a run (several rules saved one after another); one registration covers them.
+const COMMANDS_MS = 2000;
 type TurnItem = { msg: Message; text: string; direct?: boolean };
-type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[] };
+/** `sentCommands` holds each guild's last overwrite as JSON, so an unchanged guild is not sent again. */
+type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[]; globalCleared: boolean; sentCommands: Map<string, string> };
 /** Who a turn acts for: the message author, or the person who ran a command on someone else's message. */
 type Actor = { id: string; name: string; member: any };
 const actorOf = (m: Message): Actor => ({ id: m.author.id, name: speakerName(m), member: m.member });
@@ -28,11 +31,19 @@ const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
 /** Where a message's availability rules come from: a thread follows its parent channel. */
 const placeOf = (tenantId: string, botId: string, m: Message) => availabilityPlace({ tenantId, botId, guildId: m.guildId ?? undefined, channelId: m.channelId, parentChannelId: m.channel.isThread() ? m.channel.parentId ?? undefined : undefined });
-/** Why the playbook cannot start where `at` was posted: it, a playbook it loads, or a skill its chain requires is off there. Null when it can start. */
+/**
+ * Why the playbook cannot start where `at` was posted: it, a playbook it loads, or a skill its chain requires is off there, or its chain
+ * needs a repository and git scope allows none. Null when it can start.
+ */
 async function playbookRefusal(tenantId: string, botId: string, playbook: Playbook, at: Message, language?: Language) {
-  const cause = (await skillRegistry.availableAt(placeOf(tenantId, botId, at))).playbookCause(playbook.name);
-  if (!cause) return null;
+  const playbooks = await listPlaybooks(tenantId);
+  const cause = (await skillRegistry.availableAt(placeOf(tenantId, botId, at), playbooks)).playbookCause(playbook.name);
   const t = textIn(language);
+  if (!cause) {
+    const parentChannelId = at.channel.isThread() ? at.channel.parentId ?? undefined : undefined;
+    const noRepository = withLoads(playbook, playbooks).repository === "required" && !await anyRepositoryAllowed({ tenantId, botId, guildId: at.guildId ?? undefined, channelId: at.channelId, parentChannelId });
+    return noRepository ? t.repositoryNone(playbook.name) : null;
+  }
   switch (cause.off) {
     case "playbook": return t.playbookOff(playbook.name);
     case "loads": return t.loadsOff(playbook.name, cause.playbook);
@@ -45,7 +56,11 @@ export class DiscordBotManager {
   private operations = new Map<string, Promise<any>>();
   private bursts = new Map<string, { items: TurnItem[]; timer: ReturnType<typeof setTimeout> }>();
   private inflight = new Set<Promise<unknown>>();
-  constructor(private burstMs = BURST_MS) { onPlaybooksChanged((tenantId) => this.refreshCommands(tenantId)); }
+  private commandTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  constructor(private burstMs = BURST_MS, private commandsMs = COMMANDS_MS) {
+    onPlaybooksChanged((tenantId) => this.refreshCommands(tenantId));
+    onAvailabilityChanged((tenantId) => this.refreshCommands(tenantId));
+  }
   private track(work: Promise<unknown>) {
     const tracked = work.catch(() => {}).finally(() => this.inflight.delete(tracked));
     this.inflight.add(tracked);
@@ -57,7 +72,7 @@ export class DiscordBotManager {
   }
   /** Resolves once no gateway event, burst, or reply is still being handled. */
   async idle() {
-    while (this.inflight.size || this.bursts.size || this.operations.size) await new Promise((r) => setTimeout(r, 5));
+    while (this.inflight.size || this.bursts.size || this.operations.size || this.commandTimers.size) await new Promise((r) => setTimeout(r, 5));
   }
 
   private serialize<T>(id: string, operation: () => Promise<T>): Promise<T> {
@@ -95,15 +110,17 @@ export class DiscordBotManager {
     const tenant = await getTenantById(bot.tenantId);
     if (!bot.isEnabled || tenant?.status !== "active") return { success: false, message: "Bot or tenant is disabled." };
     const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages], partials: [Partials.Channel, Partials.Message] });
-    const runtime: BotRuntime = { client, adapter: new DiscordJSAdapter(client, bot.guildIds[0]), tenantId: bot.tenantId, connected: false, guildIds: bot.guildIds };
+    const runtime: BotRuntime = { client, adapter: new DiscordJSAdapter(client, bot.guildIds[0]), tenantId: bot.tenantId, connected: false, guildIds: bot.guildIds, globalCleared: false, sentCommands: new Map() };
     this.clients.set(id, runtime);
     await updateBot(id, { connectionStatus: "connecting", lastError: null });
     client.once(Events.ClientReady, () => {
       if (this.clients.get(id) !== runtime) return;
       runtime.connected = true;
       void updateBot(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
-      this.track(this.serialize(`commands:${id}`, () => this.registerCommands(runtime)));
+      this.scheduleCommands(id);
     });
+    client.on(Events.GuildCreate, () => { if (runtime.connected) this.scheduleCommands(id); });
+    client.on(Events.GuildDelete, (guild) => { runtime.sentCommands.delete(guild.id); });
     client.on(Events.ShardDisconnect, () => { runtime.connected = false; void updateBot(id, { connectionStatus: "disconnected" }).catch(() => {}); });
     client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
     client.on(Events.Error, () => { void updateBot(id, { lastError: "Discord gateway error" }).catch(() => {}); });
@@ -122,15 +139,32 @@ export class DiscordBotManager {
       return { success: false, message: "Discord login failed." };
     }
   }
-  /** Re-registers the commands of every running bot of the tenant, so an edited playbook needs no restart. */
+  /** Re-registers the commands of every running bot of the tenant, so an edited playbook or rule needs no restart. */
   refreshCommands(tenantId: string) {
-    for (const [id, runtime] of this.clients) if (runtime.tenantId === tenantId && runtime.connected) this.track(this.serialize(`commands:${id}`, () => this.registerCommands(runtime)));
+    for (const [id, runtime] of this.clients) if (runtime.tenantId === tenantId && runtime.connected) this.scheduleCommands(id);
   }
-  /** One message context-menu command per playbook that names one; capped at five until commands move to guild scope (#71). */
-  private async registerCommands(runtime: BotRuntime) {
-    if (!runtime.client.application || ![...this.clients.values()].includes(runtime)) return;
-    const menus = [...new Set((await listPlaybooks(runtime.tenantId)).map((p) => p.menu).filter((m): m is string => !!m))].slice(0, 5);
-    await runtime.client.application.commands.set(menus.map((name) => ({ name, type: MESSAGE_COMMAND })));
+  /** Debounced: changes that arrive while a registration is waiting join it. */
+  private scheduleCommands(id: string) {
+    if (this.commandTimers.has(id)) return;
+    this.commandTimers.set(id, setTimeout(() => {
+      this.commandTimers.delete(id);
+      const runtime = this.clients.get(id);
+      if (runtime) this.track(this.serialize(`commands:${id}`, () => this.registerCommands(id, runtime)));
+    }, this.commandsMs));
+  }
+  /** One bulk overwrite per guild the bot is in, sent only when that guild's list changed; the global list, left by older versions, is emptied once. */
+  private async registerCommands(botId: string, runtime: BotRuntime) {
+    const application = runtime.client.application;
+    if (!application || this.clients.get(botId) !== runtime) return;
+    if (!runtime.globalCleared) await application.commands.set([]).then(() => { runtime.globalCleared = true; }, () => {});
+    const playbooks = await listPlaybooks(runtime.tenantId);
+    for (const guildId of runtime.client.guilds.cache.keys()) {
+      const commands = await guildCommands({ tenantId: runtime.tenantId, botId, guildId }, playbooks);
+      const sent = JSON.stringify(commands);
+      if (runtime.sentCommands.get(guildId) === sent) continue;
+      // One guild refusing (no applications.commands scope there) must not keep the others from their commands.
+      try { await application.commands.set(commands, guildId); runtime.sentCommands.set(guildId, sent); } catch {}
+    }
   }
   static async testToken(token: string) {
     if (!token) return { success: false, error: "Bot token is empty." };
@@ -151,6 +185,8 @@ export class DiscordBotManager {
     const channelId0 = msg.channelId;
     const parentId = msg.channel.isThread() ? msg.channel.parentId : null;
     const bound = msg.guildId && parentId ? await boundPlaybook(runtime.tenantId, { guildId: msg.guildId, channelId: parentId, threadId: channelId0 }) : null;
+    // A playbook thread is its starting bot's alone; a binding from before bots were recorded is open to any.
+    if (bound?.binding.botId && bound.binding.botId !== botId) return;
     // A playbook no longer available here, or one its chain loads, ends its thread's binding; the message that finds out gets the one note instead of an answer.
     if (bound && (await skillRegistry.availableAt(placeOf(runtime.tenantId, botId, msg))).playbookCause(bound.playbook.name)) {
       const ended = await rewriteBinding(runtime.tenantId, bindingPlace(bound.binding), ({ binding }) => binding.status === "active" ? { binding: { ...binding, status: "cancelled" as const }, value: true } : null).catch(() => null);
@@ -301,7 +337,7 @@ export class DiscordBotManager {
     const place = { guildId: source.guildId, channelId: thread.parentId, threadId: thread.id };
     const previous = await readBinding(runtime.tenantId, place).catch(() => null);
     if (previous?.binding.status === "active") return { error: t.alreadyBound(previous.binding.playbook) };
-    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, authorName: actor.name, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: today().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
+    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, authorName: actor.name, botId, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: today().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
     if (!saved) return { error: t.notSaved };
     return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, [{ msg: source, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
   }
@@ -329,8 +365,9 @@ export class DiscordBotManager {
       const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
       const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
+      const repository = opts.binding && threadRepositoryOf(opts.binding);
       const chained = opts.playbook && withLoads(opts.playbook, await listPlaybooks(runtime.tenantId));
-      const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes };
+      const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes, ...(repository ? { repository } : {}) };
       const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId), language);
       // The brief's author still gets a round: it asks them to describe the screenshot.
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);

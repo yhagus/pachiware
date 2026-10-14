@@ -6,12 +6,12 @@ export const GIT_GROUPS = ["Browse", "Issues & PRs", "Code", "CI", "Repo admin",
 const R: Effect = "read", W: Effect = "write", D: Effect = "danger";
 // [effect, group] per tool. The effect describes the tool for the admin and availability rules; who may ask and Confirm stay in gitShared.guard.
 const declared: Record<string, [Effect, string]> = {
-  gitAccounts: [R, "Browse"], repoList: [R, "Browse"], repoBranches: [R, "Browse"], repoCommits: [R, "Browse"], repoCommit: [R, "Browse"], repoCompare: [R, "Browse"],
+  gitAccounts: [R, "Browse"], playbookRepositories: [R, "Browse"], repoList: [R, "Browse"], repoBranches: [R, "Browse"], repoCommits: [R, "Browse"], repoCommit: [R, "Browse"], repoCompare: [R, "Browse"],
   repoReadFile: [R, "Browse"], repoSearchCode: [R, "Browse"], repoTags: [R, "Browse"], repoReleases: [R, "Browse"], repoStats: [R, "Browse"], repoNotifications: [R, "Browse"],
 
   repoIssues: [R, "Issues & PRs"], repoIssue: [R, "Issues & PRs"], repoComments: [R, "Issues & PRs"], repoLabels: [R, "Issues & PRs"],
   repoMergeRequests: [R, "Issues & PRs"], repoMergeRequest: [R, "Issues & PRs"], repoMergeRequestDiff: [R, "Issues & PRs"],
-  repoCreateIssue: [W, "Issues & PRs"], repoUpdateIssue: [W, "Issues & PRs"], repoComment: [W, "Issues & PRs"], repoEditComment: [W, "Issues & PRs"],
+  repoCreateIssue: [W, "Issues & PRs"], repoLinkIssues: [W, "Issues & PRs"], repoSubIssue: [W, "Issues & PRs"], repoUpdateIssue: [W, "Issues & PRs"], repoComment: [W, "Issues & PRs"], repoEditComment: [W, "Issues & PRs"],
   repoCloseItem: [W, "Issues & PRs"], repoReopenItem: [W, "Issues & PRs"], repoAssign: [W, "Issues & PRs"], repoSetLabels: [W, "Issues & PRs"], repoLockItem: [W, "Issues & PRs"],
   repoOpenPullRequest: [W, "Issues & PRs"], repoUpdateMergeRequest: [W, "Issues & PRs"], repoReviewMergeRequest: [W, "Issues & PRs"], repoRequestReviewers: [W, "Issues & PRs"],
   repoRebaseMergeRequest: [W, "Issues & PRs"], repoMergeMergeRequest: [W, "Issues & PRs"], repoDeleteComment: [D, "Issues & PRs"],

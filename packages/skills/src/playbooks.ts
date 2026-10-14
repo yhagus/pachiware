@@ -25,6 +25,8 @@ export interface Playbook {
   loads: string[];
   /** False for a reference: no menu or trigger word, so it is only ever loaded by another playbook. */
   start: boolean;
+  /** `repository: required`: the playbook cannot start where git scope allows no repository (ADR 0007). */
+  repository?: "required";
   body: string;
   source: "builtin" | "tenant";
 }
@@ -61,6 +63,7 @@ export function parsePlaybook(name: string, text: string, source: Playbook["sour
     description: typeof f.description === "string" ? f.description : "",
     words: start ? list(trigger.word ?? trigger.words).map((w) => w.toLowerCase()).filter((w) => WORD.test(w)) : [],
     requires: list(f.requires), optional: list(f.optional), closes: list(f.closes), loads: list(f.loads),
+    ...(f.repository === "required" ? { repository: "required" as const } : {}),
   };
 }
 
@@ -108,7 +111,7 @@ export async function playbookSaveProblem(tenantId: string, path: string, conten
   return null;
 }
 
-/** The started playbook with its chain folded in: the loaded bodies after its own, and requires, optional and closes combined. A broken chain leaves it as it is; the availability check refuses it anyway. */
+/** The started playbook with its chain folded in: the loaded bodies after its own, and requires, optional, closes and a required repository combined. A broken chain leaves it as it is; the availability check refuses it anyway. */
 export function withLoads(playbook: Playbook, all: Playbook[]): Playbook {
   const found = playbookChain(playbook, all);
   if ("problem" in found || found.chain.length < 2) return playbook;
@@ -116,6 +119,7 @@ export function withLoads(playbook: Playbook, all: Playbook[]): Playbook {
   const union = (key: "requires" | "optional" | "closes") => [...new Set(chain.flatMap((p) => p[key]))];
   return {
     ...playbook, requires: union("requires"), optional: union("optional"), closes: union("closes"),
+    ...(chain.some((p) => p.repository === "required") ? { repository: "required" as const } : {}),
     body: [playbook.body, ...chain.slice(1).map((p) => `#### Loaded playbook: ${p.name}\n\n${p.body}`)].join("\n\n"),
   };
 }
@@ -210,6 +214,8 @@ export interface PlaybookBinding {
   channelId: string;
   threadId: string;
   authorId: string;
+  /** The bot that started the thread and alone answers in it; absent on bindings written before it was recorded. */
+  botId?: string;
   sourceMessageId: string;
   startedAt: string;
   [field: string]: unknown;

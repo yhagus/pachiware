@@ -48,6 +48,11 @@ export interface OffSummary { skills: string[]; effects: Effect[]; someToolsOff:
 
 export class AvailabilityError extends Error {}
 
+const changeListeners = new Set<(tenantId: string) => void>();
+/** Called with the tenant id when a rule above the channel level or a tenant skill switch changes; returns the unsubscribe function. */
+export function onAvailabilityChanged(listener: (tenantId: string) => void) { changeListeners.add(listener); return () => changeListeners.delete(listener); }
+export function availabilityChanged(tenantId: string) { for (const listener of changeListeners) listener(tenantId); }
+
 /** The place of a tool context or a turn: a thread's rules are its parent channel's. */
 export function availabilityPlace(ctx: { tenantId: string; botId?: string; guildId?: string; channelId?: string; parentChannelId?: string }): Place {
   return { tenantId: ctx.tenantId, botId: ctx.botId, guildId: ctx.guildId, channelId: ctx.parentChannelId || ctx.channelId };
@@ -104,10 +109,12 @@ export async function setAvailabilityRule(key: LevelKey, rule: AvailabilityRule,
   const updatedAt = new Date();
   const inserted = await db.insert(availabilityRules).values({ tenantId: key.tenantId, level: key.level, ...keyColumns(key), targetKind: rule.kind, targetName: rule.name, value: rule.value, updatedAt }).onConflictDoNothing().returning();
   if (!inserted.length) await db.update(availabilityRules).set({ value: rule.value, updatedAt }).where(and(whereKey(key), eq(availabilityRules.targetKind, rule.kind), eq(availabilityRules.targetName, rule.name)));
+  if (key.level !== "channel") availabilityChanged(key.tenantId);
 }
 
 export async function clearAvailabilityRule(key: LevelKey, target: { kind: string; name: string }): Promise<boolean> {
   const gone = await db.delete(availabilityRules).where(and(whereKey(key), eq(availabilityRules.targetKind, target.kind), eq(availabilityRules.targetName, target.name))).returning();
+  if (gone.length && key.level !== "channel") availabilityChanged(key.tenantId);
   return gone.length > 0;
 }
 
@@ -144,6 +151,12 @@ function allows(levels: LevelRules[], kind: TargetKind, name: string): boolean {
   if (values.includes("off")) return false;
   const optIn = values.lastIndexOf("opt_in");
   return optIn < 0 || values.slice(optIn + 1).includes("on");
+}
+
+/** The playbooks no rule turns off at the tenant, the bot, or this guild: what the guild's command list offers. An opt_in counts, since a channel below can say on; channel rules and skills are checked at use. */
+export async function playbooksListedIn(place: { tenantId: string; botId: string; guildId: string }, names: string[]): Promise<string[]> {
+  const levels = (await rulesAt(place)).slice(0, AVAILABILITY_LEVELS.indexOf("channel"));
+  return names.filter((name) => !levels.some((rules) => valueAt(rules, { kind: "playbook", name }) === "off"));
 }
 
 /** What is available at a place. `skills` are the skills the tenant has switched on, `playbooks` the tenant's playbooks. */

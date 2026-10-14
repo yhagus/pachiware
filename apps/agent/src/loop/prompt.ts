@@ -44,7 +44,7 @@ export interface PromptContext {
   /** Set when channelId is a thread: the channel whose Workspace folder it uses. */
   skillContext?: { parentChannelId?: string };
   /** The playbook this thread is bound to. Its body joins the cached prefix, which stays stable because the binding lasts for the thread. */
-  playbook?: { name: string; body: string; closes?: string[] };
+  playbook?: { name: string; body: string; closes?: string[]; /** Chosen in the playbook thread, once there is one. */ repository?: { repo: string; account: string } };
   /** What availability rules turn off where the message came from. It changes only when an admin changes a rule, so it may sit in the cached prompt. */
   off?: OffSummary;
   /** The zone of the place the message came from (the guild's, else the tenant's); only the per-turn context reads it. */
@@ -137,7 +137,7 @@ ${hasGit ? `- Git tools (repo*, gitAccounts) act on repositories the admins enab
     if (context.playbook) promptSections.push(`### Playbook: ${context.playbook.name}
 Follow these steps in this thread. When a step points at a reference file, read it with readPlaybookFile.
 
-${context.playbook.body}`);
+${context.playbook.body}${context.playbook.repository ? `\n\nThis thread's repository: ${context.playbook.repository.repo} (git account ${context.playbook.repository.account}).` : ""}`);
 
     // 5. Active Skills Summary
     const toolNames = activeTools.map((t) => `\`${t.name}\``).join(", ");

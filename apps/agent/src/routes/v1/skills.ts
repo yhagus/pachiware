@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { object } from "../validation.js";
 import { db, skills, tenantSkills, seedTenant } from "@pachiware/db";
 import { and, eq } from "drizzle-orm";
-import { skillRegistry } from "@pachiware/skills";
+import { skillRegistry, availabilityChanged } from "@pachiware/skills";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 export const skillRoutes = new Hono<TenantEnv>();
@@ -17,6 +17,7 @@ skillRoutes.patch("/:id/toggle", async (c) => {
   if (!current) return c.json({ error: "Skill not found" }, 404);
   const [state] = await db.update(tenantSkills).set({ isEnabled: !current.isEnabled, updatedAt: new Date() }).where(where).returning();
   await CacheService.del(tenantKey(c.get("tenantId"), "skills:active"));
+  availabilityChanged(c.get("tenantId"));
   return c.json({ success: true, message: "Skill updated.", skill: { ...state, id: state.skillId } });
 });
 skillRoutes.put("/:id", async (c) => {
