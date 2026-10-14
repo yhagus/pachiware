@@ -81,17 +81,21 @@ discordScenario("a file attached to a slash start reaches the playbook's first t
   expect(line.thread!.name).toBe("issue-draft");
 });
 
-discordScenario("a mention with a playbook's name starts it like its trigger word, and a tenant playbook with no word gets a slash command", async (s) => {
+discordScenario("a mention with a playbook's name starts it like its trigger word, a tenant playbook with no word gets a slash command, and a reference gets neither", async (s) => {
   await s.workspace.write("shared/playbooks/retro/PLAYBOOK.md", `---\nname: retro\ndescription: Collects a retrospective\nrequires: workspace\n---\nGroup the points into went well, went badly, and try next.\n`);
+  await s.workspace.write("shared/playbooks/house-style/PLAYBOOK.md", `---\nname: house-style\ndescription: How we write\nstart: false\n---\nShort sentences.\n`);
   await s.restart();
   expect(s.discord.registeredCommands.filter((c) => c.type === 1).map((c) => [c.name, c.description])).toEqual([["issue-draft", expect.any(String)], ["minutes", expect.any(String)], ["retro", "Collects a retrospective"]]);
 
-  s.model.script("Grouping.", "Drafting.");
+  s.model.script("Grouping.", "Drafting.", "Plain answer.");
   const retro = await s.discord.send(`${s.discord.mention} retro: standups ran long`);
   const draft = await s.discord.send(`${s.discord.mention} issue-draft: login loops on Safari`);
+  const reference = await s.discord.send(`${s.discord.mention} house-style: tighten this`);
 
   expect(retro.thread).toBeDefined();
   expect(draft.thread).toBeDefined();
+  expect(s.model.calls[2]![0]!.content).not.toContain("Short sentences.");
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/threads")).not.toContain(`guilds/guild-1/channels/channel-1/threads/${reference.thread?.id}.md`);
   expect(s.model.calls[0]![0]!.content).toContain("Group the points into went well, went badly, and try next.");
   expect(s.model.calls[1]![0]!.content).toContain("### Playbook: issue-draft");
 });

@@ -13,9 +13,6 @@ const SLASH_NAME = /^[a-z0-9_-]{1,32}$/;
 type Option = { type: number; name: string; description: string; maxLength?: number };
 export type CommandData = { name: string; type: number; description?: string; options?: Option[] };
 
-/** A reference playbook (`start: false`, from #108) is loaded by others and never started by a person. */
-export const startable = (playbook: Playbook) => (playbook as { start?: unknown }).start !== false;
-
 const slashCommand = (playbook: Playbook): CommandData => ({
   name: playbook.name, type: SLASH_COMMAND,
   description: (playbook.description.trim() || `Start the ${playbook.name} playbook`).slice(0, 100),
@@ -31,7 +28,7 @@ const slashCommand = (playbook: Playbook): CommandData => ({
  */
 export async function guildCommands(place: { tenantId: string; botId: string; guildId: string }, playbooks: Playbook[]): Promise<CommandData[]> {
   const listed = new Set(await playbooksListedIn(place, playbooks));
-  const offered = playbooks.filter((p) => listed.has(p.name) && startable(p));
+  const offered = playbooks.filter((p) => listed.has(p.name) && p.start);
   const menus = [...new Set(offered.map((p) => p.menu).filter((m): m is string => !!m))].slice(0, MENU_LIMIT);
   return [...offered.filter((p) => SLASH_NAME.test(p.name)).map(slashCommand), ...menus.map((name) => ({ name, type: MESSAGE_COMMAND }))];
 }

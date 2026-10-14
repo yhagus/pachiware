@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, skills, tenantSkills, seedTenant, getTenantById, eq } from "@pachiware/db";
 import { and } from "drizzle-orm";
-import { skillRegistry, listPlaybooks, availabilityChanged } from "@pachiware/skills";
+import { skillRegistry, listPlaybooks, playbookChain, availabilityChanged } from "@pachiware/skills";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 import { availabilityRoutes } from "../availability.js";
 
@@ -18,9 +18,19 @@ skillAdminRoutes.get("/tenants/:id/skills", async (c) => {
     const { groups = [], tools = [] } = code.get(s.id) ?? {};
     return { id: s.id, name: s.name, description: s.description, groups, tools, toolCount: tools.length, isEnabled: state.isEnabled };
   }).sort((a: any, b: any) => a.name.localeCompare(b.name)),
-  // Playbooks are availability targets too: built-in and the tenant's own, each with the skills it requires and whether it starts off.
-  playbooks: (await listPlaybooks(id)).map((p) => ({ name: p.name, description: p.description, requires: p.requires, defaultOff: p.defaultOff })) });
+  playbooks: await playbookSummaries(id) });
 });
+/**
+ * Playbooks are availability targets too: built-in and the tenant's own, each with the skills it requires, whether it starts off,
+ * what it loads (`chain` is every playbook a start brings in), and why it cannot start for the tenant, or null.
+ */
+async function playbookSummaries(tenantId: string) {
+  const playbooks = await listPlaybooks(tenantId), available = await skillRegistry.availableAt({ tenantId }, playbooks);
+  return playbooks.map((p) => {
+    const found = playbookChain(p, playbooks);
+    return { name: p.name, description: p.description, requires: p.requires, defaultOff: p.defaultOff, loads: p.loads, chain: "chain" in found ? found.chain.slice(1) : [], start: p.start, cause: available.playbookCause(p.name) };
+  });
+}
 skillAdminRoutes.patch("/tenants/:id/skills/:skillId", async (c) => {
   const body = await c.req.json().catch(() => null);
   if (typeof body?.isEnabled !== "boolean") return c.json({ error: "isEnabled must be a boolean" }, 400);

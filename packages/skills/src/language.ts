@@ -85,6 +85,8 @@ const en = {
   // Playbooks
   skillsOff: (playbook: string, names: string[]) => `The ${playbook} playbook needs the ${list(names, "and")} skill${names.length > 1 ? "s" : ""}, which ${names.length > 1 ? "are" : "is"} off here. An admin can turn ${names.length > 1 ? "them" : "it"} on in the console.`,
   playbookOff: (playbook: string) => `The ${playbook} playbook is off here. An admin can turn it on in the console.`,
+  loadsOff: (playbook: string, loaded: string) => `The ${playbook} playbook loads ${loaded}, which is off here. An admin can turn it on in the console.`,
+  chainBroken: (playbook: string, problem: string) => `The ${playbook} playbook cannot start: it ${problem}. An admin can fix it in the console.`,
   repositoryNone: (playbook: string) => `The ${playbook} playbook needs a repository, and git scope allows none here. An admin can open one in the console under the server's git access.`,
   playbookEnded: (playbook: string) => `-# The ${playbook} playbook is no longer available here, so this thread stops following it. Messages here are ordinary chat from now on.`,
   noThread: "I couldn't open a thread for this message. Check that I can create threads in this channel.",
@@ -197,6 +199,8 @@ const id: typeof en = {
   batchDone: (count) => `${count} issue dibuat. Tautannya ada di thread.`,
   skillsOff: (playbook, names) => `Playbook ${playbook} butuh skill ${list(names, "dan")}, yang sedang mati di sini. Admin bisa menyalakannya di konsol.`,
   playbookOff: (playbook) => `Playbook ${playbook} sedang mati di sini. Admin bisa menyalakannya di konsol.`,
+  loadsOff: (playbook, loaded) => `Playbook ${playbook} memuat ${loaded}, yang sedang mati di sini. Admin bisa menyalakannya di konsol.`,
+  chainBroken: (playbook, problem) => `Playbook ${playbook} tidak bisa dimulai: rantai muatannya rusak (${problem}). Admin bisa memperbaikinya di konsol.`,
   repositoryNone: (playbook) => `Playbook ${playbook} butuh repositori, dan git scope tidak mengizinkan satu pun di sini. Admin bisa membukanya di konsol, di akses git server.`,
   playbookEnded: (playbook) => `-# Playbook ${playbook} tidak lagi tersedia di sini, jadi thread ini berhenti mengikutinya. Pesan di sini kini jadi obrolan biasa.`,
   noThread: "Saya tidak bisa membuka thread untuk pesan ini. Pastikan saya boleh membuat thread di channel ini.",
