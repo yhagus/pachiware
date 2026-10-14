@@ -1,10 +1,14 @@
-import type { SkillModule, SkillContext, DiscordClientAdapter, FoundChannel } from "../types.js";
-import { safeId, visibleRoots } from "../workspace/paths.js";
+import type { SkillModule, SkillContext, FoundChannel } from "../types.js";
+import { visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
-import { ambiguousAssignee, assigneeFilter, assigneeLabel, linkAssignee, nameOnlyNote, parseAssignee, renderAssignee, resolveAssignee, isAssignee, type Assignee } from "./assignee.js";
-import { checklistSuffix, checklistOf, checklistLine, tickItem } from "./checklist.js";
-import { DEFAULT_TIMEZONE, now, offsetText, today, wallClock, zoneOffset, zonedTime } from "../clock.js";
+import { ambiguousAssignee, assigneeFilter, assigneeLabel, nameOnlyNote, resolveAssignee } from "./assignee.js";
+import { checklistOf, checklistLine, tickItem } from "./checklist.js";
+import { noteLine, progressNote } from "./progressNotes.js";
+import { PRIORITIES, STATUSES, dueAtArg, dueBound, dueMoment, isLate, isOpen, loadTasks, parseTask, readInFull, render, slug, taskLine, type Found, type Task, type TaskPriority, type TaskStatus } from "./taskFile.js";
+import { findProject, linkHeld, mustHold, personalTasksOf, taskChannelOf } from "./taskAccess.js";
+import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, groupTasks, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
+import { DEFAULT_TIMEZONE, now, today } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
 
@@ -176,25 +180,23 @@ export const taskManagementSkill: SkillModule = {
     },
   ],
   handlers: {
-    createTask: async (args: { title: string; description?: string; priority?: Priority; assignedTo?: string; channel?: string; dueAt?: string | null; discordChannelId?: string }, asker: SkillContext) => {
+    createTask: async (args: { title: string; description?: string; priority?: TaskPriority; assignedTo?: string; channel?: string; dueAt?: string | null; discordChannelId?: string }, asker: SkillContext) => {
       checkTitle(args.title);
       if (args.priority !== undefined && !PRIORITIES.includes(args.priority)) throw new Error("Invalid task priority");
       const dueAt = dueAtArg(args.dueAt, zoneOf(asker));
       const ctx = typeof args.channel === "string" && args.channel.trim() ? await filingPlace(asker, args.channel) : asker;
       const who = typeof args.assignedTo === "string" && args.assignedTo.trim() ? await resolveAssignee(args.assignedTo, ctx) : null;
       if (who && "candidates" in who) return ambiguousAssignee(args.assignedTo!, who.candidates);
-      const roots = visibleRoots(ctx), home = roots.channel ?? roots.dm ?? roots.tenant!;
-      if (who && !who.nameOnly) await mustHold(ctx, `${home}/tasks/`, who.assignee);
+      const home = taskHome(ctx);
+      if (who && !who.nameOnly) await mustHold(ctx, `${home}/`, who.assignee);
       const at = today().toISOString(), id = crypto.randomUUID();
       const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: who?.assignee ?? null, dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at };
-      await workspaceStore().write(ctx.tenantId, `${home}/tasks/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
-      await labelFolder(ctx, roots.channel ? "channel" : roots.guild ? "guild" : roots.dm ? "dm" : "");
-      if (roots.channel) await labelFolder(ctx, "guild");
-      try { if (!(await workspaceStore().read(ctx.tenantId, `${home}/tasks/.name`))) await workspaceStore().write(ctx.tenantId, `${home}/tasks/.name`, "Tasks"); } catch {}
+      await workspaceStore().write(ctx.tenantId, `${home}/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
+      await labelTaskFolder(ctx);
       return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.${who?.nameOnly ? nameOnlyNote(who.assignee, ctx) : ""}`, task };
     },
 
-    listTasks: async (args: { scope?: Scope; status?: Status | "all"; assignedTo?: string; query?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
+    listTasks: async (args: { scope?: Scope; status?: TaskStatus | "all"; assignedTo?: string; query?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
       if (args.scope !== undefined && args.scope !== null && !SCOPES.includes(args.scope)) throw new Error(`Invalid scope "${String(args.scope).slice(0, 40)}": use here, mine, or delegated`);
       const scope: Scope = args.scope ?? "here";
       const limit = Math.min(100, Math.max(1, Number(args.limit) || 20)), zone = zoneOf(ctx), at = now();
@@ -223,7 +225,7 @@ export const taskManagementSkill: SkillModule = {
       return { total: shown.length, tasks: shown.map((x, i) => ({ ...x.t, late: x.late, line: taskLine(full[i]!, zone, at) })) };
     },
 
-    updateTaskStatus: async (args: { taskId: string; status: Status; reason?: string | null }, ctx: SkillContext) => {
+    updateTaskStatus: async (args: { taskId: string; status: TaskStatus; reason?: string | null }, ctx: SkillContext) => {
       if (!STATUSES.includes(args.status)) throw new Error("Invalid task status");
       const reason = args.status === "cancelled" && typeof args.reason === "string" && args.reason.trim() ? progressNote(ctx, `Cancelled: ${args.reason}`) : null;
       const updated = await change(ctx, args.taskId, (t) => ({ ...t, status: args.status, ...(reason && { notes: [...(t.notes ?? []), reason] }) }));
@@ -247,7 +249,7 @@ export const taskManagementSkill: SkillModule = {
       return { success: true, message: dueAt ? `Task "${updated.title}" is due ${dueAt}.` : `Task "${updated.title}" has no due date now.`, task: updated };
     },
 
-    editTask: async (args: { taskId: string; title?: string; description?: string | null; priority?: Priority }, ctx: SkillContext) => {
+    editTask: async (args: { taskId: string; title?: string; description?: string | null; priority?: TaskPriority }, ctx: SkillContext) => {
       if (args.title === undefined && args.description === undefined && args.priority === undefined) throw new Error("Give a new title, description, or priority");
       if (args.title !== undefined) checkTitle(args.title);
       if (args.priority !== undefined && !PRIORITIES.includes(args.priority)) throw new Error("Invalid task priority");
@@ -267,7 +269,7 @@ export const taskManagementSkill: SkillModule = {
     },
 
     showTask: async (args: { taskId: string }, ctx: SkillContext) => {
-      const task = await readTask(ctx, args.taskId), notes = task.notes ?? [];
+      const { task } = await findTask(ctx, args.taskId), notes = task.notes ?? [];
       return { task: taskLine(task, zoneOf(ctx)), description: task.description, checklist: checklistOf(task.description).map((item, i) => checklistLine(item, i + 1)), notes: notes.slice(-LATEST_NOTES).map(noteLine), olderNotes: Math.max(0, notes.length - LATEST_NOTES) };
     },
 
@@ -304,233 +306,20 @@ function checkTitle(title: unknown): asserts title is string {
   if (title.length > 200) throw new Error("Task title is too long (max 200 characters)");
 }
 
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/, DATE_TIME = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:\d{2})?$/;
 const zoneOf = (ctx: Pick<SkillContext, "timezone">) => ctx.timezone ?? DEFAULT_TIMEZONE;
 
-/** A due date as the file stores it: a date, or a date-time with its offset. A date-time without an offset is read in `timeZone`. Null when `value` is not a real date or time. */
-export function normalizeDueAt(value: unknown, timeZone: string): string | null {
-  if (typeof value !== "string") return null;
-  const v = value.trim();
-  if (DATE_ONLY.test(v)) return zonedTime("UTC", `${v}T00:00`) === null ? null : v;
-  const m = DATE_TIME.exec(v);
-  if (!m) return null;
-  const wall = `${m[1]}T${m[2]}:${m[3] ?? "00"}`;
-  if (m[4]) return zonedTime("UTC", wall) === null ? null : `${wall}${m[4]}`;
-  const at = zonedTime(timeZone, wall);
-  return at === null ? null : `${wall}${offsetText(zoneOffset(timeZone, at))}`;
-}
-function dueAtArg(value: unknown, timeZone: string): string | null {
-  if (value === undefined || value === null || value === "") return null;
-  const dueAt = normalizeDueAt(value, timeZone);
-  if (dueAt === null) throw new Error(`Invalid due date "${String(value).slice(0, 40)}": use YYYY-MM-DD, or a date-time such as 2026-03-06T15:00`);
-  return dueAt;
-}
-/** The last instant a task is on time: the end of the day in `timeZone` for a date, the exact time otherwise. Null without a due date. */
-export function dueMoment(dueAt: string | null | undefined, timeZone: string): number | null {
-  if (!dueAt) return null;
-  if (DATE_ONLY.test(dueAt)) { const end = zonedTime(timeZone, `${dueAt}T23:59:59`); return end === null ? null : end + 999; }
-  const m = DATE_TIME.exec(dueAt);
-  if (!m) return null;
-  if (m[4]) { const t = Date.parse(`${m[1]}T${m[2]}:${m[3] ?? "00"}${m[4]}`); return Number.isNaN(t) ? null : t; }
-  return zonedTime(timeZone, `${m[1]}T${m[2]}:${m[3] ?? "00"}`);
-}
-function dueBound(value: unknown, timeZone: string, edge: "start" | "end"): number | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  const dueAt = normalizeDueAt(value, timeZone);
-  if (dueAt === null) throw new Error(`Invalid ${edge === "start" ? "dueAfter" : "dueBefore"} "${String(value).slice(0, 40)}": use YYYY-MM-DD or a date-time`);
-  return (edge === "start" && DATE_ONLY.test(dueAt) ? zonedTime(timeZone, `${dueAt}T00:00`) : dueMoment(dueAt, timeZone))!;
-}
-/** Open: still to be done, so neither completed nor cancelled. Only open tasks are active, late, in the turn context, or in the Digest. */
-export const isOpen = (task: Pick<Task, "status">): boolean => task.status !== "completed" && task.status !== "cancelled";
-/** Late: open and past its due moment. */
-export const isLate = (task: Pick<Task, "dueAt" | "status">, timeZone: string, at = now()): boolean => { const due = dueMoment(task.dueAt, timeZone); return isOpen(task) && due !== null && at > due; };
-/** The one-line task format every task list shares: status, due, assignee, id prefix, title, and the checklist progress such as ` (2/5)` when the description has one (a task from `loadTasks` needs `readInFull` first). */
-export const taskLine = (t: Task, timeZone: string, at = now()) => `${t.status} | ${t.dueAt ? `due ${t.dueAt}${isLate(t, timeZone, at) ? ", late" : ""}` : "no due date"} | ${assigneeLabel(t.assignedTo)} | ${t.id.slice(0, 8)} | ${t.title}${checklistSuffix(t.description)}`;
-
-export const STATUSES = ["pending", "in_progress", "completed", "cancelled"] as const;
-export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
-type Status = (typeof STATUSES)[number];
-type Priority = (typeof PRIORITIES)[number];
-export interface Task { id: string; title: string; description: string | null; status: Status; priority: Priority; assignedTo: Assignee | null; dueAt: string | null; createdBy: string | null; createdByName: string | null; createdAt: string; updatedAt: string; notes?: ProgressNote[] }
-
-export const slug = (title: string) => title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "") || "task";
-
-/** Frontmatter is one `key: JSON value` per line, which is also valid YAML; hand-edited bare values (status: pending) are accepted too. */
-export function render(t: Task) {
-  const q = JSON.stringify;
-  return `---\nid: ${q(t.id)}\ntitle: ${q(t.title)}\nstatus: ${q(t.status)}\npriority: ${q(t.priority)}\nassignedTo: ${renderAssignee(t.assignedTo)}\ndueAt: ${q(t.dueAt)}\ncreatedBy: ${q(t.createdBy)}\ncreatedByName: ${q(t.createdByName)}\ncreatedAt: ${q(t.createdAt)}\nupdatedAt: ${q(t.updatedAt)}\n---\n${renderBody(t.description, t.notes)}`;
-}
-/** A task file, or null when it is not a valid one: a broken file is skipped, never trusted. */
-export function parseTask(text: string): Task | null {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
-  if (!m) return null;
-  const f: Record<string, any> = {};
-  for (const line of m[1]!.split(/\r?\n/)) {
-    const i = line.indexOf(":");
-    if (i < 1) continue;
-    const raw = line.slice(i + 1).trim();
-    try { f[line.slice(0, i).trim()] = JSON.parse(raw); } catch { f[line.slice(0, i).trim()] = raw; }
-  }
-  const { id, title, status, priority } = f;
-  const validDate = (v: unknown) => typeof v === "string" && !!v && !Number.isNaN(Date.parse(v));
-  if (typeof id !== "string" || !/^[0-9a-f-]{8,36}$/i.test(id) || typeof title !== "string" || !title.trim() || !STATUSES.includes(status) || !PRIORITIES.includes(priority) || !validDate(f.createdAt) || !validDate(f.updatedAt)) return null;
-  const str = (v: unknown) => (typeof v === "string" && v ? v : null);
-  const dueAt = str(f.dueAt), { description, notes } = parseBody(m[2]!);
-  return { id, title, description, status, priority, assignedTo: parseAssignee(f.assignedTo), dueAt: dueAt && (DATE_ONLY.test(dueAt) || DATE_TIME.test(dueAt)) ? dueAt : null, createdBy: str(f.createdBy), createdByName: str(f.createdByName), createdAt: str(f.createdAt) ?? "", updatedAt: str(f.updatedAt) ?? "", notes };
-}
-
-/** A Progress note: who reported what about a task, and on which date (YYYY-MM-DD in the place's time zone). */
-export interface ProgressNote { on: string; by: string; text: string }
-export const NOTES_HEADING = "## Progress notes";
-const NOTE_LINE = /^- (\d{4}-\d{2}-\d{2}) (.+?): (.*)$/;
-/** One note as the task file and the detail view print it: `- 2026-03-10 Alice: called the venue`. */
-export const noteLine = (n: ProgressNote) => `- ${n.on} ${n.by}: ${n.text}`;
-/** A note by the person speaking this turn, dated today in the place's time zone. Text and name are kept to one line so the file reads back the same. */
-export function progressNote(ctx: Pick<SkillContext, "userName" | "userId" | "timezone">, text: unknown): ProgressNote {
-  const line = typeof text === "string" ? text.replace(/\s+/g, " ").trim() : "";
-  if (!line) throw new Error("Progress note text is required");
-  if (line.length > 1000) throw new Error("Progress note is too long (max 1000 characters)");
-  const w = wallClock(zoneOf(ctx)), pad = (n: number) => String(n).padStart(2, "0");
-  const by = (ctx.userName || ctx.userId || "someone").replace(/:\s+/g, " ").replace(/\s+/g, " ").trim();
-  return { on: `${w.year}-${pad(w.month)}-${pad(w.day)}`, by, text: line };
-}
-/**
- * A task body split into its description and its Progress notes. The notes section is the last `## Progress notes` heading
- * when every line after it is a note (a line that is not continues the note above); otherwise the whole body is the description.
- */
-export function parseBody(body: string): { description: string | null; notes: ProgressNote[] } {
-  const lines = body.split(/\r?\n/), at = lines.findLastIndex((l) => l.trim() === NOTES_HEADING);
-  const notes: ProgressNote[] = [];
-  for (const line of at < 0 ? [] : lines.slice(at + 1).map((l) => l.trim()).filter(Boolean)) {
-    const m = NOTE_LINE.exec(line);
-    if (m) notes.push({ on: m[1]!, by: m[2]!, text: m[3]! });
-    else if (notes.length) notes.at(-1)!.text += ` ${line}`;
-    else return { description: body.trim() || null, notes: [] };
-  }
-  return { description: (at < 0 ? body : lines.slice(0, at).join("\n")).trim() || null, notes };
-}
-/** The body a task file stores: the description, then the notes section when there are notes. */
-export function renderBody(description: string | null, notes: readonly ProgressNote[] = []): string {
-  const section = notes.length ? `${NOTES_HEADING}\n${notes.map(noteLine).join("\n")}\n` : "";
-  return description ? `${description}\n${section && `\n${section}`}` : section || "\n";
-}
-
-export interface Found { path: string; version: string; task: Task }
-const MAX_FILES = 500, MAX_DEPTH = 8;
-/** Every valid task under the folders this turn can see: in a DM only the person's Personal tasks. ponytail: reads files per call; add an index when a Workspace outgrows MAX_FILES task files. */
-export async function loadTasks(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "userId">, shortId?: string): Promise<Found[]> {
+/** The tasks folder a task filed in this turn's place goes to: the channel's project, else the DM's Personal tasks, else the tenant's shared tasks. */
+function taskHome(ctx: SkillContext): string {
   const roots = visibleRoots(ctx);
-  return walkTasks(store, ctx.tenantId, roots.dm ? [roots.dm] : Object.values(roots), shortId);
+  return `${roots.channel ?? roots.dm ?? roots.tenant!}/tasks`;
 }
 
-/** Every valid task under `roots`, frontmatter only, at most MAX_FILES Markdown files in all. */
-async function walkTasks(store: WorkspaceStore, tenantId: string, roots: readonly string[], shortId?: string): Promise<Found[]> {
-  const out: Found[] = [];
-  let seen = 0;
-  const walk = async (dir: string, depth: number): Promise<void> => {
-    for (const e of await store.list(tenantId, dir)) {
-      if (seen >= MAX_FILES) return;
-      const name = e.path.split("/").pop()!;
-      if (e.type === "dir") { if (depth < MAX_DEPTH && !name.startsWith(".")) await walk(e.path, depth + 1); continue; }
-      if (!name.endsWith(".md")) continue;
-      seen++;
-      const file = await store.readFrontmatter(tenantId, e.path).catch(() => null);
-      const task = file && parseTask(file.content);
-      if (task && (!shortId || task.id.replace(/-/g, "").startsWith(shortId))) out.push({ path: e.path, version: file.version, task });
-    }
-  };
-  for (const root of roots) await walk(root, 0);
-  return out;
-}
-
-/** Which tasks a list covers: `here` is the place's own folders, as the turn sees them; `mine` and `delegated` are views across projects. */
-export const SCOPES = ["here", "mine", "delegated"] as const;
-export type Scope = (typeof SCOPES)[number];
-/** At most this many tasks in a view across projects, so the answer fits in one Discord message. */
-export const MAX_SCOPED = 20;
-
-/**
- * Folders whose tasks a view across projects prints as one group under `label`: a project channel (`#name`, with its ids),
- * a person's Personal tasks, or the shared task folders of the tenant and its guilds. `folders` are tenant-relative and walked recursively.
- */
-export interface TaskSource { kind: "project" | "personal" | "shared"; label: string; folders: string[]; guildId?: string; channelId?: string }
-export interface TaskGroup { source: TaskSource; tasks: Found[] }
-
-/** The project channels of a guild a person can view: each channel folder of the guild in the Workspace that `channelView` says they see. A channel Discord cannot resolve, or one of another guild, is left out, as is every channel without `discord`. */
-export async function viewableProjects(store: WorkspaceStore, tenantId: string, discord: DiscordClientAdapter | undefined, guildId: string, userId: string): Promise<TaskSource[]> {
-  if (!discord || !safeId(guildId) || !safeId(userId)) return [];
-  const folder = `guilds/${guildId}/channels`, ids = (await store.list(tenantId, folder).catch(() => []))
-    .filter((e) => e.type === "dir").map((e) => e.path.split("/").pop()!).filter((id) => !!safeId(id));
-  const views = await Promise.all(ids.map((id) => discord.channelView(id, userId).catch(() => null)));
-  return ids.flatMap((id, i) => {
-    const v = views[i];
-    return v?.canView && v.channel?.guildId === guildId ? [{ kind: "project" as const, label: `#${v.channel.name}`, folders: [`${folder}/${id}`], guildId, channelId: id }] : [];
-  });
-}
-
-export const PERSONAL_TASKS = "Personal tasks", SHARED_TASKS = "Shared tasks";
-/**
- * The folders a `mine` or `delegated` view of this turn draws from: in a guild, every project channel of it the asker can view;
- * in a DM, those of every guild the bot shares with the asker, each label naming its guild, as "#ops (Beta)".
- * Then the shared tasks the asker saw before projects (the tenant's, and those of the same guilds), and the asker's Personal tasks.
- */
-export async function scopeSources(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "userId" | "discord">): Promise<TaskSource[]> {
-  const user = safeId(ctx.userId);
-  if (!user) return [];
-  const personal: TaskSource = { kind: "personal", label: PERSONAL_TASKS, folders: [`dms/${user}`] };
-  const shared = (guildIds: (string | undefined)[]): TaskSource => ({ kind: "shared", label: SHARED_TASKS, folders: ["shared/tasks", ...guildIds.flatMap((g) => (safeId(g) ? [`guilds/${g}/shared/tasks`] : []))] });
-  if (ctx.guildId) return [...await viewableProjects(store, ctx.tenantId, ctx.discord, ctx.guildId, user), shared([ctx.guildId]), personal];
-  const guilds = (await ctx.discord?.sharedGuilds(user).catch(() => [])) ?? [];
-  const projects = await Promise.all(guilds.map(async (g) => (await viewableProjects(store, ctx.tenantId, ctx.discord, g.id, user)).map((p) => ({ ...p, label: `${p.label} (${g.name})` }))));
-  return [...projects.flat(), shared(guilds.map((g) => g.id)), personal];
-}
-
-/** Every valid task in the given sources, frontmatter only (`readInFull` the ones printed). */
-export const tasksIn = (store: WorkspaceStore, tenantId: string, sources: readonly TaskSource[]) => walkTasks(store, tenantId, sources.flatMap((s) => s.folders));
-
-/** Whether a task belongs to a scope for the asker: `mine` when they are its Assignee or it is one of their Personal tasks, `delegated` when they created it for someone else outside their Personal tasks; `here` keeps every task. */
-export function inScope(scope: Scope, asker: Pick<SkillContext, "userId" | "userName">): (f: Pick<Found, "path" | "task">) => boolean {
-  const person = { id: asker.userId, names: [asker.userName] };
-  if (scope === "mine") return ({ path, task: t }) => isAssignee(t.assignedTo, person) || (!!asker.userId && personalOwnerOf(path) === asker.userId);
-  if (scope === "delegated") return ({ path, task: t }) => !!asker.userId && t.createdBy === asker.userId && !!t.assignedTo && !isAssignee(t.assignedTo, person) && !personalOwnerOf(path);
-  return () => true;
-}
-
-/** Tasks grouped by the source folder they are in, soonest due first within a group (no due date last), and groups ordered by their soonest task, then label. Sources without tasks are left out. */
-export function groupTasks(found: readonly Found[], sources: readonly TaskSource[], timeZone: string): TaskGroup[] {
-  const due = (f: Found) => dueMoment(f.task.dueAt, timeZone) ?? Infinity;
-  const groups = sources.map((source) => ({
-    source,
-    tasks: found.filter((f) => source.folders.some((folder) => f.path.startsWith(`${folder}/`))).sort((a, b) => due(a) - due(b) || a.task.createdAt.localeCompare(b.task.createdAt)),
-  })).filter((g) => g.tasks.length);
-  return groups.sort((a, b) => due(a.tasks[0]!) - due(b.tasks[0]!) || a.source.label.localeCompare(b.source.label));
-}
-
-/** The first `cap` tasks of the groups, in group order, read in full for their task lines; groups left without a task are dropped. */
-export async function readGroups(store: WorkspaceStore, tenantId: string, groups: readonly TaskGroup[], cap = Infinity): Promise<{ source: TaskSource; tasks: Task[] }[]> {
-  let room = cap;
-  const kept = groups.map((g) => { const tasks = g.tasks.slice(0, Math.max(0, room)); room -= tasks.length; return { source: g.source, tasks }; }).filter((g) => g.tasks.length);
-  const full = await readInFull(store, tenantId, kept.flatMap((g) => g.tasks));
-  let i = 0;
-  return kept.map((g) => ({ source: g.source, tasks: g.tasks.map(() => full[i++]!) }));
-}
-
-/** All valid task files in a tenant, used by the tenant-wide REST API and migration tooling. */
-export async function loadAllTasks(store: WorkspaceStore, tenantId: string): Promise<Found[]> {
-  const out: Found[] = [];
-  const walk = async (dir: string, depth: number): Promise<void> => {
-    for (const e of await store.list(tenantId, dir)) {
-      const name = e.path.split("/").pop()!;
-      if (name.startsWith(".")) continue;
-      if (e.type === "dir") { if (depth < MAX_DEPTH + 4) await walk(e.path, depth + 1); continue; }
-      if (!name.endsWith(".md")) continue;
-      const file = await store.readFrontmatter(tenantId, e.path).catch(() => null);
-      const task = file && parseTask(file.content);
-      if (task) out.push({ path: e.path, version: file.version, task });
-    }
-  };
-  await walk("", 0);
-  return out;
+/** Labels the folders a task was just filed in, best effort: the channel and its guild (or the guild, or the DM), and the tasks folder itself. */
+async function labelTaskFolder(ctx: SkillContext) {
+  const roots = visibleRoots(ctx), name = `${taskHome(ctx)}/.name`;
+  await labelFolder(ctx, roots.channel ? "channel" : roots.guild ? "guild" : roots.dm ? "dm" : "");
+  if (roots.channel) await labelFolder(ctx, "guild");
+  try { if (!(await workspaceStore().read(ctx.tenantId, name))) await workspaceStore().write(ctx.tenantId, name, "Tasks"); } catch {}
 }
 
 /** The tasks whose title or description contains every word of `query`, ignoring case. Read in full: `loadTasks` reads frontmatter only. */
@@ -544,85 +333,21 @@ async function matching(store: WorkspaceStore, tenantId: string, found: Found[],
   return out;
 }
 
-/**
- * The tasks `loadTasks` found, read in full (description and notes) so their task lines carry checklist progress.
- * Read only the tasks about to be printed: `loadTasks` reads frontmatter alone to keep lists cheap. A file that no longer reads keeps its frontmatter task.
- */
-export async function readInFull(store: WorkspaceStore, tenantId: string, found: readonly Pick<Found, "path" | "task">[]): Promise<Task[]> {
-  return Promise.all(found.map(async (f) => {
-    const file = await store.read(tenantId, f.path).catch(() => null);
-    return (file && parseTask(file.content)) || f.task;
-  }));
-}
-
 const LATEST_NOTES = 3;
-/** One task by id or id prefix among the folders this turn can see, read in full (description and notes). */
-async function readTask(ctx: SkillContext, taskId: string): Promise<Task> {
+/** One task by id or id prefix among the folders this turn can see, read in full (description and notes), with the file it was found in. */
+async function findTask(ctx: SkillContext, taskId: string): Promise<{ hit: Found; task: Task }> {
   if (typeof taskId !== "string" || !/^[0-9a-f-]{8,36}$/.test(taskId)) throw new Error(`Task with ID ${taskId} not found.`);
   const store = workspaceStore(), [hit] = (await loadTasks(store, ctx, taskId.slice(0, 8))).filter((f) => f.task.id.startsWith(taskId));
   const file = hit && (await store.read(ctx.tenantId, hit.path).catch(() => null)), task = file && parseTask(file.content);
-  if (!task) throw new Error(`Task with ID ${taskId} not found.`);
-  return task;
-}
-
-/** The project channel a task file belongs to, from its path: `guilds/<guild>/channels/<channel>/…`; null for shared and DM folders. */
-export function taskChannelOf(path: string): { guildId: string; channelId: string } | null {
-  const m = /^guilds\/([\w-]+)\/channels\/([\w-]+)\//.exec(path);
-  return m ? { guildId: m[1]!, channelId: m[2]! } : null;
-}
-
-/**
- * The project channel a person names (`#laporan-q4`, `laporan-q4`, or `<#id>`), searched across every server the bot shares with them.
- * Fails, saying why, when no such channel is found, when they cannot view it, or when the name fits channels in several servers.
- * The reason ends without saying what was left undone, so each caller adds that ("Nothing was created.").
- */
-export async function findProject(ctx: Pick<SkillContext, "userId" | "discord">, text: unknown): Promise<{ ok: true; channel: FoundChannel } | { ok: false; why: string }> {
-  const asked = typeof text === "string" ? text.trim().slice(0, 100) : "";
-  if (!asked) return { ok: false, why: "Name the project channel." };
-  const shown = /^<#[\w-]+>$/.test(asked) ? asked : `#${asked.replace(/^#/, "")}`;
-  if (!ctx.discord || !ctx.userId) return { ok: false, why: `Channel ${shown} cannot be looked up here.` };
-  const found = await ctx.discord.findChannels(asked, ctx.userId).catch(() => []), viewable = found.filter((c) => c.canView);
-  if (viewable.length === 1) return { ok: true, channel: viewable[0]! };
-  if (viewable.length > 1) return { ok: false, why: `${shown} names channels in several servers: ${viewable.map((c) => `<#${c.id}> in ${c.guildName}`).join(", ")}. Ask which one is meant, then name it by that mention.` };
-  if (found.length) return { ok: false, why: `You cannot view #${found[0]!.name}, so it cannot be used for this task.` };
-  return { ok: false, why: `No channel ${shown} was found in the servers you share with the bot.` };
-}
-
-/** Whose Personal tasks a task file is, from its path: `dms/<user>/…`; null for project and shared folders. */
-export const personalOwnerOf = (path: string): string | null => /^dms\/([\w-]+)\//.exec(path)?.[1] ?? null;
-
-/**
- * Whether an Assignee may hold the task at `path`, and if not, why not, naming the ways out.
- * A Personal task is only ever its own person's or a name-only Assignee's; a project task's member must be able to view its channel.
- * Name-only Assignees, shared folders, and turns without Discord always may.
- */
-async function canHold(ctx: SkillContext, path: string, assignee: Assignee): Promise<{ ok: true } | { ok: false; why: string }> {
-  const owner = personalOwnerOf(path);
-  if (owner) return !assignee.id || assignee.id === owner ? { ok: true } : { ok: false, why: `${assignee.name} cannot be the assignee of a Personal task: only you, or someone known by name only, can. Handing work to another member belongs in a project. Nothing was changed. Name the project channel to file the task there, or keep it for yourself.` };
-  const home = taskChannelOf(path);
-  if (!home || !assignee.id || !ctx.discord) return { ok: true };
-  const view = await ctx.discord.channelView(home.channelId, assignee.id).catch(() => ({ channel: null, canView: false }));
-  if (view.canView) return { ok: true };
-  const channel = `#${view.channel?.name ?? home.channelId}`;
-  return { ok: false, why: `${assignee.name} cannot view ${channel}, so they cannot be this task's assignee. Nothing was changed. Add them to ${channel}, or assign someone else.` };
-}
-
-/** Throws `canHold`'s reason when the Assignee may not hold the task at `path`. */
-async function mustHold(ctx: SkillContext, path: string, assignee: Assignee) {
-  const held = await canHold(ctx, path, assignee);
-  if (!held.ok) throw new Error(held.why);
+  if (!hit || !task) throw new Error(`Task with ID ${taskId} not found.`);
+  return { hit, task };
 }
 
 async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: string) => Task | Promise<Task>): Promise<Task> {
-  if (typeof taskId !== "string" || !/^[0-9a-f-]{8,36}$/.test(taskId)) throw new Error(`Task with ID ${taskId} not found.`);
-  const store = workspaceStore(), [hit] = (await loadTasks(store, ctx, taskId.slice(0, 8))).filter((f) => f.task.id.startsWith(taskId));
-  if (!hit) throw new Error(`Task with ID ${taskId} not found.`);
-  const current = await store.read(ctx.tenantId, hit.path).catch(() => null), parsed = current && parseTask(current.content);
-  if (!current || !parsed) throw new Error(`Task with ID ${taskId} not found.`);
+  const { hit, task: parsed } = await findTask(ctx, taskId), store = workspaceStore();
   const edited = await edit(parsed, hit.path);
-  // A name-only Assignee the edit kept is linked when its name now matches exactly one member who can view the task's channel.
-  const linked = edited.assignedTo === parsed.assignedTo ? await linkAssignee(edited.assignedTo, ctx) : edited.assignedTo;
-  const assignedTo = linked !== edited.assignedTo && linked && !(await canHold(ctx, hit.path, linked)).ok ? edited.assignedTo : linked;
+  // A name-only Assignee the edit kept is linked when its name now matches exactly one member who may hold the task.
+  const assignedTo = edited.assignedTo === parsed.assignedTo ? await linkHeld(ctx, hit.path, edited.assignedTo) : edited.assignedTo;
   const next = { ...edited, assignedTo, updatedAt: today().toISOString() };
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
@@ -631,24 +356,22 @@ async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: s
 
 /**
  * Moves a task this turn can see into the project channel `channel` names, adding a Progress note that says where it came from.
- * Refused, with nothing changed, when the asker cannot view the source or the destination, or a member Assignee cannot view the destination.
+ * Refused, with nothing changed, when the asker cannot view the source or the destination, a member Assignee cannot view the destination,
+ * the task is one of the tenant-wide shared tasks, or a guild's shared task would leave its guild.
  * The task is written to its new folder before the old file goes; a source changed meanwhile removes the new file again.
  */
 async function move(ctx: SkillContext, taskId: string, channel: string): Promise<{ task: Task; from: string; to: string }> {
-  if (typeof taskId !== "string" || !/^[0-9a-f-]{8,36}$/.test(taskId)) throw new Error(`Task with ID ${taskId} not found.`);
-  const store = workspaceStore(), [hit] = (await loadTasks(store, ctx, taskId.slice(0, 8))).filter((f) => f.task.id.startsWith(taskId));
-  const current = hit && (await store.read(ctx.tenantId, hit.path).catch(() => null)), parsed = current && parseTask(current.content);
-  if (!hit || !current || !parsed) throw new Error(`Task with ID ${taskId} not found.`);
+  const { hit, task: parsed } = await findTask(ctx, taskId), store = workspaceStore();
   const from = await sourceOf(ctx, hit.path, parsed.title), found = await findProject(ctx, channel);
   if (!found.ok) throw new Error(`${found.why} Nothing was changed.`);
   const sharedIn = /^guilds\/([\w-]+)\/shared\//.exec(hit.path)?.[1];
   if (sharedIn && sharedIn !== found.channel.guildId) throw new Error(`Task "${parsed.title}" is in a server's shared tasks, so it only moves into one of its own server's channels, and #${found.channel.name} is in another. Nothing was changed.`);
-  const place = projectPlace(ctx, found.channel), folder = `guilds/${found.channel.guildId}/channels/${found.channel.id}/tasks`;
+  const place = projectPlace(ctx, found.channel), folder = taskHome(place);
   if (hit.path.startsWith(`${folder}/`)) throw new Error(`Task "${parsed.title}" is already in #${found.channel.name}. Nothing was changed.`);
   const to = `${folder}/${hit.path.split("/").pop()}`;
   if (parsed.assignedTo) await mustHold(ctx, to, parsed.assignedTo);
   // A name-only Assignee is linked against the destination's guild, as `change()` does for its own.
-  const linked = await linkAssignee(parsed.assignedTo, place), assignedTo = linked && linked !== parsed.assignedTo && !(await canHold(ctx, to, linked)).ok ? parsed.assignedTo : linked;
+  const assignedTo = await linkHeld(ctx, to, parsed.assignedTo, place);
   const task: Task = { ...parsed, assignedTo, notes: [...(parsed.notes ?? []), progressNote(ctx, `Moved from ${from}`)], updatedAt: today().toISOString() };
   try { await store.write(ctx.tenantId, to, render(task)); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error(`#${found.channel.name} already has a task file named like this one. Nothing was changed.`); throw e; }
@@ -657,9 +380,7 @@ async function move(ctx: SkillContext, taskId: string, channel: string): Promise
     throw new Error("The task was changed by someone else just now. Nothing was changed. Try again.");
   }
   await store.remove(ctx.tenantId, hit.path);
-  await labelFolder(place, "channel");
-  await labelFolder(place, "guild");
-  try { if (!(await store.read(ctx.tenantId, `${folder}/.name`))) await store.write(ctx.tenantId, `${folder}/.name`, "Tasks"); } catch {}
+  await labelTaskFolder(place);
   return { task, from, to: found.channel.name };
 }
 
@@ -668,7 +389,7 @@ async function move(ctx: SkillContext, taskId: string, channel: string): Promise
  * Throws when the asker cannot view the project channel it is in, or when it is one of the tenant-wide shared tasks, which no channel owns.
  */
 async function sourceOf(ctx: SkillContext, path: string, title: string): Promise<string> {
-  if (personalOwnerOf(path)) return PERSONAL_TASKS;
+  if (personalTasksOf(path)) return PERSONAL_TASKS;
   if (path.startsWith("shared/")) throw new Error(`Task "${title}" is one of the shared tasks of the whole workspace, not of a project or a server, so it cannot be moved into a channel. Nothing was changed.`);
   const home = taskChannelOf(path);
   if (!home) return "the shared tasks";

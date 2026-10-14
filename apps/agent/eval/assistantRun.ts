@@ -45,7 +45,7 @@ function seededChannels(s: Scenario, tasks: SeedTask[] = []) {
 }
 
 async function seedTasks(s: Scenario, tasks: SeedTask[]) {
-  const { render, slug } = await import("../../../packages/skills/src/builtin/tasks.ts");
+  const { render, slug } = await import("../../../packages/skills/src/builtin/taskFile.ts");
   const { parseAssignee } = await import("../../../packages/skills/src/builtin/assignee.ts");
   const at = new Date(s.clock.now()).toISOString();
   for (const [i, t] of tasks.entries()) {
@@ -61,7 +61,9 @@ async function attachmentsOf(s: Scenario, fixture: AssistantFixture) {
 }
 
 async function stateOf(s: Scenario, channels: string[]): Promise<AssistantState> {
-  const { loadTasks, readInFull, noteLine, taskChannelOf } = await import("../../../packages/skills/src/builtin/tasks.ts");
+  const { loadTasks, readInFull } = await import("../../../packages/skills/src/builtin/taskFile.ts");
+  const { noteLine } = await import("../../../packages/skills/src/builtin/progressNotes.ts");
+  const { taskChannelOf } = await import("../../../packages/skills/src/builtin/taskAccess.ts");
   const { workspaceStore } = await import("../../../packages/skills/src/workspace/store.ts");
   const { schedules, eq } = await import("../../../packages/db/src/index.ts") as any;
   const lines = async (path: string) => ((await s.workspace.read(path)) ?? "").split("\n").filter((l) => l.trim());

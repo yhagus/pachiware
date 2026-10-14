@@ -1,5 +1,5 @@
 import { db, tasks } from "@pachiware/db";
-import { parseTask, PRIORITIES, STATUSES, render, slug, type Task } from "../builtin/tasks.js";
+import { parseTask, PRIORITIES, STATUSES, render, slug, type Task } from "../builtin/taskFile.js";
 import { parseAssignee } from "../builtin/assignee.js";
 import { safeId } from "./paths.js";
 import { workspaceStore, type WorkspaceStore } from "./store.js";
