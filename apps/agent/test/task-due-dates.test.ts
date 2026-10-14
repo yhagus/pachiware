@@ -50,9 +50,10 @@ discordScenario("status, assignee and due date change without Confirm and the fi
   expect(s.discord.botMessages.at(-1)?.content).toBe("in_progress");
   expect(await taskFile(s)).toContain('status: "in_progress"');
 
-  s.model.script({ tool: "assignTask", args: { taskId: id, assignedTo: "Bob" } }, (turn) => turn.toolResults[0].task.assignedTo);
+  s.model.script({ tool: "assignTask", args: { taskId: id, assignedTo: "Bob" } }, (turn) => turn.toolResults[0].task.assignedTo.name);
   await s.discord.send("Bob takes it", { channel: ask.thread });
   expect(s.discord.botMessages.at(-1)?.content).toBe("Bob");
+  expect(await taskFile(s)).toContain('assignedTo: {"name":"Bob"}');
 
   s.model.script({ tool: "setTaskDueDate", args: { taskId: id, dueAt: "2026-10-20T15:00" } }, (turn) => String(turn.toolResults[0].task.dueAt));
   await s.discord.send("due Tuesday 15:00", { channel: ask.thread });

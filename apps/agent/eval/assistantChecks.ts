@@ -58,7 +58,7 @@ function replyFailures(facts: TurnFacts, replies: string[]): string[] {
   const out: string[] = [], text = replies.join("\n");
   for (const needle of facts.replyContains ?? []) if (!has(text, needle)) out.push(`The reply does not mention "${needle}".`);
   for (const needle of facts.replyLacks ?? []) if (has(text, needle)) out.push(`The reply mentions "${needle}".`);
-  if (facts.taskList && !TASK_LINE.test(text)) out.push("No line in the fixed task format (status | due | owner | id | title).");
+  if (facts.taskList && !TASK_LINE.test(text)) out.push("No line in the fixed task format (status | due | assignee | id | title).");
   return out;
 }
 
