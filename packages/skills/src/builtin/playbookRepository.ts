@@ -19,10 +19,13 @@ export async function allowedRepositories(ctx: SkillContext): Promise<ThreadRepo
   return [...open].map(([repo, account]) => ({ repo, account })).sort((a, b) => a.repo.localeCompare(b.repo));
 }
 
-/** Whether git scope could allow any repository here, without asking the provider: some account has a rule and every rule names a pattern. */
+/** Whether `playbookRepositories` would list any repository here; when the provider cannot be asked, whether some git scope rule names a pattern. */
 export async function anyRepositoryAllowed(ctx: Pick<SkillContext, "tenantId" | "botId" | "guildId" | "channelId" | "parentChannelId">): Promise<boolean> {
-  const access = await loadGitAccess(ctx as SkillContext).catch(() => []);
-  return access.some((a) => a.sets.every((set) => set.length > 0));
+  try { return (await allowedRepositories(ctx as SkillContext)).length > 0; }
+  catch {
+    const access = await loadGitAccess(ctx as SkillContext).catch(() => []);
+    return access.some((a) => a.sets.every((set) => set.length > 0));
+  }
 }
 
 export const threadRepositoryOf = (b: PlaybookBinding): ThreadRepository | undefined => {
