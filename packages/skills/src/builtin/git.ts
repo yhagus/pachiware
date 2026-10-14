@@ -1,7 +1,7 @@
 import type { SkillModule, SkillContext, ToolDefinition } from "../types.js";
-import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, browseCommits, getMergeRequest, readFile, writeFile, openPullRequest, commentOn, createIssue, mergeMergeRequest, closeItem, browsePipelines, pipelineJobs, jobLog, retryPipeline, createBranch, browseTags, browseReleases, getCommit, compareRefs, getIssue, itemComments, searchCode, updateMergeRequest, reopenItem, reviewMergeRequest, requestReviewers, mergeRequestDiff, repoChecks, rebaseMergeRequest, updateIssue, assignItem, listLabels, setLabels, lockItem, editComment, deleteComment, createRepo, updateRepoSettings, renameRepo, archiveRepo, deleteRepo, forkRepo, transferRepo, deleteBranch, protectBranch, getBranchProtection, createTag, deleteTag, createRelease, deleteRelease, deleteFile, moveFile, commitFiles, defaultBranch, runPipeline, cancelPipeline, listArtifacts, downloadArtifact, schedules, variables, secrets, runners, member, invitations, deployKeys, webhooks, securityAlerts, orgList, orgMembers, orgTeams, createGroup, manageTeam, wiki, snippets, packages, notifications, stats, type GitState, type GitConn, type ItemKind } from "../git.js";
+import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, browseCommits, getMergeRequest, readFile, writeFile, openPullRequest, commentOn, createIssue, linkIssues, subIssue, mergeMergeRequest, closeItem, browsePipelines, pipelineJobs, jobLog, retryPipeline, createBranch, browseTags, browseReleases, getCommit, compareRefs, getIssue, itemComments, searchCode, updateMergeRequest, reopenItem, reviewMergeRequest, requestReviewers, mergeRequestDiff, repoChecks, rebaseMergeRequest, updateIssue, assignItem, listLabels, setLabels, lockItem, editComment, deleteComment, createRepo, updateRepoSettings, renameRepo, archiveRepo, deleteRepo, forkRepo, transferRepo, deleteBranch, protectBranch, getBranchProtection, createTag, deleteTag, createRelease, deleteRelease, deleteFile, moveFile, commitFiles, defaultBranch, runPipeline, cancelPipeline, listArtifacts, downloadArtifact, schedules, variables, secrets, runners, member, invitations, deployKeys, webhooks, securityAlerts, orgList, orgMembers, orgTeams, createGroup, manageTeam, wiki, snippets, packages, notifications, stats, type GitState, type GitConn, type ItemKind } from "../git.js";
 import { loadGitAccess, pickAccess, connectionOf, repoAllowed, type GitAccess } from "../gitScope.js";
-import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, state, num, str, kindOf, clip, confirmable, guard } from "./gitShared.js";
+import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, state, num, str, kindOf, clip, confirmable, guard, labelsP, labelsOf } from "./gitShared.js";
 import { briefGroundingTools, briefGroundingHandlers } from "./briefGrounding.js";
 import { briefIssuesTools, briefIssuesHandlers } from "./briefIssues.js";
 import { playbookRepositoryTools, playbookRepositoryHandlers } from "./playbookRepository.js";
@@ -16,8 +16,8 @@ export const gitTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { account: acct, repo: repoP, state: stateP, page: pageP }, required: ["repo"] } },
   { name: "repoMergeRequest", description: "Shows one pull/merge request: description, branches and changed files.",
     parameters: { type: "object", properties: { account: acct, repo: repoP, number: { type: "number", description: "PR number (GitLab: MR iid)" } }, required: ["repo", "number"] } },
-  { name: "repoIssues", description: "Lists issues of a repository.",
-    parameters: { type: "object", properties: { account: acct, repo: repoP, state: stateP, page: pageP }, required: ["repo"] } },
+  { name: "repoIssues", description: "Lists issues of a repository, optionally only those carrying every label in `labels`.",
+    parameters: { type: "object", properties: { account: acct, repo: repoP, state: stateP, labels: labelsP, page: pageP }, required: ["repo"] } },
   { name: "repoBranches", description: "Lists branches of a repository.",
     parameters: { type: "object", properties: { account: acct, repo: repoP, page: pageP }, required: ["repo"] } },
   { name: "repoCommits", description: "Lists recent commits of a repository, newest first.",
@@ -32,8 +32,12 @@ export const gitTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { account: acct, repo: repoP, branch: { type: "string" }, title: { type: "string" }, body: { type: "string" } }, required: ["repo", "branch", "title"] } },
   { name: "repoComment", description: "Posts a comment on an issue or pull/merge request." + CONFIRM,
     parameters: { type: "object", properties: { account: acct, repo: repoP, number: numberP, kind: kindP, body: { type: "string", description: "Comment text (markdown)" } }, required: ["repo", "number", "kind", "body"] } },
-  { name: "repoCreateIssue", description: "Creates an issue." + CONFIRM,
-    parameters: { type: "object", properties: { account: acct, repo: repoP, title: { type: "string" }, body: { type: "string", description: "Description (markdown)" } }, required: ["repo", "title"] } },
+  { name: "repoCreateIssue", description: "Creates an issue, optionally with labels." + CONFIRM,
+    parameters: { type: "object", properties: { account: acct, repo: repoP, title: { type: "string" }, body: { type: "string", description: "Description (markdown)" }, labels: labelsP }, required: ["repo", "title"] } },
+  { name: "repoLinkIssues", description: "Records that issue `issue` is blocked by issue `blockedBy` in the same repository (GitHub issue dependency; GitLab \"blocks\" link, a Premium feature)." + CONFIRM,
+    parameters: { type: "object", properties: { account: acct, repo: repoP, issue: { type: "number", description: "The issue that waits" }, blockedBy: { type: "number", description: "The issue it waits on" } }, required: ["repo", "issue", "blockedBy"] } },
+  { name: "repoSubIssue", description: "Attaches issue `child` under issue `parent` as a sub-issue, or detaches it. GitHub uses native sub-issues; GitLab gets a related link plus a task list line in the parent's description." + CONFIRM,
+    parameters: { type: "object", properties: { account: acct, repo: repoP, parent: { type: "number", description: "The parent issue" }, child: { type: "number", description: "The sub-issue" }, action: { type: "string", enum: ["attach", "detach"] } }, required: ["repo", "parent", "child", "action"] } },
   { name: "repoMergeMergeRequest", description: "Merges a pull/merge request into its target branch." + CONFIRM,
     parameters: { type: "object", properties: { account: acct, repo: repoP, number: { type: "number", description: "PR number (GitLab: MR iid)" } }, required: ["repo", "number"] } },
   { name: "repoCloseItem", description: "Closes an issue or pull/merge request without merging." + CONFIRM,
@@ -144,7 +148,7 @@ export const gitRepositorySkill: SkillModule = {
     },
     repoMergeRequests: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseMergeRequests(conn, repo, page(a.page), state(a.state)); },
     repoMergeRequest: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return getMergeRequest(conn, repo, Number(a.number)); },
-    repoIssues: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseIssues(conn, repo, page(a.page), state(a.state)); },
+    repoIssues: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseIssues(conn, repo, page(a.page), state(a.state), labelsOf(a.labels)); },
     repoBranches: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseBranches(conn, repo, page(a.page)); },
     repoCommits: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseCommits(conn, repo, page(a.page), typeof a.branch === "string" ? a.branch : undefined); },
     repoMembers: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseMembers(conn, repo, page(a.page)); },
@@ -181,8 +185,19 @@ export const gitRepositorySkill: SkillModule = {
       return { summary: `Comment on ${repo}#${n} (${kind.replace("_", " ")}) [account ${account}]: ${clip(body)}`, run: (c) => commentOn(c, repo, n, kind, body) };
     }),
     repoCreateIssue: (a, ctx) => confirmable("repoCreateIssue", a, ctx, (repo, account) => {
-      const title = str(a.title, "title");
-      return { summary: `Create issue "${clip(title, 100)}" in ${repo} [account ${account}]`, run: (c) => createIssue(c, repo, title, typeof a.body === "string" ? a.body : undefined) };
+      const title = str(a.title, "title"), labels = labelsOf(a.labels);
+      return { summary: `Create issue "${clip(title, 100)}" in ${repo}${labels.length ? ` with labels ${labels.join(", ")}` : ""} [account ${account}]`, run: (c) => createIssue(c, repo, title, typeof a.body === "string" ? a.body : undefined, labels) };
+    }),
+    repoLinkIssues: (a, ctx) => confirmable("repoLinkIssues", a, ctx, (repo, account) => {
+      const issue = num(a.issue), blockedBy = num(a.blockedBy);
+      if (issue === blockedBy) throw new Error("An issue cannot block itself");
+      return { summary: `Mark ${repo}#${issue} as blocked by #${blockedBy} [account ${account}]`, run: (c) => linkIssues(c, repo, issue, blockedBy) };
+    }),
+    repoSubIssue: (a, ctx) => confirmable("repoSubIssue", a, ctx, (repo, account) => {
+      const parent = num(a.parent), child = num(a.child), action = a.action;
+      if (action !== "attach" && action !== "detach") throw new Error("action must be attach or detach");
+      if (parent === child) throw new Error("An issue cannot be its own sub-issue");
+      return { summary: `${action === "attach" ? "Attach" : "Detach"} ${repo}#${child} ${action === "attach" ? "under" : "from"} #${parent} [account ${account}]`, run: (c) => subIssue(c, repo, parent, child, action) };
     }),
     repoMergeMergeRequest: (a, ctx) => confirmable("repoMergeMergeRequest", a, ctx, (repo, account) => {
       const n = num(a.number);

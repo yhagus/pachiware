@@ -65,5 +65,11 @@ export const stateP = { type: "string", enum: STATES, description: "Default open
 
 export const numberP = { type: "number", description: "Issue number, or PR number (GitLab: MR iid)" };
 export const kindP = { type: "string", enum: KINDS, description: "issue, or merge_request for pull/merge requests" };
+export const labelsP = { type: "array", items: { type: "string" }, description: "Label names" };
+export function labelsOf(v: unknown): string[] {
+  if (v === undefined) return [];
+  if (!Array.isArray(v)) throw new Error("labels must be a list of label names");
+  return v.map((x) => str(x, "label"));
+}
 export const CONFIRM = " Needs the user's confirmation (a button in Discord) before it runs.";
 

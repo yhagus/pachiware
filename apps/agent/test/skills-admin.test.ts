@@ -19,7 +19,7 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     assert((await app.request("/api/admin/tenants/" + alpha.id + "/skills")).status === 401, "admin key required");
     assert((await app.request("/api/admin/tenants/nope/skills", { headers: h })).status === 404, "unknown tenant");
     const skills = await list(alpha), byId = Object.fromEntries(skills.map((s) => [s.id, s]));
-    assert(byId.git_repositories.toolCount === 87 && byId.git_repositories.tools.length === 87, "git count " + byId.git_repositories.toolCount);
+    assert(byId.git_repositories.toolCount === 89 && byId.git_repositories.tools.length === 89, "git count " + byId.git_repositories.toolCount);
     assert(byId.workspace.toolCount === 14, "workspace count " + byId.workspace.toolCount);
     assert(byId.task_management.toolCount === 5 && byId.discord_management.toolCount === 8 && byId.reminders.toolCount === 3, "small skill counts");
     assert(JSON.stringify(byId.git_repositories.groups) === JSON.stringify(["Browse", "Issues & PRs", "Code", "CI", "Repo admin", "Org"]), "git groups");
@@ -28,6 +28,7 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     const secrets = tool("git_repositories", "repoSecrets");
     assert(secrets.effect === "danger" && secrets.group === "CI" && /secret/i.test(secrets.description) && !secrets.playbook, "repoSecrets " + JSON.stringify(secrets));
     assert(tool("git_repositories", "repoList").effect === "read" && tool("git_repositories", "repoList").group === "Browse", "repoList");
+    for (const n of ["repoLinkIssues", "repoSubIssue"]) assert(tool("git_repositories", n)?.effect === "write" && tool("git_repositories", n).group === "Issues & PRs", n + " " + JSON.stringify(tool("git_repositories", n)));
     assert(tool("git_repositories", "briefRead").playbook === "issue-draft", "briefRead playbook");
     assert(tool("workspace", "postBriefRound").playbook === "issue-draft" && tool("workspace", "postBriefRound").effect === "write", "postBriefRound");
     assert(tool("workspace", "deleteFile").effect === "danger" && !tool("workspace", "deleteFile").group, "deleteFile");
@@ -36,7 +37,7 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     assert((await app.request("/api/admin/tenants/" + alpha.id + "/skills/git_repositories", { method: "PATCH", headers: h, body: JSON.stringify({ isEnabled: !byId.git_repositories.isEnabled }) })).status === 200, "toggle");
     assert((await list(alpha)).find((s) => s.id === "git_repositories").isEnabled === !byId.git_repositories.isEnabled, "alpha git not toggled");
     const betaGit = (await list(beta)).find((s) => s.id === "git_repositories");
-    assert(betaGit.isEnabled === byId.git_repositories.isEnabled && betaGit.toolCount === 87, "beta affected by alpha");
+    assert(betaGit.isEnabled === byId.git_repositories.isEnabled && betaGit.toolCount === 89, "beta affected by alpha");
     console.log(JSON.stringify({ ok: true }));`;
   const result = Bun.spawnSync({ cmd: ["bun", "--eval", script], cwd: root, env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "t.db")}`, WORKSPACE_DIR: join(dir, "ws"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" } });
   try { expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); } finally { rmSync(dir, { recursive: true, force: true }); }
