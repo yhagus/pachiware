@@ -1,0 +1,54 @@
+import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { skillRegistry } from "../src/registry.ts";
+import { BUILTIN_PLAYBOOKS_DIR, builtinPlaybooks, builtinPlaybookFiles, playbookChain } from "../src/playbooks.ts";
+
+// Ours; every other built-in is copied from mattpocock/skills and must say so.
+const OWN = ["issue-draft", "minutes"];
+const folders = readdirSync(BUILTIN_PLAYBOOKS_DIR).filter((n) => statSync(join(BUILTIN_PLAYBOOKS_DIR, n)).isDirectory()).sort();
+const playbooks = builtinPlaybooks();
+const imported = playbooks.filter((p) => !OWN.includes(p.name));
+const tools = new Set(skillRegistry.catalogue().flatMap((s) => s.tools.map((t) => t.name)));
+const skills = new Set(skillRegistry.getAllSkills().map((s) => s.id));
+const files = (name: string) => builtinPlaybookFiles(name);
+const text = (name: string) => files(name).filter((f) => f.endsWith(".md") && f !== "LICENSE.md").map((f) => readFileSync(join(BUILTIN_PLAYBOOKS_DIR, name, f), "utf8")).join("\n");
+const named = (name: string) => playbooks.find((p) => p.name === name);
+
+describe("built-in playbooks", () => {
+  test("every folder parses as a playbook", () => {
+    expect(playbooks.map((p) => p.name)).toEqual(folders);
+  });
+
+  test("the conversation playbooks are imported off, wait-what answers in place, and the references cannot be started", () => {
+    for (const name of ["grilling", "grill-me", "to-questionnaire", "ask-matt", "wait-what", "codebase-design", "writing-for-agents"]) expect([name, named(name)?.defaultOff]).toEqual([name, true]);
+    expect(named("wait-what")).toMatchObject({ run: "in-place", menu: "Explain this", start: true });
+    for (const name of ["codebase-design", "writing-for-agents"]) expect([name, named(name)!.start, named(name)!.menu, named(name)!.words]).toEqual([name, false, null, []]);
+    expect(named("grill-me")!.loads).toEqual(["grilling"]);
+  });
+
+  test("every imported playbook is off by default and carries the MIT notice of its upstream", () => {
+    expect(imported.length).toBeGreaterThan(0);
+    for (const p of imported) {
+      expect([p.name, p.defaultOff]).toEqual([p.name, true]);
+      const notice = readFileSync(join(BUILTIN_PLAYBOOKS_DIR, p.name, "LICENSE.md"), "utf8");
+      expect(notice).toContain("Copyright (c) 2026 Matt Pocock");
+      expect(notice.replace(/\s+/g, " ")).toContain("The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.");
+      expect(readFileSync(join(BUILTIN_PLAYBOOKS_DIR, p.name, "PLAYBOOK.md"), "utf8")).toMatch(/^license: .*LICENSE\.md/m);
+    }
+  });
+
+  test("playbooks name only skills, tools, playbooks, and files that exist", () => {
+    for (const p of playbooks) {
+      const all = text(p.name);
+      for (const skill of [...p.requires, ...p.optional]) expect([p.name, skill, skills.has(skill)]).toEqual([p.name, skill, true]);
+      for (const tool of p.closes) expect([p.name, tool, tools.has(tool)]).toEqual([p.name, tool, true]);
+      expect([p.name, "chain" in playbookChain(p, playbooks)]).toEqual([p.name, true]);
+      // A tool is written `toolName`; a playbook "the `name` playbook", or `/name` when a person starts it; a file of a playbook `name/FILE.md`.
+      for (const [, tool] of all.matchAll(/`([a-z]+[A-Z][A-Za-z]*)`/g)) expect([p.name, tool, tools.has(tool!)]).toEqual([p.name, tool, true]);
+      for (const [, name] of all.matchAll(/`([a-z][a-z0-9-]*)` playbook/g)) expect([p.name, name, !!named(name!)]).toEqual([p.name, name, true]);
+      for (const [, name] of all.matchAll(/`\/([a-z][a-z0-9-]*)`/g)) expect([p.name, name, !!named(name!)?.start]).toEqual([p.name, name, true]);
+      for (const [, owner, file] of all.matchAll(/`([a-z][a-z0-9-]*)\/([A-Za-z0-9-]+\.md)`/g)) expect([p.name, `${owner}/${file}`, files(owner!).includes(file!)]).toEqual([p.name, `${owner}/${file}`, true]);
+    }
+  });
+});

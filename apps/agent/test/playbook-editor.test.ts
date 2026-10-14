@@ -7,7 +7,7 @@ discordScenario("the Workspace editor lists built-in playbooks as a read-only fo
   const get = async (path: string) => (await app.request(`/api/admin/tenants/${s.tenant.id}/workspace/${path}`, { headers })).json();
 
   expect((await get("tree?path=")).entries).toContainEqual({ path: "playbooks", type: "dir", readOnly: true });
-  expect((await get("tree?path=playbooks")).entries).toEqual([{ path: "playbooks/issue-draft", type: "dir", readOnly: true, overridden: false }, { path: "playbooks/minutes", type: "dir", readOnly: true, overridden: false }]);
+  expect((await get("tree?path=playbooks")).entries).toEqual(expect.arrayContaining([{ path: "playbooks/grilling", type: "dir", readOnly: true, overridden: false }, { path: "playbooks/issue-draft", type: "dir", readOnly: true, overridden: false }, { path: "playbooks/minutes", type: "dir", readOnly: true, overridden: false }]));
   expect((await get("tree?path=playbooks/issue-draft")).entries).toContainEqual(expect.objectContaining({ path: "playbooks/issue-draft/PLAYBOOK.md", type: "file", readOnly: true }));
   const file = await get("file?path=playbooks/issue-draft/PLAYBOOK.md");
   expect(file).toMatchObject({ readOnly: true, content: expect.stringContaining("trigger: {\"menu\": \"Draft issues\"") });
@@ -39,7 +39,7 @@ discordScenario("a playbook override copied and edited in the editor changes the
   expect((await call("POST", "playbooks/nope/override")).status).toBe(404);
   const file = await call("GET", "file?path=shared/playbooks/issue-draft/PLAYBOOK.md");
   expect(file.body.content).toBe((await call("GET", "file?path=playbooks/issue-draft/PLAYBOOK.md")).body.content);
-  expect((await call("GET", "tree?path=playbooks")).body.entries).toEqual([{ path: "playbooks/issue-draft", type: "dir", readOnly: true, overridden: true }, { path: "playbooks/minutes", type: "dir", readOnly: true, overridden: false }]);
+  expect((await call("GET", "tree?path=playbooks")).body.entries.filter((e: any) => e.overridden)).toEqual([{ path: "playbooks/issue-draft", type: "dir", readOnly: true, overridden: true }]);
 
   const edited = file.body.content.replace('"menu": "Draft issues"', '"menu": "Draft tickets"').replace(/This thread is bound[^\n]*/, "Always ask which sprint the work belongs to.");
   expect((await call("PUT", "file", { path: "shared/playbooks/issue-draft/PLAYBOOK.md", content: edited, version: file.body.version })).status).toBe(200);
