@@ -17,7 +17,7 @@ Write a round like this:
 ➡️ <your recommended answer>
 ```
 
-- Number the questions across the whole session (the second round goes on from the last number), so "Q3 b" always points at one question.
+- Number the questions across the whole thread (the second round goes on from the last number), so "Q3 b" always points at one question.
 - One idea per question. Word it so "yes" accepts your recommended answer.
 - Keep a question under 500 characters and its recommendation under 300. Your reply reaches Discord as at most three messages of 2,000 characters, and anything longer is cut. Keep a round under 1,800 characters: when the frontier is larger, ask the questions that unblock the most decisions now and the rest in the next round.
 - "yes" accepts every recommendation of the round; "yes, except Q2: ..." accepts the rest. A question left unanswered stays on the frontier: ask it once more, and when it is skipped again, say which assumption you make and go on.
@@ -26,4 +26,4 @@ Each round of answers reshapes the tree: settled decisions push the frontier out
 
 Finding _facts_ is your job, never the person's. When a question needs a fact you can look up, look it up with your tools in this turn before you ask: Workspace files with `searchFiles` and `readFile`, a repository with `repoSearchCode`, `repoReadFile`, and `repoIssue`. Do not ask the person for anything you could find yourself. The _decisions_ are theirs: put each one to them and wait.
 
-The session is done when the frontier is empty: every branch of the design tree visited, nothing silently assumed. Then post a short summary of the decisions, one line each, and ask the person to confirm it. Act on the decisions only after they confirm that you have reached a shared understanding.
+The grilling is done when the frontier is empty: every branch of the design tree visited, nothing silently assumed. Then post a short summary of the decisions, one line each, and ask the person to confirm it. Act on the decisions only after they confirm that you have reached a shared understanding.

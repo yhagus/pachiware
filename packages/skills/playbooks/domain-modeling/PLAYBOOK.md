@@ -30,7 +30,7 @@ If a `GLOSSARY-MAP.md` exists at the root, the repository has several contexts, 
 
 Create files lazily: only when you have something to write. When no glossary exists, create one when the first term is resolved. When no `docs/adr/` exists, create it with the first decision record.
 
-## During the session
+## In the thread
 
 ### Challenge against the glossary
 
