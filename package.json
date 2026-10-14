@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "db:generate": "bun --filter @pachiware/db db:generate",
     "db:migrate": "bun --filter @pachiware/db db:migrate",
     "db:seed": "bun --filter @pachiware/db db:seed",
@@ -15,7 +16,7 @@
     "dev:agent": "bun --filter @pachiware/agent dev",
     "dev:web": "bun --filter @pachiware/web dev",
     "build": "bun --filter @pachiware/* build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p apps/web",
     "test": "bun test",
     "eval": "bun test ./apps/agent/eval/drafts.eval.ts",
     "eval:assistant": "bun test ./apps/agent/eval/assistant.eval.ts"

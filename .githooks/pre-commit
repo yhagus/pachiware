@@ -1,0 +1,3 @@
+#!/bin/sh
+# Typecheck every commit; the full suite runs on push (see pre-push).
+exec bun run typecheck
