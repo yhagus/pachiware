@@ -39,6 +39,16 @@ describe("built-in playbooks", () => {
     for (const name of ["grill-with-docs", "domain-modeling"]) expect([name, text(name).includes("`writePlaybookDocument`")]).toEqual([name, true]);
   });
 
+  test("the tracker playbooks are imported off, need a repository, and write through the batch tools; wayfinder and triage load grilling and domain-modeling", () => {
+    for (const name of ["wayfinder", "to-tickets", "triage"]) {
+      expect([name, named(name)?.defaultOff, named(name)?.start, named(name)?.requires.includes("git_repositories"), named(name)?.repository]).toEqual([name, true, true, true, "required"]);
+    }
+    for (const name of ["wayfinder", "triage"]) expect([name, named(name)!.loads]).toEqual([name, ["grilling", "domain-modeling"]]);
+    for (const name of ["wayfinder", "to-tickets"]) expect([name, text(name).includes("`repoCreateIssues`")]).toEqual([name, true]);
+    expect(text("triage")).toContain("`repoUpdateIssues`");
+    expect(files("triage")).toEqual(expect.arrayContaining(["AGENT-BRIEF.md", "OUT-OF-SCOPE.md"]));
+  });
+
   test("pr also carries HumanLayer's MIT notice for its Summary section", () => {
     const notice = readFileSync(join(BUILTIN_PLAYBOOKS_DIR, "pr", "LICENSE.md"), "utf8");
     expect(notice).toContain("Copyright (c) 2026 HumanLayer");
