@@ -12,49 +12,49 @@ const LINE = /^- (\d{4}-\d{2}-\d{2}) \([^)]+\): \S.*$/;
 const dateOf = (at: Date) => at.toISOString().slice(0, 10);
 
 type Where = Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "userId" | "complete" | "language">;
-export type MemoryScope = "tenant" | "guild" | "channel" | "dm";
+export type MemoryLevel = "tenant" | "guild" | "channel" | "dm";
 
 /** MEMORY.md of the tenant, then the guild, then the channel (or the user's DM folder), cut at the cap each. Missing files are skipped. */
-export async function loadMemory(ctx: Where): Promise<{ scope: MemoryScope; text: string }[]> {
-  const roots = visibleRoots(ctx), out: { scope: MemoryScope; text: string }[] = [];
-  for (const scope of ["tenant", "guild", "channel", "dm"] as const) {
-    if (!roots[scope]) continue;
-    const text = (await readMemory(ctx, scope))?.content.trim();
-    if (text) out.push({ scope, text: text.length > MAX_MEMORY_CHARS ? text.slice(0, MAX_MEMORY_CHARS) + "… (truncated)" : text });
+export async function loadMemory(ctx: Where): Promise<{ level: MemoryLevel; text: string }[]> {
+  const roots = visibleRoots(ctx), out: { level: MemoryLevel; text: string }[] = [];
+  for (const level of ["tenant", "guild", "channel", "dm"] as const) {
+    if (!roots[level]) continue;
+    const text = (await readMemory(ctx, level))?.content.trim();
+    if (text) out.push({ level, text: text.length > MAX_MEMORY_CHARS ? text.slice(0, MAX_MEMORY_CHARS) + "… (truncated)" : text });
   }
   return out;
 }
 
 /** The Memory the agent may change from here: "guild" or "channel" in a guild; in a DM either name means the person's own folder. */
-export function memoryScope(ctx: Where, requested: unknown): MemoryScope {
-  if (requested !== "guild" && requested !== "channel") throw new Error('scope must be "channel" or "guild"');
+export function memoryLevel(ctx: Where, requested: unknown): MemoryLevel {
+  if (requested !== "guild" && requested !== "channel") throw new Error('level must be "channel" or "guild"');
   const roots = visibleRoots(ctx);
   if (roots.dm) return "dm";
   if (!roots[requested]) throw new Error(`No ${requested} Memory here.`);
   return requested;
 }
 
-const memoryFile = (ctx: Where, scope: MemoryScope) => `${visibleRoots(ctx)[scope]}/MEMORY.md`;
-const readMemory = (ctx: Where, scope: MemoryScope) => workspaceStore().read(ctx.tenantId, memoryFile(ctx, scope)).catch(() => null);
+const memoryFile = (ctx: Where, level: MemoryLevel) => `${visibleRoots(ctx)[level]}/MEMORY.md`;
+const readMemory = (ctx: Where, level: MemoryLevel) => workspaceStore().read(ctx.tenantId, memoryFile(ctx, level)).catch(() => null);
 
-/** Appends `- <date> (<name>): <text>` to that scope's MEMORY.md, compacts the file when that leaves it over the cap, and returns the line. */
-export async function remember(ctx: Where, scope: MemoryScope, text: string, name: string): Promise<string> {
+/** Appends `- <date> (<name>): <text>` to that level's MEMORY.md, compacts the file when that leaves it over the cap, and returns the line. */
+export async function remember(ctx: Where, level: MemoryLevel, text: string, name: string): Promise<string> {
   const line = `- ${dateOf(today())} (${name}): ${text}`;
-  const current = await readMemory(ctx, scope);
+  const current = await readMemory(ctx, level);
   const body = current?.content.trimEnd();
   const next = body ? `${body}\n${line}` : line;
-  const { version } = await workspaceStore().write(ctx.tenantId, memoryFile(ctx, scope), next, current?.version);
-  if (next.length > MAX_MEMORY_CHARS) await compact(ctx, scope, next, version);
+  const { version } = await workspaceStore().write(ctx.tenantId, memoryFile(ctx, level), next, current?.version);
+  if (next.length > MAX_MEMORY_CHARS) await compact(ctx, level, next, version);
   return line;
 }
 
-/** Removes every line of that scope's MEMORY.md containing `match`, case-insensitively, and returns how many went. */
-export async function forget(ctx: Where, scope: MemoryScope, match: string): Promise<number> {
-  const current = await readMemory(ctx, scope);
+/** Removes every line of that level's MEMORY.md containing `match`, case-insensitively, and returns how many went. */
+export async function forget(ctx: Where, level: MemoryLevel, match: string): Promise<number> {
+  const current = await readMemory(ctx, level);
   if (!current) return 0;
   const needle = match.toLowerCase(), lines = current.content.split("\n");
   const kept = lines.filter((l) => !l.toLowerCase().includes(needle));
-  if (kept.length !== lines.length) await workspaceStore().write(ctx.tenantId, memoryFile(ctx, scope), kept.join("\n").trim(), current.version);
+  if (kept.length !== lines.length) await workspaceStore().write(ctx.tenantId, memoryFile(ctx, level), kept.join("\n").trim(), current.version);
   return lines.length - kept.length;
 }
 
@@ -68,7 +68,7 @@ Reply with the lines only, in date order, no headings or commentary, under ${MAX
  * verbatim, and fits the cap; otherwise the oldest lines before that window go until the rest fits. Either way a dated line says so.
  * A write that lost to another change is dropped: the next remember compacts again.
  */
-async function compact(ctx: Where, scope: MemoryScope, text: string, version: string): Promise<void> {
+async function compact(ctx: Where, level: MemoryLevel, text: string, version: string): Promise<void> {
   const at = today(), since = dateOf(new Date(at.getTime() - MEMORY_KEEP_DAYS * DAY));
   const lines = text.split("\n").filter((l) => l.trim());
   const dated = lines.map((l, i) => ({ i, date: l.match(LINE)?.[1] ?? "" }));
@@ -87,5 +87,5 @@ async function compact(ctx: Where, scope: MemoryScope, text: string, version: st
     if (!drop.size) return;
     out = cut();
   }
-  await workspaceStore().write(ctx.tenantId, memoryFile(ctx, scope), out, version).catch(() => {});
+  await workspaceStore().write(ctx.tenantId, memoryFile(ctx, level), out, version).catch(() => {});
 }

@@ -175,7 +175,6 @@ export async function runSeed() {
     config: {},
   };
 
-  // Tool definitions come from the registry (packages/skills/src/builtin/reminders.ts).
   const remindersSkill = {
     id: "reminders",
     name: "Reminders",

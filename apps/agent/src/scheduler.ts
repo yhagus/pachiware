@@ -1,6 +1,6 @@
 import { db, schedules, agentsConfig, eq, and, type Schedule } from "@pachiware/db";
 import { asc, lte } from "drizzle-orm";
-import { now, nextOccurrence, wallClock, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, loadTasks, workspaceStore, dueMoment, taskLine, type Strings } from "@pachiware/skills";
+import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, loadTasks, workspaceStore, dueMoment, taskLine, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines } from "./digest.js";
 import type { DiscordBotManager } from "./discord/client.js";
@@ -50,7 +50,7 @@ async function post(client: any, row: Schedule, at: number, late: boolean) {
   }
   const users = [...new Set([row.ownerId, ...row.mentions].filter((id): id is string => !!id))];
   let head = [...users.map((id) => `<@${id}>`), strings.reminder(row.text)].join(" ");
-  if (late) { const w = wallClock(row.timezone, row.nextAt.getTime()); head += `\n${strings.reminderLate(w.day, w.month, `${String(w.hour).padStart(2, "0")}:${String(w.minute).padStart(2, "0")}`)}`; }
+  if (late) { const w = wallClock(row.timezone, row.nextAt.getTime()); head += `\n${strings.reminderLate(w.day, w.month, hhmm(w.hour, w.minute))}`; }
   const lines = row.withTasks ? await ownerTaskLines(row, channel.isThread?.() ? channel.parentId ?? undefined : undefined, strings, at) : [];
   await channel.send({ content: withinLimit(head.slice(0, MESSAGE_LIMIT), lines), allowedMentions: { users } });
 }

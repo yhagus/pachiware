@@ -16,6 +16,7 @@ import {
   type PostAccess,
   listOf,
   now as clockNow,
+  permissionName,
   textIn,
 } from "@pachiware/skills";
 
@@ -44,9 +45,6 @@ export const HISTORY_PAGES = 5;
 export const HISTORY_SPAN_MS = 24 * 3600_000;
 const READ_HISTORY = ["ViewChannel", "ReadMessageHistory"];
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|heic)$/i;
-const PERMISSION_NAMES: Record<string, string> = { ViewChannel: "View Channel", ReadMessageHistory: "Read Message History", SendMessages: "Send Messages", SendMessagesInThreads: "Send Messages in Threads", EmbedLinks: "Embed Links", AttachFiles: "Attach Files" };
-/** A Discord permission flag as its settings page names it. */
-export const permissionName = (flag: string) => PERMISSION_NAMES[flag] ?? flag.replace(/([a-z])([A-Z])/g, "$1 $2");
 
 export const stamp = (t: number) => new Date(t).toISOString().slice(0, 16).replace("T", " ");
 /** History as the model reads it, one numbered line per message: time, speaker, what it replied to, text, attachment placeholders. */
@@ -299,7 +297,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     return { messages, cut };
   }
 
-  async readChannelHistory(args: { channelId: string; requesterId: string; since?: string; limit?: number; language?: Language }, now = Date.now()): Promise<ChannelHistory> {
+  async readChannelHistory(args: { channelId: string; requesterId: string; since?: string; limit?: number; language?: Language }, now = clockNow()): Promise<ChannelHistory> {
     const t = textIn(args.language);
     if (!(await this.client.channels.fetch(args.channelId).catch(() => null))) throw new Error(t.historyNoChannel);
     const access = await this.historyAccess(args.channelId, args.requesterId);

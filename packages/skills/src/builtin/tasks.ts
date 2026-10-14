@@ -2,7 +2,7 @@ import type { SkillModule, SkillContext } from "../types.js";
 import { visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
-import { DEFAULT_TIMEZONE, now, offsetText, today, utcOffsetMinutes, zonedTime } from "../clock.js";
+import { DEFAULT_TIMEZONE, now, offsetText, today, zoneOffset, zonedTime } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
 
@@ -163,7 +163,7 @@ export function normalizeDueAt(value: unknown, timeZone: string): string | null 
   const wall = `${m[1]}T${m[2]}:${m[3] ?? "00"}`;
   if (m[4]) return zonedTime("UTC", wall) === null ? null : `${wall}${m[4]}`;
   const at = zonedTime(timeZone, wall);
-  return at === null ? null : `${wall}${offsetText(utcOffsetMinutes(timeZone, at))}`;
+  return at === null ? null : `${wall}${offsetText(zoneOffset(timeZone, at))}`;
 }
 function dueAtArg(value: unknown, timeZone: string): string | null {
   if (value === undefined || value === null || value === "") return null;

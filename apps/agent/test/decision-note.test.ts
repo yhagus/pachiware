@@ -23,7 +23,7 @@ discordScenario("record this decision: one file under decisions/ named by date a
   s.model.script(
     [
       { tool: "writeFile", args: { path: `channel/decisions/${TODAY}-use-postgres.md`, content: decision } },
-      { tool: "remember", args: { scope: "channel", text: `Decided: use Postgres (decisions/${TODAY}-use-postgres.md)` } },
+      { tool: "remember", args: { level: "channel", text: `Decided: use Postgres (decisions/${TODAY}-use-postgres.md)` } },
     ],
     (turn) => (turn.toolResults.every((r: any) => r.success !== false && !r.error) ? "Recorded." : `not recorded: ${JSON.stringify(turn.toolResults)}`),
   );

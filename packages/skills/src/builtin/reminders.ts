@@ -1,7 +1,8 @@
 import { schedules, eq, and, or, type Schedule } from "@pachiware/db";
 import { count } from "drizzle-orm";
 import type { SkillContext, SkillModule } from "../types.js";
-import { DEFAULT_TIMEZONE, isoInZone, now, wallClock, wallToInstant } from "../clock.js";
+import { DEFAULT_TIMEZONE, hhmm, isoInZone, now, wallClock, wallToInstant } from "../clock.js";
+import { hasPermission } from "../permissions.js";
 import { textIn } from "../language.js";
 import { nextOccurrence, parseWhen } from "../schedule.js";
 
@@ -24,7 +25,7 @@ function mentionIds(input: unknown, ownerId: string): string[] {
   return [...new Set(ids)].slice(0, MAX_MENTIONS);
 }
 
-const canModerate = (ctx: SkillContext) => !!ctx.auth?.permissions.some((p) => p === "Administrator" || p === "ManageMessages");
+const canModerate = (ctx: SkillContext) => hasPermission(ctx, "ManageMessages");
 const activeReminders = (ctx: SkillContext) => and(eq(schedules.tenantId, ctx.tenantId), eq(schedules.kind, "reminder"), eq(schedules.status, "active"));
 
 const describe = (row: Schedule) => ({
@@ -45,7 +46,7 @@ async function assertUnderLimits(ctx: SkillContext) {
 function timeOfDay(input: unknown): string | null {
   const m = typeof input === "string" ? TIME.exec(input.trim()) : null;
   if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
-  return `${m[1]!.padStart(2, "0")}:${m[2]}`;
+  return hhmm(Number(m[1]), Number(m[2]));
 }
 
 /** Weekday numbers (0 = Sunday) from numbers or English names, sorted and without repeats. */
@@ -124,7 +125,7 @@ export const remindersSkill: SkillModule = {
         if (at === null) throw new Error('at must be a date and time such as "2026-03-06T15:00"');
         if (at <= from) throw new Error("That time has already passed; pick a later one.");
         const wall = wallClock(timezone, at);
-        const [row] = await ctx.db.insert(schedules).values({ ...base, recurrence, timeOfDay: `${String(wall.hour).padStart(2, "0")}:${String(wall.minute).padStart(2, "0")}`, nextAt: new Date(at) }).returning({ id: schedules.id });
+        const [row] = await ctx.db.insert(schedules).values({ ...base, recurrence, timeOfDay: hhmm(wall.hour, wall.minute), nextAt: new Date(at) }).returning({ id: schedules.id });
         return { id: row!.id, at: isoInZone(timezone, at), recurrence, text, mentions, withTasks, channelId: ctx.channelId };
       }
 

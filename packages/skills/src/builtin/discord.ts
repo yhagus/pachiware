@@ -1,9 +1,9 @@
 import type { SkillModule, SkillContext, PostAccess } from "../types.js";
 import { listOf, replyLanguage, textIn } from "../language.js";
+import { permissionName } from "../permissions.js";
 
 /** "<#123>" or "123" → "123". */
 const channelIdOf = (input: string) => /^<#([^>\s]+)>$/.exec(input.trim())?.[1] ?? input.trim();
-const permissionName = (flag: string) => flag.replace(/([a-z])([A-Z])/g, "$1 $2");
 
 /** Throws the refusal, in the announcement's language, when the bot cannot post there or the asker cannot see it. */
 async function assertCanPost(args: { channelId: string; content: string }, ctx: SkillContext): Promise<string> {
@@ -273,10 +273,10 @@ export const discordManagementSkill: SkillModule = {
       args: { channelId?: string; since?: string; limit?: number },
       context: SkillContext
     ) => {
-      const channelId = args.channelId?.trim().replace(/^<#([^>]+)>$/, "$1") || context.channelId;
+      const channelId = (args.channelId && channelIdOf(args.channelId)) || context.channelId;
       if (!channelId) throw new Error("Name a channel to read: this conversation is not in one.");
       if (!context.discord || !context.userId) throw new Error("Channel history can only be read from Discord.");
-      return context.discord.readChannelHistory({ channelId, requesterId: context.userId, since: args.since, limit: args.limit });
+      return context.discord.readChannelHistory({ channelId, requesterId: context.userId, since: args.since, limit: args.limit, language: context.language });
     },
   },
 };

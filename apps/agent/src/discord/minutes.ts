@@ -1,9 +1,9 @@
 import type { Message } from "discord.js";
-import { workspaceStore, renderFrontmatter, parseFrontmatter, safeId, asUntrusted, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, type Language, type Playbook } from "@pachiware/skills";
+import { workspaceStore, renderFrontmatter, parseFrontmatter, safeId, asUntrusted, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, permissionName, type Language, type Playbook } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { replyQuietly } from "./replyStyle.js";
 import { speakerName } from "./routing.js";
-import { HISTORY_PAGE, HISTORY_PAGES, HISTORY_SPAN_MS, permissionName, stamp, transcript, type DiscordJSAdapter, type HistoryAccess, type HistoryCut } from "./adapter.js";
+import { HISTORY_PAGE, HISTORY_PAGES, HISTORY_SPAN_MS, stamp, transcript, type DiscordJSAdapter, type HistoryAccess, type HistoryCut } from "./adapter.js";
 
 /** The built-in playbook this module runs; a tenant playbook of the same name changes its steps and triggers, not where minutes go. */
 export const MINUTES_PLAYBOOK = "minutes";
