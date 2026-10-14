@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { usageEvents } from "@pachiware/db";
-import type { SkillContext, SkillModule, ToolPolicy } from "./types.js";
+import type { SkillContext, SkillModule, SkillScope, ToolPolicy } from "./types.js";
 import { hasThreadConfirmation } from "./threadConfirmation.js";
 import { hasPermission } from "./permissions.js";
 
 /**
  * observe: nothing is refused, would-be refusals are only logged.
  * write:   confirmation, rate/size limits and duplicate guard are enforced.
- * enforce: everything above plus scope, role and prompt-injection refusals (default).
+ * enforce: everything above plus scope, permission and prompt-injection refusals (default).
  */
 export type GuardrailMode = "observe" | "write" | "enforce";
 export const guardrailMode = (): GuardrailMode => (process.env.GUARDRAIL_MODE === "observe" || process.env.GUARDRAIL_MODE === "write" ? process.env.GUARDRAIL_MODE : "enforce");
@@ -101,7 +101,7 @@ export const GuardrailService = {
     if (JSON.stringify(args ?? {}).length > MAX_ARGS) return deny("limit", "Tool arguments are too large.");
     const a = ctx.auth;
     if (a && (a.tenantId !== ctx.tenantId || a.botId !== ctx.botId || a.userId !== ctx.userId || a.guildId !== ctx.guildId || a.channelId !== ctx.channelId)) return this.denyUnauthorized("Authorization context does not match this request.");
-    const present: Record<string, unknown> = { tenant: ctx.tenantId, guild: ctx.guildId, channel: ctx.channelId, user: ctx.userId, role: a };
+    const present: Record<SkillScope, unknown> = { tenant: ctx.tenantId, guild: ctx.guildId, channel: ctx.channelId, user: ctx.userId };
     for (const s of skill.allowedScopes ?? []) if (!present[s]) return this.denyOutOfScope(`This action only works inside a Discord server channel (missing ${s}).`);
     const policy = policyOf(skill, tool);
     const needs = policy.requiredPermissions ?? skill.requiredPermissions;

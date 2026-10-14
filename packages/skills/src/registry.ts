@@ -165,7 +165,7 @@ export class SkillRegistry {
       return { toolCallId, name, success: false, error: `Handler for tool "${name}" not implemented in skill "${skillId}".` };
     }
 
-    // Guardrail: scope, role, size, rate, duplicate and confirmation, decided here and not by the model.
+    // Guardrail: scope, permission, size, rate, duplicate and confirmation, decided here and not by the model.
     const decision = GuardrailService.checkTool(skill, name, args, context);
     const check = skill.checks?.[name];
     if (check && (decision.allow || decision.kind === "confirmation_required")) {
