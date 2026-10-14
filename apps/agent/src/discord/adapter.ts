@@ -8,6 +8,7 @@ import {
 import type { Message } from "discord.js";
 import {
   type ChannelHistory,
+  type ChannelView,
   type DiscordClientAdapter,
   type DiscordChannelInfo,
   type DiscordMemberInfo,
@@ -227,6 +228,17 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     const guild = await this.getGuild();
     const m = await guild.members.fetch(userId).catch(() => null);
     return m ? memberInfo(m, guild.id) : null;
+  }
+
+  async channelView(channelId: string, userId: string): Promise<ChannelView> {
+    const channel: any = await this.client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.guild || channel.isDMBased?.()) return { channel: null, canView: false };
+    const found = { id: channel.id, name: channel.name ?? channel.id, guildId: channel.guild.id };
+    const member = await channel.guild.members.fetch(userId).catch(() => null);
+    if (!member || !channel.permissionsFor(member)?.has("ViewChannel")) return { channel: found, canView: false };
+    // Seeing a private thread's parent is not enough: the user must have been added to the thread.
+    const inThread = channel.type !== ChannelType.PrivateThread || await channel.members.fetch(userId).then(() => true, () => false);
+    return { channel: found, canView: inThread };
   }
 
   /** A text channel or thread of this guild that both the bot and the requester are allowed to see and post in. */

@@ -164,6 +164,7 @@ export const taskManagementSkill: SkillModule = {
       const who = typeof args.assignedTo === "string" && args.assignedTo.trim() ? await resolveAssignee(args.assignedTo, ctx) : null;
       if (who && "candidates" in who) return ambiguousAssignee(args.assignedTo!, who.candidates);
       const roots = visibleRoots(ctx), home = roots.channel ?? roots.dm ?? roots.tenant!;
+      if (who && !who.nameOnly) await mustView(ctx, `${home}/tasks/`, who.assignee);
       const at = today().toISOString(), id = crypto.randomUUID();
       const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: who?.assignee ?? null, dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at };
       await workspaceStore().write(ctx.tenantId, `${home}/tasks/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
@@ -201,7 +202,10 @@ export const taskManagementSkill: SkillModule = {
       if (typeof args.assignedTo !== "string" || !args.assignedTo.trim()) throw new Error("assignedTo is required");
       const who = await resolveAssignee(args.assignedTo, ctx);
       if ("candidates" in who) return ambiguousAssignee(args.assignedTo, who.candidates);
-      const updated = await change(ctx, args.taskId, (t) => ({ ...t, assignedTo: who.assignee }));
+      const updated = await change(ctx, args.taskId, async (t, path) => {
+        if (!who.nameOnly) await mustView(ctx, path, who.assignee);
+        return { ...t, assignedTo: who.assignee };
+      });
       return { success: true, message: `Task "${updated.title}" assigned to @${assigneeLabel(updated.assignedTo)}.${who.nameOnly ? nameOnlyNote(who.assignee) : ""}`, task: updated };
     },
 
@@ -432,15 +436,39 @@ async function readTask(ctx: SkillContext, taskId: string): Promise<Task> {
   return task;
 }
 
-async function change(ctx: SkillContext, taskId: string, edit: (t: Task) => Task): Promise<Task> {
+/** The project channel a task file belongs to, from its path: `guilds/<guild>/channels/<channel>/…`; null for shared and DM folders. */
+export function taskChannelOf(path: string): { guildId: string; channelId: string } | null {
+  const m = /^guilds\/([\w-]+)\/channels\/([\w-]+)\//.exec(path);
+  return m ? { guildId: m[1]!, channelId: m[2]! } : null;
+}
+
+/** Whether an Assignee may hold the task at `path`: a member must be able to view its channel. Name-only Assignees, tasks outside a channel folder, and turns without Discord always may. */
+async function canView(ctx: SkillContext, path: string, assignee: Assignee): Promise<{ ok: true } | { ok: false; channel: string }> {
+  const home = taskChannelOf(path);
+  if (!home || !assignee.id || !ctx.discord) return { ok: true };
+  const view = await ctx.discord.channelView(home.channelId, assignee.id).catch(() => ({ channel: null, canView: false }));
+  return view.canView ? { ok: true } : { ok: false, channel: `#${view.channel?.name ?? home.channelId}` };
+}
+
+/** Throws, naming the channel and both ways out, when a member cannot view the channel of the task at `path`. */
+async function mustView(ctx: SkillContext, path: string, assignee: Assignee) {
+  const view = await canView(ctx, path, assignee);
+  if (view.ok) return;
+  const { channel } = view;
+  throw new Error(`${assignee.name} cannot view ${channel}, so they cannot be this task's assignee. Nothing was changed. Add them to ${channel}, or assign someone else.`);
+}
+
+async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: string) => Task | Promise<Task>): Promise<Task> {
   if (typeof taskId !== "string" || !/^[0-9a-f-]{8,36}$/.test(taskId)) throw new Error(`Task with ID ${taskId} not found.`);
   const store = workspaceStore(), [hit] = (await loadTasks(store, ctx, taskId.slice(0, 8))).filter((f) => f.task.id.startsWith(taskId));
   if (!hit) throw new Error(`Task with ID ${taskId} not found.`);
   const current = await store.read(ctx.tenantId, hit.path).catch(() => null), parsed = current && parseTask(current.content);
   if (!current || !parsed) throw new Error(`Task with ID ${taskId} not found.`);
-  const edited = edit(parsed);
-  // A name-only Assignee the edit kept is linked when its name now matches exactly one member.
-  const next = { ...edited, assignedTo: edited.assignedTo === parsed.assignedTo ? await linkAssignee(edited.assignedTo, ctx) : edited.assignedTo, updatedAt: today().toISOString() };
+  const edited = await edit(parsed, hit.path);
+  // A name-only Assignee the edit kept is linked when its name now matches exactly one member who can view the task's channel.
+  const linked = edited.assignedTo === parsed.assignedTo ? await linkAssignee(edited.assignedTo, ctx) : edited.assignedTo;
+  const assignedTo = linked !== edited.assignedTo && linked && !(await canView(ctx, hit.path, linked)).ok ? edited.assignedTo : linked;
+  const next = { ...edited, assignedTo, updatedAt: today().toISOString() };
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
   return next;

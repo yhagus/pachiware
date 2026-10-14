@@ -73,6 +73,11 @@ export interface DiscordClientAdapter {
   /** One member of the guild by user id; null when they are not in it. */
   getMember(userId: string): Promise<DiscordMemberInfo | null>;
 
+  /**
+   * Whether a user can view a channel or thread of any guild the bot is in, whichever guild the adapter is bound to.
+   * A channel the bot cannot resolve, a DM, or a user outside the channel's guild is never viewable.
+   */
+  channelView(channelId: string, userId: string): Promise<ChannelView>;
   /** Whether the bot may post in a channel and the requester may see it; "unknown" covers a channel outside this guild or a DM. */
   postAccess(channelId: string, requesterId: string): Promise<PostAccess>;
   /** Posts plain text with no pings. */
@@ -106,7 +111,10 @@ export interface DiscordMemberInfo { id: string; displayName: string; username?:
 export interface DiscordAttachmentInfo { id: string; name: string; url: string; size: number; contentType: string | null }
 export interface DiscordMessageInfo { id: string; channelId: string; authorId: string; attachments: DiscordAttachmentInfo[] }
 
-export type PostAccess = { ok: true } | { ok: false; who: "requester" | "bot" | "unknown"; missing: string[] };
+/** A guild channel as the bot resolved it (null when it could not), and whether the user asked about can view it. */
+export interface ChannelView { channel: { id: string; name: string; guildId: string } | null; canView: boolean }
+
+export type PostAccess ={ ok: true } | { ok: false; who: "requester" | "bot" | "unknown"; missing: string[] };
 
 /** What calling a tool can do; EFFECT_MEANING says what each covers. */
 export type Effect = "read" | "write" | "danger";
