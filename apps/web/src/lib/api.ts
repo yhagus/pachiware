@@ -73,7 +73,9 @@ export type Language = "id" | "en";
 export const LANGUAGES: { id: Language; name: string }[] = [{ id: "id", name: "Indonesian" }, { id: "en", name: "English" }];
 /** The tenant's defaults; a guild overrides them with its own, null meaning "the tenant's". */
 export interface TenantSettings { timezone: string; language: Language; }
-export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; }
+/** A channel opted in to the daily Digest and the hour (0 to 23, in the server's zone) it posts at. */
+export interface DigestChannel { channelId: string; hour: number; }
+export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; }
 export interface GitRule { gitAccountId: string; repoPatterns: string[]; }
 export interface GuildGit { accounts: { id: string; name: string; provider: "github" | "gitlab"; username: string }[]; server: GitRule[]; channels: Record<string, GitRule[]>; }
 export interface Conversation { id: string; channelId: string | null; userId: string | null; createdAt: string; lastMessageAt: string | null; messageCount: number; }

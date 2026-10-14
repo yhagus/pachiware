@@ -11,6 +11,9 @@ import { api, LANGUAGES, type Guild, type GuildConfig, type Language } from "@/l
 
 const MAX = 8000;
 const INHERIT = "tenant";
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const DEFAULT_DIGEST_HOUR = 8;
+const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
 export function GuildInstructions({ botId, guild, onClose }: { botId: string; guild: Guild | null; onClose: () => void }) {
   const [cfg, setCfg] = useState<GuildConfig | null>(null);
@@ -34,6 +37,9 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
     finally { setSaving(false); }
   };
   const toggleChannel = (id: string, on: boolean) => cfg && setCfg({ ...cfg, alwaysChannelIds: on ? [...cfg.alwaysChannelIds, id] : cfg.alwaysChannelIds.filter((c) => c !== id) });
+  const digestOf = (id: string) => cfg?.digestChannels.find((d) => d.channelId === id);
+  const toggleDigest = (id: string, on: boolean) => cfg && setCfg({ ...cfg, digestChannels: on ? [...cfg.digestChannels, { channelId: id, hour: DEFAULT_DIGEST_HOUR }] : cfg.digestChannels.filter((d) => d.channelId !== id) });
+  const setDigestHour = (id: string, hour: number) => cfg && setCfg({ ...cfg, digestChannels: cfg.digestChannels.map((d) => (d.channelId === id ? { ...d, hour } : d)) });
   const textChannels = guild?.channels.filter((c) => c.type === "text") ?? [];
 
   return (
@@ -94,6 +100,31 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
                         <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={cfg.alwaysChannelIds.includes(c.id)} onChange={(e) => toggleChannel(c.id, e.target.checked)} /># {c.name}
                       </label></li>
                     ))}
+                  </ul>
+                )}
+              </fieldset>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">Daily Digest</legend>
+                <p className="text-xs text-muted-foreground">At the chosen hour, posts this channel's tasks due today and the ones already late. A day with nothing to report posts nothing. Hours follow the server's time zone.</p>
+                {textChannels.length === 0 ? <p className="text-sm text-muted-foreground">No text channels visible to this bot.</p> : (
+                  <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                    {textChannels.map((c) => {
+                      const digest = digestOf(c.id);
+                      return (
+                        <li key={c.id} className="flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
+                          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                            <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={!!digest} onChange={(e) => toggleDigest(c.id, e.target.checked)} />
+                            <span className="truncate"># {c.name}</span>
+                          </label>
+                          {digest && (
+                            <select aria-label={`Digest hour for #${c.name}`} value={digest.hour} onChange={(e) => setDigestHour(c.id, Number(e.target.value))}
+                              className="h-8 rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                              {HOURS.map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+                            </select>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </fieldset>

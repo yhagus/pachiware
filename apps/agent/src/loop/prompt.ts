@@ -1,11 +1,12 @@
-import { db, agentsConfig, getGuildConfig, DEFAULT_SYSTEM_PROMPT } from "@pachiware/db";
+import { db, agentsConfig, getGuildConfig, upsertGuildConfig, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type GuildConfigInput } from "@pachiware/db";
 import { eq } from "drizzle-orm";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, loadMemory, loadTasks, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, now, type OffSummary, type Language } from "@pachiware/skills";
 import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
+import { syncDigestSchedules } from "../digest.js";
 
-export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null };
-const guildDefaults: GuildSettings = { systemPrompt: null, useThreads: true, alwaysChannelIds: [], timezone: null, language: null };
+export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[] };
+const guildDefaults: GuildSettings = { systemPrompt: null, useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [] };
 export const guildCacheKey = (tenantId: string, botId: string, guildId: string) => tenantKey(tenantId, `guild:${botId}:${guildId}`);
 
 export async function loadGuildSettings(tenantId: string, botId: string, guildId: string): Promise<GuildSettings> {
@@ -13,8 +14,18 @@ export async function loadGuildSettings(tenantId: string, botId: string, guildId
   const cached = await CacheService.get<GuildSettings>(key);
   if (cached) return cached;
   const row = await getGuildConfig(botId, guildId);
-  const settings = row ? { systemPrompt: row.systemPrompt, useThreads: row.useThreads, alwaysChannelIds: row.alwaysChannelIds, timezone: row.timezone ?? null, language: row.language ?? null } : guildDefaults;
+  const settings = row ? { systemPrompt: row.systemPrompt, useThreads: row.useThreads, alwaysChannelIds: row.alwaysChannelIds, timezone: row.timezone ?? null, language: row.language ?? null, digestChannels: row.digestChannels ?? [] } : guildDefaults;
   await CacheService.set(key, settings, 120);
+  return settings;
+}
+
+/** The one way to change a guild's settings: writes the row, drops the cache, and keeps the Digest schedule rows in step with `digestChannels` and the zone. */
+export async function saveGuildSettings(tenantId: string, botId: string, guildId: string, input: GuildConfigInput): Promise<GuildSettings> {
+  await upsertGuildConfig(tenantId, botId, guildId, input);
+  await CacheService.del(guildCacheKey(tenantId, botId, guildId));
+  const settings = await loadGuildSettings(tenantId, botId, guildId);
+  const [agent] = await db.select({ timezone: agentsConfig.timezone }).from(agentsConfig).where(eq(agentsConfig.tenantId, tenantId)).limit(1);
+  await syncDigestSchedules({ tenantId, botId, guildId, timezone: configuredTimezone(settings, agent) }, settings.digestChannels);
   return settings;
 }
 

@@ -2,6 +2,7 @@ import { db, schedules, agentsConfig, eq, and, type Schedule } from "@pachiware/
 import { asc, lte } from "drizzle-orm";
 import { now, nextOccurrence, wallClock, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, loadTasks, workspaceStore, dueMoment, taskLine, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
+import { digestLines } from "./digest.js";
 import type { DiscordBotManager } from "./discord/client.js";
 
 export const SCHEDULER_INTERVAL_MS = 60_000;
@@ -35,13 +36,19 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
   await moveOn(row, at, new Date(at));
 }
 
-/** The one message that pings: the owner and the people named when the Reminder was made. A late post says when it was due, in the row's zone. */
+/** A Reminder is the one message that pings: the owner and the people named when it was made; a late one says when it was due, in the row's zone. A Digest pings nobody and is skipped on a day with nothing to report. */
 async function post(client: any, row: Schedule, at: number, late: boolean) {
   const channel: any = await client.channels.fetch(row.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) throw new Error("The channel is gone or cannot be posted in.");
   const [agent] = await db.select({ language: agentsConfig.language }).from(agentsConfig).where(eq(agentsConfig.tenantId, row.tenantId)).limit(1);
   const guild = row.guildId ? await loadGuildSettings(row.tenantId, row.botId, row.guildId) : null;
-  const users = [...new Set([row.ownerId, ...row.mentions].filter((id): id is string => !!id))], strings = textIn(configuredLanguage(guild, agent));
+  const strings = textIn(configuredLanguage(guild, agent));
+  if (row.kind === "digest") {
+    const [first, ...rest] = await digestLines(row, strings, at);
+    if (first) await channel.send({ content: withinLimit(first, rest), allowedMentions: { parse: [] } });
+    return;
+  }
+  const users = [...new Set([row.ownerId, ...row.mentions].filter((id): id is string => !!id))];
   let head = [...users.map((id) => `<@${id}>`), strings.reminder(row.text)].join(" ");
   if (late) { const w = wallClock(row.timezone, row.nextAt.getTime()); head += `\n${strings.reminderLate(w.day, w.month, `${String(w.hour).padStart(2, "0")}:${String(w.minute).padStart(2, "0")}`)}`; }
   const lines = row.withTasks ? await ownerTaskLines(row, channel.isThread?.() ? channel.parentId ?? undefined : undefined, strings, at) : [];
