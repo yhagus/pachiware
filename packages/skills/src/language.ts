@@ -136,6 +136,8 @@ const en = {
   reminderLate: (day: number, month: number, time: string) => `-# Posted late: this was due ${day} ${MONTHS_EN[month - 1]}, ${time}.`,
   openTasks: "Open tasks (status | due | assignee | id | title):",
   personalTasks: "Personal tasks",
+  sharedTasks: "Shared tasks",
+  moreTasks: (n: number) => `…and ${plural(n, "more task")}.`,
   // Digest
   digestDueToday: "**Due today**",
   digestLate: "**Late**",
@@ -249,6 +251,8 @@ const id: typeof en = {
   reminderLate: (day, month, time) => `-# Terlambat: seharusnya diposting ${day} ${MONTHS_ID[month - 1]} ${time}.`,
   openTasks: "Tugas terbuka (status | due | assignee | id | title):",
   personalTasks: "Tugas pribadi",
+  sharedTasks: "Tugas bersama",
+  moreTasks: (n) => `…dan ${n} tugas lainnya.`,
   digestDueToday: "**Jatuh tempo hari ini**",
   digestLate: "**Terlambat**",
   daysLate: (n) => `terlambat ${n} hari`,

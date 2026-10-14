@@ -68,6 +68,17 @@ discordScenario("mine from a guild channel includes the asker's Personal tasks a
   expect(s.discord.botMessages.at(-1)?.content).toBe("Personal tasks: Bob's gym\n1 of 1");
 });
 
+discordScenario("delegated leaves out the asker's Personal tasks, even one recorded for someone by name", async (s) => {
+  await s.guildSettings({ useThreads: false });
+  s.discord.channel("channel-1").name = "launch";
+  await s.workspace.write("guilds/guild-1/channels/channel-1/tasks/badges.md", taskFile(1, "Order the badges", { id: "user-bob", name: "Bob" }));
+  await s.workspace.write(`${PERSONAL}/plumber.md`, taskFile(2, "Fix the sink", { name: "Dewi" }));
+
+  s.model.script({ tool: "listTasks", args: { scope: "delegated" } }, plan);
+  await s.discord.send(`${s.discord.mention} what did I hand out?`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("#launch: Order the badges\n1 of 1");
+});
+
 discordScenario("mine in a DM lists the person's Personal tasks as their own group", async (s) => {
   const dm = s.discord.channel("dm-alice", { dm: true });
   await s.workspace.write(`${PERSONAL}/dentist.md`, taskFile(2, "Call the dentist"));
@@ -152,4 +163,21 @@ discordScenario("a Personal task can be assigned to the person or to a name only
   expect(JSON.parse(s.discord.botMessages.at(-1)!.content).success).toBe(true);
   expect(await files(s, PERSONAL)).toHaveLength(2);
   expect(s.discord.botMessages.filter((m) => m.components.length > 0)).toEqual([]);
+});
+
+discordScenario("in a DM a typed name is recorded by name only, and the result says so without claiming no member matched, since no member lookup happens there", async (s) => {
+  const dm = s.discord.channel("dm-alice", { dm: true });
+  await s.workspace.write(`${PERSONAL}/dentist.md`, taskFile(1, "Call the dentist"));
+
+  s.model.script({ tool: "createTask", args: { title: "Fix the sink", assignedTo: "Bob" } }, lastResult);
+  await s.discord.send("task for Bob: fix the sink", { channel: dm });
+  const created = JSON.parse(s.discord.botMessages.at(-1)!.content);
+  expect(created.message).toContain("Bob was recorded by name only");
+  expect(created.message).not.toMatch(/no server member matches/);
+
+  s.model.script({ tool: "assignTask", args: { taskId: "00000001", assignedTo: "Dewi" } }, lastResult);
+  await s.discord.send("give the dentist call to Dewi", { channel: dm });
+  const assigned = JSON.parse(s.discord.botMessages.at(-1)!.content);
+  expect(assigned.message).toContain("Dewi was recorded by name only");
+  expect(assigned.message).not.toMatch(/no server member matches/);
 });

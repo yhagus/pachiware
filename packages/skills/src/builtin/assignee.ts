@@ -88,5 +88,8 @@ export const ambiguousAssignee = (text: string, candidates: (Assignee & { userna
   candidates,
 });
 
-/** What a confirmation adds when an Assignee was recorded by name only. */
-export const nameOnlyNote = (a: Assignee) => ` ${a.name} was recorded by name only: no server member matches that name, so the bot cannot reach them.`;
+/** What a confirmation adds when an Assignee was recorded by name only. In a DM no member lookup happens, so it does not claim none matched. */
+export const nameOnlyNote = (a: Assignee, ctx: Pick<SkillContext, "guildId">) =>
+  ctx.guildId
+    ? ` ${a.name} was recorded by name only: no server member matches that name, so the bot cannot reach them.`
+    : ` ${a.name} was recorded by name only: names typed in a DM are not looked up among server members, so the bot cannot reach them.`;

@@ -82,16 +82,24 @@ discordScenario("a DM Reminder with tasks posts Alice's mine list across shared 
   ].join("\n"));
 });
 
-discordScenario("a channel Reminder with tasks lists the same mine scope as asking from that channel: the guild's channels Alice can view and her Personal tasks", async (s) => {
+discordScenario("a channel Reminder with tasks lists the same mine scope as asking from that channel: the guild's channels Alice can view and her Personal tasks, open ones only", async (s) => {
   s.clock.set("2026-10-14T20:00:00+07:00");
   await s.guildSettings({ useThreads: false, language: "en" });
   await threeGuilds(s);
   s.discord.channel("channel-3").name = "ops";
-  await seed(s, [{ n: 10, title: "Sweep the floor", folder: "guilds/guild-1/channels/channel-3", assignedTo: alice, dueAt: "2026-10-15" }]);
+  await seed(s, [
+    { n: 10, title: "Sweep the floor", folder: "guilds/guild-1/channels/channel-3", assignedTo: alice, dueAt: "2026-10-15" },
+    { n: 11, title: "Hang the banner", folder: "guilds/guild-1/channels/channel-1", assignedTo: alice, status: "completed" },
+    { n: 12, title: "Book the band", folder: "dms/user-alice", createdBy: "user-alice", status: "cancelled" },
+  ]);
 
   s.model.script({ tool: "listTasks", args: { scope: "mine" } }, plan);
   await s.discord.send(`${s.discord.mention} what's on my plate?`);
   expect(s.discord.botMessages.at(-1)?.content).toBe("#ops: Sweep the floor\n#launch: Print the flyers\nPersonal tasks: Call the dentist\n3 of 3");
+
+  s.model.script({ tool: "listTasks", args: { scope: "mine", status: "completed" } }, plan);
+  await s.discord.send(`${s.discord.mention} what have I finished?`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("#launch: Hang the banner\n1 of 1");
 
   s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
   await s.discord.send(`${s.discord.mention} remind me at 07:00 with my tasks`);
@@ -111,7 +119,54 @@ discordScenario("a channel Reminder with tasks lists the same mine scope as aski
   ].join("\n"));
 });
 
-discordScenario("a Reminder task list cut at Discord's limit ends on a task line, never on a channel heading with no task under it", async (s) => {
+/** Tasks in the shared folders people saw before projects: the tenant's, and each guild's. */
+async function sharedTasks(s: Scenario) {
+  await seed(s, [
+    { n: 20, title: "Renew the licence", folder: "shared", assignedTo: alice, dueAt: "2026-10-17" },
+    { n: 21, title: "Plan the offsite", folder: "guilds/guild-2/shared", assignedTo: alice },
+    { n: 22, title: "Tune the piano", folder: "guilds/guild-3/shared", assignedTo: alice },
+    { n: 23, title: "Pay the vendor", folder: "guilds/guild-1/shared", assignedTo: bob, createdBy: "user-alice" },
+  ]);
+}
+
+discordScenario("from a channel, mine and delegated include the tenant's and that guild's shared tasks as their own group", async (s) => {
+  await s.guildSettings({ useThreads: false });
+  await threeGuilds(s);
+  await sharedTasks(s);
+
+  s.model.script({ tool: "listTasks", args: { scope: "mine" } }, plan);
+  await s.discord.send(`${s.discord.mention} what's on my plate?`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Shared tasks: Renew the licence\n#launch: Print the flyers\nPersonal tasks: Call the dentist\n3 of 3");
+
+  s.model.script({ tool: "listTasks", args: { scope: "delegated" } }, plan);
+  await s.discord.send(`${s.discord.mention} what did I hand out?`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("#launch: Order the badges\nShared tasks: Pay the vendor\n2 of 2");
+});
+
+discordScenario("from a DM, mine and its Reminder include the shared tasks of the tenant and of every guild Alice is in, never of a guild she is not in", async (s) => {
+  s.clock.set("2026-10-14T20:00:00+07:00");
+  await threeGuilds(s);
+  await sharedTasks(s);
+  const dm = s.discord.channel("dm-alice", { dm: true });
+
+  s.model.script({ tool: "listTasks", args: { scope: "mine" } }, plan);
+  await s.discord.send("what's on my plate?", { channel: dm });
+  expect(s.discord.botMessages.at(-1)?.content).toBe("#ops (Beta): Renew the domain\nShared tasks: Renew the licence, Plan the offsite\n#launch (Acme): Print the flyers\nPersonal tasks: Call the dentist\n5 of 5");
+
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
+  await s.discord.send("remind me at 07:00 with my tasks", { channel: dm });
+  s.clock.set("2026-10-15T07:00:00+07:00");
+  await s.scheduler.tick();
+  expect(s.discord.botMessages.at(-1)!.content.split("\n").slice(2, 7)).toEqual([
+    "#ops (Beta)",
+    "pending | due 2026-10-16 | Alice | 00000004 | Renew the domain",
+    "Tugas bersama",
+    "pending | due 2026-10-17 | Alice | 00000020 | Renew the licence",
+    "pending | no due date | Alice | 00000021 | Plan the offsite",
+  ]);
+});
+
+discordScenario("a Reminder task list cut at Discord's limit ends on a task line, never on a channel heading with no task under it, then counts what was cut", async (s) => {
   s.clock.set("2026-10-14T20:00:00+07:00");
   await s.guildSettings({ useThreads: false, language: "en" });
   s.discord.channel("channel-1").name = "launch";
@@ -128,6 +183,24 @@ discordScenario("a Reminder task list cut at Discord's limit ends on a task line
   const content = s.discord.botMessages.at(-1)!.content, lines = content.split("\n");
   expect(content.length).toBeLessThanOrEqual(2000);
   expect(lines.slice(1, 3)).toEqual(["Open tasks (status | due | assignee | id | title):", "#launch"]);
-  expect(lines.slice(3).every((l) => l.startsWith("pending | "))).toBe(true);
-  expect(lines.slice(3).map((l) => l.split(" | ")[3])).toEqual(["00000001", "00000002", "00000003", "00000004", "00000005", "00000006", "00000007"]);
+  expect(lines.slice(3, -1).every((l) => l.startsWith("pending | "))).toBe(true);
+  expect(lines.slice(3, -1).map((l) => l.split(" | ")[3])).toEqual(["00000001", "00000002", "00000003", "00000004", "00000005", "00000006", "00000007"]);
+  expect(lines.at(-1)).toBe("…and 1 more task.");
+});
+
+discordScenario("a Reminder lists at most twenty tasks, like listTasks, and says how many more there are", async (s) => {
+  s.clock.set("2026-10-14T20:00:00+07:00");
+  await s.guildSettings({ useThreads: false, language: "en" });
+  s.discord.channel("channel-1").name = "launch";
+  const many: Seed[] = [];
+  for (let n = 1; n <= 23; n++) many.push({ n, title: `Chore ${n}`, folder: "guilds/guild-1/channels/channel-1", assignedTo: alice, dueAt: `2026-11-${String(n).padStart(2, "0")}` });
+  await seed(s, many);
+
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
+  await s.discord.send(`${s.discord.mention} remind me at 07:00 with my tasks`);
+  s.clock.set("2026-10-15T07:00:00+07:00");
+  await s.scheduler.tick();
+  const lines = s.discord.botMessages.at(-1)!.content.split("\n");
+  expect(lines.filter((l) => l.startsWith("pending | ")).map((l) => l.split(" | ")[3])).toEqual(many.slice(0, 20).map((t) => id(t.n).slice(0, 8)));
+  expect(lines.at(-1)).toBe("…and 3 more tasks.");
 });

@@ -115,3 +115,32 @@ discordScenario("there is no way to move a project's task into a DM", async (s) 
   expect(await s.workspace.read(FILE)).toBe(original);
   expect(await files(s, "dms/user-alice/tasks")).toEqual([]);
 });
+
+discordScenario("a guild's shared task moves into one of that guild's channels; a tenant-wide shared task, or a move into another guild, is refused with nothing changed", async (s) => {
+  await s.guildSettings({ useThreads: false });
+  s.discord.channel("channel-2").name = "laporan-q4";
+  await s.discord.joinGuild("guild-2", "Beta", { members: [s.discord.alice, s.discord.bob] });
+  s.discord.channel("beta-ops", { guild: "guild-2" }).name = "ops";
+  const GUILD_SHARED = "guilds/guild-1/shared/tasks/q4-report-00000001.md", TENANT_SHARED = "shared/tasks/audit-00000002.md";
+  const guildTask = taskFile(1, "Draft the Q4 report", { name: "Dewi" }), tenantTask = taskFile(2, "Run the audit", { name: "Dewi" });
+  await s.workspace.write(GUILD_SHARED, guildTask);
+  await s.workspace.write(TENANT_SHARED, tenantTask);
+
+  s.model.script({ tool: "moveTask", args: { taskId: "00000002", channel: "#laporan-q4" } }, lastResult);
+  await s.discord.send(`${s.discord.mention} move the audit to #laporan-q4`);
+  expect(reply(s).error).toMatch(/shared tasks of the whole workspace.*Nothing was changed/);
+  expect(await s.workspace.read(TENANT_SHARED)).toBe(tenantTask);
+
+  s.model.script({ tool: "moveTask", args: { taskId: "00000001", channel: "#ops" } }, lastResult);
+  await s.discord.send(`${s.discord.mention} move the Q4 report to #ops`);
+  expect(reply(s).error).toMatch(/only moves into one of its own server's channels.*Nothing was changed/);
+  expect(await s.workspace.read(GUILD_SHARED)).toBe(guildTask);
+
+  s.model.script({ tool: "moveTask", args: { taskId: "00000001", channel: "#laporan-q4" } }, lastResult);
+  await s.discord.send(`${s.discord.mention} move the Q4 report to #laporan-q4`);
+  expect(reply(s).success).toBe(true);
+  expect(await s.workspace.read(GUILD_SHARED)).toBeNull();
+  expect(await files(s, DEST)).toEqual([`${DEST}/q4-report-00000001.md`]);
+  expect(await s.workspace.read(`${DEST}/q4-report-00000001.md`)).toContain("Alice: Moved from the shared tasks");
+  expect(await s.workspace.read(TENANT_SHARED)).toBe(tenantTask);
+});

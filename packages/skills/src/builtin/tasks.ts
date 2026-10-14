@@ -50,19 +50,19 @@ export const taskManagementSkill: SkillModule = {
     },
     {
       name: "listTasks",
-      description: "Lists tasks filtered by status, assignee, or channel. Each task comes with `line`, its task line to print as it is; a title ending in (2/5) means two of five checklist items are done. Scope mine or delegated returns `groups`, one per channel, soonest due first, at most twenty tasks in all; `total` counts every match and `more` how many were left out.",
+      description: "Lists tasks filtered by status, assignee, or channel. Each task comes with `line`, its task line to print as it is; a title ending in (2/5) means two of five checklist items are done. Scope mine or delegated returns `groups`, one per channel (plus Shared tasks and Personal tasks), soonest due first, at most twenty tasks in all; `total` counts every match and `more` how many were left out.",
       parameters: {
         type: "object",
         properties: {
           scope: {
             type: "string",
             enum: ["here", "mine", "delegated"],
-            description: "here (default): this channel's tasks. mine: tasks assigned to the asker in every channel of this server they can view (in a DM: of every server they share with the bot), plus their Personal tasks. delegated: tasks the asker created that are assigned to someone else, in those same channels",
+            description: "here (default): this channel's tasks. mine: tasks assigned to the asker in every channel of this server they can view (in a DM: of every server they share with the bot) and in the shared tasks, plus their Personal tasks. delegated: tasks the asker created that are assigned to someone else, in those same channels and shared tasks",
           },
           status: {
             type: "string",
             enum: ["pending", "in_progress", "completed", "cancelled", "all"],
-            description: "Filter by status (default: every status except cancelled; all includes cancelled tasks)",
+            description: "Filter by status (default: every status except cancelled, and with scope mine or delegated only open tasks, neither completed nor cancelled; all includes every status)",
           },
           assignedTo: { type: "string", description: "Filter by assignee: a mention, \"me\", a member's ID, or a display name or username in any letter case" },
           query: { type: "string", description: "Words to find in the title or description, any letter case; a task must contain every word. Use it to find a task the person names that is not among the active tasks shown" },
@@ -164,7 +164,7 @@ export const taskManagementSkill: SkillModule = {
     },
     {
       name: "moveTask",
-      description: "Moves a task to another project channel, keeping its id and fields and adding a Progress note saying where it came from. From a DM it moves one of the person's Personal tasks into a project. A task only ever moves into a project channel, never into a DM.",
+      description: "Moves a task to another project channel, keeping its id and fields and adding a Progress note saying where it came from. From a DM it moves one of the person's Personal tasks into a project. A server's shared task moves only into a channel of that server; the workspace-wide shared tasks do not move. A task only ever moves into a project channel, never into a DM.",
       parameters: {
         type: "object",
         properties: {
@@ -191,7 +191,7 @@ export const taskManagementSkill: SkillModule = {
       await labelFolder(ctx, roots.channel ? "channel" : roots.guild ? "guild" : roots.dm ? "dm" : "");
       if (roots.channel) await labelFolder(ctx, "guild");
       try { if (!(await workspaceStore().read(ctx.tenantId, `${home}/tasks/.name`))) await workspaceStore().write(ctx.tenantId, `${home}/tasks/.name`, "Tasks"); } catch {}
-      return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.${who?.nameOnly ? nameOnlyNote(who.assignee) : ""}`, task };
+      return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.${who?.nameOnly ? nameOnlyNote(who.assignee, ctx) : ""}`, task };
     },
 
     listTasks: async (args: { scope?: Scope; status?: Status | "all"; assignedTo?: string; query?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
@@ -206,19 +206,16 @@ export const taskManagementSkill: SkillModule = {
       const tasks = sources ? await tasksIn(store, ctx.tenantId, sources) : await loadTasks(store, ctx), whose = inScope(scope, ctx);
       const found = (args.query ? await matching(store, ctx.tenantId, tasks, args.query) : tasks)
         .map((f) => ({ f, t: f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
-        .filter(({ f, t }) => (args.status === "all" || (args.status ? t.status === args.status : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(f))
+        .filter(({ f, t }) => (args.status === "all" || (args.status ? t.status === args.status : sources ? isOpen(t) : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(f))
         .filter((x) => (after === undefined || (x.due !== null && x.due >= after)) && (before === undefined || (x.due !== null && x.due <= before)) && (late === undefined || x.late === late))
         .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.t.createdAt.localeCompare(b.t.createdAt) : b.t.createdAt.localeCompare(a.t.createdAt)));
       if (sources) {
-        const groups = groupTasks(found.map((x) => x.f), sources, zone), cap = Math.min(MAX_SCOPED, limit);
-        let room = cap;
-        const kept = groups.map((g) => { const tasks = g.tasks.slice(0, room); room -= tasks.length; return { source: g.source, tasks }; }).filter((g) => g.tasks.length);
-        const full = await readInFull(store, ctx.tenantId, kept.flatMap((g) => g.tasks)), shown = full.length, more = found.length - shown;
-        let i = 0;
+        const kept = await readGroups(store, ctx.tenantId, groupTasks(found.map((x) => x.f), sources, zone), Math.min(MAX_SCOPED, limit));
+        const shown = kept.reduce((n, g) => n + g.tasks.length, 0), more = found.length - shown;
         return {
           scope, total: found.length, shown,
           ...(more > 0 && { more, note: `${more} more not shown. Say how many more there are; a status, query, or due date filter narrows the list to show them.` }),
-          groups: kept.map((g) => ({ group: g.source.label, ...(g.source.channelId && { channelId: g.source.channelId }), tasks: g.tasks.map(() => { const t = full[i++]!; return { ...t, late: isLate(t, zone, at), line: taskLine(t, zone, at) }; }) })),
+          groups: kept.map((g) => ({ group: g.source.label, ...(g.source.channelId && { channelId: g.source.channelId }), tasks: g.tasks.map((t) => ({ ...t, late: isLate(t, zone, at), line: taskLine(t, zone, at) })) })),
         };
       }
       // Only the tasks returned are read in full, for the checklist progress on their line; query hits already are.
@@ -241,7 +238,7 @@ export const taskManagementSkill: SkillModule = {
         if (!who.nameOnly) await mustHold(ctx, path, who.assignee);
         return { ...t, assignedTo: who.assignee };
       });
-      return { success: true, message: `Task "${updated.title}" assigned to @${assigneeLabel(updated.assignedTo)}.${who.nameOnly ? nameOnlyNote(who.assignee) : ""}`, task: updated };
+      return { success: true, message: `Task "${updated.title}" assigned to @${assigneeLabel(updated.assignedTo)}.${who.nameOnly ? nameOnlyNote(who.assignee, ctx) : ""}`, task: updated };
     },
 
     setTaskDueDate: async (args: { taskId: string; dueAt?: string | null }, ctx: SkillContext) => {
@@ -452,8 +449,11 @@ export type Scope = (typeof SCOPES)[number];
 /** At most this many tasks in a view across projects, so the answer fits in one Discord message. */
 export const MAX_SCOPED = 20;
 
-/** A folder whose tasks a view across projects prints as one group under `label`: a project channel (`#name`, with its ids), or any other folder such as a person's Personal tasks. */
-export interface TaskSource { label: string; folder: string; guildId?: string; channelId?: string }
+/**
+ * Folders whose tasks a view across projects prints as one group under `label`: a project channel (`#name`, with its ids),
+ * a person's Personal tasks, or the shared task folders of the tenant and its guilds. `folders` are tenant-relative and walked recursively.
+ */
+export interface TaskSource { kind: "project" | "personal" | "shared"; label: string; folders: string[]; guildId?: string; channelId?: string }
 export interface TaskGroup { source: TaskSource; tasks: Found[] }
 
 /** The project channels of a guild a person can view: each channel folder of the guild in the Workspace that `channelView` says they see. A channel Discord cannot resolve, or one of another guild, is left out, as is every channel without `discord`. */
@@ -464,33 +464,35 @@ export async function viewableProjects(store: WorkspaceStore, tenantId: string, 
   const views = await Promise.all(ids.map((id) => discord.channelView(id, userId).catch(() => null)));
   return ids.flatMap((id, i) => {
     const v = views[i];
-    return v?.canView && v.channel?.guildId === guildId ? [{ label: `#${v.channel.name}`, folder: `${folder}/${id}`, guildId, channelId: id }] : [];
+    return v?.canView && v.channel?.guildId === guildId ? [{ kind: "project" as const, label: `#${v.channel.name}`, folders: [`${folder}/${id}`], guildId, channelId: id }] : [];
   });
 }
 
-export const PERSONAL_TASKS = "Personal tasks";
+export const PERSONAL_TASKS = "Personal tasks", SHARED_TASKS = "Shared tasks";
 /**
- * The folders a `mine` or `delegated` view of this turn draws from, then the asker's Personal tasks: in a guild, every project channel of it the asker can view;
+ * The folders a `mine` or `delegated` view of this turn draws from: in a guild, every project channel of it the asker can view;
  * in a DM, those of every guild the bot shares with the asker, each label naming its guild, as "#ops (Beta)".
+ * Then the shared tasks the asker saw before projects (the tenant's, and those of the same guilds), and the asker's Personal tasks.
  */
 export async function scopeSources(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "userId" | "discord">): Promise<TaskSource[]> {
   const user = safeId(ctx.userId);
   if (!user) return [];
-  const personal = { label: PERSONAL_TASKS, folder: `dms/${user}` };
-  if (ctx.guildId) return [...await viewableProjects(store, ctx.tenantId, ctx.discord, ctx.guildId, user), personal];
+  const personal: TaskSource = { kind: "personal", label: PERSONAL_TASKS, folders: [`dms/${user}`] };
+  const shared = (guildIds: (string | undefined)[]): TaskSource => ({ kind: "shared", label: SHARED_TASKS, folders: ["shared/tasks", ...guildIds.flatMap((g) => (safeId(g) ? [`guilds/${g}/shared/tasks`] : []))] });
+  if (ctx.guildId) return [...await viewableProjects(store, ctx.tenantId, ctx.discord, ctx.guildId, user), shared([ctx.guildId]), personal];
   const guilds = (await ctx.discord?.sharedGuilds(user).catch(() => [])) ?? [];
   const projects = await Promise.all(guilds.map(async (g) => (await viewableProjects(store, ctx.tenantId, ctx.discord, g.id, user)).map((p) => ({ ...p, label: `${p.label} (${g.name})` }))));
-  return [...projects.flat(), personal];
+  return [...projects.flat(), shared(guilds.map((g) => g.id)), personal];
 }
 
 /** Every valid task in the given sources, frontmatter only (`readInFull` the ones printed). */
-export const tasksIn = (store: WorkspaceStore, tenantId: string, sources: readonly TaskSource[]) => walkTasks(store, tenantId, sources.map((s) => s.folder));
+export const tasksIn = (store: WorkspaceStore, tenantId: string, sources: readonly TaskSource[]) => walkTasks(store, tenantId, sources.flatMap((s) => s.folders));
 
-/** Whether a task belongs to a scope for the asker: `mine` when they are its Assignee or it is one of their Personal tasks, `delegated` when they created it for someone else; `here` keeps every task. */
+/** Whether a task belongs to a scope for the asker: `mine` when they are its Assignee or it is one of their Personal tasks, `delegated` when they created it for someone else outside their Personal tasks; `here` keeps every task. */
 export function inScope(scope: Scope, asker: Pick<SkillContext, "userId" | "userName">): (f: Pick<Found, "path" | "task">) => boolean {
   const person = { id: asker.userId, names: [asker.userName] };
   if (scope === "mine") return ({ path, task: t }) => isAssignee(t.assignedTo, person) || (!!asker.userId && personalOwnerOf(path) === asker.userId);
-  if (scope === "delegated") return ({ task: t }) => !!asker.userId && t.createdBy === asker.userId && !!t.assignedTo && !isAssignee(t.assignedTo, person);
+  if (scope === "delegated") return ({ path, task: t }) => !!asker.userId && t.createdBy === asker.userId && !!t.assignedTo && !isAssignee(t.assignedTo, person) && !personalOwnerOf(path);
   return () => true;
 }
 
@@ -499,9 +501,18 @@ export function groupTasks(found: readonly Found[], sources: readonly TaskSource
   const due = (f: Found) => dueMoment(f.task.dueAt, timeZone) ?? Infinity;
   const groups = sources.map((source) => ({
     source,
-    tasks: found.filter((f) => f.path.startsWith(`${source.folder}/`)).sort((a, b) => due(a) - due(b) || a.task.createdAt.localeCompare(b.task.createdAt)),
+    tasks: found.filter((f) => source.folders.some((folder) => f.path.startsWith(`${folder}/`))).sort((a, b) => due(a) - due(b) || a.task.createdAt.localeCompare(b.task.createdAt)),
   })).filter((g) => g.tasks.length);
   return groups.sort((a, b) => due(a.tasks[0]!) - due(b.tasks[0]!) || a.source.label.localeCompare(b.source.label));
+}
+
+/** The first `cap` tasks of the groups, in group order, read in full for their task lines; groups left without a task are dropped. */
+export async function readGroups(store: WorkspaceStore, tenantId: string, groups: readonly TaskGroup[], cap = Infinity): Promise<{ source: TaskSource; tasks: Task[] }[]> {
+  let room = cap;
+  const kept = groups.map((g) => { const tasks = g.tasks.slice(0, Math.max(0, room)); room -= tasks.length; return { source: g.source, tasks }; }).filter((g) => g.tasks.length);
+  const full = await readInFull(store, tenantId, kept.flatMap((g) => g.tasks));
+  let i = 0;
+  return kept.map((g) => ({ source: g.source, tasks: g.tasks.map(() => full[i++]!) }));
 }
 
 /** All valid task files in a tenant, used by the tenant-wide REST API and migration tooling. */
@@ -628,8 +639,10 @@ async function move(ctx: SkillContext, taskId: string, channel: string): Promise
   const store = workspaceStore(), [hit] = (await loadTasks(store, ctx, taskId.slice(0, 8))).filter((f) => f.task.id.startsWith(taskId));
   const current = hit && (await store.read(ctx.tenantId, hit.path).catch(() => null)), parsed = current && parseTask(current.content);
   if (!hit || !current || !parsed) throw new Error(`Task with ID ${taskId} not found.`);
-  const from = await sourceOf(ctx, hit.path), found = await findProject(ctx, channel);
+  const from = await sourceOf(ctx, hit.path, parsed.title), found = await findProject(ctx, channel);
   if (!found.ok) throw new Error(`${found.why} Nothing was changed.`);
+  const sharedIn = /^guilds\/([\w-]+)\/shared\//.exec(hit.path)?.[1];
+  if (sharedIn && sharedIn !== found.channel.guildId) throw new Error(`Task "${parsed.title}" is in a server's shared tasks, so it only moves into one of its own server's channels, and #${found.channel.name} is in another. Nothing was changed.`);
   const place = projectPlace(ctx, found.channel), folder = `guilds/${found.channel.guildId}/channels/${found.channel.id}/tasks`;
   if (hit.path.startsWith(`${folder}/`)) throw new Error(`Task "${parsed.title}" is already in #${found.channel.name}. Nothing was changed.`);
   const to = `${folder}/${hit.path.split("/").pop()}`;
@@ -650,9 +663,13 @@ async function move(ctx: SkillContext, taskId: string, channel: string): Promise
   return { task, from, to: found.channel.name };
 }
 
-/** Where a task about to move lives, as its move note names it. Throws when the asker cannot view the project channel it is in. */
-async function sourceOf(ctx: SkillContext, path: string): Promise<string> {
+/**
+ * Where a task about to move lives, as its move note names it: a Personal task, a project channel's task, or a guild's shared task.
+ * Throws when the asker cannot view the project channel it is in, or when it is one of the tenant-wide shared tasks, which no channel owns.
+ */
+async function sourceOf(ctx: SkillContext, path: string, title: string): Promise<string> {
   if (personalOwnerOf(path)) return PERSONAL_TASKS;
+  if (path.startsWith("shared/")) throw new Error(`Task "${title}" is one of the shared tasks of the whole workspace, not of a project or a server, so it cannot be moved into a channel. Nothing was changed.`);
   const home = taskChannelOf(path);
   if (!home) return "the shared tasks";
   const view = ctx.discord && ctx.userId ? await ctx.discord.channelView(home.channelId, ctx.userId).catch(() => null) : null;
