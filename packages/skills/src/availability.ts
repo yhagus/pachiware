@@ -153,10 +153,10 @@ function allows(levels: LevelRules[], kind: TargetKind, name: string): boolean {
   return optIn < 0 || values.slice(optIn + 1).includes("on");
 }
 
-/** The playbooks no rule turns off at the tenant, the bot, or this guild: what the guild's command list offers. An opt_in counts, since a channel below can say on; channel rules and skills are checked at use. */
-export async function playbooksListedIn(place: { tenantId: string; botId: string; guildId: string }, names: string[]): Promise<string[]> {
-  const levels = (await rulesAt(place)).slice(0, AVAILABILITY_LEVELS.indexOf("channel"));
-  return names.filter((name) => !levels.some((rules) => valueAt(rules, { kind: "playbook", name }) === "off"));
+/** The playbooks no rule (nor a `default: off` the tenant left alone) turns off at the tenant, the bot, or this guild: what the guild's command list offers. An opt_in counts, since a channel below can say on; channel rules and skills are checked at use. */
+export async function playbooksListedIn(place: { tenantId: string; botId: string; guildId: string }, playbooks: Pick<Playbook, "name" | "defaultOff">[]): Promise<string[]> {
+  const levels = withDefaults(await rulesAt(place), playbooks).slice(0, AVAILABILITY_LEVELS.indexOf("channel"));
+  return playbooks.map((p) => p.name).filter((name) => !levels.some((rules) => valueAt(rules, { kind: "playbook", name }) === "off"));
 }
 
 /** A `default: off` playbook the tenant has no rule on is off at the tenant, as if the tenant had said so (ADR 0005). */

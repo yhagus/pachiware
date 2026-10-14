@@ -63,3 +63,17 @@ discordScenario("up to fifteen menu commands are registered in a guild", async (
   // Playbooks come in name order: issue-draft and minutes, then the retros.
   expect(s.discord.registeredCommands.map((c) => c.name)).toEqual(["Draft issues", "Write minutes", ...Array.from({ length: 13 }, (_, i) => `Retro ${i + 1}`)]);
 });
+
+const RETRO = `---\nname: retro\ndescription: Group the points\ntrigger: {"menu": "Run retro"}\ndefault: off\n---\nGroup the points.\n`;
+
+discordScenario("a default-off playbook is registered in no guild until the tenant turns it on", async (s) => {
+  await s.workspace.write("shared/playbooks/retro/PLAYBOOK.md", RETRO);
+  await s.restart();
+  await s.discord.joinGuild("guild-2");
+  expect(menus(s.discord.commandsIn("guild-1"))).toEqual(["Draft issues", "Write minutes"]);
+  expect(menus(s.discord.commandsIn("guild-2"))).toEqual(["Draft issues", "Write minutes"]);
+
+  await s.availability({ level: "tenant" }, { kind: "playbook", name: "retro", value: "on" });
+  expect(menus(s.discord.commandsIn("guild-1"))).toEqual(["Draft issues", "Run retro", "Write minutes"]);
+  expect(menus(s.discord.commandsIn("guild-2"))).toEqual(["Draft issues", "Run retro", "Write minutes"]);
+});
