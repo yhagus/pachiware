@@ -796,3 +796,31 @@ Track A of map #50. A grilling session (2026-10-14) settled every open ticket; t
   - "Questionnaire" (to-questionnaire) clashes with the glossary's Avoid list for Clarifying round; left for a domain-modeling pass.
 - Verification at `b92b396`: `bun test` 504 pass, 0 fail (97 files); `bun run typecheck` only the 325 pre-existing `apps/web` alias errors from the root config; `apps/web` tsc and build pass. No database schema changes.
 - [x] #102 fixed and fast-forwarded into `main` (`60d6997`, `293b7e9`), issue closed: `repoCommitFiles`, `repoDeleteFile`, and `repoMoveFile` require `branch` and refuse the default branch (also when spelled `refs/heads/<name>`), pointing to `repoWriteDefaultBranch`; `repoWriteFile` already refused it and now shares the same check. The owner tool commits through `commitToDefaultBranch`. Code review (Standards + Spec): no hard violations, spec fully met; fixed on the branch the guard's name (`assertNotDefaultBranch`), a trimmed comparison, the empty-files check moved into the shared commit, and the leftover `ref` alias. Test seam: the `git.ts` helpers with stubbed fetch (`packages/skills/test/git-default-branch.test.ts`). `bun test` 509 pass, 0 fail; typecheck has only the pre-existing `apps/web` alias errors.
+
+## Phase 31 — Tasks for project work (spec #120)
+
+Started from a review of the harness as a management assistant (2026-10-14): task and project management scored 11/20, the weakest heavy area. A grilling session the same day settled the model; the spec is issue [#120](https://github.com/yhagus/pachiware/issues/120). Tickets are cut in a later step.
+
+- [x] Glossary: new terms Project (the channel; no project apart from it), Task, Personal task (DM, no project, only its person sees it), Assignee ("owner" now reserved for a Reminder's setter), Progress note.
+- [x] ADR 0008: a project is a channel, not an entity of its own; Discord category and an explicit project entity rejected.
+- [x] Decisions recorded in the spec:
+  - Assignee is a member (id plus display name) or a name only; one per task. Mention, "me", or an exact case-insensitive name match on one member links it; several matches ask once; none records the name and says so. Legacy free-text assignees read as names and link when the task is next changed. A member who cannot view the channel is refused.
+  - Status `cancelled` (optional reason as a progress note); no delete tool. Progress notes are dated lines in the task file, recorded only when the bot is addressed. Checklists are Markdown in the description, shown as `(done/total)` in the task line.
+  - Edit title, description, and priority; query over title and description; ambiguous references ask once. Move between projects, and from a Personal task to a project, never back; asker must view both channels.
+  - Scopes: mine (assigned to me plus my Personal tasks, every viewable channel of the guild, or every shared guild from a DM) and delegated. Grouped by channel, sorted by due date, capped at twenty. Reminder `withTasks` uses mine. The task line column is renamed to assignee.
+  - Out of scope: subtasks, dependencies, `blocked`, delete; pinging assignees, Digest pings, stale follow-ups, and overheard progress go to the Proactivity work.
+- [x] Test seams: the Discord scenario harness (extended with a second guild for DM views across guilds) and the daily-behaviour eval (new briefs; fixtures move from owner to assignee).
+- [x] Spec #120 cut into 12 tickets, all sub-issues of #120 with native blocking, ready-for-agent:
+  - #121 Assignee column and member-or-name assignee (prefactor; the only starting ticket)
+  - #122 assign by mention, "me", or member name
+  - #123 Assignee must view the channel (adds the adapter's view check)
+  - #124 Progress notes and detail view
+  - #125 cancel a task
+  - #126 edit and query
+  - #127 checklists
+  - #128 mine and delegated within a guild
+  - #129 Personal tasks and filing from a DM
+  - #130 DM views across guilds, Reminders with tasks, second harness guild
+  - #131 move a task
+  - #132 persona and daily-behaviour eval (last, so the persona is frozen once)
+- [ ] Implement #121–#132.

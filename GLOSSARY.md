@@ -84,6 +84,26 @@ _Avoid_: Vault, file store, database
 A Discord community a bot has joined. Discord's own name for what its interface calls a server.
 _Avoid_: Server, channel group
 
+**Project**:
+The work a channel exists for. A channel's tasks are its project's tasks, and a thread's tasks belong to its parent channel's project. There is no project apart from a channel.
+_Avoid_: Board, workstream, category (a Discord category only groups channels)
+
+**Task**:
+A piece of work a person asked the bot to track, in a channel or privately: a title, at most one assignee, a status, and optionally a due date, a checklist, and progress notes. A cancelled task stays on record as cancelled; it is never active again and is not late.
+_Avoid_: Ticket, issue (reserved for git platforms), todo
+
+**Personal task**:
+A task a person keeps for themselves from a DM with the bot, in no project. Only that person sees it, and its assignee is that person or someone known only by name. It can be moved into a project; a project's task never becomes personal.
+_Avoid_: Private task, DM task
+
+**Assignee**:
+The one person responsible for a task: a guild member, or a person known only by the name the team gave, such as someone outside the guild. Only a member can be reached by the bot. Two people sharing work means two tasks.
+_Avoid_: Owner (reserved for the person who set a Reminder), PIC, responsible
+
+**Progress note**:
+A dated line on a task saying who reported what about it. Notes accumulate; they never replace the task's description.
+_Avoid_: Comment, update, Note (a Note is a file of its own)
+
 **Due date**:
 The day, and optionally the time, by which a task should be done. A task without one is not late. Set and changed by anyone in the task's channel, like the rest of the task.
 _Avoid_: Deadline (reserved for people's wording in minutes), ETA
@@ -117,6 +137,7 @@ _Avoid_: Notes (notes are files a person asked for), context, history
 - A **Playbook** requires some **Skills** and may load other **Playbooks**; it cannot start while a required skill or a loaded playbook is off.
 - A **Playbook thread** belongs to one **Playbook** and one **Bot**; only that bot answers in it.
 - An **Availability rule** narrows **Playbooks** and **Skills** for the tenant and per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too.
+- A **Task** belongs to one **Project**, which is one channel, unless it is a **Personal task**; it has zero or one **Assignee** and any number of **Progress notes**.
 - A **Reminder** belongs to the person who asked for it and to the channel or DM it will post in; it is not part of any task.
 - A **Digest** is per channel and reads that channel's tasks and their **Due dates**; it never reads another channel.
 - **Memory** lives in the **Workspace** at the tenant, guild, and channel level; the channel level is read only in that channel.
