@@ -1,6 +1,6 @@
 import { db, schedules, agentsConfig, eq, and, type Schedule } from "@pachiware/db";
 import { asc, lte } from "drizzle-orm";
-import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, loadTasks, workspaceStore, dueMoment, taskLine, isAssignee, type Strings } from "@pachiware/skills";
+import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, loadTasks, readInFull, workspaceStore, dueMoment, taskLine, isAssignee, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines } from "./digest.js";
 import type { DiscordBotManager } from "./discord/client.js";
@@ -60,8 +60,9 @@ async function ownerTaskLines(row: Schedule, parentChannelId: string | undefined
   if (!row.ownerId) return [];
   const mine = new Set([row.ownerId, row.ownerName].filter((v): v is string => !!v));
   const where = { tenantId: row.tenantId, guildId: row.guildId ?? undefined, channelId: row.channelId, parentChannelId, userId: row.ownerId };
-  const open = (await loadTasks(workspaceStore(), where)).map((f) => f.task)
-    .filter((t) => t.status !== "completed" && (isAssignee(t.assignedTo, { id: row.ownerId, names: [...mine] }) || [t.createdBy, t.createdByName].some((v) => v && mine.has(v))))
+  const store = workspaceStore(), found = (await loadTasks(store, where))
+    .filter(({ task: t }) => t.status !== "completed" && (isAssignee(t.assignedTo, { id: row.ownerId, names: [...mine] }) || [t.createdBy, t.createdByName].some((v) => v && mine.has(v))));
+  const open = (await readInFull(store, row.tenantId, found))
     .sort((a, b) => (dueMoment(a.dueAt, row.timezone) ?? Infinity) - (dueMoment(b.dueAt, row.timezone) ?? Infinity) || a.createdAt.localeCompare(b.createdAt));
   return open.length ? [strings.openTasks, ...open.map((t) => taskLine(t, row.timezone, at))] : [];
 }

@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./builtin/tasks.js";
 export * from "./builtin/assignee.js";
+export * from "./builtin/checklist.js";
 export * from "./builtin/workspace.js";
 export * from "./workspace/store.js";
 export * from "./workspace/paths.js";

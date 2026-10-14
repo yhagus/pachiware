@@ -3,6 +3,7 @@ import { visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
 import { assigneeLabel, assigneeMatches, parseAssignee, renderAssignee, type Assignee } from "./assignee.js";
+import { checklistSuffix, checklistOf, checklistLine, tickItem } from "./checklist.js";
 import { DEFAULT_TIMEZONE, now, offsetText, today, wallClock, zoneOffset, zonedTime } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
@@ -22,6 +23,7 @@ export const taskManagementSkill: SkillModule = {
     editTask: { effect: "write", requiresConfirmation: false },
     addProgressNote: { effect: "write", requiresConfirmation: false },
     showTask: { effect: "read" },
+    tickChecklistItem: { effect: "write", requiresConfirmation: false },
   },
   tools: [
     {
@@ -46,7 +48,7 @@ export const taskManagementSkill: SkillModule = {
     },
     {
       name: "listTasks",
-      description: "Lists tasks filtered by status, assignee, or channel.",
+      description: "Lists tasks filtered by status, assignee, or channel. Each task comes with `line`, its task line to print as it is; a title ending in (2/5) means two of five checklist items are done.",
       parameters: {
         type: "object",
         properties: {
@@ -132,11 +134,24 @@ export const taskManagementSkill: SkillModule = {
     },
     {
       name: "showTask",
-      description: "Shows one task in full: its task line, its description, its three latest Progress notes, and how many older notes it has.",
+      description: "Shows one task in full: its task line, its description, every checklist item with its state and position, its three latest Progress notes, and how many older notes it has.",
       parameters: {
         type: "object",
         properties: { taskId: { type: "string", description: "The UUID of the task" } },
         required: ["taskId"],
+      },
+    },
+    {
+      name: "tickChecklistItem",
+      description: "Ticks or unticks one item of the Markdown checklist (- [ ] / - [x] lines) in a task's description.",
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "The UUID of the task" },
+          item: { type: "string", description: "The item's text, or a part of it only that item contains, or its position counting from 1" },
+          done: { type: "boolean", description: "true ticks the item (default), false unticks it" },
+        },
+        required: ["taskId", "item"],
       },
     },
   ],
@@ -161,13 +176,14 @@ export const taskManagementSkill: SkillModule = {
       const late = args.late === undefined || args.late === null ? undefined : args.late === true || args.late === "true";
       const byDue = after !== undefined || before !== undefined || late !== undefined;
       const store = workspaceStore(), tasks = await loadTasks(store, ctx);
-      const found = (args.query ? await matching(store, ctx.tenantId, tasks, args.query) : tasks.map((f) => f.task))
-        .map((t) => ({ ...t, due: dueMoment(t.dueAt, zone), late: isLate(t, zone, at) }))
-        .filter((t) => (!args.status || args.status === "all" || t.status === args.status) && (!args.assignedTo || assigneeMatches(t.assignedTo, args.assignedTo)))
-        .filter((t) => (after === undefined || (t.due !== null && t.due >= after)) && (before === undefined || (t.due !== null && t.due <= before)) && (late === undefined || t.late === late))
-        .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.createdAt.localeCompare(b.createdAt) : b.createdAt.localeCompare(a.createdAt)))
-        .map(({ due: _, ...t }) => t);
-      return { total: Math.min(found.length, limit), tasks: found.slice(0, limit) };
+      const found = (args.query ? await matching(store, ctx.tenantId, tasks, args.query) : tasks)
+        .map((f) => ({ f, t: f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
+        .filter(({ t }) => (!args.status || args.status === "all" || t.status === args.status) && (!args.assignedTo || assigneeMatches(t.assignedTo, args.assignedTo)))
+        .filter((x) => (after === undefined || (x.due !== null && x.due >= after)) && (before === undefined || (x.due !== null && x.due <= before)) && (late === undefined || x.late === late))
+        .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.t.createdAt.localeCompare(b.t.createdAt) : b.t.createdAt.localeCompare(a.t.createdAt)));
+      // Only the tasks returned are read in full, for the checklist progress on their line; query hits already are.
+      const shown = found.slice(0, limit), full = args.query ? shown.map((x) => x.t) : await readInFull(store, ctx.tenantId, shown.map((x) => x.f));
+      return { total: shown.length, tasks: shown.map((x, i) => ({ ...x.t, late: x.late, line: taskLine(full[i]!, zone, at) })) };
     },
 
     updateTaskStatus: async (args: { taskId: string; status: Status }, ctx: SkillContext) => {
@@ -210,7 +226,14 @@ export const taskManagementSkill: SkillModule = {
 
     showTask: async (args: { taskId: string }, ctx: SkillContext) => {
       const task = await readTask(ctx, args.taskId), notes = task.notes ?? [];
-      return { task: taskLine(task, zoneOf(ctx)), description: task.description, notes: notes.slice(-LATEST_NOTES).map(noteLine), olderNotes: Math.max(0, notes.length - LATEST_NOTES) };
+      return { task: taskLine(task, zoneOf(ctx)), description: task.description, checklist: checklistOf(task.description).map((item, i) => checklistLine(item, i + 1)), notes: notes.slice(-LATEST_NOTES).map(noteLine), olderNotes: Math.max(0, notes.length - LATEST_NOTES) };
+    },
+
+    tickChecklistItem: async (args: { taskId: string; item: string | number; done?: boolean | string }, ctx: SkillContext) => {
+      const done = args.done !== false && args.done !== "false";
+      let ticked!: ReturnType<typeof tickItem>;
+      const updated = await change(ctx, args.taskId, (t) => { ticked = tickItem(t.description, args.item, done); return { ...t, description: ticked.description }; });
+      return { success: true, message: `${done ? "Ticked" : "Unticked"} "${ticked.item.text}" on "${updated.title}" (${ticked.done}/${ticked.total}).` };
     },
   },
 };
@@ -258,8 +281,8 @@ function dueBound(value: unknown, timeZone: string, edge: "start" | "end"): numb
 }
 /** Late: past its due moment and not completed. */
 export const isLate = (task: Pick<Task, "dueAt" | "status">, timeZone: string, at = now()): boolean => { const due = dueMoment(task.dueAt, timeZone); return task.status !== "completed" && due !== null && at > due; };
-/** The one-line task format every task list shares: status, due, assignee, id prefix, title. */
-export const taskLine = (t: Task, timeZone: string, at = now()) => `${t.status} | ${t.dueAt ? `due ${t.dueAt}${isLate(t, timeZone, at) ? ", late" : ""}` : "no due date"} | ${assigneeLabel(t.assignedTo)} | ${t.id.slice(0, 8)} | ${t.title}`;
+/** The one-line task format every task list shares: status, due, assignee, id prefix, title, and the checklist progress such as ` (2/5)` when the description has one (a task from `loadTasks` needs `readInFull` first). */
+export const taskLine = (t: Task, timeZone: string, at = now()) => `${t.status} | ${t.dueAt ? `due ${t.dueAt}${isLate(t, timeZone, at) ? ", late" : ""}` : "no due date"} | ${assigneeLabel(t.assignedTo)} | ${t.id.slice(0, 8)} | ${t.title}${checklistSuffix(t.description)}`;
 
 export const STATUSES = ["pending", "in_progress", "completed"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
@@ -370,14 +393,25 @@ export async function loadAllTasks(store: WorkspaceStore, tenantId: string): Pro
 }
 
 /** The tasks whose title or description contains every word of `query`, ignoring case. Read in full: `loadTasks` reads frontmatter only. */
-async function matching(store: WorkspaceStore, tenantId: string, found: Found[], query: string): Promise<Task[]> {
-  const words = String(query).toLowerCase().split(/\s+/).filter(Boolean), out: Task[] = [];
+async function matching(store: WorkspaceStore, tenantId: string, found: Found[], query: string): Promise<Found[]> {
+  const words = String(query).toLowerCase().split(/\s+/).filter(Boolean), out: Found[] = [];
   for (const f of found) {
     const file = await store.read(tenantId, f.path).catch(() => null), task = file && parseTask(file.content);
     const text = task ? `${task.title}\n${task.description ?? ""}`.toLowerCase() : "";
-    if (task && words.every((w) => text.includes(w))) out.push(task);
+    if (task && words.every((w) => text.includes(w))) out.push({ ...f, task });
   }
   return out;
+}
+
+/**
+ * The tasks `loadTasks` found, read in full (description and notes) so their task lines carry checklist progress.
+ * Read only the tasks about to be printed: `loadTasks` reads frontmatter alone to keep lists cheap. A file that no longer reads keeps its frontmatter task.
+ */
+export async function readInFull(store: WorkspaceStore, tenantId: string, found: readonly Pick<Found, "path" | "task">[]): Promise<Task[]> {
+  return Promise.all(found.map(async (f) => {
+    const file = await store.read(tenantId, f.path).catch(() => null);
+    return (file && parseTask(file.content)) || f.task;
+  }));
 }
 
 const LATEST_NOTES = 3;

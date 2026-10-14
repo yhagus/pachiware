@@ -1,6 +1,6 @@
 import { db, schedules, guildConfigs, eq, and, type DigestChannel, type Schedule } from "@pachiware/db";
 import { isNull } from "drizzle-orm";
-import { now, nextOccurrence, wallClock, hhmm, loadTasks, workspaceStore, dueMoment, taskLine, type Strings } from "@pachiware/skills";
+import { now, nextOccurrence, wallClock, hhmm, loadTasks, readInFull, workspaceStore, dueMoment, taskLine, type Strings } from "@pachiware/skills";
 
 const hourText = (hour: number) => hhmm(hour, 0);
 const DAY_MS = 24 * 60 * 60_000;
@@ -43,8 +43,11 @@ export async function digestLines(row: Schedule, strings: Strings, at: number): 
   if (!row.guildId) return [];
   const folder = `guilds/${row.guildId}/channels/${row.channelId}/tasks/`;
   const zone = row.timezone, today = dayNumber(zone, at);
-  const open = (await loadTasks(workspaceStore(), { tenantId: row.tenantId, guildId: row.guildId, channelId: row.channelId })).filter((f) => f.path.startsWith(folder)).map((f) => f.task).filter((t) => t.status !== "completed");
-  const dated = open.map((t) => ({ t, due: dueMoment(t.dueAt, zone) })).filter((x): x is { t: typeof x.t; due: number } => x.due !== null).sort((a, b) => a.due - b.due || a.t.createdAt.localeCompare(b.t.createdAt));
+  const store = workspaceStore();
+  const open = (await loadTasks(store, { tenantId: row.tenantId, guildId: row.guildId, channelId: row.channelId })).filter((f) => f.path.startsWith(folder) && f.task.status !== "completed");
+  const dueBy = open.map((f) => ({ f, due: dueMoment(f.task.dueAt, zone) })).filter((x): x is { f: typeof x.f; due: number } => x.due !== null && dayNumber(zone, x.due) <= today);
+  const full = await readInFull(store, row.tenantId, dueBy.map((x) => x.f)); // only the tasks posted, for their checklist progress
+  const dated = dueBy.map((x, i) => ({ t: full[i]!, due: x.due })).sort((a, b) => a.due - b.due || a.t.createdAt.localeCompare(b.t.createdAt));
   const dueToday = dated.filter((x) => dayNumber(zone, x.due) === today).map((x) => taskLine(x.t, zone, at));
   const late = dated.filter((x) => dayNumber(zone, x.due) < today).map((x) => `${taskLine(x.t, zone, at)} · ${strings.daysLate(today - dayNumber(zone, x.due))}`);
   return [...(dueToday.length ? [strings.digestDueToday, ...dueToday] : []), ...(late.length ? [strings.digestLate, ...late] : [])];
