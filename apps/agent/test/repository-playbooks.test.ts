@@ -55,6 +55,29 @@ discordScenario("the playbooks that act on a repository are refused privately wh
   expect(gitWrites(s)).toEqual([]);
 });
 
+discordScenario("with the git skill off, grill-with-docs and domain-modeling still start and keep the glossary and Decisions in the channel's Workspace folder", async (s) => {
+  await turnOn(s, "grilling", "domain-modeling", "grill-with-docs");
+  await s.availability({ level: "channel", channelId: "channel-1" }, { kind: "skill", name: "git_repositories", value: "off" });
+  s.discord.unlimited(s.discord.alice);
+  s.clock.set("2026-10-14T09:00:00Z");
+  const ok = (turn: any) => (turn.toolResults.every((r: any) => r.success !== false && !r.error) ? "Q1: does an Export include refunded orders?" : `failed: ${JSON.stringify(turn.toolResults)}`);
+
+  s.model.script(
+    [{ tool: "writeFile", args: { path: "channel/glossary.md", content: "**Export**: a CSV of one tenant's orders.\n" } },
+      { tool: "writeFile", args: { path: "channel/decisions/2026-10-14-stream-exports.md", content: "# Stream exports\n" } }],
+    ok,
+  );
+  await s.discord.slash("grill-with-docs", { text: "the CSV export" });
+  expect(s.model.tools[0]).not.toContain("writePlaybookDocument");
+  expect(s.discord.botMessages.at(-1)!.content).toBe("Q1: does an Export include refunded orders?");
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/glossary.md")).toBe("**Export**: a CSV of one tenant's orders.\n");
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/decisions/2026-10-14-stream-exports.md")).toBe("# Stream exports\n");
+
+  s.model.script("Which term first?");
+  await s.discord.slash("domain-modeling", { text: "billing terms" });
+  expect(String(s.model.calls.at(-1)![0]!.content)).toContain("### Playbook: domain-modeling");
+});
+
 discordScenario("to-spec publishes the spec as an issue in the thread's repository only after Confirm", async (s) => {
   await turnOn(s, "to-spec");
   await s.git({ repos: ["acme/api"] });

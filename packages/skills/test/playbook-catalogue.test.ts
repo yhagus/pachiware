@@ -27,16 +27,19 @@ describe("built-in playbooks", () => {
     expect(named("grill-me")!.loads).toEqual(["grilling"]);
   });
 
-  test("the repository playbooks are imported off with the git skill; those that act on a repository require one, and grill-with-docs loads grilling and domain-modeling", () => {
-    for (const name of ["grill-with-docs", "domain-modeling", "to-spec", "code-review", "pr"]) {
+  test("the repository playbooks are imported off; those that act on a repository require the git skill and one repository, the document playbooks only use git, and grill-with-docs loads grilling and domain-modeling", () => {
+    for (const name of ["to-spec", "code-review", "pr"]) {
       expect([name, named(name)?.defaultOff, named(name)?.start, named(name)?.requires.includes("git_repositories")]).toEqual([name, true, true, true]);
+    }
+    for (const name of ["grill-with-docs", "domain-modeling"]) {
+      expect([name, named(name)?.defaultOff, named(name)?.start, named(name)?.requires, named(name)?.optional.includes("git_repositories")]).toEqual([name, true, true, [], true]);
     }
     for (const name of ["to-spec", "code-review", "pr"]) expect([name, named(name)!.repository]).toEqual([name, "required"]);
     // Document playbooks fall back to the channel's Workspace folder where no repository is allowed (ADR 0007).
     for (const name of ["grill-with-docs", "domain-modeling"]) expect([name, named(name)!.repository]).toEqual([name, undefined]);
     expect(named("grill-with-docs")!.loads).toEqual(["grilling", "domain-modeling"]);
     expect(files("domain-modeling")).toEqual(expect.arrayContaining(["GLOSSARY-FORMAT.md", "ADR-FORMAT.md"]));
-    for (const name of ["grill-with-docs", "domain-modeling"]) expect([name, text(name).includes("`writePlaybookDocument`")]).toEqual([name, true]);
+    expect(text("domain-modeling")).toContain("`writePlaybookDocument`");
   });
 
   test("the tracker playbooks are imported off, need a repository, and write through the batch tools; wayfinder and triage load grilling and domain-modeling", () => {
