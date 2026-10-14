@@ -127,7 +127,7 @@ export class AgentReActLoop {
 
     // 5. Retrieve active tools
     // Availability rules for this place first, then a playbook may close tools in its threads; a call to either is refused even when the model names it anyway.
-    const closed = closedTools(input.context.playbook?.name);
+    const closed = closedTools(input.context.playbook);
     const activeTools = available.tools.filter((t) => !closed.has(t.name));
 
     // 6. Build execution context for tools
