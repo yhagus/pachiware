@@ -110,6 +110,17 @@ function queueBatch(tool: string, a: Record<string, unknown>, ctx: SkillContext,
 }
 const issues = (n: number) => `${n} issue${n === 1 ? "" : "s"}`;
 
+/** Where a confirmed batch runs: its repository, and its progress file. */
+interface BatchRun { conn: GitConn; repo: string; account: string; path: string }
+/** A confirmed batch runs, one run per batch at a time; otherwise it waits for Confirm, summed up by `preview` from the saved progress. */
+async function runOrQueue<T>(tool: string, a: Record<string, unknown>, ctx: SkillContext, key: unknown, run: (b: BatchRun) => Promise<unknown>, preview: (done: Record<string, T>, repo: string) => string) {
+  const { access, repo, conn } = await useRepo(a, ctx);
+  const account = access.account.name, path = progressPath(ctx, tool, [account, repo, key]);
+  if (ctx.confirmed) return exclusive(`${ctx.tenantId}|${path}`, () => run({ conn, repo, account, path }));
+  const { done } = await progressOf<T>(ctx.tenantId, path, {});
+  return queueBatch(tool, a, ctx, preview(done, repo));
+}
+
 export interface CreateBatchResult {
   batch: "create";
   repo: string;
@@ -124,25 +135,22 @@ export interface CreateBatchResult {
 
 async function createIssues(a: Record<string, unknown>, ctx: SkillContext) {
   const items = newIssues(a.issues), order = creationOrder(items);
-  const { access, repo, conn } = await useRepo(a, ctx);
-  const path = progressPath(ctx, CREATE_ISSUES, [access.account.name, repo, items.map((it) => [it.ref, it.title])]);
-  if (ctx.confirmed) return exclusive(`${ctx.tenantId}|${path}`, () => runCreate(ctx, conn, repo, access.account.name, path, order));
-
-  const { done } = await progressOf<Made>(ctx.tenantId, path, {});
-  const left = order.filter((it) => !finished(it, done[it.ref]));
-  if (!left.length) throw new Error(`Every issue of this batch already exists: ${order.map((it) => `${it.ref} #${done[it.ref]!.number}`).join(", ")}. Nothing was changed.`);
-  const fresh = left.filter((it) => !done[it.ref]).length;
-  const lines = left.map((it, i) => {
-    const made = done[it.ref];
-    return `${i + 1}. ${it.ref}: ${clip(it.title, 100)}${it.labels.length ? ` · labels: ${it.labels.join(", ")}` : ""}${it.parent !== undefined ? ` · under ${named(it.parent)}` : ""}${it.blockedBy.length ? ` · blocked by ${it.blockedBy.map(named).join(", ")}` : ""}${made ? ` · exists as #${made.number}` : ""}`;
+  return runOrQueue<Made>(CREATE_ISSUES, a, ctx, items.map((it) => [it.ref, it.title]), (b) => runCreate(ctx, b, order), (done, repo) => {
+    const left = order.filter((it) => !finished(it, done[it.ref]));
+    if (!left.length) throw new Error(`Every issue of this batch already exists: ${order.map((it) => `${it.ref} #${done[it.ref]!.number}`).join(", ")}. Nothing was changed.`);
+    const fresh = left.filter((it) => !done[it.ref]).length;
+    const lines = left.map((it, i) => {
+      const made = done[it.ref];
+      return `${i + 1}. ${it.ref}: ${clip(it.title, 100)}${it.labels.length ? ` · labels: ${it.labels.join(", ")}` : ""}${it.parent !== undefined ? ` · under ${named(it.parent)}` : ""}${it.blockedBy.length ? ` · blocked by ${it.blockedBy.map(named).join(", ")}` : ""}${made ? ` · exists as #${made.number}` : ""}`;
+    });
+    return [fresh ? `Create ${issues(fresh)} in ${repo}:` : `Finish linking issues in ${repo}:`, ...lines].join("\n");
   });
-  return queueBatch(CREATE_ISSUES, a, ctx, [fresh ? `Create ${issues(fresh)} in ${repo}:` : `Finish linking issues in ${repo}:`, ...lines].join("\n"));
 }
 
 const unlinkedOf = (it: NewIssue, made: Made) => it.blockedBy.filter((b) => !made.linked?.includes(named(b)));
 const finished = (it: NewIssue, made?: Made) => !!made && (it.parent === undefined || !!made.parented) && !unlinkedOf(it, made).length;
 
-async function runCreate(ctx: SkillContext, conn: GitConn, repo: string, account: string, path: string, order: NewIssue[]): Promise<CreateBatchResult> {
+async function runCreate(ctx: SkillContext, { conn, repo, account, path }: BatchRun, order: NewIssue[]): Promise<CreateBatchResult> {
   const { done, save } = await progressOf<Made>(ctx.tenantId, path, { tool: CREATE_ISSUES, account, repo });
   const numberOf = (t: string | number) => (typeof t === "number" ? t : done[t]!.number);
   const unlinked: { ref: string; blockedBy: string }[] = [];
@@ -223,16 +231,14 @@ export interface UpdateBatchResult {
 
 async function updateIssues(a: Record<string, unknown>, ctx: SkillContext) {
   const updates = issueUpdates(a.updates);
-  const { access, repo, conn } = await useRepo(a, ctx);
-  const path = progressPath(ctx, UPDATE_ISSUES, [access.account.name, repo, updates]);
-  if (ctx.confirmed) return exclusive(`${ctx.tenantId}|${path}`, () => runUpdate(ctx, conn, repo, access.account.name, path, updates));
-  const { done } = await progressOf<true>(ctx.tenantId, path, {});
-  const left = updates.filter((u) => !done[u.number]);
-  if (!left.length) throw new Error(`Every change of this batch was already made (${updates.map((u) => `#${u.number}`).join(", ")}). Nothing was changed.`);
-  return queueBatch(UPDATE_ISSUES, a, ctx, [`Update ${issues(left.length)} in ${repo}:`, ...left.map(changeLine)].join("\n"));
+  return runOrQueue<true>(UPDATE_ISSUES, a, ctx, updates, (b) => runUpdate(ctx, b, updates), (done, repo) => {
+    const left = updates.filter((u) => !done[u.number]);
+    if (!left.length) throw new Error(`Every change of this batch was already made (${updates.map((u) => `#${u.number}`).join(", ")}). Nothing was changed.`);
+    return [`Update ${issues(left.length)} in ${repo}:`, ...left.map(changeLine)].join("\n");
+  });
 }
 
-async function runUpdate(ctx: SkillContext, conn: GitConn, repo: string, account: string, path: string, updates: IssueUpdate[]): Promise<UpdateBatchResult> {
+async function runUpdate(ctx: SkillContext, { conn, repo, account, path }: BatchRun, updates: IssueUpdate[]): Promise<UpdateBatchResult> {
   const { done, save } = await progressOf<true>(ctx.tenantId, path, { tool: UPDATE_ISSUES, account, repo });
   let failed: UpdateBatchResult["failed"];
   for (const u of updates) {
