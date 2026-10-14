@@ -1,8 +1,8 @@
-import type { SkillModule, SkillContext } from "../types.js";
-import { visibleRoots } from "../workspace/paths.js";
+import type { SkillModule, SkillContext, DiscordClientAdapter } from "../types.js";
+import { safeId, visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
-import { ambiguousAssignee, assigneeFilter, assigneeLabel, linkAssignee, nameOnlyNote, parseAssignee, renderAssignee, resolveAssignee, type Assignee } from "./assignee.js";
+import { ambiguousAssignee, assigneeFilter, assigneeLabel, linkAssignee, nameOnlyNote, parseAssignee, renderAssignee, resolveAssignee, isAssignee, type Assignee } from "./assignee.js";
 import { checklistSuffix, checklistOf, checklistLine, tickItem } from "./checklist.js";
 import { DEFAULT_TIMEZONE, now, offsetText, today, wallClock, zoneOffset, zonedTime } from "../clock.js";
 
@@ -48,10 +48,15 @@ export const taskManagementSkill: SkillModule = {
     },
     {
       name: "listTasks",
-      description: "Lists tasks filtered by status, assignee, or channel. Each task comes with `line`, its task line to print as it is; a title ending in (2/5) means two of five checklist items are done.",
+      description: "Lists tasks filtered by status, assignee, or channel. Each task comes with `line`, its task line to print as it is; a title ending in (2/5) means two of five checklist items are done. Scope mine or delegated returns `groups`, one per channel, soonest due first, at most twenty tasks in all; `total` counts every match and `more` how many were left out.",
       parameters: {
         type: "object",
         properties: {
+          scope: {
+            type: "string",
+            enum: ["here", "mine", "delegated"],
+            description: "here (default): this channel's tasks. mine: tasks assigned to the asker in every channel of this server they can view. delegated: tasks the asker created that are assigned to someone else, in those same channels",
+          },
           status: {
             type: "string",
             enum: ["pending", "in_progress", "completed", "cancelled", "all"],
@@ -174,18 +179,33 @@ export const taskManagementSkill: SkillModule = {
       return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.${who?.nameOnly ? nameOnlyNote(who.assignee) : ""}`, task };
     },
 
-    listTasks: async (args: { status?: Status | "all"; assignedTo?: string; query?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
+    listTasks: async (args: { scope?: Scope; status?: Status | "all"; assignedTo?: string; query?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
+      if (args.scope !== undefined && args.scope !== null && !SCOPES.includes(args.scope)) throw new Error(`Invalid scope "${String(args.scope).slice(0, 40)}": use here, mine, or delegated`);
+      const scope: Scope = args.scope ?? "here";
       const limit = Math.min(100, Math.max(1, Number(args.limit) || 20)), zone = zoneOf(ctx), at = now();
       const after = dueBound(args.dueAfter, zone, "start"), before = dueBound(args.dueBefore, zone, "end");
       const late = args.late === undefined || args.late === null ? undefined : args.late === true || args.late === "true";
       const byDue = after !== undefined || before !== undefined || late !== undefined;
       const assigned = args.assignedTo ? await assigneeFilter(args.assignedTo, ctx) : () => true;
-      const store = workspaceStore(), tasks = await loadTasks(store, ctx);
+      const store = workspaceStore(), sources = scope === "here" ? null : await scopeSources(store, ctx);
+      const tasks = sources ? await tasksIn(store, ctx.tenantId, sources) : await loadTasks(store, ctx), whose = inScope(scope, ctx);
       const found = (args.query ? await matching(store, ctx.tenantId, tasks, args.query) : tasks)
         .map((f) => ({ f, t: f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
-        .filter(({ t }) => (args.status === "all" || (args.status ? t.status === args.status : t.status !== "cancelled")) && assigned(t.assignedTo))
+        .filter(({ t }) => (args.status === "all" || (args.status ? t.status === args.status : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(t))
         .filter((x) => (after === undefined || (x.due !== null && x.due >= after)) && (before === undefined || (x.due !== null && x.due <= before)) && (late === undefined || x.late === late))
         .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.t.createdAt.localeCompare(b.t.createdAt) : b.t.createdAt.localeCompare(a.t.createdAt)));
+      if (sources) {
+        const groups = groupTasks(found.map((x) => x.f), sources, zone), cap = Math.min(MAX_SCOPED, limit);
+        let room = cap;
+        const kept = groups.map((g) => { const tasks = g.tasks.slice(0, room); room -= tasks.length; return { source: g.source, tasks }; }).filter((g) => g.tasks.length);
+        const full = await readInFull(store, ctx.tenantId, kept.flatMap((g) => g.tasks)), shown = full.length, more = found.length - shown;
+        let i = 0;
+        return {
+          scope, total: found.length, shown,
+          ...(more > 0 && { more, note: `${more} more not shown. Say how many more there are; a status, query, or due date filter narrows the list to show them.` }),
+          groups: kept.map((g) => ({ group: g.source.label, ...(g.source.channelId && { channelId: g.source.channelId }), tasks: g.tasks.map(() => { const t = full[i++]!; return { ...t, late: isLate(t, zone, at), line: taskLine(t, zone, at) }; }) })),
+        };
+      }
       // Only the tasks returned are read in full, for the checklist progress on their line; query hits already are.
       const shown = found.slice(0, limit), full = args.query ? shown.map((x) => x.t) : await readInFull(store, ctx.tenantId, shown.map((x) => x.f));
       return { total: shown.length, tasks: shown.map((x, i) => ({ ...x.t, late: x.late, line: taskLine(full[i]!, zone, at) })) };
@@ -364,26 +384,80 @@ export function renderBody(description: string | null, notes: readonly ProgressN
   return description ? `${description}\n${section && `\n${section}`}` : section || "\n";
 }
 
-interface Found { path: string; version: string; task: Task }
+export interface Found { path: string; version: string; task: Task }
 const MAX_FILES = 500, MAX_DEPTH = 8;
 /** Every valid task under the folders this turn can see. ponytail: reads files per call; add an index when a Workspace outgrows MAX_FILES task files. */
 export async function loadTasks(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "userId">, shortId?: string): Promise<Found[]> {
+  return walkTasks(store, ctx.tenantId, Object.values(visibleRoots(ctx)), shortId);
+}
+
+/** Every valid task under `roots`, frontmatter only, at most MAX_FILES Markdown files in all. */
+async function walkTasks(store: WorkspaceStore, tenantId: string, roots: readonly string[], shortId?: string): Promise<Found[]> {
   const out: Found[] = [];
   let seen = 0;
   const walk = async (dir: string, depth: number): Promise<void> => {
-    for (const e of await store.list(ctx.tenantId, dir)) {
+    for (const e of await store.list(tenantId, dir)) {
       if (seen >= MAX_FILES) return;
       const name = e.path.split("/").pop()!;
       if (e.type === "dir") { if (depth < MAX_DEPTH && !name.startsWith(".")) await walk(e.path, depth + 1); continue; }
       if (!name.endsWith(".md")) continue;
       seen++;
-      const file = await store.readFrontmatter(ctx.tenantId, e.path).catch(() => null);
+      const file = await store.readFrontmatter(tenantId, e.path).catch(() => null);
       const task = file && parseTask(file.content);
       if (task && (!shortId || task.id.replace(/-/g, "").startsWith(shortId))) out.push({ path: e.path, version: file.version, task });
     }
   };
-  for (const root of Object.values(visibleRoots(ctx))) await walk(root, 0);
+  for (const root of roots) await walk(root, 0);
   return out;
+}
+
+/** Which tasks a list covers: `here` is the place's own folders, as the turn sees them; `mine` and `delegated` are views across projects. */
+export const SCOPES = ["here", "mine", "delegated"] as const;
+export type Scope = (typeof SCOPES)[number];
+/** At most this many tasks in a view across projects, so the answer fits in one Discord message. */
+export const MAX_SCOPED = 20;
+
+/** A folder whose tasks a view across projects prints as one group under `label`: a project channel (`#name`, with its ids), or any other folder such as a person's Personal tasks. */
+export interface TaskSource { label: string; folder: string; guildId?: string; channelId?: string }
+export interface TaskGroup { source: TaskSource; tasks: Found[] }
+
+/** The project channels of a guild a person can view: each channel folder of the guild in the Workspace that `channelView` says they see. A channel Discord cannot resolve, or one of another guild, is left out, as is every channel without `discord`. */
+export async function viewableProjects(store: WorkspaceStore, tenantId: string, discord: DiscordClientAdapter | undefined, guildId: string, userId: string): Promise<TaskSource[]> {
+  if (!discord || !safeId(guildId) || !safeId(userId)) return [];
+  const folder = `guilds/${guildId}/channels`, ids = (await store.list(tenantId, folder).catch(() => []))
+    .filter((e) => e.type === "dir").map((e) => e.path.split("/").pop()!).filter((id) => !!safeId(id));
+  const views = await Promise.all(ids.map((id) => discord.channelView(id, userId).catch(() => null)));
+  return ids.flatMap((id, i) => {
+    const v = views[i];
+    return v?.canView && v.channel?.guildId === guildId ? [{ label: `#${v.channel.name}`, folder: `${folder}/${id}`, guildId, channelId: id }] : [];
+  });
+}
+
+/** The folders a `mine` or `delegated` view of this turn draws from: every project channel of the current guild the asker can view. */
+export async function scopeSources(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "userId" | "discord">): Promise<TaskSource[]> {
+  if (!ctx.guildId || !ctx.userId) return [];
+  return viewableProjects(store, ctx.tenantId, ctx.discord, ctx.guildId, ctx.userId);
+}
+
+/** Every valid task in the given sources, frontmatter only (`readInFull` the ones printed). */
+export const tasksIn = (store: WorkspaceStore, tenantId: string, sources: readonly TaskSource[]) => walkTasks(store, tenantId, sources.map((s) => s.folder));
+
+/** Whether a task belongs to a scope for the asker: `mine` when they are its Assignee, `delegated` when they created it for someone else; `here` keeps every task. */
+export function inScope(scope: Scope, asker: Pick<SkillContext, "userId" | "userName">): (t: Task) => boolean {
+  const person = { id: asker.userId, names: [asker.userName] };
+  if (scope === "mine") return (t) => isAssignee(t.assignedTo, person);
+  if (scope === "delegated") return (t) => !!asker.userId && t.createdBy === asker.userId && !!t.assignedTo && !isAssignee(t.assignedTo, person);
+  return () => true;
+}
+
+/** Tasks grouped by the source folder they are in, soonest due first within a group (no due date last), and groups ordered by their soonest task, then label. Sources without tasks are left out. */
+export function groupTasks(found: readonly Found[], sources: readonly TaskSource[], timeZone: string): TaskGroup[] {
+  const due = (f: Found) => dueMoment(f.task.dueAt, timeZone) ?? Infinity;
+  const groups = sources.map((source) => ({
+    source,
+    tasks: found.filter((f) => f.path.startsWith(`${source.folder}/`)).sort((a, b) => due(a) - due(b) || a.task.createdAt.localeCompare(b.task.createdAt)),
+  })).filter((g) => g.tasks.length);
+  return groups.sort((a, b) => due(a.tasks[0]!) - due(b.tasks[0]!) || a.source.label.localeCompare(b.source.label));
 }
 
 /** All valid task files in a tenant, used by the tenant-wide REST API and migration tooling. */
