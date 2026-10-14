@@ -28,7 +28,10 @@ discordScenario("in a brief thread the plain repository reads are closed, so eve
   s.model.script(
     [{ tool: "repoReadFile", args: { repo: "acme/api", path: "README.md" } }, { tool: "repoSearchCode", args: { repo: "acme/api", query: "session" } }],
     (turn) => {
-      for (const r of turn.toolResults) expect(r.error).toBe("This thread follows the issue-draft playbook: read repositories with briefRead, which keeps to the brief's reading budget.");
+      expect(turn.toolResults.map((r: any) => r.error)).toEqual([
+        "This thread follows the issue-draft playbook, which closes repoReadFile: follow the playbook's steps instead.",
+        "This thread follows the issue-draft playbook, which closes repoSearchCode: follow the playbook's steps instead.",
+      ]);
       return { tool: "postBriefRound", args: ROUND_1 };
     },
     "ok",
