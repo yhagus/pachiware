@@ -41,7 +41,8 @@ export type ModelStep = string | ToolCallStep | ToolCallStep[] | ErrorStep | ((t
 export type HttpRequest = { method: string; url: string; body: any };
 
 export type Payload = { content?: string; embeds?: any[]; components?: any[]; files?: any[] };
-export type FakeUser = { id: string; name: string };
+/** `name` is the display name; `username` defaults to it. */
+export type FakeUser = { id: string; name: string; username?: string };
 export interface FakeMessage {
   id: string; channelId: string; guildId: string | null; author: FakeUser & { bot: boolean }; readonly url: string;
   content: string; embeds: any[]; components: any[]; files: any[];
@@ -164,10 +165,10 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const alice = { id: "user-alice", name: "Alice" }, bob = { id: "user-bob", name: "Bob" };
   // Everyone who has posted, plus the two defaults: what the guild's member search can find.
   const members = new Map<string, FakeUser>([[alice.id, alice], [bob.id, bob]]);
-  const member = (u: FakeUser) => ({ id: u.id, user: { id: u.id, username: u.name }, guild: GUILD, displayName: u.name, roles: { cache: new Collection() } });
+  const member = (u: FakeUser) => ({ id: u.id, user: { id: u.id, username: u.username ?? u.name }, guild: GUILD, displayName: u.name, roles: { cache: new Collection() } });
   GUILD.members = {
     fetch: async (id: string) => member(members.get(id) ?? { id, name: id }),
-    search: async ({ query, limit = 1 }: { query: string; limit?: number }) => new Collection([...members.values()].filter((u) => u.name.toLowerCase().startsWith(query.toLowerCase())).slice(0, limit).map((u) => [u.id, member(u)] as [string, any])),
+    search: async ({ query, limit = 1 }: { query: string; limit?: number }) => new Collection([...members.values()].filter((u) => [u.name, u.username ?? u.name].some((n) => n.toLowerCase().startsWith(query.toLowerCase()))).slice(0, limit).map((u) => [u.id, member(u)] as [string, any])),
   };
   let nextId = 1000n;
   const snowflake = () => String(nextId++);
@@ -216,7 +217,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     const body = normalize(payload);
     const mentioned = new Collection<string, any>([...body.content.matchAll(/<@!?(\w[\w-]*)>/g)].map(([, id]) => [id, { id }]));
     const message: any = {
-      id: snowflake(), channelId: channel.id, guildId: channel.guildId, author: { ...author, username: author.name }, ...body,
+      id: snowflake(), channelId: channel.id, guildId: channel.guildId, author: { ...author, username: author.username ?? author.name }, ...body,
       allowedMentions: typeof payload === "string" ? undefined : (payload as any).allowedMentions,
       reactions: [], edits: [], reference: extra.reference ? { messageId: extra.reference } : undefined, thread: undefined, pinned: false,
       channel, guild: channel.guild,
@@ -235,7 +236,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     };
     channel.messages.push(message);
     if (postedBy.has(author.id)) postedBy.get(author.id)!.push(message);
-    else if (channel.guildId && !members.has(author.id)) members.set(author.id, { id: author.id, name: author.name });
+    else if (channel.guildId && !members.has(author.id)) members.set(author.id, { id: author.id, name: author.name, username: author.username });
     return message;
   };
 
