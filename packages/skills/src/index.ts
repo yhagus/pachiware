@@ -22,6 +22,7 @@ export * from "./briefImages.js";
 export * from "./draftChecker.js";
 export * from "./grounding.js";
 export * from "./builtin/briefIssues.js";
+export * from "./builtin/issueBatch.js";
 export * from "./builtin/playbookRepository.js";
 export * from "./builtin/git.js";
 export * from "./git.js";

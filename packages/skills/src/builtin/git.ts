@@ -5,6 +5,7 @@ import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, sta
 import { briefGroundingTools, briefGroundingHandlers } from "./briefGrounding.js";
 import { briefIssuesTools, briefIssuesHandlers } from "./briefIssues.js";
 import { playbookRepositoryTools, playbookRepositoryHandlers } from "./playbookRepository.js";
+import { issueBatchTools, issueBatchHandlers } from "./issueBatch.js";
 import { gitToolPolicy, GIT_GROUPS } from "./gitPolicy.js";
 
 export const gitTools: ToolDefinition[] = [
@@ -130,13 +131,14 @@ export const gitRepositorySkill: SkillModule = {
   id: "git_repositories",
   name: "Git Repositories",
   description: "Browse and change repositories on the git accounts enabled for this server and channel (GitHub, GitLab, self-hosted GitLab).",
-  tools: [...gitTools, ...playbookRepositoryTools, ...briefGroundingTools, ...briefIssuesTools],
+  tools: [...gitTools, ...issueBatchTools, ...playbookRepositoryTools, ...briefGroundingTools, ...briefIssuesTools],
   capabilities: ["git"],
   // Git queues, scopes and confirms every write itself (gitShared.guard), per account and repository pattern.
   confirmsInternally: true,
   toolPolicy: gitToolPolicy,
   groups: GIT_GROUPS,
   handlers: {
+    ...issueBatchHandlers,
     ...playbookRepositoryHandlers,
     ...briefGroundingHandlers,
     ...briefIssuesHandlers,

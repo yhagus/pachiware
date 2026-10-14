@@ -8,7 +8,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, anyRepositoryAllowed, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { listPlaybooks, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, anyRepositoryAllowed, issueBatchReport, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachments.js";
@@ -116,7 +116,7 @@ export class DiscordBotManager {
     client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
     client.on(Events.Error, () => { void updateBot(id, { lastError: "Discord gateway error" }).catch(() => {}); });
     client.on(Events.InteractionCreate, (i) => {
-      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), (action, result) => afterBriefConfirm(runtime.client, runtime.tenantId, action, result)));
+      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), async (action, result) => (await afterBriefConfirm(runtime.client, runtime.tenantId, action, result)) ?? issueBatchReport(action.tool, result)));
       else if (i.isMessageContextMenuCommand()) this.track(this.handleCommand(id, i));
     });
     client.on(Events.MessageCreate, (msg) => { this.track(this.handleMessage(id, msg)); });
