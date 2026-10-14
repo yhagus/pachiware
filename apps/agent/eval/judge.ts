@@ -68,7 +68,6 @@ Answer "yes" or "no" when the material settles it, and "unknown" when it does no
 Think it through in a few sentences first. Then end your reply with one line of JSON and nothing after it:
 {"reasoning": "<one or two sentences>", "verdict": "yes" | "no" | "unknown"}`;
 
-const bullets = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).join("\n") : "- (none)");
 const draftText = (d: DraftOutput) => `### ${d.n}. ${d.title}\nRepository: ${d.repo ?? "none"}. Proposed labels: ${d.labels.join(", ") || "none"}.\n\n${d.body}`;
 const context = (f: Fixture) => `## Brief\n${f.brief}\n\n## The author's answers to round 1\n${f.answers}`;
 
@@ -84,7 +83,8 @@ export interface Judgement {
   questions: (EvalQuestion & Graded)[];
   drafts: ({ n: number } & Graded)[];
 }
-export interface DraftVerdict { n: number; passed: boolean; reasons: string[] }
+/** One graded item of a trial: a draft, or a turn of a daily-behaviour brief (then `label` names it in the report). */
+export interface DraftVerdict { n: number; label?: string; passed: boolean; reasons: string[] }
 export interface JudgedResult extends EvalResult {
   judged: Judgement;
   /** Share of must-cover facts judged covered; unknown counts as not covered. */
@@ -96,10 +96,13 @@ export interface JudgedResult extends EvalResult {
   passed: boolean;
 }
 
-async function grade(ask: Ask, user: string): Promise<Graded> {
-  try { return parseVerdict(await ask(SYSTEM, user)); }
+/** One judge call; an error is an unknown verdict carrying the error. */
+export async function grade(ask: Ask, user: string, system = SYSTEM): Promise<Graded> {
+  try { return parseVerdict(await ask(system, user)); }
   catch (e) { return { reasoning: `The judge call failed: ${e instanceof Error ? e.message : String(e)}`, verdict: "unknown" }; }
 }
+
+export const bullets = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).join("\n") : "- (none)");
 
 /** Judges a run already graded by code, then applies the pass rule: every code check, coverage at the bar, nothing invented. */
 export async function gradeWithJudge(result: EvalResult, fixture: Fixture, ask: Ask): Promise<JudgedResult> {

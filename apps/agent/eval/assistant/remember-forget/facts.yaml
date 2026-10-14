@@ -1,0 +1,16 @@
+# A channel line, a server line (the author holds Manage Server), then a forget. Spec #72, stories 21, 23, 24.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+grants: [ManageGuild]
+mustCover:
+  - Releases going out on Thursdays is kept for the whole server
+  - The line about Bob is gone
+turns:
+  - memory:
+      channel: { has: [Bob prefers to be pinged in the morning] }
+  - memory:
+      channel: { has: [Bob prefers to be pinged in the morning] }
+      guild: { has: [releases go out on Thursdays] }
+  - memory:
+      channel: { lacks: [Bob] }
+      guild: { has: [releases go out on Thursdays] }

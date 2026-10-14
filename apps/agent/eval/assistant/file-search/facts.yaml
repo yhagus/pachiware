@@ -1,0 +1,14 @@
+# A PDF sent to the bot is filed with its text beside it; a later question is answered by searching files/. Spec #72, stories 44, 45.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+attachments:
+  - name: q3-report.pdf
+    pdf: ["Quarterly report", "The Q3 budget is 12 million."]
+mustCover:
+  - The report was filed under files/ as q3-report.pdf
+  - q3-report is the file that mentions the budget
+turns:
+  - files: [files/q3-report.md, files/q3-report.pdf]
+    replyContains: [q3-report]
+  - files: [files/q3-report.md, files/q3-report.pdf]
+    replyContains: [q3-report]

@@ -1,0 +1,15 @@
+# A weekly Reminder on two weekdays; the scheduler then fires it at the first one. Spec #72, stories 31, 32, 33.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+settings: { language: en }
+mustCover:
+  - The Reminder repeats every Monday and Thursday at 09:00
+  - The first post is Thursday 15 October at 09:00
+turns:
+  - reminders:
+      - { text: standup, recurrence: weekly, weekdays: [1, 4], timeOfDay: "09:00", nextAt: "2026-10-15T02:00:00.000Z", mentions: [] }
+    replyContains: [Thursday]
+then:
+  clock: 2026-10-15T09:00:10+07:00
+  posts:
+    - { contains: standup, pings: [user-alice] }

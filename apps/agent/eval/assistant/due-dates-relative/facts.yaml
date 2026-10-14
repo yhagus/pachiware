@@ -1,0 +1,17 @@
+# "Friday", "in two hours" and "tomorrow" against a fixed Wednesday 09:00 clock in Asia/Jakarta. Spec #72, stories 1, 5, 6.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - The deck is due Friday 16 October
+  - The venue call is due today at 11:00
+  - The domain renewal is due tomorrow, Thursday 15 October
+turns:
+  - tasks:
+      - { title: deck, status: pending, dueAt: "2026-10-16", createdByName: Alice }
+  - tasks:
+      - { title: deck, dueAt: "2026-10-16" }
+      - { title: venue, status: pending, dueAt: "2026-10-14T11:00:00+07:00" }
+  - tasks:
+      - { title: deck, dueAt: "2026-10-16" }
+      - { title: venue, dueAt: "2026-10-14T11:00:00+07:00" }
+      - { title: domain, status: pending, dueAt: "2026-10-15" }

@@ -1,0 +1,73 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "remember-forget",
+  "turns": [
+    {
+      "n": 1,
+      "message": "remember that Bob prefers to be pinged in the morning",
+      "replies": [
+        "Kept."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [
+            "- 2026-10-14 (Alice): Bob prefers to be pinged in the morning"
+          ],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "and for the whole server: releases go out on Thursdays",
+      "replies": [
+        "Kept for the whole server."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [
+            "- 2026-10-14 (Alice): Bob prefers to be pinged in the morning"
+          ],
+          "guild": [
+            "- 2026-10-14 (Alice): Releases go out on Thursdays"
+          ]
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 3,
+      "message": "scrap the thing about Bob, he changed his mind",
+      "replies": [
+        "Removed 1 line about Bob."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": [
+            "- 2026-10-14 (Alice): Releases go out on Thursdays"
+          ]
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}
