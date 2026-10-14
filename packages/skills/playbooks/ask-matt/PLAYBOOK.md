@@ -19,7 +19,14 @@ The route most work travels: there is an idea, and it should become work someone
 1. **`/grill-me`** sharpens the idea by interview in a thread: rounds of numbered questions, each with a recommended answer, until every decision is settled. Start here when the idea is still loose.
    **`/grill-with-docs`** is the same interview for work on a codebase: it also writes the terms and decisions that settle into the glossary and decision records, through one pull request per thread in the repository (or the channel's Workspace folder when no repository is allowed here).
 2. **`/to-spec`** turns what was discussed into a spec, with no further interview, and publishes it as an issue in a repository once the person presses Confirm. Use it when the work is one feature that a spec should describe.
-3. **`/issue-draft`** turns the settled points into issue drafts in a thread, asking only what would change a draft, and can create them in the channel's repository.
+3. **`/to-tickets`** cuts the spec (or the plan or conversation) into tracer-bullet tickets, quizzes the person on the breakdown, and creates them in the repository behind one Confirm, as sub-issues of the spec with their blocking links.
+   **`/issue-draft`** is the alternative for a brief or minutes rather than a spec: it turns the settled points into issue drafts in a thread, asking only what would change a draft, and can create them in the channel's repository.
+
+When the idea is too big for one thread and foggy (many open decisions, an unclear destination), start with **`/wayfinder`** instead: it charts a map issue with decision tickets in the repository, then works one ticket per thread until the way is clear, and its destination is often a spec for `/to-spec`.
+
+## Running the issue tracker
+
+- **`/triage`** moves a repository's issues through triage roles: it shows what needs attention, recommends a category and state, writes agent briefs, and relabels several issues behind one Confirm.
 
 ## Reviewing and shipping code
 
