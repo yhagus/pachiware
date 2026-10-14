@@ -45,35 +45,37 @@ async function post(client: any, discord: DiscordClientAdapter | null, row: Sche
   const strings = textIn(configuredLanguage(guild, agent));
   if (row.kind === "digest") {
     const [first, ...rest] = await digestLines(row, strings, at);
-    if (first) await channel.send({ content: withinLimit(first, rest), allowedMentions: { parse: [] } });
+    if (first) await channel.send({ content: withinLimit(first, rest.map((line) => [line])), allowedMentions: { parse: [] } });
     return;
   }
   const users = [...new Set([row.ownerId, ...row.mentions].filter((id): id is string => !!id))];
   let head = [...users.map((id) => `<@${id}>`), strings.reminder(row.text)].join(" ");
   if (late) { const w = wallClock(row.timezone, row.nextAt.getTime()); head += `\n${strings.reminderLate(w.day, w.month, hhmm(w.hour, w.minute))}`; }
-  const lines = row.withTasks ? await ownerTaskLines(row, discord, strings, at) : [];
-  await channel.send({ content: withinLimit(head.slice(0, MESSAGE_LIMIT), lines), allowedMentions: { users } });
+  const tasks = row.withTasks ? await ownerTaskLines(row, discord, strings, at) : [];
+  await channel.send({ content: withinLimit(head.slice(0, MESSAGE_LIMIT), tasks), allowedMentions: { users } });
 }
 
 /**
  * The owner's open `mine` tasks, as they would list them from where the Reminder posts: assigned to them or kept as their Personal tasks,
  * in every project channel they can view (from a DM, in every guild the bot shares with them), one heading per channel, soonest due first. Empty without any.
+ * One chunk per task line; the first of each channel also holds its heading (and the very first the list header), so a cut list never ends on a heading.
  */
-async function ownerTaskLines(row: Schedule, discord: DiscordClientAdapter | null, strings: Strings, at: number): Promise<string[]> {
+async function ownerTaskLines(row: Schedule, discord: DiscordClientAdapter | null, strings: Strings, at: number): Promise<string[][]> {
   if (!row.ownerId) return [];
   const store = workspaceStore(), owner = { userId: row.ownerId, userName: row.ownerName ?? undefined };
   const sources = await scopeSources(store, { tenantId: row.tenantId, guildId: row.guildId ?? undefined, userId: row.ownerId, discord: discord ?? undefined });
   const groups = groupTasks((await tasksIn(store, row.tenantId, sources)).filter((f) => isOpen(f.task) && inScope("mine", owner)(f)), sources, row.timezone);
   const full = await readInFull(store, row.tenantId, groups.flatMap((g) => g.tasks));
   let i = 0;
-  const lines = groups.flatMap((g) => [g.source.label === PERSONAL_TASKS ? strings.personalTasks : g.source.label, ...g.tasks.map(() => taskLine(full[i++]!, row.timezone, at))]);
-  return lines.length ? [strings.openTasks, ...lines] : [];
+  const chunks = groups.flatMap((g) => g.tasks.map((_, n) => [...(n ? [] : [g.source.label === PERSONAL_TASKS ? strings.personalTasks : g.source.label]), taskLine(full[i++]!, row.timezone, at)]));
+  if (chunks[0]) chunks[0].unshift(strings.openTasks);
+  return chunks;
 }
 
-/** Whole lines only: a task list that would cross Discord's limit stops at the last line that fits. */
-function withinLimit(head: string, lines: string[]): string {
+/** Whole chunks of lines only: a list that would cross Discord's limit stops at the last chunk that fits. */
+function withinLimit(head: string, chunks: string[][]): string {
   let content = head;
-  for (const line of lines) { if (content.length + 1 + line.length > MESSAGE_LIMIT) break; content += `\n${line}`; }
+  for (const chunk of chunks) { const more = chunk.map((line) => `\n${line}`).join(""); if (content.length + more.length > MESSAGE_LIMIT) break; content += more; }
   return content;
 }
 

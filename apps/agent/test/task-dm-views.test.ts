@@ -110,3 +110,24 @@ discordScenario("a channel Reminder with tasks lists the same mine scope as aski
     "pending | no due date | unassigned | 00000009 | Call the dentist",
   ].join("\n"));
 });
+
+discordScenario("a Reminder task list cut at Discord's limit ends on a task line, never on a channel heading with no task under it", async (s) => {
+  s.clock.set("2026-10-14T20:00:00+07:00");
+  await s.guildSettings({ useThreads: false, language: "en" });
+  s.discord.channel("channel-1").name = "launch";
+  s.discord.channel("channel-2").name = "ops";
+  // Seven long #launch lines leave room for the "#ops" heading but not for its first task.
+  const long: Seed[] = [];
+  for (let n = 1; n <= 7; n++) long.push({ n, title: `Launch chore ${n} `.padEnd(200, "x"), folder: "guilds/guild-1/channels/channel-1", assignedTo: alice, dueAt: `2026-10-1${n}` });
+  await seed(s, [...long, { n: 8, title: "Rotate the keys ".padEnd(200, "x"), folder: "guilds/guild-1/channels/channel-2", assignedTo: alice, dueAt: "2026-10-25" }]);
+
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
+  await s.discord.send(`${s.discord.mention} remind me at 07:00 with my tasks`);
+  s.clock.set("2026-10-15T07:00:00+07:00");
+  await s.scheduler.tick();
+  const content = s.discord.botMessages.at(-1)!.content, lines = content.split("\n");
+  expect(content.length).toBeLessThanOrEqual(2000);
+  expect(lines.slice(1, 3)).toEqual(["Open tasks (status | due | assignee | id | title):", "#launch"]);
+  expect(lines.slice(3).every((l) => l.startsWith("pending | "))).toBe(true);
+  expect(lines.slice(3).map((l) => l.split(" | ")[3])).toEqual(["00000001", "00000002", "00000003", "00000004", "00000005", "00000006", "00000007"]);
+});
