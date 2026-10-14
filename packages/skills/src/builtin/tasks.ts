@@ -24,6 +24,7 @@ export const taskManagementSkill: SkillModule = {
     addProgressNote: { effect: "write", requiresConfirmation: false },
     showTask: { effect: "read" },
     tickChecklistItem: { effect: "write", requiresConfirmation: false },
+    moveTask: { effect: "write", requiresConfirmation: false },
   },
   tools: [
     {
@@ -161,6 +162,18 @@ export const taskManagementSkill: SkillModule = {
         required: ["taskId", "item"],
       },
     },
+    {
+      name: "moveTask",
+      description: "Moves a task to another project channel, keeping its id and fields and adding a Progress note saying where it came from. From a DM it moves one of the person's Personal tasks into a project. A task only ever moves into a project channel, never into a DM.",
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "The UUID of the task" },
+          channel: { type: "string", description: "The project channel to move it to, as the person wrote it: #name or <#id>" },
+        },
+        required: ["taskId", "channel"],
+      },
+    },
   ],
   handlers: {
     createTask: async (args: { title: string; description?: string; priority?: Priority; assignedTo?: string; channel?: string; dueAt?: string | null; discordChannelId?: string }, asker: SkillContext) => {
@@ -267,16 +280,26 @@ export const taskManagementSkill: SkillModule = {
       const updated = await change(ctx, args.taskId, (t) => { ticked = tickItem(t.description, args.item, done); return { ...t, description: ticked.description }; });
       return { success: true, message: `${done ? "Ticked" : "Unticked"} "${ticked.item.text}" on "${updated.title}" (${ticked.done}/${ticked.total}).` };
     },
+
+    moveTask: async (args: { taskId: string; channel: string }, ctx: SkillContext) => {
+      const moved = await move(ctx, args.taskId, args.channel);
+      return { success: true, message: `Task "${moved.task.title}" moved from ${moved.from} to #${moved.to}.`, note: noteLine(moved.task.notes!.at(-1)!) };
+    },
   },
 };
+
+/** The turn as if it were in a project channel `findProject` found: still the asker's turn, in that channel's guild. */
+function projectPlace(ctx: SkillContext, channel: FoundChannel): SkillContext {
+  const { id, name, guildId, guildName } = channel;
+  return { ...ctx, guildId, guildName, channelId: id, channelName: name, parentChannelId: undefined, discord: ctx.discord?.forGuild(guildId) };
+}
 
 /** The turn as if it were in the project channel a person named from a DM: still their turn, in that channel's guild. Throws, creating nothing, when they cannot file there. */
 async function filingPlace(ctx: SkillContext, channel: string): Promise<SkillContext> {
   if (ctx.guildId) throw new Error("Naming a channel to file a task in works from a DM. Here, the task belongs to this channel; ask in the other channel instead. Nothing was created.");
   const found = await findProject(ctx, channel);
   if (!found.ok) throw new Error(`${found.why} Nothing was created.`);
-  const { id, name, guildId, guildName } = found.channel;
-  return { ...ctx, guildId, guildName, channelId: id, channelName: name, parentChannelId: undefined, discord: ctx.discord?.forGuild(guildId) };
+  return projectPlace(ctx, found.channel);
 }
 
 function checkTitle(title: unknown): asserts title is string {
@@ -587,4 +610,46 @@ async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: s
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
   return next;
+}
+
+/**
+ * Moves a task this turn can see into the project channel `channel` names, adding a Progress note that says where it came from.
+ * Refused, with nothing changed, when the asker cannot view the source or the destination, or a member Assignee cannot view the destination.
+ * The task is written to its new folder before the old file goes; a source changed meanwhile removes the new file again.
+ */
+async function move(ctx: SkillContext, taskId: string, channel: string): Promise<{ task: Task; from: string; to: string }> {
+  if (typeof taskId !== "string" || !/^[0-9a-f-]{8,36}$/.test(taskId)) throw new Error(`Task with ID ${taskId} not found.`);
+  const store = workspaceStore(), [hit] = (await loadTasks(store, ctx, taskId.slice(0, 8))).filter((f) => f.task.id.startsWith(taskId));
+  const current = hit && (await store.read(ctx.tenantId, hit.path).catch(() => null)), parsed = current && parseTask(current.content);
+  if (!hit || !current || !parsed) throw new Error(`Task with ID ${taskId} not found.`);
+  const from = await sourceOf(ctx, hit.path), found = await findProject(ctx, channel);
+  if (!found.ok) throw new Error(`${found.why} Nothing was changed.`);
+  const place = projectPlace(ctx, found.channel), folder = `guilds/${found.channel.guildId}/channels/${found.channel.id}/tasks`;
+  if (hit.path.startsWith(`${folder}/`)) throw new Error(`Task "${parsed.title}" is already in #${found.channel.name}. Nothing was changed.`);
+  const to = `${folder}/${hit.path.split("/").pop()}`;
+  if (parsed.assignedTo) await mustHold(ctx, to, parsed.assignedTo);
+  // A name-only Assignee is linked against the destination's guild, as `change()` does for its own.
+  const linked = await linkAssignee(parsed.assignedTo, place), assignedTo = linked && linked !== parsed.assignedTo && !(await canHold(ctx, to, linked)).ok ? parsed.assignedTo : linked;
+  const task: Task = { ...parsed, assignedTo, notes: [...(parsed.notes ?? []), progressNote(ctx, `Moved from ${from}`)], updatedAt: today().toISOString() };
+  try { await store.write(ctx.tenantId, to, render(task)); }
+  catch (e) { if (e instanceof WorkspaceConflict) throw new Error(`#${found.channel.name} already has a task file named like this one. Nothing was changed.`); throw e; }
+  if ((await store.read(ctx.tenantId, hit.path).catch(() => null))?.version !== hit.version) {
+    await store.remove(ctx.tenantId, to).catch(() => {});
+    throw new Error("The task was changed by someone else just now. Nothing was changed. Try again.");
+  }
+  await store.remove(ctx.tenantId, hit.path);
+  await labelFolder(place, "channel");
+  await labelFolder(place, "guild");
+  try { if (!(await store.read(ctx.tenantId, `${folder}/.name`))) await store.write(ctx.tenantId, `${folder}/.name`, "Tasks"); } catch {}
+  return { task, from, to: found.channel.name };
+}
+
+/** Where a task about to move lives, as its move note names it. Throws when the asker cannot view the project channel it is in. */
+async function sourceOf(ctx: SkillContext, path: string): Promise<string> {
+  if (personalOwnerOf(path)) return PERSONAL_TASKS;
+  const home = taskChannelOf(path);
+  if (!home) return "the shared tasks";
+  const view = ctx.discord && ctx.userId ? await ctx.discord.channelView(home.channelId, ctx.userId).catch(() => null) : null;
+  if (!view?.canView) throw new Error(`You cannot view #${view?.channel?.name ?? home.channelId}, where this task is, so you cannot move it. Nothing was changed.`);
+  return `#${view.channel?.name ?? home.channelId}`;
 }
