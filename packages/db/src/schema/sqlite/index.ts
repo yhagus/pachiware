@@ -1,5 +1,6 @@
 import { sqliteTable, text, integer, real, index, uniqueIndex, foreignKey } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
+import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 import { randomUUID } from "crypto";
 
 /** A channel opted in to the daily Digest and the hour (0 to 23, in the guild's zone) it posts at. */
@@ -124,9 +125,7 @@ export const usageEvents = sqliteTable("usage_events", {
 export const agentsConfig = sqliteTable("agents_config", {
   tenantId: text("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
   name: text("name").notNull().default("Pachiware Agent"),
-  systemPrompt: text("system_prompt").notNull().default(
-    "You are Pachiware Agent, an intelligent autonomous system capable of channel management, task tracking, and problem solving. You execute actions via your available tools and communicate clearly and concisely."
-  ),
+  systemPrompt: text("system_prompt").notNull().default(DEFAULT_SYSTEM_PROMPT),
   defaultProvider: text("default_provider").notNull().default("openai"),
   defaultModel: text("default_model").notNull().default("gpt-4o"),
   temperature: real("temperature").notNull().default(0.2),

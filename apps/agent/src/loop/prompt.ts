@@ -1,4 +1,4 @@
-import { db, agentsConfig, getGuildConfig, upsertGuildConfig, type DigestChannel, type GuildConfigInput } from "@pachiware/db";
+import { db, agentsConfig, getGuildConfig, upsertGuildConfig, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type GuildConfigInput } from "@pachiware/db";
 import { eq } from "drizzle-orm";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, loadMemory, loadTasks, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, now, type OffSummary, type Language } from "@pachiware/skills";
@@ -58,7 +58,7 @@ const tenantConfig = async (tenantId: string) => {
   let config = await CacheService.get<any>(cacheKey);
   if (!config) {
     const rows = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, tenantId)).limit(1);
-    config = rows[0] || { name: "Pachiware Agent", systemPrompt: "You are Pachiware Agent, an intelligent autonomous system capable of channel management, task tracking, and problem solving." };
+    config = rows[0] || { name: "Pachiware Agent", systemPrompt: DEFAULT_SYSTEM_PROMPT };
     await CacheService.set(cacheKey, config, 120);
   }
   return config;
