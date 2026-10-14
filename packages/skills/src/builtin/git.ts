@@ -4,6 +4,7 @@ import { loadGitAccess, pickAccess, connectionOf, repoAllowed, type GitAccess } 
 import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, state, num, str, kindOf, clip, confirmable, guard } from "./gitShared.js";
 import { briefGroundingTools, briefGroundingHandlers } from "./briefGrounding.js";
 import { briefIssuesTools, briefIssuesHandlers } from "./briefIssues.js";
+import { playbookRepositoryTools, playbookRepositoryHandlers } from "./playbookRepository.js";
 import { gitToolPolicy, GIT_GROUPS } from "./gitPolicy.js";
 
 export const gitTools: ToolDefinition[] = [
@@ -125,13 +126,14 @@ export const gitRepositorySkill: SkillModule = {
   id: "git_repositories",
   name: "Git Repositories",
   description: "Browse and change repositories on the git accounts enabled for this server and channel (GitHub, GitLab, self-hosted GitLab).",
-  tools: [...gitTools, ...briefGroundingTools, ...briefIssuesTools],
+  tools: [...gitTools, ...playbookRepositoryTools, ...briefGroundingTools, ...briefIssuesTools],
   capabilities: ["git"],
   // Git queues, scopes and confirms every write itself (gitShared.guard), per account and repository pattern.
   confirmsInternally: true,
   toolPolicy: gitToolPolicy,
   groups: GIT_GROUPS,
   handlers: {
+    ...playbookRepositoryHandlers,
     ...briefGroundingHandlers,
     ...briefIssuesHandlers,
     gitAccounts: async (_a, ctx) => ({ accounts: (await loadGitAccess(ctx)).map((a) => ({ name: a.account.name, provider: a.account.provider, host: a.account.baseUrl ?? a.account.provider, repositories: patternsOf(a) })) }),
