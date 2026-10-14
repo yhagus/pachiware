@@ -30,7 +30,7 @@ const slashCommand = (playbook: Playbook): CommandData => ({
  * and a message command for each one that names a menu label. A bulk overwrite replaces every command type in its scope, so both go in one list.
  */
 export async function guildCommands(place: { tenantId: string; botId: string; guildId: string }, playbooks: Playbook[]): Promise<CommandData[]> {
-  const listed = new Set(await playbooksListedIn(place, playbooks.map((p) => p.name)));
+  const listed = new Set(await playbooksListedIn(place, playbooks));
   const offered = playbooks.filter((p) => listed.has(p.name) && startable(p));
   const menus = [...new Set(offered.map((p) => p.menu).filter((m): m is string => !!m))].slice(0, MENU_LIMIT);
   return [...offered.filter((p) => SLASH_NAME.test(p.name)).map(slashCommand), ...menus.map((name) => ({ name, type: MESSAGE_COMMAND }))];

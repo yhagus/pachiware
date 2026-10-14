@@ -11,6 +11,8 @@ import { EFFECTS, effectCounts, sections, targetKey } from "@/lib/skills";
 
 /** Target keys of the tenant's `off` rules, e.g. "tool:createTask" or "effect:danger". */
 type Off = Set<string>;
+/** Target keys of the tenant's `on` rules; only a default-off playbook can have one. */
+type On = Set<string>;
 type SwitchKind = "playbook" | "tool" | "effect";
 
 function Effects({ off, onChange }: { off: Off | null; onChange: (effect: ToolEffect, on: boolean) => void }) {
@@ -35,8 +37,11 @@ function Effects({ off, onChange }: { off: Off | null; onChange: (effect: ToolEf
   );
 }
 
-/** A playbook switched off cannot start for any bot of this tenant; its tools go with it. `skillName` names the skills it needs. */
-function Playbooks({ playbooks, off, skillName, onChange }: { playbooks: PlaybookSummary[]; off: Off | null; skillName: (id: string) => string; onChange: (playbook: string, on: boolean) => void }) {
+/**
+ * A playbook switched off cannot start for any bot of this tenant; its tools go with it. `skillName` names the skills it needs.
+ * A default-off playbook's switch is its tenant `on` rule instead (`on` holds those keys): off means no rule, so it falls back to off.
+ */
+function Playbooks({ playbooks, off, on, skillName, onChange }: { playbooks: PlaybookSummary[]; off: Off | null; on: On | null; skillName: (id: string) => string; onChange: (playbook: PlaybookSummary, on: boolean) => void }) {
   return (
     <Card className="py-0">
       <CardContent className="px-0">
@@ -51,8 +56,9 @@ function Playbooks({ playbooks, off, skillName, onChange }: { playbooks: Playboo
                 <div className="break-all font-mono text-sm">{p.name}</div>
                 <div className="text-xs text-muted-foreground">{p.description}</div>
                 {p.requires.length > 0 && <div className="text-xs text-muted-foreground">Needs {p.requires.map(skillName).join(", ")}.</div>}
+                {p.defaultOff && <div className="text-xs text-muted-foreground">Off until you switch it on here. Bots, servers, and channels can still turn it off.</div>}
               </div>
-              <Switch checked={!off?.has(targetKey("playbook", p.name))} disabled={!off} onCheckedChange={(v: boolean) => onChange(p.name, v)} aria-label={`${p.name} playbook available`} />
+              <Switch checked={p.defaultOff ? !!on?.has(targetKey("playbook", p.name)) : !off?.has(targetKey("playbook", p.name))} disabled={!off} onCheckedChange={(v: boolean) => onChange(p, v)} aria-label={`${p.name} playbook available`} />
             </li>
           ))}
         </ul>
@@ -101,16 +107,30 @@ export function TenantSkills() {
   const [list, setList] = useState<TenantSkill[] | null>(null);
   const [playbooks, setPlaybooks] = useState<PlaybookSummary[]>([]);
   const [off, setOff] = useState<Off | null>(null);
+  const [on, setOn] = useState<On | null>(null);
   useEffect(() => {
     api.listSkills(tenant.id)
       .then((r: { skills: TenantSkill[]; playbooks: PlaybookSummary[] }) => { setList(r.skills); setPlaybooks(r.playbooks); })
       .catch((e: Error) => { toast.error(e.message); setList([]); });
   }, [tenant.id]);
   useEffect(() => {
+    const keys = (rules: AvailabilityRule[], value: AvailabilityRule["value"]) => new Set(rules.filter((x) => x.value === value).map((x) => targetKey(x.kind, x.name)));
     api.listAvailability({ tenantId: tenant.id })
-      .then((r: { rules: AvailabilityRule[] }) => setOff(new Set(r.rules.filter((x) => x.value === "off").map((x) => targetKey(x.kind, x.name)))))
+      .then((r: { rules: AvailabilityRule[] }) => { setOff(keys(r.rules, "off")); setOn(keys(r.rules, "on")); })
       .catch((e: Error) => toast.error(`Tool and playbook switches unavailable: ${e.message}`));
   }, [tenant.id]);
+
+  // A default-off playbook is switched on with a tenant `on` rule and back off by clearing it; an `on` replaces any `off` rule it had.
+  const switchDefaultOff = (name: string, v: boolean) => {
+    const k = targetKey("playbook", name);
+    const set = (x: boolean) => {
+      setOn((o) => { const next = new Set(o); if (x) next.add(k); else next.delete(k); return next; });
+      if (x) setOff((o) => { const next = new Set(o); next.delete(k); return next; });
+    };
+    set(v);
+    (v ? api.setAvailability({ tenantId: tenant.id }, { kind: "playbook", name, value: "on" }) : api.clearAvailability({ tenantId: tenant.id }, "playbook", name))
+      .catch((e: Error) => { set(!v); toast.error(e.message); });
+  };
 
   const switchRule = (kind: SwitchKind, name: string, on: boolean) => {
     const set = (v: boolean) => setOff((o) => { const next = new Set(o); if (v) next.delete(targetKey(kind, name)); else next.add(targetKey(kind, name)); return next; });
@@ -132,7 +152,7 @@ export function TenantSkills() {
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">Skills the assistant may use for this tenant. A disabled skill's tools are hidden from the model. A tool switched off here is hidden from every bot of this tenant; playbook tools follow their playbook.</p>
       <Effects off={off} onChange={(e, on) => switchRule("effect", e, on)} />
-      {playbooks.length > 0 && <Playbooks playbooks={playbooks} off={off} skillName={skillName} onChange={(p, on) => switchRule("playbook", p, on)} />}
+      {playbooks.length > 0 && <Playbooks playbooks={playbooks} off={off} on={on} skillName={skillName} onChange={(p, v) => (p.defaultOff ? switchDefaultOff(p.name, v) : switchRule("playbook", p.name, v))} />}
       {list.map((s) => (
         <Card key={s.id} className="py-0">
           <CardContent className="px-0">
