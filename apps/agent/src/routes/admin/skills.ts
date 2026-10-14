@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, skills, tenantSkills, seedTenant, getTenantById, eq } from "@pachiware/db";
 import { and } from "drizzle-orm";
-import { skillRegistry, listPlaybooks } from "@pachiware/skills";
+import { skillRegistry, listPlaybooks, availabilityChanged } from "@pachiware/skills";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 import { availabilityRoutes } from "../availability.js";
 
@@ -29,6 +29,7 @@ skillAdminRoutes.patch("/tenants/:id/skills/:skillId", async (c) => {
     .where(and(eq(tenantSkills.tenantId, tenantId), eq(tenantSkills.skillId, c.req.param("skillId")))).returning();
   if (!state) return c.json({ error: "Skill not found" }, 404);
   await CacheService.del(tenantKey(tenantId, "skills:active"));
+  availabilityChanged(tenantId);
   return c.json({ success: true, isEnabled: state.isEnabled });
 });
 // Tenant-level rules for tools, effects and playbooks; a whole skill is switched with the PATCH above.

@@ -8,7 +8,8 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, onPlaybooksChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { listPlaybooks, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { guildCommands } from "./commands.js";
 import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachments.js";
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
@@ -16,9 +17,11 @@ import { llmRouter } from "../llm/router.js";
 import { MINUTES_PLAYBOOK, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
 
 const BURST_MS = 2500;
-const MESSAGE_COMMAND = 3; // ApplicationCommandType.Message
+// Admin edits often come in a run (several rules saved one after another); one registration covers them.
+const COMMANDS_MS = 2000;
 type TurnItem = { msg: Message; text: string; direct?: boolean };
-type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[] };
+/** `sentCommands` holds each guild's last overwrite as JSON, so an unchanged guild is not sent again. */
+type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[]; globalCleared: boolean; sentCommands: Map<string, string> };
 /** Who a turn acts for: the message author, or the person who ran a command on someone else's message. */
 type Actor = { id: string; name: string; member: any };
 const actorOf = (m: Message): Actor => ({ id: m.author.id, name: speakerName(m), member: m.member });
@@ -40,7 +43,11 @@ export class DiscordBotManager {
   private operations = new Map<string, Promise<any>>();
   private bursts = new Map<string, { items: TurnItem[]; timer: ReturnType<typeof setTimeout> }>();
   private inflight = new Set<Promise<unknown>>();
-  constructor(private burstMs = BURST_MS) { onPlaybooksChanged((tenantId) => this.refreshCommands(tenantId)); }
+  private commandTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  constructor(private burstMs = BURST_MS, private commandsMs = COMMANDS_MS) {
+    onPlaybooksChanged((tenantId) => this.refreshCommands(tenantId));
+    onAvailabilityChanged((tenantId) => this.refreshCommands(tenantId));
+  }
   private track(work: Promise<unknown>) {
     const tracked = work.catch(() => {}).finally(() => this.inflight.delete(tracked));
     this.inflight.add(tracked);
@@ -52,7 +59,7 @@ export class DiscordBotManager {
   }
   /** Resolves once no gateway event, burst, or reply is still being handled. */
   async idle() {
-    while (this.inflight.size || this.bursts.size || this.operations.size) await new Promise((r) => setTimeout(r, 5));
+    while (this.inflight.size || this.bursts.size || this.operations.size || this.commandTimers.size) await new Promise((r) => setTimeout(r, 5));
   }
 
   private serialize<T>(id: string, operation: () => Promise<T>): Promise<T> {
@@ -90,15 +97,17 @@ export class DiscordBotManager {
     const tenant = await getTenantById(bot.tenantId);
     if (!bot.isEnabled || tenant?.status !== "active") return { success: false, message: "Bot or tenant is disabled." };
     const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages], partials: [Partials.Channel, Partials.Message] });
-    const runtime: BotRuntime = { client, adapter: new DiscordJSAdapter(client, bot.guildIds[0]), tenantId: bot.tenantId, connected: false, guildIds: bot.guildIds };
+    const runtime: BotRuntime = { client, adapter: new DiscordJSAdapter(client, bot.guildIds[0]), tenantId: bot.tenantId, connected: false, guildIds: bot.guildIds, globalCleared: false, sentCommands: new Map() };
     this.clients.set(id, runtime);
     await updateBot(id, { connectionStatus: "connecting", lastError: null });
     client.once(Events.ClientReady, () => {
       if (this.clients.get(id) !== runtime) return;
       runtime.connected = true;
       void updateBot(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
-      this.track(this.serialize(`commands:${id}`, () => this.registerCommands(runtime)));
+      this.scheduleCommands(id);
     });
+    client.on(Events.GuildCreate, () => { if (runtime.connected) this.scheduleCommands(id); });
+    client.on(Events.GuildDelete, (guild) => { runtime.sentCommands.delete(guild.id); });
     client.on(Events.ShardDisconnect, () => { runtime.connected = false; void updateBot(id, { connectionStatus: "disconnected" }).catch(() => {}); });
     client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
     client.on(Events.Error, () => { void updateBot(id, { lastError: "Discord gateway error" }).catch(() => {}); });
@@ -117,15 +126,32 @@ export class DiscordBotManager {
       return { success: false, message: "Discord login failed." };
     }
   }
-  /** Re-registers the commands of every running bot of the tenant, so an edited playbook needs no restart. */
+  /** Re-registers the commands of every running bot of the tenant, so an edited playbook or rule needs no restart. */
   refreshCommands(tenantId: string) {
-    for (const [id, runtime] of this.clients) if (runtime.tenantId === tenantId && runtime.connected) this.track(this.serialize(`commands:${id}`, () => this.registerCommands(runtime)));
+    for (const [id, runtime] of this.clients) if (runtime.tenantId === tenantId && runtime.connected) this.scheduleCommands(id);
   }
-  /** One message context-menu command per playbook that names one; capped at five until commands move to guild scope (#71). */
-  private async registerCommands(runtime: BotRuntime) {
-    if (!runtime.client.application || ![...this.clients.values()].includes(runtime)) return;
-    const menus = [...new Set((await listPlaybooks(runtime.tenantId)).map((p) => p.menu).filter((m): m is string => !!m))].slice(0, 5);
-    await runtime.client.application.commands.set(menus.map((name) => ({ name, type: MESSAGE_COMMAND })));
+  /** Debounced: changes that arrive while a registration is waiting join it. */
+  private scheduleCommands(id: string) {
+    if (this.commandTimers.has(id)) return;
+    this.commandTimers.set(id, setTimeout(() => {
+      this.commandTimers.delete(id);
+      const runtime = this.clients.get(id);
+      if (runtime) this.track(this.serialize(`commands:${id}`, () => this.registerCommands(id, runtime)));
+    }, this.commandsMs));
+  }
+  /** One bulk overwrite per guild the bot is in, sent only when that guild's list changed; the global list, left by older versions, is emptied once. */
+  private async registerCommands(botId: string, runtime: BotRuntime) {
+    const application = runtime.client.application;
+    if (!application || this.clients.get(botId) !== runtime) return;
+    if (!runtime.globalCleared) await application.commands.set([]).then(() => { runtime.globalCleared = true; }, () => {});
+    const playbooks = await listPlaybooks(runtime.tenantId);
+    for (const guildId of runtime.client.guilds.cache.keys()) {
+      const commands = await guildCommands({ tenantId: runtime.tenantId, botId, guildId }, playbooks);
+      const sent = JSON.stringify(commands);
+      if (runtime.sentCommands.get(guildId) === sent) continue;
+      // One guild refusing (no applications.commands scope there) must not keep the others from their commands.
+      try { await application.commands.set(commands, guildId); runtime.sentCommands.set(guildId, sent); } catch {}
+    }
   }
   static async testToken(token: string) {
     if (!token) return { success: false, error: "Bot token is empty." };
