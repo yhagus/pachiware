@@ -3,7 +3,7 @@ import { visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
 import { assigneeLabel, assigneeMatches, parseAssignee, renderAssignee, type Assignee } from "./assignee.js";
-import { DEFAULT_TIMEZONE, now, offsetText, today, zoneOffset, zonedTime } from "../clock.js";
+import { DEFAULT_TIMEZONE, now, offsetText, today, wallClock, zoneOffset, zonedTime } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
 
@@ -20,6 +20,8 @@ export const taskManagementSkill: SkillModule = {
     assignTask: { effect: "write", requiresConfirmation: false },
     setTaskDueDate: { effect: "write", requiresConfirmation: false },
     editTask: { effect: "write", requiresConfirmation: false },
+    addProgressNote: { effect: "write", requiresConfirmation: false },
+    showTask: { effect: "read" },
   },
   tools: [
     {
@@ -116,6 +118,27 @@ export const taskManagementSkill: SkillModule = {
         required: ["taskId"],
       },
     },
+    {
+      name: "addProgressNote",
+      description: "Adds a Progress note to a task: a dated line with the reporter's name saying how the work is going. Notes accumulate below the description and never replace it.",
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "The UUID of the task" },
+          text: { type: "string", description: "What was reported, in one line" },
+        },
+        required: ["taskId", "text"],
+      },
+    },
+    {
+      name: "showTask",
+      description: "Shows one task in full: its task line, its description, its three latest Progress notes, and how many older notes it has.",
+      parameters: {
+        type: "object",
+        properties: { taskId: { type: "string", description: "The UUID of the task" } },
+        required: ["taskId"],
+      },
+    },
   ],
   handlers: {
     createTask: async (args: { title: string; description?: string; priority?: Priority; assignedTo?: string; dueAt?: string | null; discordChannelId?: string }, ctx: SkillContext) => {
@@ -178,6 +201,17 @@ export const taskManagementSkill: SkillModule = {
       }));
       return { success: true, message: `Task "${updated.title}" updated.`, task: updated };
     },
+
+    addProgressNote: async (args: { taskId: string; text: string }, ctx: SkillContext) => {
+      const note = progressNote(ctx, args.text);
+      const updated = await change(ctx, args.taskId, (t) => ({ ...t, notes: [...(t.notes ?? []), note] }));
+      return { success: true, message: `Progress note added to "${updated.title}".`, note: noteLine(note) };
+    },
+
+    showTask: async (args: { taskId: string }, ctx: SkillContext) => {
+      const task = await readTask(ctx, args.taskId), notes = task.notes ?? [];
+      return { task: taskLine(task, zoneOf(ctx)), description: task.description, notes: notes.slice(-LATEST_NOTES).map(noteLine), olderNotes: Math.max(0, notes.length - LATEST_NOTES) };
+    },
   },
 };
 
@@ -231,14 +265,14 @@ export const STATUSES = ["pending", "in_progress", "completed"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 type Status = (typeof STATUSES)[number];
 type Priority = (typeof PRIORITIES)[number];
-export interface Task { id: string; title: string; description: string | null; status: Status; priority: Priority; assignedTo: Assignee | null; dueAt: string | null; createdBy: string | null; createdByName: string | null; createdAt: string; updatedAt: string }
+export interface Task { id: string; title: string; description: string | null; status: Status; priority: Priority; assignedTo: Assignee | null; dueAt: string | null; createdBy: string | null; createdByName: string | null; createdAt: string; updatedAt: string; notes?: ProgressNote[] }
 
 export const slug = (title: string) => title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "") || "task";
 
 /** Frontmatter is one `key: JSON value` per line, which is also valid YAML; hand-edited bare values (status: pending) are accepted too. */
 export function render(t: Task) {
   const q = JSON.stringify;
-  return `---\nid: ${q(t.id)}\ntitle: ${q(t.title)}\nstatus: ${q(t.status)}\npriority: ${q(t.priority)}\nassignedTo: ${renderAssignee(t.assignedTo)}\ndueAt: ${q(t.dueAt)}\ncreatedBy: ${q(t.createdBy)}\ncreatedByName: ${q(t.createdByName)}\ncreatedAt: ${q(t.createdAt)}\nupdatedAt: ${q(t.updatedAt)}\n---\n${t.description ?? ""}\n`;
+  return `---\nid: ${q(t.id)}\ntitle: ${q(t.title)}\nstatus: ${q(t.status)}\npriority: ${q(t.priority)}\nassignedTo: ${renderAssignee(t.assignedTo)}\ndueAt: ${q(t.dueAt)}\ncreatedBy: ${q(t.createdBy)}\ncreatedByName: ${q(t.createdByName)}\ncreatedAt: ${q(t.createdAt)}\nupdatedAt: ${q(t.updatedAt)}\n---\n${renderBody(t.description, t.notes)}`;
 }
 /** A task file, or null when it is not a valid one: a broken file is skipped, never trusted. */
 export function parseTask(text: string): Task | null {
@@ -255,8 +289,44 @@ export function parseTask(text: string): Task | null {
   const validDate = (v: unknown) => typeof v === "string" && !!v && !Number.isNaN(Date.parse(v));
   if (typeof id !== "string" || !/^[0-9a-f-]{8,36}$/i.test(id) || typeof title !== "string" || !title.trim() || !STATUSES.includes(status) || !PRIORITIES.includes(priority) || !validDate(f.createdAt) || !validDate(f.updatedAt)) return null;
   const str = (v: unknown) => (typeof v === "string" && v ? v : null);
-  const dueAt = str(f.dueAt);
-  return { id, title, description: m[2]!.trim() || null, status, priority, assignedTo: parseAssignee(f.assignedTo), dueAt: dueAt && (DATE_ONLY.test(dueAt) || DATE_TIME.test(dueAt)) ? dueAt : null, createdBy: str(f.createdBy), createdByName: str(f.createdByName), createdAt: str(f.createdAt) ?? "", updatedAt: str(f.updatedAt) ?? "" };
+  const dueAt = str(f.dueAt), { description, notes } = parseBody(m[2]!);
+  return { id, title, description, status, priority, assignedTo: parseAssignee(f.assignedTo), dueAt: dueAt && (DATE_ONLY.test(dueAt) || DATE_TIME.test(dueAt)) ? dueAt : null, createdBy: str(f.createdBy), createdByName: str(f.createdByName), createdAt: str(f.createdAt) ?? "", updatedAt: str(f.updatedAt) ?? "", notes };
+}
+
+/** A Progress note: who reported what about a task, and on which date (YYYY-MM-DD in the place's time zone). */
+export interface ProgressNote { on: string; by: string; text: string }
+export const NOTES_HEADING = "## Progress notes";
+const NOTE_LINE = /^- (\d{4}-\d{2}-\d{2}) (.+?): (.*)$/;
+/** One note as the task file and the detail view print it: `- 2026-03-10 Alice: called the venue`. */
+export const noteLine = (n: ProgressNote) => `- ${n.on} ${n.by}: ${n.text}`;
+/** A note by the person speaking this turn, dated today in the place's time zone. Text and name are kept to one line so the file reads back the same. */
+export function progressNote(ctx: Pick<SkillContext, "userName" | "userId" | "timezone">, text: unknown): ProgressNote {
+  const line = typeof text === "string" ? text.replace(/\s+/g, " ").trim() : "";
+  if (!line) throw new Error("Progress note text is required");
+  if (line.length > 1000) throw new Error("Progress note is too long (max 1000 characters)");
+  const w = wallClock(zoneOf(ctx)), pad = (n: number) => String(n).padStart(2, "0");
+  const by = (ctx.userName || ctx.userId || "someone").replace(/:\s+/g, " ").replace(/\s+/g, " ").trim();
+  return { on: `${w.year}-${pad(w.month)}-${pad(w.day)}`, by, text: line };
+}
+/**
+ * A task body split into its description and its Progress notes. The notes section is the last `## Progress notes` heading
+ * when every line after it is a note (a line that is not continues the note above); otherwise the whole body is the description.
+ */
+export function parseBody(body: string): { description: string | null; notes: ProgressNote[] } {
+  const lines = body.split(/\r?\n/), at = lines.findLastIndex((l) => l.trim() === NOTES_HEADING);
+  const notes: ProgressNote[] = [];
+  for (const line of at < 0 ? [] : lines.slice(at + 1).map((l) => l.trim()).filter(Boolean)) {
+    const m = NOTE_LINE.exec(line);
+    if (m) notes.push({ on: m[1]!, by: m[2]!, text: m[3]! });
+    else if (notes.length) notes.at(-1)!.text += ` ${line}`;
+    else return { description: body.trim() || null, notes: [] };
+  }
+  return { description: (at < 0 ? body : lines.slice(0, at).join("\n")).trim() || null, notes };
+}
+/** The body a task file stores: the description, then the notes section when there are notes. */
+export function renderBody(description: string | null, notes: readonly ProgressNote[] = []): string {
+  const section = notes.length ? `${NOTES_HEADING}\n${notes.map(noteLine).join("\n")}\n` : "";
+  return description ? `${description}\n${section && `\n${section}`}` : section || "\n";
 }
 
 interface Found { path: string; version: string; task: Task }
@@ -308,6 +378,16 @@ async function matching(store: WorkspaceStore, tenantId: string, found: Found[],
     if (task && words.every((w) => text.includes(w))) out.push(task);
   }
   return out;
+}
+
+const LATEST_NOTES = 3;
+/** One task by id or id prefix among the folders this turn can see, read in full (description and notes). */
+async function readTask(ctx: SkillContext, taskId: string): Promise<Task> {
+  if (typeof taskId !== "string" || !/^[0-9a-f-]{8,36}$/.test(taskId)) throw new Error(`Task with ID ${taskId} not found.`);
+  const store = workspaceStore(), [hit] = (await loadTasks(store, ctx, taskId.slice(0, 8))).filter((f) => f.task.id.startsWith(taskId));
+  const file = hit && (await store.read(ctx.tenantId, hit.path).catch(() => null)), task = file && parseTask(file.content);
+  if (!task) throw new Error(`Task with ID ${taskId} not found.`);
+  return task;
 }
 
 async function change(ctx: SkillContext, taskId: string, edit: (t: Task) => Task): Promise<Task> {
