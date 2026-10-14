@@ -9,6 +9,7 @@ import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 import { forget, memoryScope, remember } from "../workspace/memory.js";
 import { fileDocument, filesRoot, isDocument } from "../workspace/files.js";
 import { textIn } from "../language.js";
+import { hasPermission } from "../permissions.js";
 
 const pathArg = { type: "string", description: 'Path starting with a folder name, e.g. "channel/notes/ideas.md"' };
 const scopeArg = { type: "string", enum: ["channel", "guild"], description: 'Whose Memory: "channel" for this channel, "guild" for the whole server (needs Manage Server). In a DM both mean the person\'s own Memory.' };
@@ -16,7 +17,7 @@ const scopeArg = { type: "string", enum: ["channel", "guild"], description: 'Who
 /** Guild Memory is read in every channel, so only someone who can manage the server may change it; the check is in the skill, not the prompt. */
 function memoryScopeFor(ctx: SkillContext, requested: unknown) {
   const scope = memoryScope(ctx, requested);
-  if (scope === "guild" && !ctx.auth?.permissions.some((p) => p === "Administrator" || p === "ManageGuild")) throw new Error("Guild Memory can only be changed by someone with Manage Server.");
+  if (scope === "guild" && !hasPermission(ctx, "ManageGuild")) throw new Error("Guild Memory can only be changed by someone with Manage Server.");
   return scope;
 }
 

@@ -2,6 +2,7 @@ import { schedules, eq, and, or, type Schedule } from "@pachiware/db";
 import { count } from "drizzle-orm";
 import type { SkillContext, SkillModule } from "../types.js";
 import { DEFAULT_TIMEZONE, hhmm, isoInZone, now, wallClock, wallToInstant } from "../clock.js";
+import { hasPermission } from "../permissions.js";
 import { textIn } from "../language.js";
 import { nextOccurrence, parseWhen } from "../schedule.js";
 
@@ -24,7 +25,7 @@ function mentionIds(input: unknown, ownerId: string): string[] {
   return [...new Set(ids)].slice(0, MAX_MENTIONS);
 }
 
-const canModerate = (ctx: SkillContext) => !!ctx.auth?.permissions.some((p) => p === "Administrator" || p === "ManageMessages");
+const canModerate = (ctx: SkillContext) => hasPermission(ctx, "ManageMessages");
 const activeReminders = (ctx: SkillContext) => and(eq(schedules.tenantId, ctx.tenantId), eq(schedules.kind, "reminder"), eq(schedules.status, "active"));
 
 const describe = (row: Schedule) => ({

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { usageEvents } from "@pachiware/db";
 import type { SkillContext, SkillModule, ToolPolicy } from "./types.js";
 import { hasThreadConfirmation } from "./threadConfirmation.js";
+import { hasPermission } from "./permissions.js";
 
 /**
  * observe: nothing is refused, would-be refusals are only logged.
@@ -104,10 +105,7 @@ export const GuardrailService = {
     for (const s of skill.allowedScopes ?? []) if (!present[s]) return this.denyOutOfScope(`This action only works inside a Discord server channel (missing ${s}).`);
     const policy = policyOf(skill, tool);
     const needs = policy.requiredPermissions ?? skill.requiredPermissions;
-    if (policy.effect !== "read" && needs?.length) {
-      const perms = a?.permissions ?? [];
-      if (!perms.includes("Administrator") && !needs.some((p) => perms.includes(p))) return this.denyUnauthorized(`You need one of these Discord permissions to ask for this: ${needs.join(", ")}.`);
-    }
+    if (policy.effect !== "read" && needs?.length && !hasPermission(ctx, ...needs)) return this.denyUnauthorized(`You need one of these Discord permissions to ask for this: ${needs.join(", ")}.`);
     const who = ctx.userId ?? "anon";
     // A skill that confirms internally (git) runs its own duplicate guard behind Confirm, so the per-tool write limit and the checks below skip it.
     if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !skill.confirmsInternally && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", "Too many requests right now. Wait a minute and try again.");
