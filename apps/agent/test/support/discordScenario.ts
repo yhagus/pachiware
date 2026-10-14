@@ -72,15 +72,21 @@ export interface Scenario {
   clock: { set(at: number | string | Date): void; advance(ms: number): void; now(): number };
   /** One scheduler pass at the fake clock's time, as the agent's minute loop would run it; returns once every post has landed. */
   scheduler: { tick(): Promise<void> };
-  /** Writes an availability rule as the admin API does; `botId` defaults to this bot and the guild to "guild-1". */
+  /** Writes an availability rule as the admin API does and returns once commands are re-registered; `botId` defaults to this bot and the guild to "guild-1". */
   availability(at: { level: "tenant" | "bot" | "guild" | "channel"; botId?: string; guildId?: string; channelId?: string }, rule: { kind: string; name: string; value: string }): Promise<void>;
   /** Paths are tenant-relative, e.g. "guilds/guild-1/channels/channel-1/brief.md". */
   workspace: { read(path: string): Promise<string | null>; write(path: string, content: string): Promise<void>; list(path: string): Promise<string[]> };
   discord: {
     mention: string; botUserId: string; guildId: string; alice: FakeUser; bob: FakeUser;
     botMessages: FakeMessage[];
-    /** Application commands the bot registered through `client.application.commands.set`, as JSON. */
+    /** The commands the bot last registered in the default guild, as JSON. */
     readonly registeredCommands: any[];
+    /** Every bulk overwrite the bot sent, oldest first; `guildId` is null for the global list. */
+    readonly commandOverwrites: { guildId: string | null; commands: any[] }[];
+    /** The commands the bot last registered in this guild, or null when it sent none there. */
+    commandsIn(guildId: string): any[] | null;
+    /** The bot joins another guild, as when someone invites it. */
+    joinGuild(id: string, name?: string): Promise<void>;
     /** A private thread admits only the bot plus `members`. */
     channel(id: string, options?: ChannelOptions): FakeChannel;
     /** Adds messages to a channel's history without the bot seeing them arrive, oldest first. */
@@ -165,6 +171,11 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   // Messages each bot user posted, by user id; the default bot's are `botMessages`.
   const postedBy = new Map<string, FakeMessage[]>([[BOT_USER.id, botMessages]]);
   const botUsers = new Map<string, FakeUser & { bot: boolean }>([["scenario-token", BOT_USER]]);
+  // Bulk command overwrites each bot user sent, by user id; the default bot's are `overwrites`.
+  const overwrites: { guildId: string | null; commands: any[] }[] = [];
+  const overwritesBy = new Map<string, { guildId: string | null; commands: any[] }[]>([[BOT_USER.id, overwrites]]);
+  const overwritesOf = (userId: string) => overwritesBy.get(userId) ?? overwritesBy.set(userId, []).get(userId)!;
+  const commandsIn = (guildId: string, userId = BOT_USER.id) => overwritesOf(userId).findLast((o) => o.guildId === guildId)?.commands ?? null;
 
   const denied = new Map<string, Map<string, string[]>>();
   const granted = new Map<string, string[]>();
@@ -257,9 +268,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     static running = new Map<string, FakeClient>();
     botUser = BOT_USER;
     user = { id: BOT_USER.id, tag: "Pachiware#0001", username: BOT_USER.name };
-    guilds = { cache: new Collection([[GUILD.id, GUILD]]), fetch: async () => GUILD };
+    guilds = { cache: new Collection<string, any>([[GUILD.id, GUILD]]), fetch: async () => GUILD };
     channels = { cache: channels as Map<string, any>, fetch: async (id: string) => as(this.botUser, channels.get(id) ?? null) };
-    application = { id: "app-1", commands: { registered: [] as any[], set: async (commands: any[]) => { this.application.commands.registered = commands.map(json); return new Collection(); } } };
+    application = { id: "app-1", commands: { set: async (commands: any[], guildId?: string) => { overwritesOf(this.botUser.id).push({ guildId: guildId ?? null, commands: commands.map(json) }); return new Collection(); } } };
     constructor(public options: unknown) { super(); }
     async login(token: string) {
       this.botUser = botUsers.get(token) ?? BOT_USER;
@@ -331,7 +342,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     return out instanceof Response ? out : Response.json(out ?? null);
   }) as typeof fetch;
 
-  const manager = new DiscordBotManager(0);
+  const manager = new DiscordBotManager(0, 0);
   const started = await manager.startBot(bot.id);
   if (!started.success) throw new Error(`bot did not start: ${started.message}`);
   const extraBots: string[] = [];
@@ -383,6 +394,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     scheduler: { tick: async () => { await schedulerTick(manager); await settle(); } },
     availability: async ({ level, botId = bot.id, guildId = GUILD.id, channelId }, rule) => {
       await setAvailabilityRule({ tenantId: tenant.id, level, botId, guildId, channelId }, rule as any, skillRegistry.getAllSkills());
+      await settle();
     },
     workspace: {
       read: async (path) => (await workspaceStore().read(tenant.id, path))?.content ?? null,
@@ -391,7 +403,15 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     },
     discord: {
       mention: `<@${BOT_USER.id}>`, botUserId: BOT_USER.id, guildId: GUILD.id, alice, bob, botMessages,
-      get registeredCommands() { return client.application.commands.registered; },
+      get registeredCommands() { return commandsIn(GUILD.id) ?? []; },
+      commandOverwrites: overwrites,
+      commandsIn,
+      joinGuild: async (id, name = id) => {
+        const guild = { id, name };
+        client.guilds.cache.set(id, guild);
+        client.emit(Events.GuildCreate, guild);
+        await settle();
+      },
       channel: (id, options) => makeChannel(id, options),
       history: (messages, { channel } = {}) => messages.map((m) => post(channelOf(channel), { ...(m.author ?? alice), bot: !!m.author?.bot }, m.content, { attachments: m.attachments, at: m.at })),
       deny: (channel, userId, permissions) => {
@@ -442,7 +462,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         if (!result.success) throw new Error(`bot did not start: ${result.message}`);
         extraBots.push(added.id);
         await settle();
-        return { id: added.id, botUserId: user.id, mention: `<@${user.id}>`, messages: postedBy.get(user.id)!, get registeredCommands() { return clientOf(user.id).application.commands.registered; } };
+        return { id: added.id, botUserId: user.id, mention: `<@${user.id}>`, messages: postedBy.get(user.id)!, get registeredCommands() { return commandsIn(GUILD.id, user.id) ?? []; } };
       },
     },
     settle,
