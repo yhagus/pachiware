@@ -18,7 +18,7 @@ taskRoutes.get("/", async (c) => {
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "50", 10) || 50));
   const all = (await tenantTasks(c.get("tenantId"))).map((f) => f.task);
   const filtered = all.filter((task) => (!status || status === "all" || task.status === status) && (!priority || priority === "all" || task.priority === priority) && (!search || task.title.toLowerCase().includes(search))).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return c.json({ success: true, counts: { total: all.length, pending: all.filter((t) => t.status === "pending").length, in_progress: all.filter((t) => t.status === "in_progress").length, completed: all.filter((t) => t.status === "completed").length }, tasks: filtered.slice(0, limit) });
+  return c.json({ success: true, counts: { total: all.length, pending: all.filter((t) => t.status === "pending").length, in_progress: all.filter((t) => t.status === "in_progress").length, completed: all.filter((t) => t.status === "completed").length, cancelled: all.filter((t) => t.status === "cancelled").length }, tasks: filtered.slice(0, limit) });
 });
 
 taskRoutes.post("/", async (c) => {
