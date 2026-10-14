@@ -28,7 +28,7 @@ describe("tool catalogue", () => {
   });
 
   test("the issue tools for trackers are writes in Issues & PRs", () => {
-    for (const name of ["repoCreateIssue", "repoLinkIssues", "repoSubIssue"]) expect([name, tool(name).effect, tool(name).group]).toEqual([name, "write", "Issues & PRs"]);
+    for (const name of ["repoCreateIssue", "repoLinkIssues", "repoSubIssue", "repoCreateIssues", "repoUpdateIssues"]) expect([name, tool(name).effect, tool(name).group]).toEqual([name, "write", "Issues & PRs"]);
   });
 
   test("the brief tools belong to the issue-draft playbook and no other tool belongs to one", () => {
@@ -37,7 +37,7 @@ describe("tool catalogue", () => {
   });
 
   test("tools keep their descriptions and every skill lists all its tools", () => {
-    expect(skill("git_repositories").tools.length).toBe(90);
+    expect(skill("git_repositories").tools.length).toBe(92);
     expect(skill("workspace").tools.length).toBe(14);
     expect(skill("reminders").tools.map((t) => t.name)).toEqual(["createReminder", "listReminders", "cancelReminder"]);
     expect(tool("repoList").description).toMatch(/^Lists repositories/);

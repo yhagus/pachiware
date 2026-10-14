@@ -11,7 +11,7 @@ const declared: Record<string, [Effect, string]> = {
 
   repoIssues: [R, "Issues & PRs"], repoIssue: [R, "Issues & PRs"], repoComments: [R, "Issues & PRs"], repoLabels: [R, "Issues & PRs"],
   repoMergeRequests: [R, "Issues & PRs"], repoMergeRequest: [R, "Issues & PRs"], repoMergeRequestDiff: [R, "Issues & PRs"],
-  repoCreateIssue: [W, "Issues & PRs"], repoLinkIssues: [W, "Issues & PRs"], repoSubIssue: [W, "Issues & PRs"], repoUpdateIssue: [W, "Issues & PRs"], repoComment: [W, "Issues & PRs"], repoEditComment: [W, "Issues & PRs"],
+  repoCreateIssue: [W, "Issues & PRs"], repoLinkIssues: [W, "Issues & PRs"], repoSubIssue: [W, "Issues & PRs"], repoCreateIssues: [W, "Issues & PRs"], repoUpdateIssues: [W, "Issues & PRs"], repoUpdateIssue: [W, "Issues & PRs"], repoComment: [W, "Issues & PRs"], repoEditComment: [W, "Issues & PRs"],
   repoCloseItem: [W, "Issues & PRs"], repoReopenItem: [W, "Issues & PRs"], repoAssign: [W, "Issues & PRs"], repoSetLabels: [W, "Issues & PRs"], repoLockItem: [W, "Issues & PRs"],
   repoOpenPullRequest: [W, "Issues & PRs"], repoUpdateMergeRequest: [W, "Issues & PRs"], repoReviewMergeRequest: [W, "Issues & PRs"], repoRequestReviewers: [W, "Issues & PRs"],
   repoRebaseMergeRequest: [W, "Issues & PRs"], repoMergeMergeRequest: [W, "Issues & PRs"], repoDeleteComment: [D, "Issues & PRs"],
