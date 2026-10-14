@@ -68,6 +68,15 @@ discordScenario("asking about a task without progress notes shows its line and d
   expect(s.discord.botMessages.at(-1)?.content).toBe("in_progress | no due date | Bob | aaaaaaaa | Book the venue\nTwo quotes, under 5 million.\nolder notes: 0");
 });
 
+discordScenario("editing a task's description replaces the description and keeps its progress notes", async (s) => {
+  await s.guildSettings({ useThreads: false });
+  await s.workspace.write(`${TASKS}/venue-aaaaaaaa.md`, oldTask({ id: "aaaaaaaa-0000-4000-8000-000000000001", title: "Book the venue", description: "Two quotes, under 5 million.\n\n## Progress notes\n- 2026-03-02 Alice: Listed five venues" }));
+
+  s.model.script({ tool: "editTask", args: { taskId: "aaaaaaaa", description: "Three quotes, under 6 million." } }, "Updated.");
+  await s.discord.send(`${s.discord.mention} venue: we need three quotes now, under 6 million`);
+  expect(await s.workspace.read(`${TASKS}/venue-aaaaaaaa.md`)).toContain("---\nThree quotes, under 6 million.\n\n## Progress notes\n- 2026-03-02 Alice: Listed five venues\n");
+});
+
 discordScenario("a task created without a description takes a progress note, keeps listing, and its detail view has no description", async (s) => {
   await s.guildSettings({ useThreads: false });
   s.clock.set("2026-03-10T03:00:00Z");

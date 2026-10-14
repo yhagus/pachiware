@@ -19,6 +19,7 @@ export const taskManagementSkill: SkillModule = {
     updateTaskStatus: { effect: "write", requiresConfirmation: false },
     assignTask: { effect: "write", requiresConfirmation: false },
     setTaskDueDate: { effect: "write", requiresConfirmation: false },
+    editTask: { effect: "write", requiresConfirmation: false },
     addProgressNote: { effect: "write", requiresConfirmation: false },
     showTask: { effect: "read" },
   },
@@ -55,6 +56,7 @@ export const taskManagementSkill: SkillModule = {
             description: "Filter by status (default is all active)",
           },
           assignedTo: { type: "string", description: "Filter by assignee: a name in any letter case, or a member's ID or mention" },
+          query: { type: "string", description: "Words to find in the title or description, any letter case; a task must contain every word. Use it to find a task the person names that is not among the active tasks shown" },
           dueAfter: { type: "string", description: "Only tasks due at or after this date (YYYY-MM-DD, from the start of that day) or date-time; tasks without a due date are left out" },
           dueBefore: { type: "string", description: "Only tasks due at or before this date (YYYY-MM-DD, to the end of that day) or date-time; tasks without a due date are left out" },
           late: { type: "boolean", description: "true: only tasks past their due date and not completed; false: only tasks that are not late" },
@@ -103,6 +105,20 @@ export const taskManagementSkill: SkillModule = {
       },
     },
     {
+      name: "editTask",
+      description: "Changes a task's title, description, or priority. Fields left out stay as they are.",
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "The UUID of the task" },
+          title: { type: "string", description: "The new title" },
+          description: { type: "string", description: "The new description, replacing the old one; empty clears it" },
+          priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "The new priority" },
+        },
+        required: ["taskId"],
+      },
+    },
+    {
       name: "addProgressNote",
       description: "Adds a Progress note to a task: a dated line with the reporter's name saying how the work is going. Notes accumulate below the description and never replace it.",
       parameters: {
@@ -126,8 +142,7 @@ export const taskManagementSkill: SkillModule = {
   ],
   handlers: {
     createTask: async (args: { title: string; description?: string; priority?: Priority; assignedTo?: string; dueAt?: string | null; discordChannelId?: string }, ctx: SkillContext) => {
-      if (typeof args.title !== "string" || !args.title.trim()) throw new Error("Task title is required");
-      if (args.title.length > 200) throw new Error("Task title is too long (max 200 characters)");
+      checkTitle(args.title);
       if (args.priority !== undefined && !PRIORITIES.includes(args.priority)) throw new Error("Invalid task priority");
       const dueAt = dueAtArg(args.dueAt, zoneOf(ctx));
       const roots = visibleRoots(ctx), home = roots.channel ?? roots.dm ?? roots.tenant!;
@@ -140,13 +155,14 @@ export const taskManagementSkill: SkillModule = {
       return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.`, task };
     },
 
-    listTasks: async (args: { status?: Status | "all"; assignedTo?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
+    listTasks: async (args: { status?: Status | "all"; assignedTo?: string; query?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
       const limit = Math.min(100, Math.max(1, Number(args.limit) || 20)), zone = zoneOf(ctx), at = now();
       const after = dueBound(args.dueAfter, zone, "start"), before = dueBound(args.dueBefore, zone, "end");
       const late = args.late === undefined || args.late === null ? undefined : args.late === true || args.late === "true";
       const byDue = after !== undefined || before !== undefined || late !== undefined;
-      const found = (await loadTasks(workspaceStore(), ctx))
-        .map((f) => ({ ...f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
+      const store = workspaceStore(), tasks = await loadTasks(store, ctx);
+      const found = (args.query ? await matching(store, ctx.tenantId, tasks, args.query) : tasks.map((f) => f.task))
+        .map((t) => ({ ...t, due: dueMoment(t.dueAt, zone), late: isLate(t, zone, at) }))
         .filter((t) => (!args.status || args.status === "all" || t.status === args.status) && (!args.assignedTo || assigneeMatches(t.assignedTo, args.assignedTo)))
         .filter((t) => (after === undefined || (t.due !== null && t.due >= after)) && (before === undefined || (t.due !== null && t.due <= before)) && (late === undefined || t.late === late))
         .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.createdAt.localeCompare(b.createdAt) : b.createdAt.localeCompare(a.createdAt)))
@@ -173,6 +189,19 @@ export const taskManagementSkill: SkillModule = {
       return { success: true, message: dueAt ? `Task "${updated.title}" is due ${dueAt}.` : `Task "${updated.title}" has no due date now.`, task: updated };
     },
 
+    editTask: async (args: { taskId: string; title?: string; description?: string | null; priority?: Priority }, ctx: SkillContext) => {
+      if (args.title === undefined && args.description === undefined && args.priority === undefined) throw new Error("Give a new title, description, or priority");
+      if (args.title !== undefined) checkTitle(args.title);
+      if (args.priority !== undefined && !PRIORITIES.includes(args.priority)) throw new Error("Invalid task priority");
+      const updated = await change(ctx, args.taskId, (t) => ({
+        ...t,
+        ...(args.title !== undefined && { title: args.title.trim() }),
+        ...(args.description !== undefined && { description: typeof args.description === "string" ? args.description.trim() || null : null }),
+        ...(args.priority !== undefined && { priority: args.priority }),
+      }));
+      return { success: true, message: `Task "${updated.title}" updated.`, task: updated };
+    },
+
     addProgressNote: async (args: { taskId: string; text: string }, ctx: SkillContext) => {
       const note = progressNote(ctx, args.text);
       const updated = await change(ctx, args.taskId, (t) => ({ ...t, notes: [...(t.notes ?? []), note] }));
@@ -185,6 +214,11 @@ export const taskManagementSkill: SkillModule = {
     },
   },
 };
+
+function checkTitle(title: unknown): asserts title is string {
+  if (typeof title !== "string" || !title.trim()) throw new Error("Task title is required");
+  if (title.length > 200) throw new Error("Task title is too long (max 200 characters)");
+}
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/, DATE_TIME = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:\d{2})?$/;
 const zoneOf = (ctx: Pick<SkillContext, "timezone">) => ctx.timezone ?? DEFAULT_TIMEZONE;
@@ -332,6 +366,17 @@ export async function loadAllTasks(store: WorkspaceStore, tenantId: string): Pro
     }
   };
   await walk("", 0);
+  return out;
+}
+
+/** The tasks whose title or description contains every word of `query`, ignoring case. Read in full: `loadTasks` reads frontmatter only. */
+async function matching(store: WorkspaceStore, tenantId: string, found: Found[], query: string): Promise<Task[]> {
+  const words = String(query).toLowerCase().split(/\s+/).filter(Boolean), out: Task[] = [];
+  for (const f of found) {
+    const file = await store.read(tenantId, f.path).catch(() => null), task = file && parseTask(file.content);
+    const text = task ? `${task.title}\n${task.description ?? ""}`.toLowerCase() : "";
+    if (task && words.every((w) => text.includes(w))) out.push(task);
+  }
   return out;
 }
 
