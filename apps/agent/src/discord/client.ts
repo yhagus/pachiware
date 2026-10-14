@@ -50,11 +50,19 @@ type Where = Pick<Message, "guildId" | "channelId" | "channel">;
 /**
  * How an in-place playbook was started. `message` is what it answers: a menu command's target, the mention itself, or for a slash command
  * (which works on the channel or thread it was run in) a stand-in from the person; `text` is the target's content, the mention's text, or the command's option.
+ * `about` leads the turn when the person asks about another message: the one a mention replies to, or for a slash command the bot's last
+ * message there, which then takes the reply as a menu target would.
  */
 type InPlaceStart = {
-  from: "menu" | "mention" | "slash"; message: Message; actor: Actor; text: string; language?: Language;
+  from: "menu" | "mention" | "slash"; message: Message; about?: Message | null; actor: Actor; text: string; language?: Language;
   refuse(text: string): Promise<unknown>; ack?(text: string): Promise<unknown>; fail(text: string): Promise<unknown>;
 };
+/** The bot's newest message among the last 50 of a channel or thread, or null. */
+async function lastOwnMessage(channel: SendableChannels, botUserId: string | undefined): Promise<Message | null> {
+  if (!botUserId || !("messages" in channel)) return null;
+  const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+  return recent?.find((m) => m.author.id === botUserId) ?? null;
+}
 /** Where a message's availability rules come from: a thread follows its parent channel. */
 const placeOf = (tenantId: string, botId: string, m: Where) => availabilityPlace({ tenantId, botId, guildId: m.guildId ?? undefined, channelId: m.channelId, parentChannelId: m.channel.isThread() ? m.channel.parentId ?? undefined : undefined });
 /**
@@ -305,7 +313,8 @@ export class DiscordBotManager {
     if (!playbook) return false;
     const say = replyQuietly(msg);
     if (playbook.run === "in-place") {
-      await this.runInPlace(runtime, botId, playbook, { from: "mention", message: msg, actor: actorOf(msg), text: m[2]?.trim() ?? "", language: replyLanguage(text), refuse: say, fail: say });
+      const about = msg.reference ? await msg.fetchReference().catch(() => null) : null;
+      await this.runInPlace(runtime, botId, playbook, { from: "mention", message: msg, about, actor: actorOf(msg), text: m[2]?.trim() ?? "", language: replyLanguage(text), refuse: say, fail: say });
       return true;
     }
     if (bound || !msg.guildId || !m[2]?.trim()) return false;
@@ -372,6 +381,7 @@ export class DiscordBotManager {
     if (playbook.run === "in-place") {
       return this.runInPlace(runtime, botId, playbook, {
         from: "slash", message: commandTurn(i, channel, file), actor, text, language, refuse: say, ack: say,
+        about: playbook.name === MINUTES_PLAYBOOK ? null : await lastOwnMessage(channel, runtime.client.user?.id),
         fail: (content) => i.followUp({ content, ephemeral: true }).catch(() => {}),
       });
     }
@@ -436,7 +446,10 @@ export class DiscordBotManager {
     const refusal = at.guildId && await playbookRefusal(runtime.tenantId, botId, playbook, at, language);
     if (refusal) { await o.refuse(refusal); return; }
     await o.ack?.(t.answeringHere(playbook.name));
-    await this.serialize(`conv:${botId}:${at.channelId}`, () => this.reply(runtime, botId, at, [{ msg: at, text: o.text }], at.channelId, null, { actor: o.actor, playbook }));
+    const { about } = o, asked = !about || o.text || at.attachments.size ? [{ msg: at, text: o.text }] : [];
+    const items = [...(about ? [{ msg: about, text: about.content.trim() }] : []), ...asked];
+    const answered = o.from === "slash" ? about ?? at : at;
+    await this.serialize(`conv:${botId}:${at.channelId}`, () => this.reply(runtime, botId, answered, items, at.channelId, null, { actor: o.actor, playbook }));
   }
   private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean } = {}) {
     const target = thread ?? msg.channel;
