@@ -6,7 +6,8 @@ export const MAX_TEXT_BYTES = 200 * 1024;
 // Caps the wait, not the parse: pdf.js keeps working on the main thread, but the turn moves on.
 const EXTRACT_TIMEOUT_MS = 20000;
 
-const extensionOf = (name: string) => name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
+/** "pdf" from "Report.PDF"; empty without an extension. */
+export const extensionOf = (name: string) => name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
 /** Whether the file's text gets a sibling Markdown file: PDF and DOCX; XLSX and CSV are stored as is. */
 export const extractsText = (name: string) => (EXTRACTED_TYPES as readonly string[]).includes(extensionOf(name));
 

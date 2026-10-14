@@ -1,6 +1,6 @@
 import { MAX_BLOB_BYTES, workspaceStore } from "./store.js";
 import { resolvePath, visibleRoots } from "./paths.js";
-import { documentText, extractsText } from "./extract.js";
+import { documentText, extensionOf, extractsText } from "./extract.js";
 import type { SkillContext } from "../types.js";
 
 export const DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "csv", "md", "txt"] as const;
@@ -17,7 +17,6 @@ export type Filed = { path: string; bytes: Uint8Array; text?: Extracted };
 export type NotFiled = { reason: NotFiledReason };
 type Where = Pick<SkillContext, "guildId" | "channelId" | "parentChannelId" | "userId">;
 
-const extensionOf = (name: string) => name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
 export const isDocument = (name: string) => (DOCUMENT_TYPES as readonly string[]).includes(extensionOf(name));
 
 /** Why a document cannot be filed, known from its metadata alone; null when it can. */
