@@ -137,6 +137,40 @@ export async function linkBlockedBy(c: GitConn, repo: string, blocker: { number:
     must(await call(c, `${ref}/issues/${blocked}/dependencies/blocked_by`, { method: "POST", body: { issue_id: blocker.id } }), `#${blocked} in ${repo}`);
   } else must(await call(c, `${ref}/issues/${blocker.number}/links`, { method: "POST", body: { target_project_id: repo, target_issue_iid: blocked, link_type: "blocks" } }), `#${blocker.number} in ${repo}`);
 }
+/** GitHub's database id for issue `number`, which its dependency and sub-issue APIs take in place of the number. */
+async function githubIssueId(c: GitConn, repo: string, number: number): Promise<number> {
+  return must(await call(c, itemPath(c, repo, number, "issue")), `#${number} in ${repo}`).id;
+}
+export async function linkIssues(c: GitConn, repo: string, issue: number, blockedBy: number) {
+  const blocker = c.provider === "github" ? { number: blockedBy, id: await githubIssueId(c, repo, blockedBy) } : { number: blockedBy };
+  await linkBlockedBy(c, repo, blocker, issue);
+  return { repo, issue, blockedBy };
+}
+/**
+ * Puts `child` under `parent` or takes it out again. GitHub has native sub-issues; GitLab (outside Premium epics) has
+ * none, so the child is a "relates_to" link plus a task list line in the parent's description.
+ */
+export async function subIssue(c: GitConn, repo: string, parent: number, child: number, action: "attach" | "detach") {
+  const path = itemPath(c, repo, parent, "issue"), where = `#${parent} in ${repo}`;
+  if (c.provider === "github") {
+    const body = { sub_issue_id: await githubIssueId(c, repo, child) };
+    must(await call(c, action === "attach" ? `${path}/sub_issues` : `${path}/sub_issue`, { method: action === "attach" ? "POST" : "DELETE", body }), where);
+    return { repo, parent, child, action };
+  }
+  if (action === "attach") must(await call(c, `${path}/links`, { method: "POST", body: { target_project_id: repo, target_issue_iid: child, link_type: "relates_to" } }), where);
+  else {
+    const links: any[] = must(await call(c, `${path}/links`), where);
+    const link = links.find((l) => l.iid === child);
+    if (link) await call(c, `${path}/links/${link.issue_link_id}`, { method: "DELETE" });
+  }
+  const description = String(must(await call(c, path), where).description ?? "");
+  const line = new RegExp(`^- \\[[ xX]\\] #${child}\\b.*$`, "m");
+  const next = action === "attach"
+    ? (line.test(description) ? description : `${description.replace(/\s+$/, "")}${description.trim() ? "\n" : ""}- [ ] #${child}`)
+    : description.replace(new RegExp(`\\n?^- \\[[ xX]\\] #${child}\\b.*$`, "m"), "");
+  if (next !== description) await call(c, path, { method: "PUT", body: { description: next } });
+  return { repo, parent, child, action };
+}
 export async function mergeMergeRequest(c: GitConn, repo: string, number: number) {
   const ref = repoRef(c, repo), gh = c.provider === "github";
   if (!Number.isInteger(number) || number < 1) throw new Error("number must be a positive integer");
@@ -372,9 +406,11 @@ export async function browseMembers(c: GitConn, repo: string, page: number) {
   const rows: any[] = first ?? (await call(c, `${ref}/contributors?${paged(page)}`)) ?? [];
   return { ...pageOf(rows, rows.map((m) => ({ username: m.login, name: null, role: collaborators ? m.role_name ?? "collaborator" : "contributor", avatarUrl: m.avatar_url, url: m.html_url }))), ...(collaborators ? {} : { contributorsOnly: true }) };
 }
-export async function browseIssues(c: GitConn, repo: string, page: number, state: GitState) {
+/** `labels` keeps issues that carry every one of them; both providers take the names comma-separated. */
+export async function browseIssues(c: GitConn, repo: string, page: number, state: GitState, labels: string[] = []) {
   const ref = repoRef(c, repo), gh = c.provider === "github";
-  const rows: any[] = (await call(c, `${ref}/issues?state=${stateParam(c, state)}&${paged(page)}`)) ?? [];
+  const filter = labels.length ? `&labels=${encodeURIComponent(labels.join(","))}` : "";
+  const rows: any[] = (await call(c, `${ref}/issues?state=${stateParam(c, state)}&${paged(page)}${filter}`)) ?? [];
   // GitHub returns pull requests from the issues endpoint too.
   return pageOf(rows, rows.filter((r) => !r.pull_request).map((r) => ({
     number: r.number ?? r.iid, title: r.title, state: normState(r.state), author: (gh ? r.user : r.author)?.[gh ? "login" : "username"] ?? null,
