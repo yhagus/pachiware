@@ -1,8 +1,8 @@
 import { db, schedules, guildConfigs, eq, and, type DigestChannel, type Schedule } from "@pachiware/db";
 import { isNull } from "drizzle-orm";
-import { now, nextOccurrence, wallClock, loadTasks, workspaceStore, dueMoment, taskLine, type Strings } from "@pachiware/skills";
+import { now, nextOccurrence, wallClock, hhmm, loadTasks, workspaceStore, dueMoment, taskLine, type Strings } from "@pachiware/skills";
 
-const hourText = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
+const hourText = (hour: number) => hhmm(hour, 0);
 const DAY_MS = 24 * 60 * 60_000;
 
 /** After the tenant's zone changed: the guilds without a zone of their own follow it, so their Digest rows move with it. */
