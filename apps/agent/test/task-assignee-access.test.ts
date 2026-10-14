@@ -57,6 +57,23 @@ discordScenario("a name-only assignee is never refused for access", async (s) =>
   expect(await s.workspace.read(FILE)).toContain('assignedTo: {"name":"Dewi"}');
 });
 
+discordScenario("a name-only assignee is linked to a member only when that member can view the channel", async (s) => {
+  await s.guildSettings({ useThreads: false });
+  s.discord.deny("channel-1", s.discord.bob.id, ["ViewChannel"]);
+  await s.workspace.write(FILE, taskFile("Bob"));
+  s.model.script({ tool: "setTaskDueDate", args: { taskId: "aaaaaaaa", dueAt: "2026-03-10" } }, lastResult);
+  await s.discord.send(`${s.discord.mention} the flyers are due on the 10th`);
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content).success).toBe(true);
+  const file = await s.workspace.read(FILE);
+  expect(file).toContain('dueAt: "2026-03-10"');
+  expect(file).toContain('assignedTo: {"name":"Bob"}');
+
+  await s.workspace.write(FILE, taskFile("Alice"));
+  s.model.script({ tool: "setTaskDueDate", args: { taskId: "aaaaaaaa", dueAt: "2026-03-11" } }, lastResult);
+  await s.discord.send(`${s.discord.mention} make it the 11th`);
+  expect(await s.workspace.read(FILE)).toContain(`assignedTo: {"id":"${s.discord.alice.id}","name":"Alice"}`);
+});
+
 discordScenario("a task in a thread is checked against the thread's parent channel", async (s) => {
   s.discord.channel("channel-1").name = "launch";
   const thread = s.discord.channel("thread-1", { thread: true, parentId: "channel-1", private: true, members: [s.discord.alice.id] });

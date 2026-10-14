@@ -408,13 +408,19 @@ export function taskChannelOf(path: string): { guildId: string; channelId: strin
   return m ? { guildId: m[1]!, channelId: m[2]! } : null;
 }
 
-/** Throws when a member cannot view the channel of the task at `path`. Tasks outside a channel folder and turns without Discord are not checked. */
-async function mustView(ctx: SkillContext, path: string, assignee: Assignee) {
+/** Whether an Assignee may hold the task at `path`: a member must be able to view its channel. Name-only Assignees, tasks outside a channel folder, and turns without Discord always may. */
+async function canView(ctx: SkillContext, path: string, assignee: Assignee): Promise<{ ok: true } | { ok: false; channel: string }> {
   const home = taskChannelOf(path);
-  if (!home || !assignee.id || !ctx.discord) return;
+  if (!home || !assignee.id || !ctx.discord) return { ok: true };
   const view = await ctx.discord.channelView(home.channelId, assignee.id).catch(() => ({ channel: null, canView: false }));
-  if (view.canView) return;
-  const channel = `#${view.channel?.name ?? home.channelId}`;
+  return view.canView ? { ok: true } : { ok: false, channel: `#${view.channel?.name ?? home.channelId}` };
+}
+
+/** Throws, naming the channel and both ways out, when a member cannot view the channel of the task at `path`. */
+async function mustView(ctx: SkillContext, path: string, assignee: Assignee) {
+  const view = await canView(ctx, path, assignee);
+  if (view.ok) return;
+  const { channel } = view;
   throw new Error(`${assignee.name} cannot view ${channel}, so they cannot be this task's assignee. Nothing was changed. Add them to ${channel}, or assign someone else.`);
 }
 
@@ -425,8 +431,10 @@ async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: s
   const current = await store.read(ctx.tenantId, hit.path).catch(() => null), parsed = current && parseTask(current.content);
   if (!current || !parsed) throw new Error(`Task with ID ${taskId} not found.`);
   const edited = await edit(parsed, hit.path);
-  // A name-only Assignee the edit kept is linked when its name now matches exactly one member.
-  const next = { ...edited, assignedTo: edited.assignedTo === parsed.assignedTo ? await linkAssignee(edited.assignedTo, ctx) : edited.assignedTo, updatedAt: today().toISOString() };
+  // A name-only Assignee the edit kept is linked when its name now matches exactly one member who can view the task's channel.
+  const linked = edited.assignedTo === parsed.assignedTo ? await linkAssignee(edited.assignedTo, ctx) : edited.assignedTo;
+  const assignedTo = linked !== edited.assignedTo && linked && !(await canView(ctx, hit.path, linked)).ok ? edited.assignedTo : linked;
+  const next = { ...edited, assignedTo, updatedAt: today().toISOString() };
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
   return next;
