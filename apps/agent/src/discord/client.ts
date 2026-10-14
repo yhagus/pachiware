@@ -146,6 +146,8 @@ export class DiscordBotManager {
     const channelId0 = msg.channelId;
     const parentId = msg.channel.isThread() ? msg.channel.parentId : null;
     const bound = msg.guildId && parentId ? await boundPlaybook(runtime.tenantId, { guildId: msg.guildId, channelId: parentId, threadId: channelId0 }) : null;
+    // A playbook thread is its starting bot's alone; a binding from before bots were recorded is open to any.
+    if (bound?.binding.botId && bound.binding.botId !== botId) return;
     // A playbook no longer available here ends its thread's binding; the message that finds out gets the one note instead of an answer.
     if (bound && (await skillRegistry.availableAt(placeOf(runtime.tenantId, botId, msg), [bound.playbook])).playbookCause(bound.playbook.name)) {
       const ended = await rewriteBinding(runtime.tenantId, bindingPlace(bound.binding), ({ binding }) => binding.status === "active" ? { binding: { ...binding, status: "cancelled" as const }, value: true } : null).catch(() => null);
@@ -296,7 +298,7 @@ export class DiscordBotManager {
     const place = { guildId: source.guildId, channelId: thread.parentId, threadId: thread.id };
     const previous = await readBinding(runtime.tenantId, place).catch(() => null);
     if (previous?.binding.status === "active") return { error: t.alreadyBound(previous.binding.playbook) };
-    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, authorName: actor.name, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: today().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
+    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, authorName: actor.name, botId, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: today().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
     if (!saved) return { error: t.notSaved };
     return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, source, [{ msg: source, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
   }

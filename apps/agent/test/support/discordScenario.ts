@@ -12,6 +12,7 @@
  *     const [first] = s.discord.history([{ content: "said an hour ago", at: Date.now() - 3600_000 }]);
  *     s.discord.deny("channel-1", s.discord.bob.id, ["ReadMessageHistory"]);
  *     s.discord.grant(s.discord.alice, ["ManageGuild"]);
+ *     const helper = await s.discord.addBot(); // a second bot of the tenant in the same guild
  *   });
  *
  * Each scenario runs in its own `bun test` subprocess with a fresh SQLite database and Workspace folder, so
@@ -52,6 +53,8 @@ export type ChannelOptions = { thread?: boolean; parentId?: string; ownerId?: st
 export type PastMessage = { content: string; author?: FakeUser & { bot?: boolean }; at?: number; attachments?: any[] };
 /** A button click or context-menu command as the bot received it, with every response it made. */
 export interface FakeInteraction { responses: { kind: "reply" | "update" | "deferReply" | "deferUpdate" | "editReply" | "followUp"; payload: any }[] }
+/** Another bot of the scenario's tenant, running in the same guild beside the default one. */
+export interface FakeBot { id: string; botUserId: string; mention: string; messages: FakeMessage[]; readonly registeredCommands: any[] }
 
 export interface Scenario {
   tenant: { id: string };
@@ -92,6 +95,8 @@ export interface Scenario {
     /** Clicks the button whose label or custom id matches. */
     click(message: FakeMessage, button: string, options?: { user?: FakeUser }): Promise<FakeInteraction>;
     contextMenu(commandName: string, target: FakeMessage, options?: { user?: FakeUser }): Promise<FakeInteraction>;
+    /** Starts another bot of the tenant in the guild; every later `send` reaches both bots. Clicks and commands still go to the default bot. */
+    addBot(options?: { name?: string }): Promise<FakeBot>;
   };
   settle(): Promise<void>;
   /** Stops and starts the bot again, as a process restart would; Workspace and database state stay. */
@@ -157,6 +162,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const snowflake = () => String(nextId++);
   const channels = new Map<string, any>();
   const botMessages: FakeMessage[] = [];
+  // Messages each bot user posted, by user id; the default bot's are `botMessages`.
+  const postedBy = new Map<string, FakeMessage[]>([[BOT_USER.id, botMessages]]);
+  const botUsers = new Map<string, FakeUser & { bot: boolean }>([["scenario-token", BOT_USER]]);
 
   const denied = new Map<string, Map<string, string[]>>();
   const granted = new Map<string, string[]>();
@@ -203,23 +211,65 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       reply: async (p: string | Payload) => post(channel, BOT_USER, p, { reference: message.id }),
       edit: async (p: string | Payload) => { const next = normalize(p); message.edits.push(next); Object.assign(message, typeof p === "string" ? { content: p } : Object.fromEntries(Object.entries(next).filter(([k]) => k in (p as object)))); return message; },
       fetchReference: async () => { const ref = message.reference && channel.messages.find((m: FakeMessage) => m.id === message.reference.messageId); if (!ref) throw new Error("Unknown Message"); return ref; },
-      startThread: async ({ name }: { name: string }) => { message.thread = makeChannel(message.id, { thread: true, parentId: channel.id, ownerId: BOT_USER.id }); message.thread.name = name; return message.thread; },
+      startThread: async ({ name }: { name: string }) => openThread(message, name, BOT_USER.id),
     };
     channel.messages.push(message);
-    if (author.id === BOT_USER.id) botMessages.push(message);
+    if (postedBy.has(author.id)) postedBy.get(author.id)!.push(message);
     else if (channel.guildId && !members.has(author.id)) members.set(author.id, { id: author.id, name: author.name });
     return message;
   };
 
+  const openThread = (message: any, name: string, ownerId: string) => {
+    message.thread = makeChannel(message.id, { thread: true, parentId: message.channelId, ownerId });
+    message.thread.name = name;
+    return message.thread;
+  };
+
+  // Channels and messages are shared, but whatever a bot sends, replies, or opens through them is that bot's.
+  // The default bot uses them as they are; any other bot sees them through a view that acts as its own user.
+  const views = new Map<string, WeakMap<object, any>>();
+  const as = (user: FakeUser & { bot: boolean }, target: any): any => {
+    if (!target || typeof target !== "object" || user.id === BOT_USER.id) return target;
+    const cache = views.get(user.id) ?? new WeakMap();
+    views.set(user.id, cache);
+    if (cache.has(target)) return cache.get(target);
+    const wrap = (value: any) => value instanceof Collection ? new Collection([...value].map(([k, v]) => [k, as(user, v)])) : as(user, value);
+    const messages = target.messages && new Proxy(target.messages, { get: (list, key) => key === "fetch" ? async (q: any) => wrap(await list.fetch(q)) : Reflect.get(list, key) });
+    const overrides: Record<string, () => unknown> = "author" in target ? {
+      channel: () => as(user, target.channel),
+      thread: () => as(user, target.thread),
+      reply: () => async (p: string | Payload) => as(user, post(target.channel, user, p, { reference: target.id })),
+      startThread: () => async ({ name }: { name: string }) => as(user, openThread(target, name, user.id)),
+      fetchReference: () => async () => as(user, await target.fetchReference()),
+      edit: () => async (p: string | Payload) => as(user, await target.edit(p)),
+    } : {
+      send: () => async (p: string | Payload) => as(user, post(target, user, p)),
+      fetchStarterMessage: () => async () => as(user, await target.fetchStarterMessage()),
+      messages: () => messages,
+    };
+    const view = new Proxy(target, { get: (t, key) => typeof key === "string" && Object.hasOwn(overrides, key) ? overrides[key]!() : Reflect.get(t, key) });
+    cache.set(target, view);
+    return view;
+  };
+
   class FakeClient extends (await import("node:events")).EventEmitter {
-    static last: FakeClient;
+    /** The running client of each bot user, by user id. */
+    static running = new Map<string, FakeClient>();
+    botUser = BOT_USER;
     user = { id: BOT_USER.id, tag: "Pachiware#0001", username: BOT_USER.name };
     guilds = { cache: new Collection([[GUILD.id, GUILD]]), fetch: async () => GUILD };
-    channels = { cache: channels, fetch: async (id: string) => channels.get(id) ?? null };
+    channels = { cache: channels as Map<string, any>, fetch: async (id: string) => as(this.botUser, channels.get(id) ?? null) };
     application = { id: "app-1", commands: { registered: [] as any[], set: async (commands: any[]) => { this.application.commands.registered = commands.map(json); return new Collection(); } } };
-    constructor(public options: unknown) { super(); FakeClient.last = this; }
-    async login(token: string) { queueMicrotask(() => this.emit(Events.ClientReady, this)); return token; }
-    async destroy() { this.removeAllListeners(); }
+    constructor(public options: unknown) { super(); }
+    async login(token: string) {
+      this.botUser = botUsers.get(token) ?? BOT_USER;
+      this.user = { id: this.botUser.id, tag: `${this.botUser.name}#0001`, username: this.botUser.name };
+      if (this.botUser !== BOT_USER) this.channels.cache = { get: (id: string) => as(this.botUser, channels.get(id)), has: (id: string) => channels.has(id) } as any;
+      FakeClient.running.set(this.botUser.id, this);
+      queueMicrotask(() => this.emit(Events.ClientReady, this));
+      return token;
+    }
+    async destroy() { this.removeAllListeners(); if (FakeClient.running.get(this.botUser.id) === this) FakeClient.running.delete(this.botUser.id); }
   }
   mock.module("discord.js", () => ({ ...discordjs, Client: FakeClient }));
 
@@ -284,7 +334,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const manager = new DiscordBotManager(0);
   const started = await manager.startBot(bot.id);
   if (!started.success) throw new Error(`bot did not start: ${started.message}`);
-  let client = FakeClient.last;
+  const extraBots: string[] = [];
+  const clientOf = (userId: string) => { const c = FakeClient.running.get(userId); if (!c) throw new Error(`Bot user ${userId} is not running`); return c; };
+  let client = clientOf(BOT_USER.id);
   const settle = async () => {
     await new Promise((r) => setTimeout(r, 0));
     await manager.idle();
@@ -355,7 +407,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       send: async (content, { author = alice, channel, replyTo, attachments } = {}) => {
         if (unlimited.has(author.id)) await CacheService.del(tenantKey(tenant.id, `ratelimit:discord:user:${author.id}`));
         const message = post(channelOf(channel), { ...author, bot: false }, content, { reference: replyTo?.id, attachments });
-        client.emit(Events.MessageCreate, message);
+        for (const running of FakeClient.running.values()) running.emit(Events.MessageCreate, as(running.botUser, message));
         await settle();
         return message;
       },
@@ -380,10 +432,22 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         await settle();
         return interaction;
       },
+      addBot: async ({ name = "Helper" } = {}) => {
+        const n = extraBots.length + 2, token = `scenario-token-${n}`;
+        const user = { id: `bot-user-${n}`, name, bot: true };
+        botUsers.set(token, user);
+        postedBy.set(user.id, []);
+        const added = await createBot({ tenantId: tenant.id, name, token, guildIds: [GUILD.id] });
+        const result = await manager.startBot(added.id);
+        if (!result.success) throw new Error(`bot did not start: ${result.message}`);
+        extraBots.push(added.id);
+        await settle();
+        return { id: added.id, botUserId: user.id, mention: `<@${user.id}>`, messages: postedBy.get(user.id)!, get registeredCommands() { return clientOf(user.id).application.commands.registered; } };
+      },
     },
     settle,
-    restart: async () => { await manager.restartBot(bot.id); client = FakeClient.last; await settle(); },
-    close: async () => { await manager.stopBot(bot.id); },
+    restart: async () => { await manager.restartBot(bot.id); client = clientOf(BOT_USER.id); await settle(); },
+    close: async () => { for (const id of [bot.id, ...extraBots]) await manager.stopBot(id); },
   };
 }
 
