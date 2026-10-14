@@ -12,4 +12,5 @@ Reminders and digest runs are rows in a `schedules` table that the agent polls o
 
 - The scheduler is a loop inside the agent process; two agent processes against one database would double-post until a lease column is added.
 - A reminder that fires while the agent is down is posted late when less than six hours late, with a note, and skipped otherwise; a repeating one moves on to its next time.
-- A reminder is the only place the bot pings people. Every other reply keeps `allowedMentions: { parse: [] }`.
+- A reminder is the only message the bot sends on its own that pings people (its owner and the people named when it was made). Replies and digests keep `allowedMentions: { parse: [] }`; a Confirm prompt still addresses the person who asked, as before.
+- A reminder less than five minutes late posts without a late note; between five minutes and six hours it carries one.
