@@ -3,6 +3,7 @@ import { db, tenants, apiKeys, agentsConfig, createTenant, getTenantBySlug, getT
 import { eq, ne } from "drizzle-orm";
 import { discordBotManager } from "../../discord/client.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
+import { syncTenantDigestSchedules } from "../../digest.js";
 import { object, string, placeSettings } from "../validation.js";
 export const tenantAdminRoutes = new Hono();
 // The tenant's default time zone and language; a guild may override both on its own config.
@@ -17,6 +18,7 @@ tenantAdminRoutes.put("/:id/settings", async (c) => {
   const values = placeSettings(object(await c.req.json(), "body"));
   const [row] = await db.update(agentsConfig).set({ ...values, updatedAt: new Date() }).where(eq(agentsConfig.tenantId, tenantId)).returning();
   await CacheService.del(tenantKey(tenantId, "agent:config"));
+  if (row && values.timezone) await syncTenantDigestSchedules(tenantId, row.timezone);
   return row ? c.json({ success: true, settings: settingsOut(row) }) : c.json({ error: "Tenant not found" }, 404);
 });
 tenantAdminRoutes.post("/", async (c) => {
