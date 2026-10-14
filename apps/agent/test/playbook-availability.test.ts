@@ -5,7 +5,7 @@ discordScenario("a playbook off in a channel is refused there with the reason an
   await s.availability({ level: "channel", channelId: "channel-2" }, { kind: "playbook", name: "issue-draft", value: "off" });
   const brief = await s.discord.send("- login loops on Safari", { channel: "channel-2" });
   const run = await s.discord.contextMenu("Draft issues", brief);
-  expect(run.responses).toEqual([{ kind: "reply", payload: expect.objectContaining({ ephemeral: true, content: expect.stringMatching(/issue-draft playbook is off here/) }) }]);
+  expect(run.responses).toEqual([{ kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) }, { kind: "editReply", payload: expect.objectContaining({ content: expect.stringMatching(/issue-draft playbook is off here/) }) }]);
   const mention = await s.discord.send(`${s.discord.mention} issue: export CSV is slow`, { channel: "channel-2" });
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([expect.stringMatching(/issue-draft playbook is off here/)]);
   expect(brief.thread ?? mention.thread).toBeUndefined();
@@ -20,7 +20,7 @@ discordScenario("a playbook off in a channel is refused there with the reason an
 discordScenario("a skill the playbook requires off in a channel refuses it there and names the skill", async (s) => {
   await s.availability({ level: "channel", channelId: "channel-2" }, { kind: "skill", name: "workspace", value: "off" });
   const run = await s.discord.contextMenu("Draft issues", await s.discord.send("- login loops on Safari", { channel: "channel-2" }));
-  expect(run.responses).toEqual([{ kind: "reply", payload: expect.objectContaining({ ephemeral: true, content: expect.stringMatching(/issue-draft playbook needs the Workspace skill, which is off here/) }) }]);
+  expect(run.responses).toEqual([{ kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) }, { kind: "editReply", payload: expect.objectContaining({ content: expect.stringMatching(/issue-draft playbook needs the Workspace skill, which is off here/) }) }]);
   expect(s.model.calls).toEqual([]);
 });
 

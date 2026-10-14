@@ -121,7 +121,7 @@ export class DiscordBotManager {
   refreshCommands(tenantId: string) {
     for (const [id, runtime] of this.clients) if (runtime.tenantId === tenantId && runtime.connected) this.track(this.serialize(`commands:${id}`, () => this.registerCommands(runtime)));
   }
-  /** One message context-menu command per playbook that names one; Discord allows five per app. */
+  /** One message context-menu command per playbook that names one; capped at five until commands move to guild scope (#71). */
   private async registerCommands(runtime: BotRuntime) {
     if (!runtime.client.application || ![...this.clients.values()].includes(runtime)) return;
     const menus = [...new Set((await listPlaybooks(runtime.tenantId)).map((p) => p.menu).filter((m): m is string => !!m))].slice(0, 5);
@@ -262,8 +262,10 @@ export class DiscordBotManager {
   async handleCommand(botId: string, i: MessageContextMenuCommandInteraction) {
     const runtime = this.clients.get(botId);
     if (!runtime) return;
+    // Discord drops an interaction left unanswered for 3 seconds, so defer before the tenant and Workspace lookups.
+    if (!await i.deferReply({ ephemeral: true }).then(() => true, () => false)) return;
     const target = i.targetMessage, language = replyLanguage(target.content), t = textIn(language);
-    const say = (content: string) => i.reply({ content, ephemeral: true }).catch(() => {});
+    const say = (content: string) => i.editReply({ content }).catch(() => {});
     if ((await getTenantById(runtime.tenantId))?.status !== "active") return say(t.botOff);
     if (!i.guildId || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say(t.wrongServer);
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.menu === i.commandName);

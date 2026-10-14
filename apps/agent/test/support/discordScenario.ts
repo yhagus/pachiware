@@ -295,14 +295,16 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const unlimited = new Set<string>();
   const responder = (interaction: FakeInteraction & Record<string, any>, channel: any, user: FakeUser) => {
     let replyMessage: FakeMessage | null = null;
+    let deferredPrivately = false;
     const record = (kind: FakeInteraction["responses"][number]["kind"], payload: any) => { interaction.responses.push({ kind, payload: payload === undefined ? undefined : typeof payload === "string" ? payload : { ...payload, ...normalize(payload) } }); };
     Object.assign(interaction, {
       id: snowflake(), user: { ...user, username: user.name }, member: memberOf(user),
       channel, channelId: channel.id, guildId: channel.guildId, guild: channel.guild, replied: false, deferred: false,
       isButton: () => false, isMessageContextMenuCommand: () => false, isContextMenuCommand: () => false, isChatInputCommand: () => false, isCommand: () => false, isRepliable: () => true, isStringSelectMenu: () => false, isModalSubmit: () => false,
-      reply: async (p: any) => { record("reply", p); interaction.replied = true; if (!p?.ephemeral) replyMessage = await post(channel, BOT_USER, p); return replyMessage; },
-      deferReply: async (p?: any) => { record("deferReply", p); interaction.deferred = true; },
-      editReply: async (p: any) => { record("editReply", p); return replyMessage ? (replyMessage as any).edit(p) : (replyMessage = await post(channel, BOT_USER, p)); },
+      // Like discord.js, a second initial response throws, and a reply deferred privately stays private when edited.
+      reply: async (p: any) => { if (interaction.replied || interaction.deferred) throw new Error("InteractionAlreadyReplied"); record("reply", p); interaction.replied = true; if (!p?.ephemeral) replyMessage = await post(channel, BOT_USER, p); return replyMessage; },
+      deferReply: async (p?: any) => { if (interaction.replied || interaction.deferred) throw new Error("InteractionAlreadyReplied"); record("deferReply", p); interaction.deferred = true; deferredPrivately = !!p?.ephemeral; },
+      editReply: async (p: any) => { record("editReply", p); if (deferredPrivately) return null; return replyMessage ? (replyMessage as any).edit(p) : (replyMessage = await post(channel, BOT_USER, p)); },
       followUp: async (p: any) => { record("followUp", p); return p?.ephemeral ? null : post(channel, BOT_USER, p); },
     });
     return interaction;

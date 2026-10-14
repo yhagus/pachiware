@@ -46,8 +46,20 @@ discordScenario("a message context-menu command reaches the bot through the fake
   const brief = await s.discord.send("- login loops on Safari\n- export CSV is slow", { author: s.discord.alice });
   const run = await s.discord.contextMenu("Retired command", brief);
   // No playbook names this command any more, so the bot only tells the person privately.
-  expect(run.responses).toMatchObject([{ kind: "reply", payload: { ephemeral: true } }]);
+  expect(run.responses).toMatchObject([{ kind: "deferReply", payload: { ephemeral: true } }, { kind: "editReply" }]);
   expect(s.model.calls).toEqual([]);
+});
+
+discordScenario("a context-menu command answers Discord privately before looking anything up", async (s) => {
+  s.model.script("Which browsers are affected?");
+  const brief = await s.discord.send("- login loops on Safari", { author: s.discord.alice });
+  const before = s.discord.botMessages.length;
+  const run = await s.discord.contextMenu("Draft issues", brief);
+  // Discord drops an interaction with no response within 3 seconds, so the first response is a private defer, and the outcome edits it.
+  expect(run.responses[0]).toEqual({ kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) });
+  expect(run.responses.slice(1).map((r) => r.kind)).toEqual(["editReply"]);
+  expect(run.responses[1].payload.content).toContain(`<#${brief.thread!.id}>`);
+  expect(s.discord.botMessages.slice(before).filter((m) => m.channelId === brief.channelId)).toEqual([]);
 });
 
 discordScenario("a scenario reads what the agent wrote to the Workspace", async (s) => {

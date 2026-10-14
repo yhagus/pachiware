@@ -14,7 +14,7 @@ discordScenario("Draft issues on a message opens a thread from it that follows t
   const run = await s.discord.contextMenu("Draft issues", brief);
 
   expect(brief.thread).toBeDefined();
-  expect(run.responses).toMatchObject([{ kind: "reply", payload: { ephemeral: true } }]);
+  expect(run.responses).toMatchObject([{ kind: "deferReply", payload: { ephemeral: true } }, { kind: "editReply" }]);
   expect(s.discord.botMessages.map((m) => [m.channelId, m.content])).toEqual([[brief.thread!.id, "Two drafts proposed. Q1: which browser versions?"]]);
   expect(s.model.calls[0]![0]!.content).toContain(playbook);
   expect(s.model.calls[0]!.map((m) => m.content).join("\n")).toContain("- login loops on Safari\n- export CSV is slow");
@@ -54,7 +54,7 @@ discordScenario("a playbook refuses to start and names the missing skill when a 
   await s.db.update(tenantSkills).set({ isEnabled: false }).where(and(eq(tenantSkills.tenantId, s.tenant.id), eq(tenantSkills.skillId, "workspace")));
   const brief = await s.discord.send("- login loops on Safari");
   const run = await s.discord.contextMenu("Draft issues", brief);
-  expect(run.responses).toEqual([{ kind: "reply", payload: expect.objectContaining({ ephemeral: true, content: expect.stringContaining("Workspace skill") }) }]);
+  expect(run.responses).toEqual([{ kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) }, { kind: "editReply", payload: expect.objectContaining({ content: expect.stringContaining("Workspace skill") }) }]);
 
   const mention = await s.discord.send(`${s.discord.mention} issue: export CSV is slow`);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([expect.stringContaining("Workspace skill")]);

@@ -204,12 +204,12 @@ discordScenario("a requester who cannot read the history gets a refusal naming w
   const [start] = s.discord.history([{ content: "We ship Friday, agreed", author: alice, at: Date.now() - 60_000 }]);
   s.discord.deny("channel-1", bob.id, ["ReadMessageHistory"]);
   const run = await s.discord.contextMenu("Write minutes", start!, { user: bob });
-  expect(run.responses).toEqual([{ kind: "reply", payload: expect.objectContaining({ ephemeral: true, content: expect.stringContaining("Read Message History") }) }]);
+  expect(run.responses).toEqual([{ kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) }, { kind: "editReply", payload: expect.objectContaining({ content: expect.stringContaining("Read Message History") }) }]);
 
   const secret = s.discord.channel("thread-private", { thread: true, private: true, parentId: "channel-1", members: [alice.id] });
   const [inside] = s.discord.history([{ content: "salary talk", author: alice, at: Date.now() - 60_000 }], { channel: secret });
   const denied = await s.discord.contextMenu("Write minutes", inside!, { user: { id: "user-carol", name: "Carol" } });
-  expect(denied.responses).toEqual([{ kind: "reply", payload: expect.objectContaining({ ephemeral: true, content: expect.stringContaining("private thread") }) }]);
+  expect(denied.responses).toEqual([{ kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) }, { kind: "editReply", payload: expect.objectContaining({ content: expect.stringContaining("private thread") }) }]);
 
   expect(s.discord.botMessages).toEqual([]);
   expect(s.model.calls).toEqual([]);

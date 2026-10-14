@@ -30,7 +30,8 @@ discordScenario("Draft issues on a minutes message starts a brief with all its a
 
   const thread = minutes.thread!;
   expect(thread).toBeDefined();
-  expect(run.responses.map((r) => r.payload.content)).toEqual([expect.stringContaining(`<#${thread.id}>`)]);
+  expect(run.responses.map((r) => r.kind)).toEqual(["deferReply", "editReply"]);
+  expect(run.responses[1].payload.content).toContain(`<#${thread.id}>`);
   const { fields } = parseFrontmatter((await s.workspace.read(`guilds/guild-1/channels/channel-1/threads/${thread.id}.md`))!)!;
   expect(fields).toMatchObject({ playbook: "issue-draft", authorId: bob.id, sourceMessageId: minutes.id, round: 1, points: ["Bob: Write the release notes (due Thursday)", "Fix the flaky login test"] });
   const posted = s.discord.botMessages.filter((m) => m.channelId === thread.id).map((m) => m.content).join("\n");
