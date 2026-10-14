@@ -674,7 +674,7 @@ Planning only for now. The decisions are worked on the wayfinder map [#16](https
 - [x] Glossary: added Brief, Issue draft, Minutes, Playbook; Profile now declares which inputs it accepts.
 - [x] Map and 12 tickets created (#17–#28), with blocking edges wired.
 - [x] Out-of-scope bug filed: #29, thread messages debounced against Phase 15.2.
-- [x] Research #17–#20 resolved; findings are on `research/*` branches (never merged) and gisted in the map
+- [x] Research #17–#20 resolved; findings were on `research/*` branches and gisted in the map; merged into `main` under `docs/research/` on 2026-10-14 and the branches removed
 - [x] Grilled and closed: #21 Anatomy, #22 Clarifying round, #24 Playbook form, #23 Grounding, #25 When the bot speaks, #26 Reply style, #27 Image handling, #28 Eval harness, #30 Minutes playbook, #31 Creating issues. Glossary gained Clarifying round.
   - [x] #21 Anatomy of an issue draft: the sections and footer are settled, along with the gap checklist, `*(added)*` tags, the Context used permalinks, existing-label proposals, and the size budget. The gap about the issue and its labels needing one confirmed action was closed in #31 (labels go in the create call).
 - [x] Fog graduated into new tickets: #30 Minutes playbook and #31 Creating a brief's issues.
@@ -715,7 +715,7 @@ Planning only for now. The decisions are worked on the wayfinder map [#50](https
 - [x] Glossary: Playbook is started by a person by name and may load another playbook; new relationship between Playbook and Skill.
 - [x] ADR 0004: Claude Code style skills become playbooks, not skills (no rename to "Toolset").
 - [x] Map and 8 tickets created (#51–#58), with blocking edges wired. Starting frontier: #51, #52 (research, running), #53, #54.
-- [x] Research #51 and #52 resolved; findings are on `research/mattpocock-skills-as-playbooks` and `research/discord-slash-commands-for-playbooks` (never merged) and gisted in the map. Their open questions were added to #56, #57, #58; web fetch went to Not yet specified.
+- [x] Research #51 and #52 resolved; findings are in `docs/research/mattpocock-skills-as-playbooks.md` and `docs/research/discord-slash-commands-for-playbooks.md` (merged into `main` on 2026-10-14, branches removed) and gisted in the map. Their open questions were added to #56, #57, #58; web fetch went to Not yet specified.
 - [x] Fog graduated into #59: git tools and batch confirmation for tracker playbooks.
 - [x] #53 levels: Tenant → Bot → (bot, guild) → channel; availability rules only narrow, no rule inherits, bot and guild may require opt-in below. Glossary gained Availability rule; ADR 0005 records why availability inherits while git scope does not.
 - [x] Fog graduated into #60: who may start a playbook or call a tool.
