@@ -352,7 +352,6 @@ export class DiscordBotManager {
           if (p) await target.send(confirmMessage(p, actor.id));
         }
       }
-      clearInterval(interval);
       // Still inside this conversation's serialized job, so the next turn reads the rewritten summary.
       if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});
     } catch { await send(t.failed).catch(() => {}); }
