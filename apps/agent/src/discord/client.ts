@@ -182,19 +182,24 @@ export class DiscordBotManager {
       if (runtime) this.track(this.serialize(`commands:${id}`, () => this.registerCommands(id, runtime)));
     }, this.commandsMs));
   }
-  /** One bulk overwrite per guild the bot is in, sent only when that guild's list changed; the global list, left by older versions, is emptied once. */
+  /** One bulk overwrite per guild, sent only when its list changed; a guild the bot is not set up for gets an empty list, and older versions' global list is emptied. */
   private async registerCommands(botId: string, runtime: BotRuntime) {
     const application = runtime.client.application;
     if (!application || this.clients.get(botId) !== runtime) return;
-    if (!runtime.globalCleared) await application.commands.set([]).then(() => { runtime.globalCleared = true; }, () => {});
+    if (!runtime.globalCleared) {
+      await application.commands.fetch().then(async (global) => { if (global.size) await application.commands.set([]); runtime.globalCleared = true; }).catch(() => {});
+    }
     const playbooks = await listPlaybooks(runtime.tenantId);
+    const refused: string[] = [];
     for (const guildId of runtime.client.guilds.cache.keys()) {
-      const commands = await guildCommands({ tenantId: runtime.tenantId, botId, guildId }, playbooks);
+      const setUp = !runtime.guildIds.length || runtime.guildIds.includes(guildId);
+      const commands = setUp ? await guildCommands({ tenantId: runtime.tenantId, botId, guildId }, playbooks) : [];
       const sent = JSON.stringify(commands);
       if (runtime.sentCommands.get(guildId) === sent) continue;
       // One guild refusing (no applications.commands scope there) must not keep the others from their commands.
-      try { await application.commands.set(commands, guildId); runtime.sentCommands.set(guildId, sent); } catch {}
+      try { await application.commands.set(commands, guildId); runtime.sentCommands.set(guildId, sent); } catch { refused.push(guildId); }
     }
+    if (refused.length) await updateBot(botId, { lastError: `Discord refused the slash commands in server ${refused.join(", ")}; they are sent again on the next change.` }).catch(() => {});
   }
   static async testToken(token: string) {
     if (!token) return { success: false, error: "Bot token is empty." };
