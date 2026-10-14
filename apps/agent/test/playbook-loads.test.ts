@@ -119,3 +119,20 @@ discordScenario("the admin API lists what each playbook loads and why it cannot 
   expect(entry("review")).toMatchObject({ loads: ["codebase-design", "style-guide"], cause: { off: "loads", playbook: "style-guide" } });
   expect(entry("issue-draft")).toMatchObject({ loads: [], chain: [], start: true, cause: null });
 });
+
+discordScenario("a chain loading a default-off playbook is refused with that cause until the tenant turns it on", async (s) => {
+  await s.workspace.write("shared/playbooks/grilling/PLAYBOOK.md", playbook("grilling", 'trigger: "grill"\ndefault: off', "Ask one question at a time."));
+  await s.workspace.write("shared/playbooks/wayfinder/PLAYBOOK.md", playbook("wayfinder", 'trigger: "wayfinder"\nloads: ["grilling"]', "Map the work into tickets."));
+  await s.restart();
+
+  const refused = await s.discord.send(`${s.discord.mention} wayfinder: plan the export rewrite`);
+  expect(refused.thread).toBeUndefined();
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual([expect.stringMatching(/wayfinder playbook loads grilling, which is off here/)]);
+  expect(s.model.calls).toEqual([]);
+
+  await s.availability({ level: "tenant" }, { kind: "playbook", name: "grilling", value: "on" });
+  s.model.script("Mapping.");
+  const start = await s.discord.send(`${s.discord.mention} wayfinder: plan the billing rewrite`);
+  expect(start.thread).toBeDefined();
+  expect(String(s.model.calls[0]![0]!.content)).toContain("Ask one question at a time.");
+});
