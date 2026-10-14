@@ -16,7 +16,8 @@ export const CREATE_ISSUES = "repoCreateIssues", UPDATE_ISSUES = "repoUpdateIssu
 export const MAX_BATCH = 25;
 
 interface NewIssue { ref: string; title: string; body?: string; labels: string[]; parent?: string | number; blockedBy: (string | number)[] }
-interface Made { number: number; url: string; id?: number; parented?: true; linked?: true }
+/** `linked` names the blockers whose link was recorded; a refused one stays out so the next run retries it. */
+interface Made { number: number; url: string; id?: number; parented?: true; linked?: string[] }
 
 const isRef = (v: unknown): v is string => typeof v === "string" && !!v.trim();
 /** A ref of this batch, or "#12" (or 12) for an existing issue. */
@@ -120,7 +121,7 @@ export interface CreateBatchResult {
   created: { ref: string; title: string; number: number; url: string }[];
   failed?: { ref: string; title: string; error: string };
   notCreated: { ref: string; title: string }[];
-  /** Blocked-by links the platform refused (GitLab's need Premium); the issues exist without them. */
+  /** Blocked-by links the platform refused (GitLab's need Premium); the issues exist without them, and the next run retries them. */
   unlinked?: { ref: string; blockedBy: string }[];
   done: boolean;
 }
@@ -142,7 +143,8 @@ async function createIssues(a: Record<string, unknown>, ctx: SkillContext) {
   return queueBatch(CREATE_ISSUES, a, ctx, [fresh ? `Create ${issues(fresh)} in ${repo}:` : `Finish linking issues in ${repo}:`, ...lines].join("\n"));
 }
 
-const finished = (it: NewIssue, made?: Made) => !!made && (it.parent === undefined || !!made.parented) && (!it.blockedBy.length || !!made.linked);
+const unlinkedOf = (it: NewIssue, made: Made) => it.blockedBy.filter((b) => !made.linked?.includes(named(b)));
+const finished = (it: NewIssue, made?: Made) => !!made && (it.parent === undefined || !!made.parented) && !unlinkedOf(it, made).length;
 
 async function runCreate(ctx: SkillContext, conn: GitConn, repo: string, account: string, path: string, order: NewIssue[]): Promise<CreateBatchResult> {
   const { done, save } = await progressOf<Made>(ctx.tenantId, path, { tool: CREATE_ISSUES, account, repo });
@@ -162,14 +164,14 @@ async function runCreate(ctx: SkillContext, conn: GitConn, repo: string, account
         made.parented = true;
         await save();
       }
-      if (it.blockedBy.length && !made.linked) {
-        // A native link is a convenience: where the platform has none, the issue still stands.
-        for (const b of it.blockedBy) {
+      const missing = unlinkedOf(it, made);
+      if (missing.length) {
+        // A native link is a convenience: where the platform refuses it, the issue still stands.
+        for (const b of missing) {
           const blocker = typeof b === "string" ? done[b]! : null;
           await (blocker ? linkBlockedBy(conn, repo, blocker, made.number) : linkIssues(conn, repo, made.number, b as number))
-            .catch(() => unlinked.push({ ref: it.ref, blockedBy: named(b) }));
+            .then(() => { made.linked = [...(made.linked ?? []), named(b)]; }, () => unlinked.push({ ref: it.ref, blockedBy: named(b) }));
         }
-        made.linked = true;
         await save();
       }
     } catch (e: any) {
@@ -281,7 +283,7 @@ export function issueBatchReport(tool: string, result: ToolResult): string | und
   const r = data;
   const links = r.created.map((c) => `${c.ref}: <${c.url}>`);
   const unlinked = r.unlinked?.length ? [`Could not record these blocked-by links: ${r.unlinked.map((u) => `${u.ref} by ${u.blockedBy}`).join(", ")}.`] : [];
-  if (!r.failed) return fitted([`Created ${issues(r.created.length)} in ${r.repo}:`], links, unlinked);
+  if (!r.failed) return fitted([`Created ${issues(r.created.length)} in ${r.repo}:`], links, unlinked.length ? [...unlinked, "Run the same batch again to retry them."] : []);
   return fitted([`Stopped at ${r.failed.ref} (${clip(r.failed.title, 80)}): ${r.failed.error}`, ...(links.length ? ["Created:"] : ["Nothing was created."])], links, [
     ...(r.notCreated.length ? [`Not created: ${r.notCreated.map((d) => d.ref).join(", ")}`] : []),
     ...unlinked,
