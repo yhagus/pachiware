@@ -232,9 +232,19 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     return [...found.values()].map((m: any) => memberInfo(m, guild.id));
   }
 
+  /** Whether a user may see into `channel` as a thread member: always for anything but a private thread, which they must have been added to. */
+  private inThread(channel: any, userId: string): Promise<boolean> {
+    return channel.type !== ChannelType.PrivateThread ? Promise.resolve(true) : channel.members.fetch(userId).then(() => true, () => false);
+  }
+
+  /** The guild's member with this user id, or null when they are not in it (fetching a non-member throws). */
+  private memberOf(guild: any, userId: string): Promise<any | null> {
+    return guild.members.fetch(userId).catch(() => null);
+  }
+
   async getMember(userId: string): Promise<DiscordMemberInfo | null> {
     const guild = await this.getGuild();
-    const m = await guild.members.fetch(userId).catch(() => null);
+    const m = await this.memberOf(guild, userId);
     return m ? memberInfo(m, guild.id) : null;
   }
 
@@ -242,10 +252,10 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     const channel: any = await this.client.channels.fetch(channelId).catch(() => null);
     if (!channel?.guild || channel.isDMBased?.()) return { channel: null, canView: false };
     const found = { id: channel.id, name: channel.name ?? channel.id, guildId: channel.guild.id };
-    const member = await channel.guild.members.fetch(userId).catch(() => null);
+    const member = await this.memberOf(channel.guild, userId);
     if (!member || !channel.permissionsFor(member)?.has("ViewChannel")) return { channel: found, canView: false };
     // Seeing a private thread's parent is not enough: the user must have been added to the thread.
-    const inThread = channel.type !== ChannelType.PrivateThread || await channel.members.fetch(userId).then(() => true, () => false);
+    const inThread = await this.inThread(channel, userId);
     return { channel: found, canView: inThread };
   }
 
@@ -258,7 +268,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
       ? [await this.client.channels.fetch(mentioned).catch(() => null)].filter(served)
       : [...this.client.channels.cache.values()].filter((c: any) => served(c) && c.name?.toLowerCase() === name);
     const members = new Map<string, Promise<unknown>>();
-    const memberIn = (guild: any) => members.get(guild.id) ?? members.set(guild.id, guild.members.fetch(userId).catch(() => null)).get(guild.id)!;
+    const memberIn = (guild: any) => members.get(guild.id) ?? members.set(guild.id, this.memberOf(guild, userId)).get(guild.id)!;
     const found = await Promise.all(candidates.map(async (c): Promise<FoundChannel | null> => {
       if (!(await memberIn(c.guild))) return null; // a guild the person is not in stays unknown to them
       const view = await this.channelView(c.id, userId);
@@ -269,7 +279,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
 
   async sharedGuilds(userId: string): Promise<{ id: string; name: string }[]> {
     const served = [...this.client.guilds.cache.values()].filter((g: any) => !this.allowedGuildIds.length || this.allowedGuildIds.includes(g.id));
-    const isMember = await Promise.all(served.map((g: any) => g.members.fetch(userId).then(() => true, () => false)));
+    const isMember = await Promise.all(served.map(async (g: any) => !!(await this.memberOf(g, userId))));
     return served.filter((_, i) => isMember[i]).map((g: any) => ({ id: g.id, name: g.name ?? g.id }));
   }
 
@@ -277,9 +287,9 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
   async postAccess(channelId: string, requesterId: string): Promise<PostAccess> {
     const channel: any = await this.client.channels.fetch(channelId).catch(() => null);
     if (!channel?.guild || channel.isDMBased?.() || !channel.isTextBased?.() || (this.guildId && channel.guildId !== this.guildId)) return { ok: false, who: "unknown", missing: [] };
-    const [member, me] = await Promise.all([requesterId, this.client.user?.id ?? ""].map((id) => channel.guild.members.fetch(id).catch(() => null)));
+    const [member, me] = await Promise.all([requesterId, this.client.user?.id ?? ""].map((id) => this.memberOf(channel.guild, id)));
     const missingFor = (who: unknown, needs: string[]): string[] => (who && channel.permissionsFor(who)?.missing(needs)) ?? needs;
-    const inThread = channel.type !== ChannelType.PrivateThread || await channel.members.fetch(requesterId).then(() => true, () => false);
+    const inThread = await this.inThread(channel, requesterId);
     const requesterMissing = missingFor(member, ["ViewChannel"]);
     if (requesterMissing.length || !inThread) return { ok: false, who: "requester", missing: requesterMissing };
     const botMissing = missingFor(me, ["ViewChannel", channel.isThread() ? "SendMessagesInThreads" : "SendMessages"]);
@@ -308,11 +318,11 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
   async historyAccess(channelId: string, requesterId: string): Promise<HistoryAccess> {
     const channel: any = await this.client.channels.fetch(channelId).catch(() => null);
     if (!channel?.guild || channel.isDMBased?.()) return { ok: false, who: "dm" };
-    const [member, me] = await Promise.all([requesterId, this.client.user?.id ?? ""].map((id) => channel.guild.members.fetch(id).catch(() => null)));
+    const [member, me] = await Promise.all([requesterId, this.client.user?.id ?? ""].map((id) => this.memberOf(channel.guild, id)));
     const missingFor = (who: unknown, needs: string[]): string[] => (who && channel.permissionsFor(who)?.missing(needs)) ?? needs;
     const requesterMissing = missingFor(member, READ_HISTORY);
     // Seeing a private thread's parent is not enough: the requester must have been added to the thread.
-    const inThread = channel.type !== ChannelType.PrivateThread || await channel.members.fetch(requesterId).then(() => true, () => false);
+    const inThread = await this.inThread(channel, requesterId);
     if (requesterMissing.length || !inThread) return { ok: false, who: "requester", missing: requesterMissing };
     const botMissing = missingFor(me, [...READ_HISTORY, channel.isThread() ? "SendMessagesInThreads" : "SendMessages", "EmbedLinks"]);
     return botMissing.length ? { ok: false, who: "bot", missing: botMissing } : { ok: true };
