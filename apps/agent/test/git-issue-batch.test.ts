@@ -147,6 +147,30 @@ discordScenario("a GitLab batch keeps going when the blocked-by link needs Premi
   expect(confirmation.content).toContain("Created 2 issues in acme/api:\nschema: <https://gitlab.com/acme/api/-/issues/11>\napi: <https://gitlab.com/acme/api/-/issues/12>\nCould not record these blocked-by links: api by schema.");
 });
 
+discordScenario("a blocked-by link that failed is retried, alone, when the same batch runs again", async (s) => {
+  await s.git({ provider: "github", repos: ["acme/*"] });
+  let down = true;
+  githubIssues(s);
+  s.http.on(/POST https:\/\/api\.github\.com\/repos\/acme\/api\/issues\/102\/dependencies\/blocked_by/, () => (down ? new Response("Service Unavailable", { status: 503 }) : {}));
+  const batch = [{ ref: "schema", title: "Design the schema" }, { ref: "api", title: "Build the API", blockedBy: ["schema"] }];
+  s.model.script({ tool: "repoCreateIssues", args: { repo: "acme/api", issues: batch } }, "Queued.");
+  await s.discord.send(`${s.discord.mention} file the two tickets`);
+  const first = s.discord.botMessages.at(-1)!;
+  await s.discord.click(first, "Confirm");
+  expect(first.content).toContain("Could not record these blocked-by links: api by schema.\nRun the same batch again to retry them.");
+
+  down = false;
+  s.model.script({ tool: "repoCreateIssues", args: { repo: "acme/api", issues: batch } }, "Queued.");
+  await s.discord.send(`${s.discord.mention} try the link again`);
+  const again = s.discord.botMessages.at(-1)!;
+  expect(again.embeds[0].description).toBe("Finish linking issues in acme/api:\n1. api: Build the API · blocked by schema · exists as #102");
+  const before = s.http.requests.length;
+  await s.discord.click(again, "Confirm");
+  expect(writes(s, before)).toEqual([["POST", "/repos/acme/api/issues/102/dependencies/blocked_by", { issue_id: 9101 }]]);
+  expect(again.content).toContain("Created 2 issues in acme/api:");
+  expect(again.content).not.toContain("Could not record");
+});
+
 discordScenario("repoUpdateIssues applies label, state and assignee changes behind one Confirm, and a rerun after a failure touches only what is left", async (s) => {
   await s.git({ provider: "github", repos: ["acme/*"] });
   let down = true;

@@ -102,7 +102,7 @@ Show counts and a one-line summary per item, under 1,800 characters. Let the mai
 
 ## Quick state override
 
-If the maintainer says "move #42 to ready-for-agent", trust them and apply the role directly. Say what you are about to do (role changes, comment, close), then act. Skip grilling. If moving to `ready-for-agent` without a grilling session, ask whether they want an agent brief written. When they move several issues at once ("move #42, #43 and #47 to ready-for-agent"), it is one `repoUpdateIssues` batch.
+If the maintainer says "move #42 to ready-for-agent", trust them and apply the role directly. Say what you are about to do (role changes, comment, close), then act. Skip grilling. If moving to `ready-for-agent` without grilling it first, ask whether they want an agent brief written. When they move several issues at once ("move #42, #43 and #47 to ready-for-agent"), it is one `repoUpdateIssues` batch.
 
 ## Needs-info template
 

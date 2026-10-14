@@ -1,8 +1,7 @@
 ---
 description: Builds and sharpens a project's domain model: challenges terms and writes the glossary and decision records as they settle.
 default: off
-requires: ["git_repositories"]
-optional: ["workspace"]
+optional: ["workspace", "git_repositories"]
 license: MIT, adapted from mattpocock/skills; the notice is in LICENSE.md
 ---
 # Domain Modeling
@@ -11,7 +10,7 @@ Actively build and sharpen the project's domain model while the people in this t
 
 ## Where the documents live
 
-At the start, call `playbookRepositories`, unless the prompt already names this thread's repository. With one allowed it becomes the thread's repository; with several, ask the person who started the thread which one, in one line, before you read or write any document.
+At the start, call `playbookRepositories`, unless the prompt already names this thread's repository or the tool is not offered here. With one allowed it becomes the thread's repository; with several, ask the person who started the thread which one, in one line, before you read or write any document.
 
 **With a repository**, the project's documents are files in it:
 
@@ -27,11 +26,11 @@ At the start, call `playbookRepositories`, unless the prompt already names this 
 
 If a `GLOSSARY-MAP.md` exists at the root, the repository has several contexts, and the map says where each glossary and `docs/adr/` folder lives. Read the files with `repoReadFile` (it also lists a folder). Once the prompt names this thread's documents branch, read from that branch (`ref`), because your earlier writes are there and not yet on the default branch.
 
-**Without a repository** (git scope allows none here), the glossary is `glossary.md` in this channel's Workspace folder, and each decision record becomes a Decision in that folder. Read them with `readFile` and `listFiles`.
+**Without a repository** (git scope allows none here, or `playbookRepositories` is not offered), the glossary is `glossary.md` in this channel's Workspace folder, and each decision record becomes a Decision in that folder. Read them with `readFile` and `listFiles`. When `writePlaybookDocument` is not offered, write them with `writeFile`: the glossary at path "channel/glossary.md", and a decision at "channel/decisions/" plus its date and a slug.
 
 Create files lazily: only when you have something to write. When no glossary exists, create one when the first term is resolved. When no `docs/adr/` exists, create it with the first decision record.
 
-## During the session
+## In the thread
 
 ### Challenge against the glossary
 

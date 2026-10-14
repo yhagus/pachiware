@@ -54,6 +54,7 @@ function slashNote(s: SlashStatus | undefined): string | null {
   if (!s || s.status === "registered") return null;
   if (s.status === "name_unusable") return "No slash command: Discord takes only names of 1 to 32 lowercase letters, digits, - or _.";
   if (s.reason === "reference") return "No slash command: a reference that other playbooks load, never started on its own.";
+  if (s.reason === "limit") return "Not registered: over Discord's 100-command limit. Commands go in name order.";
   // Off above this server already has its own note naming the level.
   return s.level === "guild" ? "No slash command here: this server turns it off." : "No slash command here.";
 }

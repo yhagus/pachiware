@@ -37,6 +37,21 @@ discordScenario("a playbook that requires a repository is refused privately wher
   expect(brief.thread).toBeDefined();
 });
 
+discordScenario("a playbook that requires a repository is refused where git scope's pattern matches no repository of the account, and starts when the listing fails", async (s) => {
+  const { addTracker, acmeRepos } = await import(process.cwd() + "/apps/agent/test/support/trackerPlaybook.ts");
+  await addTracker(s);
+  await acmeRepos(s, ["acme/mobile-*"]);
+  const refused = await s.discord.send(`${s.discord.mention} track: plan the CSV export work`);
+  expect(refused.thread).toBeUndefined();
+  expect(s.discord.botMessages.at(-1)!.content).toBe("The tracker playbook needs a repository, and git scope allows none here. An admin can open one in the console under the server's git access.");
+  expect(s.model.calls).toEqual([]);
+
+  s.http.on("GET api.github.com/user/repos", () => new Response("Service Unavailable", { status: 503 }));
+  s.model.script("Tracking.");
+  const started = await s.discord.send(`${s.discord.mention} track: plan the CSV export work`);
+  expect(started.thread).toBeDefined();
+});
+
 discordScenario("with one repository allowed the playbook thread takes it without asking", async (s) => {
   const { addTracker } = await import(process.cwd() + "/apps/agent/test/support/trackerPlaybook.ts");
   await addTracker(s);

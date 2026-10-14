@@ -35,13 +35,13 @@ function writable(path: unknown) {
   return path;
 }
 
-const TOP_FOLDERS = ["tasks", "notes", "decisions", "files", "minutes", "threads"], TOP_FILE = "MEMORY.md";
+const TOP_FOLDERS = ["tasks", "notes", "decisions", "files", "minutes", "threads"], TOP_FILES = ["MEMORY.md", "glossary.md"];
 /** A channel's or DM's top level is fixed so people find things in the console; deeper folders are free. */
 function creatable(ctx: SkillContext, path: unknown) {
   writable(path);
   if (typeof path !== "string") return path;
   const [root, top, ...rest] = path.replace(/\/$/, "").split("/");
-  if ((root === "channel" || root === "dm") && top !== undefined && !(rest.length ? TOP_FOLDERS.includes(top) : top === TOP_FILE)) throw new Error(textIn(ctx.language).folderRefused([...TOP_FOLDERS, TOP_FILE]));
+  if ((root === "channel" || root === "dm") && top !== undefined && !(rest.length ? TOP_FOLDERS.includes(top) : TOP_FILES.includes(top))) throw new Error(textIn(ctx.language).folderRefused([...TOP_FOLDERS, ...TOP_FILES]));
   return path;
 }
 

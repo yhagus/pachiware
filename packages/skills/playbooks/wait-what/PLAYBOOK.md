@@ -6,7 +6,7 @@ default: off
 optional: ["workspace", "git_repositories"]
 license: MIT, adapted from mattpocock/skills; the notice is in LICENSE.md
 ---
-Someone did not understand a message. The message to explain comes first in this turn: the one they picked with "Explain this", the one their mention replies to, or the bot's last message here when they used the command. Any words after it are their question about it. A mention that replies to nothing asks about your last reply in this conversation.
+Someone did not understand a message. The message to explain comes first in this turn: the one they picked with "Explain this", the one their mention replies to, or else the bot's last message here. Any words after it are their question about it.
 
 Re-pitch that message:
 

@@ -7,16 +7,13 @@ import { safeId } from "../workspace/paths.js";
 import { parseFrontmatter, renderFrontmatter } from "../playbooks.js";
 import { acct, repoP, CONFIRM, useRepo, str, num, labelsP, labelsOf, clip } from "./gitShared.js";
 
-/**
- * Batch issue tools: one Git write confirmation for up to 25 issues, pressed only by the asker; a thread grant never
- * covers it. Progress is saved per batch in the channel's Workspace folder, so running the same batch again after a
- * failure (or a restart) does only what is missing.
- */
+/** Up to 25 issue changes behind one Confirm only the asker can press; saved progress lets a rerun of the same batch do only what is missing. */
 export const CREATE_ISSUES = "repoCreateIssues", UPDATE_ISSUES = "repoUpdateIssues";
 export const MAX_BATCH = 25;
 
 interface NewIssue { ref: string; title: string; body?: string; labels: string[]; parent?: string | number; blockedBy: (string | number)[] }
-interface Made { number: number; url: string; id?: number; parented?: true; linked?: true }
+/** `linked` names the blockers whose link was recorded; a refused one stays out so the next run retries it. */
+interface Made { number: number; url: string; id?: number; parented?: true; linked?: string[] }
 
 const isRef = (v: unknown): v is string => typeof v === "string" && !!v.trim();
 /** A ref of this batch, or "#12" (or 12) for an existing issue. */
@@ -113,6 +110,17 @@ function queueBatch(tool: string, a: Record<string, unknown>, ctx: SkillContext,
 }
 const issues = (n: number) => `${n} issue${n === 1 ? "" : "s"}`;
 
+/** Where a confirmed batch runs: its repository, and its progress file. */
+interface BatchRun { conn: GitConn; repo: string; account: string; path: string }
+/** A confirmed batch runs, one run per batch at a time; otherwise it waits for Confirm, summed up by `preview` from the saved progress. */
+async function runOrQueue<T>(tool: string, a: Record<string, unknown>, ctx: SkillContext, key: unknown, run: (b: BatchRun) => Promise<unknown>, preview: (done: Record<string, T>, repo: string) => string) {
+  const { access, repo, conn } = await useRepo(a, ctx);
+  const account = access.account.name, path = progressPath(ctx, tool, [account, repo, key]);
+  if (ctx.confirmed) return exclusive(`${ctx.tenantId}|${path}`, () => run({ conn, repo, account, path }));
+  const { done } = await progressOf<T>(ctx.tenantId, path, {});
+  return queueBatch(tool, a, ctx, preview(done, repo));
+}
+
 export interface CreateBatchResult {
   batch: "create";
   repo: string;
@@ -120,31 +128,29 @@ export interface CreateBatchResult {
   created: { ref: string; title: string; number: number; url: string }[];
   failed?: { ref: string; title: string; error: string };
   notCreated: { ref: string; title: string }[];
-  /** Blocked-by links the platform refused (GitLab's need Premium); the issues exist without them. */
+  /** Blocked-by links the platform refused (GitLab's need Premium); the issues exist without them, and the next run retries them. */
   unlinked?: { ref: string; blockedBy: string }[];
   done: boolean;
 }
 
 async function createIssues(a: Record<string, unknown>, ctx: SkillContext) {
   const items = newIssues(a.issues), order = creationOrder(items);
-  const { access, repo, conn } = await useRepo(a, ctx);
-  const path = progressPath(ctx, CREATE_ISSUES, [access.account.name, repo, items.map((it) => [it.ref, it.title])]);
-  if (ctx.confirmed) return exclusive(`${ctx.tenantId}|${path}`, () => runCreate(ctx, conn, repo, access.account.name, path, order));
-
-  const { done } = await progressOf<Made>(ctx.tenantId, path, {});
-  const left = order.filter((it) => !finished(it, done[it.ref]));
-  if (!left.length) throw new Error(`Every issue of this batch already exists: ${order.map((it) => `${it.ref} #${done[it.ref]!.number}`).join(", ")}. Nothing was changed.`);
-  const fresh = left.filter((it) => !done[it.ref]).length;
-  const lines = left.map((it, i) => {
-    const made = done[it.ref];
-    return `${i + 1}. ${it.ref}: ${clip(it.title, 100)}${it.labels.length ? ` · labels: ${it.labels.join(", ")}` : ""}${it.parent !== undefined ? ` · under ${named(it.parent)}` : ""}${it.blockedBy.length ? ` · blocked by ${it.blockedBy.map(named).join(", ")}` : ""}${made ? ` · exists as #${made.number}` : ""}`;
+  return runOrQueue<Made>(CREATE_ISSUES, a, ctx, items.map((it) => [it.ref, it.title]), (b) => runCreate(ctx, b, order), (done, repo) => {
+    const left = order.filter((it) => !finished(it, done[it.ref]));
+    if (!left.length) throw new Error(`Every issue of this batch already exists: ${order.map((it) => `${it.ref} #${done[it.ref]!.number}`).join(", ")}. Nothing was changed.`);
+    const fresh = left.filter((it) => !done[it.ref]).length;
+    const lines = left.map((it, i) => {
+      const made = done[it.ref];
+      return `${i + 1}. ${it.ref}: ${clip(it.title, 100)}${it.labels.length ? ` · labels: ${it.labels.join(", ")}` : ""}${it.parent !== undefined ? ` · under ${named(it.parent)}` : ""}${it.blockedBy.length ? ` · blocked by ${it.blockedBy.map(named).join(", ")}` : ""}${made ? ` · exists as #${made.number}` : ""}`;
+    });
+    return [fresh ? `Create ${issues(fresh)} in ${repo}:` : `Finish linking issues in ${repo}:`, ...lines].join("\n");
   });
-  return queueBatch(CREATE_ISSUES, a, ctx, [fresh ? `Create ${issues(fresh)} in ${repo}:` : `Finish linking issues in ${repo}:`, ...lines].join("\n"));
 }
 
-const finished = (it: NewIssue, made?: Made) => !!made && (it.parent === undefined || !!made.parented) && (!it.blockedBy.length || !!made.linked);
+const unlinkedOf = (it: NewIssue, made: Made) => it.blockedBy.filter((b) => !made.linked?.includes(named(b)));
+const finished = (it: NewIssue, made?: Made) => !!made && (it.parent === undefined || !!made.parented) && !unlinkedOf(it, made).length;
 
-async function runCreate(ctx: SkillContext, conn: GitConn, repo: string, account: string, path: string, order: NewIssue[]): Promise<CreateBatchResult> {
+async function runCreate(ctx: SkillContext, { conn, repo, account, path }: BatchRun, order: NewIssue[]): Promise<CreateBatchResult> {
   const { done, save } = await progressOf<Made>(ctx.tenantId, path, { tool: CREATE_ISSUES, account, repo });
   const numberOf = (t: string | number) => (typeof t === "number" ? t : done[t]!.number);
   const unlinked: { ref: string; blockedBy: string }[] = [];
@@ -162,14 +168,14 @@ async function runCreate(ctx: SkillContext, conn: GitConn, repo: string, account
         made.parented = true;
         await save();
       }
-      if (it.blockedBy.length && !made.linked) {
-        // A native link is a convenience: where the platform has none, the issue still stands.
-        for (const b of it.blockedBy) {
+      const missing = unlinkedOf(it, made);
+      if (missing.length) {
+        // A native link is a convenience: where the platform refuses it, the issue still stands.
+        for (const b of missing) {
           const blocker = typeof b === "string" ? done[b]! : null;
           await (blocker ? linkBlockedBy(conn, repo, blocker, made.number) : linkIssues(conn, repo, made.number, b as number))
-            .catch(() => unlinked.push({ ref: it.ref, blockedBy: named(b) }));
+            .then(() => { made.linked = [...(made.linked ?? []), named(b)]; }, () => unlinked.push({ ref: it.ref, blockedBy: named(b) }));
         }
-        made.linked = true;
         await save();
       }
     } catch (e: any) {
@@ -225,16 +231,14 @@ export interface UpdateBatchResult {
 
 async function updateIssues(a: Record<string, unknown>, ctx: SkillContext) {
   const updates = issueUpdates(a.updates);
-  const { access, repo, conn } = await useRepo(a, ctx);
-  const path = progressPath(ctx, UPDATE_ISSUES, [access.account.name, repo, updates]);
-  if (ctx.confirmed) return exclusive(`${ctx.tenantId}|${path}`, () => runUpdate(ctx, conn, repo, access.account.name, path, updates));
-  const { done } = await progressOf<true>(ctx.tenantId, path, {});
-  const left = updates.filter((u) => !done[u.number]);
-  if (!left.length) throw new Error(`Every change of this batch was already made (${updates.map((u) => `#${u.number}`).join(", ")}). Nothing was changed.`);
-  return queueBatch(UPDATE_ISSUES, a, ctx, [`Update ${issues(left.length)} in ${repo}:`, ...left.map(changeLine)].join("\n"));
+  return runOrQueue<true>(UPDATE_ISSUES, a, ctx, updates, (b) => runUpdate(ctx, b, updates), (done, repo) => {
+    const left = updates.filter((u) => !done[u.number]);
+    if (!left.length) throw new Error(`Every change of this batch was already made (${updates.map((u) => `#${u.number}`).join(", ")}). Nothing was changed.`);
+    return [`Update ${issues(left.length)} in ${repo}:`, ...left.map(changeLine)].join("\n");
+  });
 }
 
-async function runUpdate(ctx: SkillContext, conn: GitConn, repo: string, account: string, path: string, updates: IssueUpdate[]): Promise<UpdateBatchResult> {
+async function runUpdate(ctx: SkillContext, { conn, repo, account, path }: BatchRun, updates: IssueUpdate[]): Promise<UpdateBatchResult> {
   const { done, save } = await progressOf<true>(ctx.tenantId, path, { tool: UPDATE_ISSUES, account, repo });
   let failed: UpdateBatchResult["failed"];
   for (const u of updates) {
@@ -281,7 +285,7 @@ export function issueBatchReport(tool: string, result: ToolResult): string | und
   const r = data;
   const links = r.created.map((c) => `${c.ref}: <${c.url}>`);
   const unlinked = r.unlinked?.length ? [`Could not record these blocked-by links: ${r.unlinked.map((u) => `${u.ref} by ${u.blockedBy}`).join(", ")}.`] : [];
-  if (!r.failed) return fitted([`Created ${issues(r.created.length)} in ${r.repo}:`], links, unlinked);
+  if (!r.failed) return fitted([`Created ${issues(r.created.length)} in ${r.repo}:`], links, unlinked.length ? [...unlinked, "Run the same batch again to retry them."] : []);
   return fitted([`Stopped at ${r.failed.ref} (${clip(r.failed.title, 80)}): ${r.failed.error}`, ...(links.length ? ["Created:"] : ["Nothing was created."])], links, [
     ...(r.notCreated.length ? [`Not created: ${r.notCreated.map((d) => d.ref).join(", ")}`] : []),
     ...unlinked,

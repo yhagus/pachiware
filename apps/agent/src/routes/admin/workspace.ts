@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { getTenantById } from "@pachiware/db";
-import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, TENANT_PLAYBOOKS_DIR, PLAYBOOK_FILE } from "@pachiware/skills";
+import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, tenantPlaybookAt, TENANT_PLAYBOOKS_DIR } from "@pachiware/skills";
 import { object, string } from "../validation.js";
 import { slashNameUsable } from "../../discord/commands.js";
 
@@ -28,10 +28,9 @@ const changed = (tenantId: string, ...paths: string[]) => {
   if (paths.some((p) => p === "shared" || p === TENANT_PLAYBOOKS_DIR || p.startsWith(`${TENANT_PLAYBOOKS_DIR}/`))) playbooksChanged(tenantId);
 };
 
-/** Runs a route for an existing tenant and turns the store's refusals into 400 and 409 answers. */
 /** A saved or moved playbook a person can start whose name Discord cannot use still works by mention and menu, but gets no slash command: say so. */
 async function slashWarning(tenantId: string, path: string) {
-  const name = new RegExp(`^${TENANT_PLAYBOOKS_DIR}/([^/]+)(/${PLAYBOOK_FILE})?$`).exec(path)?.[1];
+  const name = tenantPlaybookAt(path)?.name;
   const playbook = name && !slashNameUsable(name) ? await loadPlaybook(tenantId, name) : null;
   if (!playbook?.start) return {};
   const ways = [playbook.words.length && `by mention with ${playbook.words.map((w) => `"${w}:"`).join(" or ")}`, playbook.menu && `from the message menu "${playbook.menu}"`].filter(Boolean);
@@ -39,6 +38,7 @@ async function slashWarning(tenantId: string, path: string) {
   return { warning: `${name} gets no slash command: Discord takes only names of 1 to 32 lowercase letters, digits, - or _. ${still}` };
 }
 
+/** Runs a route for an existing tenant and turns the store's refusals into 400 and 409 answers. */
 const route = (job: (c: Context, tenantId: string) => Promise<Response>) => async (c: Context) => {
   const tenantId = c.req.param("id")!;
   if (!await getTenantById(tenantId)) return c.json({ error: "Tenant not found" }, 404);

@@ -101,7 +101,7 @@ export type AvailabilityLevelName = "tenant" | "bot" | "guild" | "channel";
 /** What the levels above leave a target: `off` is the highest level that turns it off, `optIn` the lowest that made it opt-in. Unlisted targets are available from above. */
 export interface InheritedAvailability { kind: AvailabilityKind; name: string; available: boolean; off?: AvailabilityLevelName; optIn?: AvailabilityLevelName; }
 /** Whether a playbook has a slash command in a server, and if not, why. */
-export type SlashStatus = { playbook: string } & ({ status: "registered" } | { status: "not_registered"; reason: "reference" } | { status: "not_registered"; reason: "off"; level: AvailabilityLevelName } | { status: "name_unusable" });
+export type SlashStatus = { playbook: string } & ({ status: "registered" } | { status: "not_registered"; reason: "reference" } | { status: "not_registered"; reason: "limit" } | { status: "not_registered"; reason: "off"; level: AvailabilityLevelName } | { status: "name_unusable" });
 /** `slash` comes with a server's view only: commands are registered per server. */
 export interface LevelAvailability { rules: AvailabilityRule[]; inherited: InheritedAvailability[]; slash?: SlashStatus[]; }
 /** Why a playbook cannot start for the tenant, as the agent resolved it when the list loaded. */

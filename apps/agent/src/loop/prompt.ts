@@ -1,7 +1,7 @@
 import { db, agentsConfig, getGuildConfig, upsertGuildConfig, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type GuildConfigInput } from "@pachiware/db";
 import { eq } from "drizzle-orm";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { skillRegistry, loadMemory, loadTasks, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, now, type OffSummary, type Language } from "@pachiware/skills";
+import { skillRegistry, loadMemory, loadTasks, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
 import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
 import { syncDigestSchedules } from "../digest.js";
 
@@ -44,7 +44,7 @@ export interface PromptContext {
   /** Set when channelId is a thread: the channel whose Workspace folder it uses. */
   skillContext?: { parentChannelId?: string };
   /** The playbook this thread is bound to. Its body joins the cached prefix, which stays stable because the binding lasts for the thread. */
-  playbook?: { name: string; body: string; closes?: string[]; /** Chosen in the playbook thread, once there is one. */ repository?: { repo: string; account: string }; /** The thread's documents branch, once its pull request is open. */ documents?: { repo: string; branch: string; pullRequest: { number: number; url: string } } };
+  playbook?: { name: string; body: string; closes?: string[]; repository?: ThreadRepository; documents?: ThreadDocuments };
   /** What availability rules turn off where the message came from. It changes only when an admin changes a rule, so it may sit in the cached prompt. */
   off?: OffSummary;
   /** The zone of the place the message came from (the guild's, else the tenant's); only the per-turn context reads it. */

@@ -5,6 +5,8 @@ export const MESSAGE_COMMAND = 3; // ApplicationCommandType.Message
 const STRING_OPTION = 3, ATTACHMENT_OPTION = 11; // ApplicationCommandOptionType
 /** Discord's cap on message context-menu commands per scope. */
 export const MENU_LIMIT = 15;
+/** Discord's cap on slash commands per scope. */
+export const SLASH_LIMIT = 100;
 /** Discord's cap on a string option, and so on a slash start's text. */
 export const SLASH_TEXT_MAX = 6000;
 /** What Discord accepts as a slash command name (its rule also allows other lowercase scripts; playbook names use these). */
@@ -25,10 +27,10 @@ const slashCommand = (playbook: Playbook): CommandData => ({
 
 type GuildPlace = { tenantId: string; botId: string; guildId: string };
 
-/** Whether a playbook has a slash command in a guild, and if not, why: it is a reference, Discord cannot use its name, or a level above the channel turns it off. */
+/** Whether a playbook has a slash command in a guild, and if not, why: a reference, an unusable name, off above the channel, or past Discord's limit. */
 export type SlashStatus = { playbook: string } & (
   | { status: "registered" }
-  | { status: "not_registered"; reason: "reference" }
+  | { status: "not_registered"; reason: "reference" | "limit" }
   | { status: "not_registered"; reason: "off"; level: AvailabilityLevel }
   | { status: "name_unusable" }
 );
@@ -36,11 +38,14 @@ export type SlashStatus = { playbook: string } & (
 /** Each playbook's standing in one guild: whether the guild offers it (its menu counts then) and its slash status. */
 async function guildOffer(place: GuildPlace, playbooks: Playbook[]) {
   const offAt = await playbooksOffAbove(place, playbooks);
+  const slashable = playbooks.filter((p) => p.start && slashNameUsable(p.name) && !offAt.has(p.name)).map((p) => p.name).sort();
+  const within = new Set(slashable.slice(0, SLASH_LIMIT));
   return playbooks.map((p) => {
     const off = offAt.get(p.name), playbook = p.name;
     const status: SlashStatus = !p.start ? { playbook, status: "not_registered", reason: "reference" }
       : !slashNameUsable(p.name) ? { playbook, status: "name_unusable" }
       : off ? { playbook, status: "not_registered", reason: "off", level: off }
+      : !within.has(p.name) ? { playbook, status: "not_registered", reason: "limit" }
       : { playbook, status: "registered" };
     return { playbook: p, offered: p.start && !off, status };
   });
@@ -51,10 +56,7 @@ export async function guildSlashStatus(place: GuildPlace, playbooks: Playbook[])
   return (await guildOffer(place, playbooks)).map((o) => o.status);
 }
 
-/**
- * Everything one bot offers in one guild, sent there as a single bulk overwrite: a slash command for each listed playbook a person can start whose name Discord accepts,
- * and a message command for each one that names a menu label. A bulk overwrite replaces every command type in its scope, so both go in one list.
- */
+/** One bot's whole command list for one guild, slash and menu commands together, since a bulk overwrite replaces every type in its scope. */
 export async function guildCommands(place: GuildPlace, playbooks: Playbook[]): Promise<CommandData[]> {
   const offer = await guildOffer(place, playbooks);
   const menus = [...new Set(offer.filter((o) => o.offered).map((o) => o.playbook.menu).filter((m): m is string => !!m))].slice(0, MENU_LIMIT);

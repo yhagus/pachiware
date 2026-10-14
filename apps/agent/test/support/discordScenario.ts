@@ -86,8 +86,10 @@ export interface Scenario {
     readonly commandOverwrites: { guildId: string | null; commands: any[] }[];
     /** The commands the bot last registered in this guild, or null when it sent none there. */
     commandsIn(guildId: string): any[] | null;
-    /** The bot joins another guild, as when someone invites it. */
-    joinGuild(id: string, name?: string): Promise<void>;
+    /** The bot joins another guild, as when someone invites it; `setUp: false` leaves it out of the guilds the bot is set up for. */
+    joinGuild(id: string, name?: string, options?: { setUp?: boolean }): Promise<void>;
+    /** Discord refuses (or, with false, accepts again) the bot's command overwrites in a guild. */
+    refuseCommands(guildId: string, refused?: boolean): void;
     /** A private thread admits only the bot plus `members`. */
     channel(id: string, options?: ChannelOptions): FakeChannel;
     /** Adds messages to a channel's history without the bot seeing them arrive, oldest first. */
@@ -179,6 +181,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const overwritesBy = new Map<string, { guildId: string | null; commands: any[] }[]>([[BOT_USER.id, overwrites]]);
   const overwritesOf = (userId: string) => overwritesBy.get(userId) ?? overwritesBy.set(userId, []).get(userId)!;
   const commandsIn = (guildId: string, userId = BOT_USER.id) => overwritesOf(userId).findLast((o) => o.guildId === guildId)?.commands ?? null;
+  // Every bot user starts with a global menu command an older version registered.
+  const globalOf = (userId: string) => overwritesOf(userId).findLast((o) => o.guildId === null)?.commands ?? [{ name: "Draft issues", type: 3 }];
+  const refusedGuilds = new Set<string>();
 
   const denied = new Map<string, Map<string, string[]>>();
   const granted = new Map<string, string[]>();
@@ -274,7 +279,14 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     user = { id: BOT_USER.id, tag: "Pachiware#0001", username: BOT_USER.name };
     guilds = { cache: new Collection<string, any>([[GUILD.id, GUILD]]), fetch: async () => GUILD };
     channels = { cache: channels as Map<string, any>, fetch: async (id: string) => as(this.botUser, channels.get(id) ?? null) };
-    application = { id: "app-1", commands: { set: async (commands: any[], guildId?: string) => { overwritesOf(this.botUser.id).push({ guildId: guildId ?? null, commands: commands.map(json) }); return new Collection(); } } };
+    application = { id: "app-1", commands: {
+      fetch: async () => new Collection(globalOf(this.botUser.id).map((c: any) => [c.name, c])),
+      set: async (commands: any[], guildId?: string) => {
+        if (guildId && refusedGuilds.has(guildId)) throw new Error("Missing Access");
+        overwritesOf(this.botUser.id).push({ guildId: guildId ?? null, commands: commands.map(json) });
+        return new Collection();
+      },
+    } };
     constructor(public options: unknown) { super(); }
     async login(token: string) {
       this.botUser = botUsers.get(token) ?? BOT_USER;
@@ -293,7 +305,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { runSeed } = await import("../../../../packages/db/src/seed.ts");
   const dbModule = await import("../../../../packages/db/src/index.ts");
   const { db, gitAccounts, tenantSkills, encryptSecret, setBotGitAccounts, replaceGitScopes, and, eq } = dbModule as any;
-  const { createTenant, createBot } = await import("../../../../packages/db/src/tenancy.ts");
+  const { createTenant, createBot, updateBot } = await import("../../../../packages/db/src/tenancy.ts");
   await runMigrations(); await runSeed();
   const { llmRouter } = await import("../../src/llm/router.ts");
   const { retryPolicy } = await import("../../src/llm/retry.ts");
@@ -410,7 +422,14 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       get registeredCommands() { return commandsIn(GUILD.id) ?? []; },
       commandOverwrites: overwrites,
       commandsIn,
-      joinGuild: async (id, name = id) => {
+      refuseCommands: (guildId, refused = true) => { if (refused) refusedGuilds.add(guildId); else refusedGuilds.delete(guildId); },
+      joinGuild: async (id, name = id, { setUp = true } = {}) => {
+        if (setUp) {
+          // Stands in for the admin adding the guild, without the restart that would resend every guild's commands.
+          const runtime = (manager as any).clients.get(bot.id);
+          runtime.guildIds = [...runtime.guildIds, id];
+          await updateBot(bot.id, { guildIds: runtime.guildIds });
+        }
         const guild = { id, name };
         client.guilds.cache.set(id, guild);
         client.emit(Events.GuildCreate, guild);

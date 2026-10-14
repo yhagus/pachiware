@@ -129,7 +129,8 @@ discordScenario("a run: in-place playbook answers where it was started, from a s
   for (const call of s.model.calls) expect(call[0]!.content).toContain("Rewrite the message in plain words.");
   expect(s.model.calls[0]!.map((m) => m.content)).toContain("Alice: the deploy is idempotent");
   expect(s.model.calls[1]!.map((m) => m.content)).toContain("Bob: We shard by tenant hash");
-  expect(s.model.calls[2]!.map((m) => m.content)).toContain("Alice: eventual consistency");
+  // Like the slash command, a mention that replies to nothing is about the bot's last message here.
+  expect(s.model.calls[2]!.map((m) => m.content)).toContain("Pachiware: Plain from menu.\nAlice: eventual consistency");
   expect(s.discord.botMessages.map((m) => [m.channelId, m.content, m.reference?.messageId])).toEqual([
     ["channel-1", "Plain from slash.", undefined],
     ["channel-1", "Plain from menu.", target!.id],

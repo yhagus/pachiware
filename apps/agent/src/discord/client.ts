@@ -25,13 +25,17 @@ type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string;
 /** Who a turn acts for: the message author, or the person who ran a command on someone else's message. */
 type Actor = { id: string; name: string; member: any };
 const actorOf = (m: Message): Actor => ({ id: m.author.id, name: speakerName(m), member: m.member });
+const commandActor = (i: ChatInputCommandInteraction | MessageContextMenuCommandInteraction): Actor => ({ id: i.user.id, name: speakerName({ member: i.member as any, author: i.user }), member: i.member });
+const attachmentsOf = (file: Attachment | null) => new Map(file ? [[file.id, file]] : []);
+/** How a start from somewhere other than its source message goes: `announce` posts the source once the checks pass, and `turnOf` makes the first turn from it. */
+type PlaybookOpening = { fromMinutes?: MinutesBrief; announce?: () => Promise<Message | null>; turnOf?: (source: Message) => Message; threadName?: string };
 /**
  * A slash start's first turn as if the person had posted it at the bot's public line: their name, and their file as the line's attachment,
  * so it is filed or seen like any message attachment. Defined properties shadow the line's own getters.
  */
 const slashTurn = (line: Message, i: ChatInputCommandInteraction, file: Attachment | null): Message => Object.create(line, {
   author: { value: i.user }, member: { value: i.member },
-  attachments: { value: new Map(file ? [[file.id, file]] : []) },
+  attachments: { value: attachmentsOf(file) },
 });
 /**
  * A slash command run in place has no message to answer, so its turn stands in for one from the person in that channel: their file as
@@ -39,7 +43,7 @@ const slashTurn = (line: Message, i: ChatInputCommandInteraction, file: Attachme
  */
 const commandTurn = (i: ChatInputCommandInteraction, channel: SendableChannels, file: Attachment | null): Message => ({
   id: i.id, guildId: i.guildId, guild: i.guild, channelId: i.channelId, channel, author: i.user, member: i.member, content: "",
-  attachments: new Map(file ? [[file.id, file]] : []), reply: (payload: any) => channel.send(payload), react: async () => {},
+  attachments: attachmentsOf(file), reply: (payload: any) => channel.send(payload), react: async () => {},
 }) as unknown as Message;
 // A guild member from the cache has a roles collection; one sent raw with an interaction has an id array.
 const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
@@ -47,18 +51,13 @@ const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
 /** Where something was asked: a message, or the channel a command was run in. */
 type Where = Pick<Message, "guildId" | "channelId" | "channel">;
-/**
- * How an in-place playbook was started. `message` is what it answers: a menu command's target, the mention itself, or for a slash command
- * (which works on the channel or thread it was run in) a stand-in from the person; `text` is the target's content, the mention's text, or the command's option.
- * `about` leads the turn when the person asks about another message: the one a mention replies to, or for a slash command the bot's last
- * message there, which then takes the reply as a menu target would.
- */
+/** How an in-place playbook was started: `message` is the menu target, the mention, or a slash stand-in; `about` is the message a mention replies to. */
 type InPlaceStart = {
   from: "menu" | "mention" | "slash"; message: Message; about?: Message | null; actor: Actor; text: string; language?: Language;
   refuse(text: string): Promise<unknown>; ack?(text: string): Promise<unknown>; fail(text: string): Promise<unknown>;
 };
 /** The bot's newest message among the last 50 of a channel or thread, or null. */
-async function lastOwnMessage(channel: SendableChannels, botUserId: string | undefined): Promise<Message | null> {
+async function lastOwnMessage(channel: Where["channel"], botUserId: string | undefined): Promise<Message | null> {
   if (!botUserId || !("messages" in channel)) return null;
   const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
   return recent?.find((m) => m.author.id === botUserId) ?? null;
@@ -70,12 +69,11 @@ const placeOf = (tenantId: string, botId: string, m: Where) => availabilityPlace
  * needs a repository and git scope allows none. Null when it can start.
  */
 async function playbookRefusal(tenantId: string, botId: string, playbook: Playbook, at: Where, language?: Language) {
-  const playbooks = await listPlaybooks(tenantId);
-  const cause = (await skillRegistry.availableAt(placeOf(tenantId, botId, at), playbooks)).playbookCause(playbook.name);
+  const playbooks = await listPlaybooks(tenantId), place = placeOf(tenantId, botId, at);
+  const cause = (await skillRegistry.availableAt(place, playbooks)).playbookCause(playbook.name);
   const t = textIn(language);
   if (!cause) {
-    const parentChannelId = at.channel.isThread() ? at.channel.parentId ?? undefined : undefined;
-    const noRepository = withLoads(playbook, playbooks).repository === "required" && !await anyRepositoryAllowed({ tenantId, botId, guildId: at.guildId ?? undefined, channelId: at.channelId, parentChannelId });
+    const noRepository = withLoads(playbook, playbooks).repository === "required" && !await anyRepositoryAllowed(place);
     return noRepository ? t.repositoryNone(playbook.name) : null;
   }
   switch (cause.off) {
@@ -187,19 +185,24 @@ export class DiscordBotManager {
       if (runtime) this.track(this.serialize(`commands:${id}`, () => this.registerCommands(id, runtime)));
     }, this.commandsMs));
   }
-  /** One bulk overwrite per guild the bot is in, sent only when that guild's list changed; the global list, left by older versions, is emptied once. */
+  /** One bulk overwrite per guild, sent only when its list changed; a guild the bot is not set up for gets an empty list, and older versions' global list is emptied. */
   private async registerCommands(botId: string, runtime: BotRuntime) {
     const application = runtime.client.application;
     if (!application || this.clients.get(botId) !== runtime) return;
-    if (!runtime.globalCleared) await application.commands.set([]).then(() => { runtime.globalCleared = true; }, () => {});
+    if (!runtime.globalCleared) {
+      await application.commands.fetch().then(async (global) => { if (global.size) await application.commands.set([]); runtime.globalCleared = true; }).catch(() => {});
+    }
     const playbooks = await listPlaybooks(runtime.tenantId);
+    const refused: string[] = [];
     for (const guildId of runtime.client.guilds.cache.keys()) {
-      const commands = await guildCommands({ tenantId: runtime.tenantId, botId, guildId }, playbooks);
+      const setUp = !runtime.guildIds.length || runtime.guildIds.includes(guildId);
+      const commands = setUp ? await guildCommands({ tenantId: runtime.tenantId, botId, guildId }, playbooks) : [];
       const sent = JSON.stringify(commands);
       if (runtime.sentCommands.get(guildId) === sent) continue;
       // One guild refusing (no applications.commands scope there) must not keep the others from their commands.
-      try { await application.commands.set(commands, guildId); runtime.sentCommands.set(guildId, sent); } catch {}
+      try { await application.commands.set(commands, guildId); runtime.sentCommands.set(guildId, sent); } catch { refused.push(guildId); }
     }
+    if (refused.length) await updateBot(botId, { lastError: `Discord refused the slash commands in server ${refused.join(", ")}; they are sent again on the next change.` }).catch(() => {});
   }
   static async testToken(token: string) {
     if (!token) return { success: false, error: "Bot token is empty." };
@@ -313,7 +316,7 @@ export class DiscordBotManager {
     if (!playbook) return false;
     const say = replyQuietly(msg);
     if (playbook.run === "in-place") {
-      const about = msg.reference ? await msg.fetchReference().catch(() => null) : null;
+      const about = msg.reference ? await msg.fetchReference().catch(() => null) : undefined;
       await this.runInPlace(runtime, botId, playbook, { from: "mention", message: msg, about, actor: actorOf(msg), text: m[2]?.trim() ?? "", language: replyLanguage(text), refuse: say, fail: say });
       return true;
     }
@@ -348,7 +351,7 @@ export class DiscordBotManager {
     if (!i.guildId || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say(t.wrongServer);
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.menu === i.commandName);
     if (!playbook) return say(t.commandGone);
-    const actor = { id: i.user.id, name: speakerName({ member: i.member as any, author: i.user }), member: i.member };
+    const actor = commandActor(i);
     if (playbook.run === "in-place") {
       return this.runInPlace(runtime, botId, playbook, {
         from: "menu", message: target, actor, text: target.content.trim(), language, refuse: say, ack: say,
@@ -377,11 +380,10 @@ export class DiscordBotManager {
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.name === i.commandName && p.start);
     if (!playbook) return say(t.commandGone);
     const channel = i.channel;
-    const actor = { id: i.user.id, name: speakerName({ member: i.member as any, author: i.user }), member: i.member };
+    const actor = commandActor(i);
     if (playbook.run === "in-place") {
       return this.runInPlace(runtime, botId, playbook, {
         from: "slash", message: commandTurn(i, channel, file), actor, text, language, refuse: say, ack: say,
-        about: playbook.name === MINUTES_PLAYBOOK ? null : await lastOwnMessage(channel, runtime.client.user?.id),
         fail: (content) => i.followUp({ content, ephemeral: true }).catch(() => {}),
       });
     }
@@ -394,38 +396,35 @@ export class DiscordBotManager {
     await say(t.following(playbook.name, opened.thread.id));
     await opened.start();
   }
-  /**
-   * Checks the playbook's skills, opens or reuses the source message's thread, and binds it; `start` runs the first turn there. A brief from minutes arrives with its points set.
-   * `at` is where the playbook was asked for. With `announce`, the message posted there once the checks pass is the source, and `turnOf` makes the first turn's message from it.
-   */
-  private async openPlaybook(runtime: BotRuntime, botId: string, playbook: Playbook, at: Where, brief: string, actor: Actor, o: { fromMinutes?: MinutesBrief; announce?: () => Promise<Message | null>; turnOf?: (source: Message) => Message; threadName?: string } = {}): Promise<{ error: string } | { thread: ThreadChannel; start: () => Promise<void> }> {
-    const { fromMinutes } = o;
+  /** Checks the playbook can start at `at`, opens or reuses the source message's thread, and binds it; `start` runs the first turn there. */
+  private async openPlaybook(runtime: BotRuntime, botId: string, playbook: Playbook, at: Where, brief: string, actor: Actor, opening: PlaybookOpening = {}): Promise<{ error: string } | { thread: ThreadChannel; start: () => Promise<void> }> {
+    const { fromMinutes, announce } = opening;
     const language = replyLanguage(brief), t = textIn(language);
     const refusal = await playbookRefusal(runtime.tenantId, botId, playbook, at, language);
     if (refusal) return { error: refusal };
     // Asked inside a thread, the thread is known before anything is posted, so its binding refuses the start first.
-    if (o.announce && at.channel.isThread() && at.channel.parentId && at.guildId) {
+    if (announce && at.channel.isThread() && at.channel.parentId && at.guildId) {
       const bound = await readBinding(runtime.tenantId, { guildId: at.guildId, channelId: at.channel.parentId, threadId: at.channelId }).catch(() => null);
       if (bound?.binding.status === "active") return { error: t.alreadyBound(bound.binding.playbook) };
     }
-    const source = o.announce ? await o.announce() : at as Message;
+    const source = announce ? await announce() : at as Message;
     if (!source) return { error: t.noThread };
     // What can only fail after the public line is posted takes the line back, so a start that did not happen leaves nothing behind.
-    const refuse = async (error: string) => { if (o.announce) await source.delete().catch(() => {}); return { error }; };
+    const refuse = async (error: string) => { if (announce) await source.delete().catch(() => {}); return { error }; };
     const thread = source.channel.isThread() ? source.channel as ThreadChannel
-      : source.thread ?? await source.startThread({ name: threadName(fromMinutes?.title ?? (brief || o.threadName || "")), autoArchiveDuration: 1440 }).catch(() => null);
+      : source.thread ?? await source.startThread({ name: threadName(fromMinutes?.title ?? (brief || opening.threadName || "")), autoArchiveDuration: 1440 }).catch(() => null);
     if (!thread?.parentId || !source.guildId) return refuse(t.noThread);
     const place = { guildId: source.guildId, channelId: thread.parentId, threadId: thread.id };
     const previous = await readBinding(runtime.tenantId, place).catch(() => null);
     if (previous?.binding.status === "active") return refuse(t.alreadyBound(previous.binding.playbook));
     const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, authorName: actor.name, botId, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: today().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
     if (!saved) return refuse(t.notSaved);
-    const turn = o.turnOf?.(source) ?? source;
+    const turn = opening.turnOf?.(source) ?? source;
     return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, turn, [{ msg: turn, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
   }
   /**
-   * A `run: in-place` playbook answers where it was started: no thread is opened or bound. Minutes have their own writer; any other
-   * in-place playbook gets one agent turn there. `refuse` and `ack` speak to the person (privately for a command), `fail` after the ack.
+   * A `run: in-place` playbook answers where it was started, with no thread. Minutes have their own writer; any other gets one agent turn
+   * about the picked message, the one a mention replies to, or else the bot's last message there.
    */
   private async runInPlace(runtime: BotRuntime, botId: string, playbook: Playbook, o: InPlaceStart) {
     const { message: at, language } = o, t = textIn(language);
@@ -446,7 +445,8 @@ export class DiscordBotManager {
     const refusal = at.guildId && await playbookRefusal(runtime.tenantId, botId, playbook, at, language);
     if (refusal) { await o.refuse(refusal); return; }
     await o.ack?.(t.answeringHere(playbook.name));
-    const { about } = o, asked = !about || o.text || at.attachments.size ? [{ msg: at, text: o.text }] : [];
+    const about = o.from === "menu" ? null : o.about ?? await lastOwnMessage(at.channel, runtime.client.user?.id);
+    const asked = !about || o.text || at.attachments.size ? [{ msg: at, text: o.text }] : [];
     const items = [...(about ? [{ msg: about, text: about.content.trim() }] : []), ...asked];
     const answered = o.from === "slash" ? about ?? at : at;
     await this.serialize(`conv:${botId}:${at.channelId}`, () => this.reply(runtime, botId, answered, items, at.channelId, null, { actor: o.actor, playbook }));

@@ -1,8 +1,7 @@
 import { Hono } from "hono";
 import { db, skills, tenantSkills, seedTenant, getTenantById, eq } from "@pachiware/db";
-import { and } from "drizzle-orm";
-import { skillRegistry, listPlaybooks, playbookChain, availabilityChanged } from "@pachiware/skills";
-import { CacheService, tenantKey } from "../../cache/redis.js";
+import { skillRegistry, listPlaybooks, playbookChain } from "@pachiware/skills";
+import { switchTenantSkill } from "../skillSwitch.js";
 import { availabilityRoutes } from "../availability.js";
 
 export const skillAdminRoutes = new Hono();
@@ -35,11 +34,8 @@ skillAdminRoutes.patch("/tenants/:id/skills/:skillId", async (c) => {
   const body = await c.req.json().catch(() => null);
   if (typeof body?.isEnabled !== "boolean") return c.json({ error: "isEnabled must be a boolean" }, 400);
   const tenantId = c.req.param("id");
-  const [state] = await db.update(tenantSkills).set({ isEnabled: body.isEnabled, updatedAt: new Date() })
-    .where(and(eq(tenantSkills.tenantId, tenantId), eq(tenantSkills.skillId, c.req.param("skillId")))).returning();
+  const state = await switchTenantSkill(tenantId, c.req.param("skillId"), body.isEnabled);
   if (!state) return c.json({ error: "Skill not found" }, 404);
-  await CacheService.del(tenantKey(tenantId, "skills:active"));
-  availabilityChanged(tenantId);
   return c.json({ success: true, isEnabled: state.isEnabled });
 });
 // Tenant-level rules for tools, effects and playbooks; a whole skill is switched with the PATCH above.

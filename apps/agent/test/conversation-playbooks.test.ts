@@ -72,6 +72,19 @@ discordScenario("/wait-what explains the bot's last message here, a mention expl
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/threads").catch(() => [])).toEqual([]);
 });
 
+discordScenario("a wait-what mention that replies to nothing explains the bot's last message in the channel, as /wait-what does", async (s) => {
+  await s.availability({ level: "tenant" }, { kind: "playbook", name: "wait-what", value: "on" });
+  const bot = { id: s.discord.botUserId, name: "Pachiware", bot: true };
+  s.discord.history([{ content: "Tenants share one database", author: bot }, { content: "We shard by tenant hash.", author: bot }, { content: "ok thanks", author: s.discord.bob }]);
+  s.model.script("Plainer: each tenant's data lives on one server.");
+
+  const ask = await s.discord.send(`${s.discord.mention} wait-what: what is a hash here?`);
+
+  expect(s.model.calls[0]![0]!.content).toContain("### Playbook: wait-what");
+  expect(s.model.calls[0]!.at(-2)!.content).toBe("Pachiware: We shard by tenant hash.\nAlice: what is a hash here?");
+  expect(s.discord.botMessages.at(-1)).toMatchObject({ channelId: "channel-1", content: "Plainer: each tenant's data lives on one server.", reference: { messageId: ask.id } });
+});
+
 discordScenario("/wait-what inside a thread explains the bot's last message in that thread", async (s) => {
   await s.availability({ level: "tenant" }, { kind: "playbook", name: "wait-what", value: "on" });
   const thread = s.discord.channel("thread-1", { thread: true, parentId: "channel-1" });
