@@ -21,15 +21,6 @@ export const READ_BUDGET = { point: 6, brief: 30 } as const;
 export const MAX_BRIEF_REPOS = 3;
 
 export const ISSUE_DRAFT_PLAYBOOK = "issue-draft";
-/** Repository reads briefRead stands in for; closed in the playbook's threads so no read escapes the budget. */
-const BUDGETED_READS = ["repoReadFile", "repoSearchCode", "repoIssues", "repoIssue", "repoComments", "repoLabels", "repoCommit", "repoCommits", "repoCompare", "repoMergeRequests", "repoMergeRequest", "repoMergeRequestDiff"];
-/** Issue writes createBriefIssues stands in for, so an issue is only created under the author's own confirmation. */
-const BRIEF_WRITES = ["repoCreateIssue", "repoSetLabels"];
-const READ_REFUSAL = `This thread follows the ${ISSUE_DRAFT_PLAYBOOK} playbook: read repositories with briefRead, which keeps to the brief's reading budget.`;
-const WRITE_REFUSAL = `This thread follows the ${ISSUE_DRAFT_PLAYBOOK} playbook: issues are created from the drafts with createBriefIssues, under the author's own confirmation.`;
-/** Tools a playbook closes in its threads, each with the error a call to it gets. */
-export const closedTools = (playbook?: string): Map<string, string> => new Map(playbook === ISSUE_DRAFT_PLAYBOOK
-  ? [...BUDGETED_READS.map((t) => [t, READ_REFUSAL] as const), ...BRIEF_WRITES.map((t) => [t, WRITE_REFUSAL] as const)] : []);
 
 export const groundingOf =(b: PlaybookBinding): BriefGrounding => {
   const g = (b.grounding ?? {}) as any;
