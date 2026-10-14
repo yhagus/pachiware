@@ -3,8 +3,8 @@ import type { SkillContext, ToolDefinition } from "../types.js";
 import { rewriteBinding, parseFrontmatter, type BindingPlace } from "../playbooks.js";
 import { authorsBrief, briefState, BRIEF_CAPS } from "../brief.js";
 import { workspaceStore } from "../workspace/store.js";
-import { loadGitAccess, connectionOf, repoAllowed } from "../gitScope.js";
-import { defaultBranch, getCommit, readFile, listLabels, listRepos, searchIssues, searchCode, getIssue, blobUrl } from "../git.js";
+import { allowedRepositories } from "./playbookRepository.js";
+import { defaultBranch, getCommit, readFile, listLabels, searchIssues, searchCode, getIssue, blobUrl } from "../git.js";
 import { groundingOf, readsLeft, briefReadsLeft, missingStep, READ_BUDGET, MAX_BRIEF_REPOS, type BriefGrounding, type GroundingRead, type ReadStep } from "../grounding.js";
 import { acct, useRepo, str, num } from "./gitShared.js";
 
@@ -33,15 +33,9 @@ const mentions = (text: string, repo: string) => {
 
 export async function briefRepositories(_a: Record<string, unknown>, ctx: SkillContext) {
   const { place, found } = await authorsThread(ctx);
-  const open = new Map<string, string>();
-  for (const access of await loadGitAccess(ctx)) {
-    // Patterns without a wildcard name the repositories outright; otherwise the account's list is filtered by them.
-    const literal = access.sets[0]!.every((p) => !p.includes("*"));
-    const repos = literal ? access.sets[0]! : (await listRepos(await connectionOf(access))).map((r) => r.repo);
-    for (const repo of repos) if (repoAllowed(access, repo) && !open.has(repo)) open.set(repo, access.account.name);
-  }
+  const open = await allowedRepositories(ctx);
   const earlier = await earlierBriefRepos(ctx.tenantId, place);
-  const ranked = [...open].map(([repo, account]) => ({ repo, account, earlierBriefs: earlier.get(repo) ?? 0, mentioned: mentions(found.body, repo) }))
+  const ranked = open.map(({ repo, account }) => ({ repo, account, earlierBriefs: earlier.get(repo) ?? 0, mentioned: mentions(found.body, repo) }))
     .sort((a, b) => Number(b.mentioned) - Number(a.mentioned) || b.earlierBriefs - a.earlierBriefs || a.repo.localeCompare(b.repo));
   const single = ranked.length === 1 ? ranked[0]!.repo : undefined;
   await saveGrounding(ctx.tenantId, place, (g) => ({ ...g, candidates: ranked.map(({ repo, account }) => ({ repo, account })), ...(single ? { single } : {}) }));
