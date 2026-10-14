@@ -6,19 +6,19 @@ import { postBriefRound, postBriefRoundTool } from "../brief.js";
 import { recordBriefAnswers, recordBriefAnswersTool, writeIssueDraft, writeIssueDraftTool } from "../issueDrafts.js";
 import { describeBriefImages, describeBriefImagesTool } from "../briefImages.js";
 import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
-import { forget, memoryScope, remember } from "../workspace/memory.js";
+import { forget, memoryLevel, remember } from "../workspace/memory.js";
 import { fileDocument, filesRoot, isDocument } from "../workspace/files.js";
 import { textIn } from "../language.js";
 import { hasPermission } from "../permissions.js";
 
 const pathArg = { type: "string", description: 'Path starting with a folder name, e.g. "channel/notes/ideas.md"' };
-const scopeArg = { type: "string", enum: ["channel", "guild"], description: 'Whose Memory: "channel" for this channel, "guild" for the whole server (needs Manage Server). In a DM both mean the person\'s own Memory.' };
+const levelArg = { type: "string", enum: ["channel", "guild"], description: 'Whose Memory: "channel" for this channel, "guild" for the whole server (needs Manage Server). In a DM both mean the person\'s own Memory.' };
 
 /** Guild Memory is read in every channel, so only someone who can manage the server may change it; the check is in the skill, not the prompt. */
-function memoryScopeFor(ctx: SkillContext, requested: unknown) {
-  const scope = memoryScope(ctx, requested);
-  if (scope === "guild" && !hasPermission(ctx, "ManageGuild")) throw new Error("Guild Memory can only be changed by someone with Manage Server.");
-  return scope;
+function memoryLevelFor(ctx: SkillContext, requested: unknown) {
+  const level = memoryLevel(ctx, requested);
+  if (level === "guild" && !hasPermission(ctx, "ManageGuild")) throw new Error("Guild Memory can only be changed by someone with Manage Server.");
+  return level;
 }
 
 /** A hidden \`.name\` file beside the id folder lets a person tell folders apart; it is best effort and never shown to the agent. */
@@ -60,8 +60,8 @@ export const workspaceSkill: SkillModule = {
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "searchFiles", description: "Finds files by name or text, case-insensitive, under a folder.", parameters: { type: "object", properties: { query: { type: "string", description: "Text to find" }, path: pathArg }, required: ["query", "path"] } },
     { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
-    { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name; say nothing about it unless asked. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { scope: scopeArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["scope", "text"] } },
-    { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { scope: scopeArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["scope", "match"] } },
+    { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name; say nothing about it unless asked. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { level: levelArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["level", "text"] } },
+    { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { level: levelArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["level", "match"] } },
     { name: "saveAttachment", description: "Files one attachment of a message in this channel under files/, when a person asks to keep a file that was not sent to the bot. Same rules as files sent to the bot: PDF, DOCX, XLSX, CSV, MD or TXT, 10 MB at most, a taken name gets -2.", parameters: { type: "object", properties: { messageId: { type: "string", description: 'The message id from the file placeholder, e.g. "[file: report.pdf (message 123)]"' }, name: { type: "string", description: "Attachment name, when the message holds more than one file" } }, required: ["messageId"] } },
     postBriefRoundTool,
     recordBriefAnswersTool,
@@ -103,16 +103,16 @@ export const workspaceSkill: SkillModule = {
     remember: async (args, ctx) => {
       const text = typeof args.text === "string" ? args.text.replace(/\s+/g, " ").trim() : "";
       if (!text) throw new Error("text is required");
-      const scope = memoryScopeFor(ctx, args.scope);
-      const line = await remember(ctx, scope, text, ctx.userName || ctx.userId || "unknown");
-      await labelFolder(ctx, scope);
-      return { scope, line };
+      const level = memoryLevelFor(ctx, args.level);
+      const line = await remember(ctx, level, text, ctx.userName || ctx.userId || "unknown");
+      await labelFolder(ctx, level);
+      return { level, line };
     },
     forget: async (args, ctx) => {
       const match = typeof args.match === "string" ? args.match.trim() : "";
       if (!match) throw new Error("match is required");
-      const scope = memoryScopeFor(ctx, args.scope);
-      return { scope, removed: await forget(ctx, scope, match) };
+      const level = memoryLevelFor(ctx, args.level);
+      return { level, removed: await forget(ctx, level, match) };
     },
     saveAttachment: async (args, ctx) => {
       const t = textIn(ctx.language);

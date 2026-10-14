@@ -32,10 +32,10 @@ function taskFailures(expected: ExpectedTask[], tasks: AssistantState["tasks"]):
   return out;
 }
 
-function memoryFailures(scope: string, facts: MemoryFacts, lines: string[]): string[] {
+function memoryFailures(level: string, facts: MemoryFacts, lines: string[]): string[] {
   const out: string[] = [];
-  for (const text of facts.has ?? []) if (!lines.some((l) => has(l, text))) out.push(`${scope} Memory has no line containing "${text}".`);
-  for (const text of facts.lacks ?? []) if (lines.some((l) => has(l, text))) out.push(`${scope} Memory has a line containing "${text}".`);
+  for (const text of facts.has ?? []) if (!lines.some((l) => has(l, text))) out.push(`${level} Memory has no line containing "${text}".`);
+  for (const text of facts.lacks ?? []) if (lines.some((l) => has(l, text))) out.push(`${level} Memory has a line containing "${text}".`);
   return out;
 }
 
@@ -71,7 +71,7 @@ export function checkTurn(turn: AssistantTurn, facts: TurnFacts, before: Assista
   if (turn.pings.length) fail("pings", [`The reply pinged ${turn.pings.join(", ")}; only a Reminder post pings.`]);
   if (facts.ambiguous && before && !same(turn.state, before)) fail("acted", ["The request was ambiguous, but the Workspace changed."]);
   if (facts.tasks) fail("tasks", taskFailures(facts.tasks, turn.state.tasks));
-  for (const scope of ["channel", "guild"] as const) if (facts.memory?.[scope]) fail("memory", memoryFailures(scope, facts.memory[scope]!, turn.state.memory[scope]));
+  for (const level of ["channel", "guild"] as const) if (facts.memory?.[level]) fail("memory", memoryFailures(level, facts.memory[level]!, turn.state.memory[level]));
   if (facts.files && !same([...turn.state.files].sort(), [...facts.files].sort())) fail("files", [`files/ holds ${turn.state.files.join(", ") || "nothing"}, expected ${facts.files.join(", ") || "nothing"}.`]);
   if (facts.reminders) fail("reminders", reminderFailures(facts.reminders, turn.state.reminders));
   fail("format", replyFailures(facts, turn.replies));

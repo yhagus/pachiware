@@ -69,9 +69,9 @@ discordScenario("dry run: status-by-title changes two seeded tasks without Confi
 
 discordScenario("dry run: remember-forget keeps a channel line, a server line with Manage Server, and forgets the first", async (s) => {
   s.model.script(
-    { tool: "remember", args: { scope: "channel", text: "Bob prefers to be pinged in the morning" } }, "Kept.",
-    { tool: "remember", args: { scope: "guild", text: "Releases go out on Thursdays" } }, "Kept for the whole server.",
-    { tool: "forget", args: { scope: "channel", match: "Bob" } }, (turn) => `Removed ${turn.toolResults[0].removed} line about Bob.`,
+    { tool: "remember", args: { level: "channel", text: "Bob prefers to be pinged in the morning" } }, "Kept.",
+    { tool: "remember", args: { level: "guild", text: "Releases go out on Thursdays" } }, "Kept for the whole server.",
+    { tool: "forget", args: { level: "channel", match: "Bob" } }, (turn) => `Removed ${turn.toolResults[0].removed} line about Bob.`,
   );
   const output = await dryRun(s, "remember-forget");
   expect(output.turns[2].state.memory).toEqual({ channel: [], guild: ["- 2026-10-14 (Alice): Releases go out on Thursdays"] });
