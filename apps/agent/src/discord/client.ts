@@ -372,16 +372,23 @@ export class DiscordBotManager {
     const language = replyLanguage(brief), t = textIn(language);
     const refusal = await playbookRefusal(runtime.tenantId, botId, playbook, at, language);
     if (refusal) return { error: refusal };
+    // Asked inside a thread, the thread is known before anything is posted, so its binding refuses the start first.
+    if (o.announce && at.channel.isThread() && at.channel.parentId && at.guildId) {
+      const bound = await readBinding(runtime.tenantId, { guildId: at.guildId, channelId: at.channel.parentId, threadId: at.channelId }).catch(() => null);
+      if (bound?.binding.status === "active") return { error: t.alreadyBound(bound.binding.playbook) };
+    }
     const source = o.announce ? await o.announce() : at as Message;
     if (!source) return { error: t.noThread };
+    // What can only fail after the public line is posted takes the line back, so a start that did not happen leaves nothing behind.
+    const refuse = async (error: string) => { if (o.announce) await source.delete().catch(() => {}); return { error }; };
     const thread = source.channel.isThread() ? source.channel as ThreadChannel
       : source.thread ?? await source.startThread({ name: threadName(fromMinutes?.title ?? (brief || o.threadName || "")), autoArchiveDuration: 1440 }).catch(() => null);
-    if (!thread?.parentId || !source.guildId) return { error: t.noThread };
+    if (!thread?.parentId || !source.guildId) return refuse(t.noThread);
     const place = { guildId: source.guildId, channelId: thread.parentId, threadId: thread.id };
     const previous = await readBinding(runtime.tenantId, place).catch(() => null);
-    if (previous?.binding.status === "active") return { error: t.alreadyBound(previous.binding.playbook) };
+    if (previous?.binding.status === "active") return refuse(t.alreadyBound(previous.binding.playbook));
     const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, authorName: actor.name, botId, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: today().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
-    if (!saved) return { error: t.notSaved };
+    if (!saved) return refuse(t.notSaved);
     const turn = o.turnOf?.(source) ?? source;
     return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, turn, [{ msg: turn, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
   }

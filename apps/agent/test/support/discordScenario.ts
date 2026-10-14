@@ -222,6 +222,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       get url() { return `https://discord.com/channels/${channel.guildId ?? "@me"}/${channel.id}/${message.id}`; },
       react: async (emoji: string) => { message.reactions.push(emoji); },
       pin: async () => { message.pinned = true; },
+      delete: async () => { for (const list of [channel.messages, postedBy.get(author.id)]) { const at = list?.indexOf(message) ?? -1; if (at >= 0) list!.splice(at, 1); } return message; },
       reply: async (p: string | Payload) => post(channel, BOT_USER, p, { reference: message.id }),
       edit: async (p: string | Payload) => { const next = normalize(p); message.edits.push(next); Object.assign(message, typeof p === "string" ? { content: p } : Object.fromEntries(Object.entries(next).filter(([k]) => k in (p as object)))); return message; },
       fetchReference: async () => { const ref = message.reference && channel.messages.find((m: FakeMessage) => m.id === message.reference.messageId); if (!ref) throw new Error("Unknown Message"); return ref; },

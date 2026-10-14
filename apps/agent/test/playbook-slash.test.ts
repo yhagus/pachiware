@@ -70,6 +70,22 @@ discordScenario("a slash start refused by a channel rule or an off required skil
   expect(s.model.calls).toEqual([]);
 });
 
+discordScenario("a slash start inside a thread that already follows a playbook is refused privately and posts nothing", async (s) => {
+  s.model.script("Drafting from your point.");
+  await s.discord.slash("issue-draft", { text: "login loops on Safari" });
+  const thread = s.discord.botMessages[0]!.thread!;
+  const posted = s.discord.botMessages.length;
+
+  const run = await s.discord.slash("issue-draft", { text: "export CSV is slow", channel: thread });
+
+  expect(run.responses).toEqual([
+    { kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) },
+    { kind: "editReply", payload: expect.objectContaining({ content: "This thread already follows the issue-draft playbook." }) },
+  ]);
+  expect(s.discord.botMessages).toHaveLength(posted);
+  expect(s.model.calls).toHaveLength(1);
+});
+
 discordScenario("a file attached to a slash start reaches the playbook's first turn as a message attachment would", async (s) => {
   const report = attachment(s, "report.pdf", pdf(["Login loops on Safari 17"]), { contentType: "application/pdf" });
   s.model.script("Drafting from the report.");
