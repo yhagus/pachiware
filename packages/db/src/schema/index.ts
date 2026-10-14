@@ -70,7 +70,7 @@ export type NewBot = typeof pgSchema.bots.$inferInsert;
 
 export let guildConfigs = active.guildConfigs;
 export type GuildConfig = typeof pgSchema.guildConfigs.$inferSelect;
-export type DigestChannel = pgSchema.DigestChannel;
+export type { DigestChannel } from "./types.js";
 
 export let botGitAccounts = active.botGitAccounts;
 export type BotGitAccount = typeof pgSchema.botGitAccounts.$inferSelect;
