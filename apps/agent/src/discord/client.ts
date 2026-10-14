@@ -47,18 +47,13 @@ const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
 /** Where something was asked: a message, or the channel a command was run in. */
 type Where = Pick<Message, "guildId" | "channelId" | "channel">;
-/**
- * How an in-place playbook was started. `message` is what it answers: a menu command's target, the mention itself, or for a slash command
- * (which works on the channel or thread it was run in) a stand-in from the person; `text` is the target's content, the mention's text, or the command's option.
- * `about` leads the turn when the person asks about another message: the one a mention replies to, or for a slash command the bot's last
- * message there, which then takes the reply as a menu target would.
- */
+/** How an in-place playbook was started: `message` is the menu target, the mention, or a slash stand-in; `about` is the message a mention replies to. */
 type InPlaceStart = {
   from: "menu" | "mention" | "slash"; message: Message; about?: Message | null; actor: Actor; text: string; language?: Language;
   refuse(text: string): Promise<unknown>; ack?(text: string): Promise<unknown>; fail(text: string): Promise<unknown>;
 };
 /** The bot's newest message among the last 50 of a channel or thread, or null. */
-async function lastOwnMessage(channel: SendableChannels, botUserId: string | undefined): Promise<Message | null> {
+async function lastOwnMessage(channel: Where["channel"], botUserId: string | undefined): Promise<Message | null> {
   if (!botUserId || !("messages" in channel)) return null;
   const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
   return recent?.find((m) => m.author.id === botUserId) ?? null;
@@ -313,7 +308,7 @@ export class DiscordBotManager {
     if (!playbook) return false;
     const say = replyQuietly(msg);
     if (playbook.run === "in-place") {
-      const about = msg.reference ? await msg.fetchReference().catch(() => null) : null;
+      const about = msg.reference ? await msg.fetchReference().catch(() => null) : undefined;
       await this.runInPlace(runtime, botId, playbook, { from: "mention", message: msg, about, actor: actorOf(msg), text: m[2]?.trim() ?? "", language: replyLanguage(text), refuse: say, fail: say });
       return true;
     }
@@ -381,7 +376,6 @@ export class DiscordBotManager {
     if (playbook.run === "in-place") {
       return this.runInPlace(runtime, botId, playbook, {
         from: "slash", message: commandTurn(i, channel, file), actor, text, language, refuse: say, ack: say,
-        about: playbook.name === MINUTES_PLAYBOOK ? null : await lastOwnMessage(channel, runtime.client.user?.id),
         fail: (content) => i.followUp({ content, ephemeral: true }).catch(() => {}),
       });
     }
@@ -424,8 +418,8 @@ export class DiscordBotManager {
     return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, turn, [{ msg: turn, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
   }
   /**
-   * A `run: in-place` playbook answers where it was started: no thread is opened or bound. Minutes have their own writer; any other
-   * in-place playbook gets one agent turn there. `refuse` and `ack` speak to the person (privately for a command), `fail` after the ack.
+   * A `run: in-place` playbook answers where it was started, with no thread. Minutes have their own writer; any other gets one agent turn
+   * about the picked message, the one a mention replies to, or else the bot's last message there.
    */
   private async runInPlace(runtime: BotRuntime, botId: string, playbook: Playbook, o: InPlaceStart) {
     const { message: at, language } = o, t = textIn(language);
@@ -446,7 +440,8 @@ export class DiscordBotManager {
     const refusal = at.guildId && await playbookRefusal(runtime.tenantId, botId, playbook, at, language);
     if (refusal) { await o.refuse(refusal); return; }
     await o.ack?.(t.answeringHere(playbook.name));
-    const { about } = o, asked = !about || o.text || at.attachments.size ? [{ msg: at, text: o.text }] : [];
+    const about = o.from === "menu" ? null : o.about ?? await lastOwnMessage(at.channel, runtime.client.user?.id);
+    const asked = !about || o.text || at.attachments.size ? [{ msg: at, text: o.text }] : [];
     const items = [...(about ? [{ msg: about, text: about.content.trim() }] : []), ...asked];
     const answered = o.from === "slash" ? about ?? at : at;
     await this.serialize(`conv:${botId}:${at.channelId}`, () => this.reply(runtime, botId, answered, items, at.channelId, null, { actor: o.actor, playbook }));
