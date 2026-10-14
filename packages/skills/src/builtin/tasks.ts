@@ -52,30 +52,31 @@ export const taskManagementSkill: SkillModule = {
         properties: {
           status: {
             type: "string",
-            enum: ["pending", "in_progress", "completed", "all"],
-            description: "Filter by status (default is all active)",
+            enum: ["pending", "in_progress", "completed", "cancelled", "all"],
+            description: "Filter by status (default: every status except cancelled; all includes cancelled tasks)",
           },
           assignedTo: { type: "string", description: "Filter by assignee: a name in any letter case, or a member's ID or mention" },
           query: { type: "string", description: "Words to find in the title or description, any letter case; a task must contain every word. Use it to find a task the person names that is not among the active tasks shown" },
           dueAfter: { type: "string", description: "Only tasks due at or after this date (YYYY-MM-DD, from the start of that day) or date-time; tasks without a due date are left out" },
           dueBefore: { type: "string", description: "Only tasks due at or before this date (YYYY-MM-DD, to the end of that day) or date-time; tasks without a due date are left out" },
-          late: { type: "boolean", description: "true: only tasks past their due date and not completed; false: only tasks that are not late" },
+          late: { type: "boolean", description: "true: only tasks past their due date and not completed or cancelled; false: only tasks that are not late" },
           limit: { type: "number", description: "Max number of tasks to return (default: 20)" },
         },
       },
     },
     {
       name: "updateTaskStatus",
-      description: "Updates the status of a specific task by ID.",
+      description: "Updates the status of a specific task by ID. Cancelling keeps the task on record; it is no longer active or late.",
       parameters: {
         type: "object",
         properties: {
           taskId: { type: "string", description: "The UUID of the task to update" },
           status: {
             type: "string",
-            enum: ["pending", "in_progress", "completed"],
+            enum: ["pending", "in_progress", "completed", "cancelled"],
             description: "The new task status",
           },
+          reason: { type: "string", description: "Only when cancelling: the reason the person gave, kept as a Progress note. Leave it out when they gave none; never ask for one" },
         },
         required: ["taskId", "status"],
       },
@@ -163,17 +164,18 @@ export const taskManagementSkill: SkillModule = {
       const store = workspaceStore(), tasks = await loadTasks(store, ctx);
       const found = (args.query ? await matching(store, ctx.tenantId, tasks, args.query) : tasks.map((f) => f.task))
         .map((t) => ({ ...t, due: dueMoment(t.dueAt, zone), late: isLate(t, zone, at) }))
-        .filter((t) => (!args.status || args.status === "all" || t.status === args.status) && (!args.assignedTo || assigneeMatches(t.assignedTo, args.assignedTo)))
+        .filter((t) => (args.status === "all" || (args.status ? t.status === args.status : t.status !== "cancelled")) && (!args.assignedTo || assigneeMatches(t.assignedTo, args.assignedTo)))
         .filter((t) => (after === undefined || (t.due !== null && t.due >= after)) && (before === undefined || (t.due !== null && t.due <= before)) && (late === undefined || t.late === late))
         .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.createdAt.localeCompare(b.createdAt) : b.createdAt.localeCompare(a.createdAt)))
         .map(({ due: _, ...t }) => t);
       return { total: Math.min(found.length, limit), tasks: found.slice(0, limit) };
     },
 
-    updateTaskStatus: async (args: { taskId: string; status: Status }, ctx: SkillContext) => {
+    updateTaskStatus: async (args: { taskId: string; status: Status; reason?: string | null }, ctx: SkillContext) => {
       if (!STATUSES.includes(args.status)) throw new Error("Invalid task status");
-      const updated = await change(ctx, args.taskId, (t) => ({ ...t, status: args.status }));
-      return { success: true, message: `Task "${updated.title}" status changed to ${updated.status}.`, task: updated };
+      const reason = args.status === "cancelled" && typeof args.reason === "string" && args.reason.trim() ? progressNote(ctx, `Cancelled: ${args.reason}`) : null;
+      const updated = await change(ctx, args.taskId, (t) => ({ ...t, status: args.status, ...(reason && { notes: [...(t.notes ?? []), reason] }) }));
+      return { success: true, message: `Task "${updated.title}" status changed to ${updated.status}.`, task: updated, ...(reason && { note: noteLine(reason) }) };
     },
 
     assignTask: async (args: { taskId: string; assignedTo: string }, ctx: SkillContext) => {
@@ -256,12 +258,14 @@ function dueBound(value: unknown, timeZone: string, edge: "start" | "end"): numb
   if (dueAt === null) throw new Error(`Invalid ${edge === "start" ? "dueAfter" : "dueBefore"} "${String(value).slice(0, 40)}": use YYYY-MM-DD or a date-time`);
   return (edge === "start" && DATE_ONLY.test(dueAt) ? zonedTime(timeZone, `${dueAt}T00:00`) : dueMoment(dueAt, timeZone))!;
 }
-/** Late: past its due moment and not completed. */
-export const isLate = (task: Pick<Task, "dueAt" | "status">, timeZone: string, at = now()): boolean => { const due = dueMoment(task.dueAt, timeZone); return task.status !== "completed" && due !== null && at > due; };
+/** Open: still to be done, so neither completed nor cancelled. Only open tasks are active, late, in the turn context, or in the Digest. */
+export const isOpen = (task: Pick<Task, "status">): boolean => task.status !== "completed" && task.status !== "cancelled";
+/** Late: open and past its due moment. */
+export const isLate = (task: Pick<Task, "dueAt" | "status">, timeZone: string, at = now()): boolean => { const due = dueMoment(task.dueAt, timeZone); return isOpen(task) && due !== null && at > due; };
 /** The one-line task format every task list shares: status, due, assignee, id prefix, title. */
 export const taskLine = (t: Task, timeZone: string, at = now()) => `${t.status} | ${t.dueAt ? `due ${t.dueAt}${isLate(t, timeZone, at) ? ", late" : ""}` : "no due date"} | ${assigneeLabel(t.assignedTo)} | ${t.id.slice(0, 8)} | ${t.title}`;
 
-export const STATUSES = ["pending", "in_progress", "completed"] as const;
+export const STATUSES = ["pending", "in_progress", "completed", "cancelled"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 type Status = (typeof STATUSES)[number];
 type Priority = (typeof PRIORITIES)[number];
