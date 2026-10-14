@@ -129,6 +129,10 @@ const en = {
   reminderLimitTenant: (n: number) => `Reminders here are at their limit of ${n} active. Cancel one before setting another.`,
   reminderLate: (day: number, month: number, time: string) => `-# Posted late: this was due ${day} ${MONTHS_EN[month - 1]}, ${time}.`,
   openTasks: "Open tasks (status | due | owner | id | title):",
+  // Digest
+  digestDueToday: "**Due today**",
+  digestLate: "**Late**",
+  daysLate: (n: number) => `${plural(n, "day")} late`,
   // Channel history
   historyNoChannel: "I can't find that channel.",
   historyDm: "I read channel history only in server channels and threads, not in DMs.",
@@ -231,6 +235,9 @@ const id: typeof en = {
   reminderLimitTenant: (n) => `Pengingat di sini sudah mencapai batas ${n} yang aktif. Batalkan satu dulu sebelum membuat yang baru.`,
   reminderLate: (day, month, time) => `-# Terlambat: seharusnya diposting ${day} ${MONTHS_ID[month - 1]} ${time}.`,
   openTasks: "Tugas terbuka (status | due | owner | id | title):",
+  digestDueToday: "**Jatuh tempo hari ini**",
+  digestLate: "**Terlambat**",
+  daysLate: (n) => `terlambat ${n} hari`,
   historyNoChannel: "Channel itu tidak ketemu.",
   historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
   historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,

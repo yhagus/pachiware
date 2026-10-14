@@ -2,6 +2,9 @@ import { pgTable, text, timestamp, boolean, jsonb, integer, real, index, uniqueI
 import { sql } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 
+/** A channel opted in to the daily Digest and the hour (0 to 23, in the guild's zone) it posts at. */
+export type DigestChannel = { channelId: string; hour: number };
+
 /**
  * Agents Configuration Table
  * Stores agent personality, active system prompts, LLM router defaults, and provider configurations.
@@ -60,6 +63,7 @@ export const guildConfigs = pgTable("guild_configs", {
   botId: text("bot_id").notNull().references(() => bots.id, { onDelete: "cascade" }), guildId: text("guild_id").notNull(),
   systemPrompt: text("system_prompt"), useThreads: boolean("use_threads").notNull().default(true), alwaysChannelIds: jsonb("always_channel_ids").$type<string[]>().notNull().default([]),
   timezone: text("timezone"), language: text("language").$type<"id" | "en">(),
+  digestChannels: jsonb("digest_channels").$type<DigestChannel[]>().notNull().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 

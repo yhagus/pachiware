@@ -3,6 +3,9 @@ import { sql } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 import { randomUUID } from "crypto";
 
+/** A channel opted in to the daily Digest and the hour (0 to 23, in the guild's zone) it posts at. */
+export type DigestChannel = { channelId: string; hour: number };
+
 /**
  * SQLite mirror of the PostgreSQL schema.
  *
@@ -76,6 +79,7 @@ export const guildConfigs = sqliteTable("guild_configs", {
   botId: text("bot_id").notNull().references(() => bots.id, { onDelete: "cascade" }), guildId: text("guild_id").notNull(),
   systemPrompt: text("system_prompt"), useThreads: integer("use_threads", { mode: "boolean" }).notNull().default(true), alwaysChannelIds: text("always_channel_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
   timezone: text("timezone"), language: text("language").$type<"id" | "en">(),
+  digestChannels: text("digest_channels", { mode: "json" }).$type<DigestChannel[]>().notNull().default([]),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 

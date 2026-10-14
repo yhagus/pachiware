@@ -63,7 +63,8 @@ export interface Scenario {
   http: { on(match: string | RegExp, respond: (req: HttpRequest) => unknown): void; passthrough(match: string | RegExp): void; requests: HttpRequest[] };
   /** Attaches a git account to the bot and opens these repositories in the guild. */
   git(options?: { provider?: "github" | "gitlab"; repos?: string[] }): Promise<{ id: string }>;
-  guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null }): Promise<void>;
+  /** Saves guild settings as the console does, Digest schedule rows included. */
+  guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: { channelId: string; hour: number }[] }): Promise<void>;
   /** The clock the time context, task dates and the scheduler read. `set` pins it (ms, Date, or ISO text); `advance` moves it forward. */
   clock: { set(at: number | string | Date): void; advance(ms: number): void; now(): number };
   /** One scheduler pass at the fake clock's time, as the agent's minute loop would run it; returns once every post has landed. */
@@ -227,14 +228,14 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { runSeed } = await import("../../../../packages/db/src/seed.ts");
   const dbModule = await import("../../../../packages/db/src/index.ts");
   const { db, gitAccounts, tenantSkills, encryptSecret, setBotGitAccounts, replaceGitScopes, and, eq } = dbModule as any;
-  const { createTenant, createBot, upsertGuildConfig } = await import("../../../../packages/db/src/tenancy.ts");
+  const { createTenant, createBot } = await import("../../../../packages/db/src/tenancy.ts");
   await runMigrations(); await runSeed();
   const { llmRouter } = await import("../../src/llm/router.ts");
   const { retryPolicy } = await import("../../src/llm/retry.ts");
   retryPolicy.sleep = async () => {};
   const { DiscordBotManager } = await import("../../src/discord/client.ts");
   const { CacheService, tenantKey } = await import("../../src/cache/redis.ts");
-  const { guildCacheKey } = await import("../../src/loop/prompt.ts");
+  const { saveGuildSettings } = await import("../../src/loop/prompt.ts");
   const { workspaceStore } = await import("../../../../packages/skills/src/workspace/store.ts");
   const { setAvailabilityRule } = await import("../../../../packages/skills/src/availability.ts");
   const { skillRegistry } = await import("../../../../packages/skills/src/registry.ts");
@@ -319,7 +320,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       await replaceGitScopes(tenant.id, bot.id, GUILD.id, "", [{ gitAccountId: account.id, repoPatterns: repos }]);
       return account;
     },
-    guildSettings: async (input) => { await upsertGuildConfig(tenant.id, bot.id, GUILD.id, input); await CacheService.del(guildCacheKey(tenant.id, bot.id, GUILD.id)); },
+    guildSettings: async (input) => { await saveGuildSettings(tenant.id, bot.id, GUILD.id, input); },
     clock: {
       set: (at) => { let fixed = at instanceof Date ? at.getTime() : typeof at === "string" ? Date.parse(at) : at; if (Number.isNaN(fixed)) throw new Error(`Not a time: ${String(at)}`); setClock(() => fixed); },
       advance: (ms) => { const fixed = clockNow() + ms; setClock(() => fixed); },
