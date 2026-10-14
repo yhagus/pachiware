@@ -114,7 +114,7 @@ export interface DiscordMessageInfo { id: string; channelId: string; authorId: s
 /** A guild channel as the bot resolved it (null when it could not), and whether the user asked about can view it. */
 export interface ChannelView { channel: { id: string; name: string; guildId: string } | null; canView: boolean }
 
-export type PostAccess ={ ok: true } | { ok: false; who: "requester" | "bot" | "unknown"; missing: string[] };
+export type PostAccess = { ok: true } | { ok: false; who: "requester" | "bot" | "unknown"; missing: string[] };
 
 /** What calling a tool can do; EFFECT_MEANING says what each covers. */
 export type Effect = "read" | "write" | "danger";
