@@ -99,13 +99,19 @@ export function playbookChain(root: Loader, all: Loader[]): { chain: string[] } 
   return problem ? { problem } : { chain };
 }
 
+/** The tenant playbook a Workspace path names, as its folder or its PLAYBOOK.md; null for any other path. */
+export function tenantPlaybookAt(path: string): { name: string; file: boolean } | null {
+  const m = new RegExp(`^${TENANT_PLAYBOOKS_DIR}/([^/]+)(/${PLAYBOOK_FILE})?$`).exec(path);
+  return m ? { name: m[1]!, file: !!m[2] } : null;
+}
+
 /**
  * Why saving `content` at `path` would break a chain: a cycle, or a chain deeper than MAX_LOAD_DEPTH, that was not there before,
  * the saved playbook's own chain checked first. A load of a playbook that does not exist yet is allowed; the start refuses it.
  */
 export async function playbookSaveProblem(tenantId: string, path: string, content: string): Promise<string | null> {
-  const m = new RegExp(`^${TENANT_PLAYBOOKS_DIR}/([^/]+)/${PLAYBOOK_FILE}$`).exec(path);
-  const saved = m && parsePlaybook(m[1]!, content, "tenant");
+  const at = tenantPlaybookAt(path);
+  const saved = at?.file && parsePlaybook(at.name, content, "tenant");
   if (!saved) return null;
   const before = await listPlaybooks(tenantId), after = [saved, ...before.filter((p) => p.name !== saved.name)];
   const broken = (p: Loader, all: Loader[]) => { const found = playbookChain(p, all); return "problem" in found && !("missing" in found.problem) ? chainProblemText(found.problem) : null; };
