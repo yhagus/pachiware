@@ -299,7 +299,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     return { messages, cut };
   }
 
-  async readChannelHistory(args: { channelId: string; requesterId: string; since?: string; limit?: number; language?: Language }, now = Date.now()): Promise<ChannelHistory> {
+  async readChannelHistory(args: { channelId: string; requesterId: string; since?: string; limit?: number; language?: Language }, now = clockNow()): Promise<ChannelHistory> {
     const t = textIn(args.language);
     if (!(await this.client.channels.fetch(args.channelId).catch(() => null))) throw new Error(t.historyNoChannel);
     const access = await this.historyAccess(args.channelId, args.requesterId);

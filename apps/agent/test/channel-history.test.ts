@@ -1,10 +1,11 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
 
-discordScenario("readChannelHistory hands the model the current channel's recent history as a transcript", async (s) => {
+discordScenario("readChannelHistory hands the model the current channel's recent history as a transcript, on the agent's clock", async (s) => {
   await s.guildSettings({ useThreads: false });
+  s.clock.set("2026-03-06T09:30:00+07:00");
   const { alice, bob } = s.discord;
-  const minute = 60_000, now = Date.now();
+  const minute = 60_000, now = s.clock.now();
   s.discord.history([
     { content: "yesterday's leftovers", author: bob, at: now - 25 * 60 * minute },
     { content: "Which day do we release?", author: alice, at: now - 30 * minute },
