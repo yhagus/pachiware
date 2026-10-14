@@ -37,7 +37,7 @@ discordScenario("with more than ten tasks in the channel, a query finds a task b
 discordScenario("a task found by its description among more than ten has its title, description and priority edited without Confirm; other fields stay and updatedAt moves", async (s) => {
   s.clock.set("2026-10-14T03:00:00Z");
   await s.guildSettings({ useThreads: false });
-  await seed(s, [{ n: 40, title: "Call the printer", body: "Ask about the brochure proofs.", status: "in_progress", assignedTo: "Bob", dueAt: "2026-10-20" }]);
+  await seed(s, [{ n: 40, title: "Call the printer", body: "Ask about the brochure proofs.", status: "in_progress", assignedTo: "Dewi", dueAt: "2026-10-20" }]);
   const path = `${TASKS}/task-40.md`, before = (await s.workspace.read(path))!;
 
   s.model.script({ tool: "listTasks", args: { query: "brochure" } }, (turn) => ({ tool: "editTask", args: { taskId: turn.toolResults[0].tasks[0].id.slice(0, 8), title: "Call the print shop" } }), (turn) => turn.toolResults.at(-1).message);
@@ -59,7 +59,7 @@ discordScenario("a task found by its description among more than ten has its tit
   expect(file).not.toContain("\nAsk about the brochure proofs.\n");
   expect(file).toContain('title: "Call the print shop"');
   expect(file).toContain('status: "in_progress"');
-  expect(file).toContain('assignedTo: {"name":"Bob"}');
+  expect(file).toContain('assignedTo: {"name":"Dewi"}');
   expect(file).toContain('dueAt: "2026-10-20"');
   expect(file).toContain('createdAt: "2026-10-05T00:00:00.000Z"');
   expect(file).toContain('updatedAt: "2026-10-15T03:00:00.000Z"');

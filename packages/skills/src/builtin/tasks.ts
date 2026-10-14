@@ -2,7 +2,7 @@ import type { SkillModule, SkillContext } from "../types.js";
 import { visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../workspace/store.js";
 import { labelFolder } from "./workspace.js";
-import { assigneeLabel, assigneeMatches, parseAssignee, renderAssignee, type Assignee } from "./assignee.js";
+import { ambiguousAssignee, assigneeFilter, assigneeLabel, linkAssignee, nameOnlyNote, parseAssignee, renderAssignee, resolveAssignee, type Assignee } from "./assignee.js";
 import { DEFAULT_TIMEZONE, now, offsetText, today, wallClock, zoneOffset, zonedTime } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
@@ -37,7 +37,7 @@ export const taskManagementSkill: SkillModule = {
             enum: ["low", "medium", "high", "urgent"],
             description: "Task priority level (default: medium)",
           },
-          assignedTo: { type: "string", description: "Optional name or ID of the assignee" },
+          assignedTo: { type: "string", description: "Optional assignee: a mention, \"me\" for the asker, or a name (matched to a server member, else recorded by name only)" },
           dueAt: { type: "string", description: DUE_AT_HINT },
           discordChannelId: { type: "string", description: "Legacy channel ID; the current turn's channel determines the Workspace folder" },
         },
@@ -55,7 +55,7 @@ export const taskManagementSkill: SkillModule = {
             enum: ["pending", "in_progress", "completed", "cancelled", "all"],
             description: "Filter by status (default: every status except cancelled; all includes cancelled tasks)",
           },
-          assignedTo: { type: "string", description: "Filter by assignee: a name in any letter case, or a member's ID or mention" },
+          assignedTo: { type: "string", description: "Filter by assignee: a mention, \"me\", a member's ID, or a display name or username in any letter case" },
           query: { type: "string", description: "Words to find in the title or description, any letter case; a task must contain every word. Use it to find a task the person names that is not among the active tasks shown" },
           dueAfter: { type: "string", description: "Only tasks due at or after this date (YYYY-MM-DD, from the start of that day) or date-time; tasks without a due date are left out" },
           dueBefore: { type: "string", description: "Only tasks due at or before this date (YYYY-MM-DD, to the end of that day) or date-time; tasks without a due date are left out" },
@@ -88,7 +88,7 @@ export const taskManagementSkill: SkillModule = {
         type: "object",
         properties: {
           taskId: { type: "string", description: "The UUID of the task" },
-          assignedTo: { type: "string", description: "Username or identifier of the assignee" },
+          assignedTo: { type: "string", description: "The assignee: a mention, \"me\" for the asker, or a name (matched to a server member, else recorded by name only)" },
         },
         required: ["taskId", "assignedTo"],
       },
@@ -146,14 +146,16 @@ export const taskManagementSkill: SkillModule = {
       checkTitle(args.title);
       if (args.priority !== undefined && !PRIORITIES.includes(args.priority)) throw new Error("Invalid task priority");
       const dueAt = dueAtArg(args.dueAt, zoneOf(ctx));
+      const who = typeof args.assignedTo === "string" && args.assignedTo.trim() ? await resolveAssignee(args.assignedTo, ctx) : null;
+      if (who && "candidates" in who) return ambiguousAssignee(args.assignedTo!, who.candidates);
       const roots = visibleRoots(ctx), home = roots.channel ?? roots.dm ?? roots.tenant!;
       const at = today().toISOString(), id = crypto.randomUUID();
-      const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: parseAssignee(args.assignedTo), dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at };
+      const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: who?.assignee ?? null, dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at };
       await workspaceStore().write(ctx.tenantId, `${home}/tasks/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
       await labelFolder(ctx, roots.channel ? "channel" : roots.guild ? "guild" : roots.dm ? "dm" : "");
       if (roots.channel) await labelFolder(ctx, "guild");
       try { if (!(await workspaceStore().read(ctx.tenantId, `${home}/tasks/.name`))) await workspaceStore().write(ctx.tenantId, `${home}/tasks/.name`, "Tasks"); } catch {}
-      return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.`, task };
+      return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.${who?.nameOnly ? nameOnlyNote(who.assignee) : ""}`, task };
     },
 
     listTasks: async (args: { status?: Status | "all"; assignedTo?: string; query?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
@@ -161,10 +163,11 @@ export const taskManagementSkill: SkillModule = {
       const after = dueBound(args.dueAfter, zone, "start"), before = dueBound(args.dueBefore, zone, "end");
       const late = args.late === undefined || args.late === null ? undefined : args.late === true || args.late === "true";
       const byDue = after !== undefined || before !== undefined || late !== undefined;
+      const assigned = args.assignedTo ? await assigneeFilter(args.assignedTo, ctx) : () => true;
       const store = workspaceStore(), tasks = await loadTasks(store, ctx);
       const found = (args.query ? await matching(store, ctx.tenantId, tasks, args.query) : tasks.map((f) => f.task))
         .map((t) => ({ ...t, due: dueMoment(t.dueAt, zone), late: isLate(t, zone, at) }))
-        .filter((t) => (args.status === "all" || (args.status ? t.status === args.status : t.status !== "cancelled")) && (!args.assignedTo || assigneeMatches(t.assignedTo, args.assignedTo)))
+        .filter((t) => (args.status === "all" || (args.status ? t.status === args.status : t.status !== "cancelled")) && assigned(t.assignedTo))
         .filter((t) => (after === undefined || (t.due !== null && t.due >= after)) && (before === undefined || (t.due !== null && t.due <= before)) && (late === undefined || t.late === late))
         .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.createdAt.localeCompare(b.createdAt) : b.createdAt.localeCompare(a.createdAt)))
         .map(({ due: _, ...t }) => t);
@@ -180,9 +183,10 @@ export const taskManagementSkill: SkillModule = {
 
     assignTask: async (args: { taskId: string; assignedTo: string }, ctx: SkillContext) => {
       if (typeof args.assignedTo !== "string" || !args.assignedTo.trim()) throw new Error("assignedTo is required");
-      const assignedTo = parseAssignee(args.assignedTo);
-      const updated = await change(ctx, args.taskId, (t) => ({ ...t, assignedTo }));
-      return { success: true, message: `Task "${updated.title}" assigned to @${assigneeLabel(updated.assignedTo)}.`, task: updated };
+      const who = await resolveAssignee(args.assignedTo, ctx);
+      if ("candidates" in who) return ambiguousAssignee(args.assignedTo, who.candidates);
+      const updated = await change(ctx, args.taskId, (t) => ({ ...t, assignedTo: who.assignee }));
+      return { success: true, message: `Task "${updated.title}" assigned to @${assigneeLabel(updated.assignedTo)}.${who.nameOnly ? nameOnlyNote(who.assignee) : ""}`, task: updated };
     },
 
     setTaskDueDate: async (args: { taskId: string; dueAt?: string | null }, ctx: SkillContext) => {
@@ -400,7 +404,9 @@ async function change(ctx: SkillContext, taskId: string, edit: (t: Task) => Task
   if (!hit) throw new Error(`Task with ID ${taskId} not found.`);
   const current = await store.read(ctx.tenantId, hit.path).catch(() => null), parsed = current && parseTask(current.content);
   if (!current || !parsed) throw new Error(`Task with ID ${taskId} not found.`);
-  const next = { ...edit(parsed), updatedAt: today().toISOString() };
+  const edited = edit(parsed);
+  // A name-only Assignee the edit kept is linked when its name now matches exactly one member.
+  const next = { ...edited, assignedTo: edited.assignedTo === parsed.assignedTo ? await linkAssignee(edited.assignedTo, ctx) : edited.assignedTo, updatedAt: today().toISOString() };
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
   return next;

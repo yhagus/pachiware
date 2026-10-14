@@ -37,7 +37,7 @@ discordScenario("Manage Messages alone does not open the channel tools", async (
 discordScenario("listMembers finds Bob by the start of his name, with id and roles", async (s) => {
   s.model.script({ tool: "listMembers", args: { query: "bo" } }, (turn) => JSON.stringify(turn.toolResults[0].members));
   await s.discord.send(`${s.discord.mention} who is bo?`);
-  expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toEqual([{ id: "user-bob", displayName: "Bob", roles: [] }]);
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toEqual([{ id: "user-bob", displayName: "Bob", username: "Bob", roles: [] }]);
 });
 
 discordScenario("listMembers needs a query and returns at most 50 people", async (s) => {

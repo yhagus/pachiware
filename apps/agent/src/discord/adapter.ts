@@ -57,6 +57,13 @@ export function transcript(messages: HistoryMessage[]) {
   }).join("\n");
 }
 
+const memberInfo = (m: any, guildId: string): DiscordMemberInfo => ({
+  id: m.id,
+  displayName: m.displayName ?? m.user?.globalName ?? m.user?.username ?? m.id,
+  username: m.user?.username,
+  roles: [...(m.roles?.cache?.values() ?? [])].filter((r: any) => r.id !== guildId).map((r: any) => r.name),
+});
+
 export class DiscordJSAdapter implements DiscordClientAdapter {
   constructor(private client: Client, private guildId?: string) {}
 
@@ -213,11 +220,13 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
   async listMembers(args: { query: string; limit: number }): Promise<DiscordMemberInfo[]> {
     const guild = await this.getGuild();
     const found = await guild.members.search({ query: args.query, limit: args.limit });
-    return [...found.values()].map((m: any) => ({
-      id: m.id,
-      displayName: m.displayName ?? m.user?.globalName ?? m.user?.username ?? m.id,
-      roles: [...(m.roles?.cache?.values() ?? [])].filter((r: any) => r.id !== guild.id).map((r: any) => r.name),
-    }));
+    return [...found.values()].map((m: any) => memberInfo(m, guild.id));
+  }
+
+  async getMember(userId: string): Promise<DiscordMemberInfo | null> {
+    const guild = await this.getGuild();
+    const m = await guild.members.fetch(userId).catch(() => null);
+    return m ? memberInfo(m, guild.id) : null;
   }
 
   /** A text channel or thread of this guild that both the bot and the requester are allowed to see and post in. */
