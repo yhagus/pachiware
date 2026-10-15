@@ -1,6 +1,6 @@
 import type { SkillContext, SkillModule } from "../types.js";
 import { KEPT_FOLDERS, keptPath, resolvePath, visibleRoots } from "../workspace/paths.js";
-import { workspaceStore, type WorkspaceEntry, type WorkspaceStore } from "../workspace/store.js";
+import { workspaceStore } from "../workspace/store.js";
 import { checkThreadWrite, threadAccess } from "../workspace/threads.js";
 import { readPlaybookFile } from "../playbooks.js";
 import { postBriefRound, postBriefRoundTool } from "../brief.js";
@@ -10,7 +10,7 @@ import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 import { forget, memoryLevel, remember } from "../workspace/memory.js";
 import { fileDocument, filesRoot, isDocument } from "../workspace/files.js";
 import { keepNote, keptDocument, keptMessages, MAX_KEPT_MESSAGES } from "../workspace/notes.js";
-import { isBinaryDocument } from "../workspace/extract.js";
+import { queryWords, searchFolder } from "../workspace/search.js";
 import { textIn } from "../language.js";
 import { hasPermission } from "../permissions.js";
 
@@ -70,7 +70,7 @@ export const workspaceSkill: SkillModule = {
     { name: "writeFile", description: "Creates or replaces a Markdown file in the Workspace. Missing folders are created. To replace an existing file, pass the version from readFile.", parameters: { type: "object", properties: { path: pathArg, content: { type: "string", description: "Full file content" }, version: { type: "string", description: "Version returned by readFile; required when the file exists" } }, required: ["path", "content"] } },
     { name: "moveFile", description: "Moves or renames a file or folder. Refuses to overwrite.", parameters: { type: "object", properties: { from: pathArg, to: pathArg }, required: ["from", "to"] } },
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
-    { name: "searchFiles", description: "Finds files by name or text, case-insensitive, under a folder. The text of a PDF, DOCX or XLSX is searched in the .md beside it.", parameters: { type: "object", properties: { query: { type: "string", description: "Text to find" }, path: pathArg }, required: ["query", "path"] } },
+    { name: "searchFiles", description: "Finds files under a folder that hold every word of the query somewhere in their name or text, in any order and case; the words need not share a line. Each match gives up to three of the file's lines, those holding the most query words, with their line numbers. The text of a PDF, DOCX or XLSX is searched in the .md beside it.", parameters: { type: "object", properties: { query: { type: "string", description: "Words to find, e.g. \"pricing decision\"" }, path: pathArg }, required: ["query", "path"] } },
     { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
     { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name; say nothing about it unless asked. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { level: levelArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["level", "text"] } },
     { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { level: levelArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["level", "match"] } },
@@ -166,35 +166,14 @@ export const workspaceSkill: SkillModule = {
     writeIssueDraft,
     describeBriefImages,
     searchFiles: async (args, ctx) => {
-      const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
-      if (!query) throw new Error("query is required");
-      const name = String(args.path).split("/")[0]!, prefix = visibleRoots(ctx)[name]!;
+      const words = queryWords(typeof args.query === "string" ? args.query : "");
+      if (!words.length) throw new Error("query is required");
       const root = resolvePath(ctx, args.path, true), access = threadAccess(ctx);
       await access.check(root);
-      return { matches: await search(workspaceStore(), ctx.tenantId, root, query, (p) => name + p.slice(prefix.length), access.filter) };
+      const name = String(args.path).split("/")[0]!, prefix = visibleRoots(ctx)[name]!;
+      const matches = await searchFolder(workspaceStore(), ctx.tenantId, root, words, (p) => p.slice(prefix.length + 1), access.filter);
+      return { matches: matches.map((m) => ({ path: name + m.path.slice(prefix.length), lines: m.lines })) };
     },
   },
 };
 
-const MAX_MATCHES = 50, MAX_SCANNED = 500;
-/** ponytail: walks and reads files per query; add an index when a Workspace outgrows MAX_SCANNED files. */
-async function search(store: WorkspaceStore, tenantId: string, root: string, query: string, show: (p: string) => string, readable: (entries: WorkspaceEntry[]) => Promise<WorkspaceEntry[]>) {
-  const matches: { path: string; line?: number; text?: string }[] = [];
-  let scanned = 0;
-  const walk = async (dir: string): Promise<void> => {
-    for (const e of await readable(await store.list(tenantId, dir))) {
-      if (matches.length >= MAX_MATCHES || scanned >= MAX_SCANNED) return;
-      if (e.path.split("/").pop()!.startsWith(".")) continue;
-      if (e.type === "dir") { await walk(e.path); continue; }
-      scanned++;
-      if (e.path.toLowerCase().includes(query)) { matches.push({ path: show(e.path) }); continue; }
-      if (isBinaryDocument(e.path)) continue;
-      const file = await store.read(tenantId, e.path).catch(() => null);
-      const lines = file?.content.split("\n") ?? [];
-      const i = lines.findIndex((l) => l.toLowerCase().includes(query));
-      if (i >= 0) matches.push({ path: show(e.path), line: i + 1, text: lines[i]!.slice(0, 200) });
-    }
-  };
-  await walk(root);
-  return matches;
-}

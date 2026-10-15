@@ -74,14 +74,14 @@ discordScenario("in the parent channel only people added to a private thread can
     return JSON.parse(s.discord.botMessages.at(-1)!.content);
   };
   const refused = "Only people added to that private thread can have its files read.";
-  const lunch = { path: "channel/notes/lunch.md", line: 1, text: "Salary day lunch" };
-  const salaries = { path: "channel/threads/thread-p/minutes/2026-10-14-salaries.md", line: 1, text: "Salary bands agreed" };
+  const lunch = { path: "channel/notes/lunch.md", lines: [{ line: 1, text: "Salary day lunch" }] };
+  const salaries = { path: "channel/threads/thread-p/minutes/2026-10-14-salaries.md", lines: [{ line: 1, text: "Salary bands agreed" }] };
 
   expect(await ask(bob)).toEqual([refused, refused, refused, { matches: [lunch] }, { entries: [] }, refused, refused]);
   expect(await ask(alice)).toEqual([
     { entries: [{ path: salaries.path, type: "file", size: 20 }] },
     { content: "Salary bands agreed\n", version: expect.any(String) },
-    { matches: [{ ...salaries, path: salaries.path }] },
+    { matches: [salaries] },
     { matches: [lunch, salaries] },
     { entries: [{ path: "channel/threads/thread-p", type: "dir" }] },
     refused,

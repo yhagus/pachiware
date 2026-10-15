@@ -80,7 +80,7 @@ discordScenario("dry run: remember-forget keeps a channel line, a server line wi
 discordScenario("dry run: file-search files the PDF with its text and finds the budget line", async (s) => {
   s.model.script(
     "Filed as q3-report.pdf under files/, with its text beside it.",
-    { tool: "searchFiles", args: { query: "budget", path: "channel/files" } }, (turn) => `q3-report.md: ${turn.toolResults[0].matches[0].text}`,
+    { tool: "searchFiles", args: { query: "budget", path: "channel/files" } }, (turn) => `q3-report.md: ${turn.toolResults[0].matches[0].lines[0].text}`,
   );
   const output = await dryRun(s, "file-search");
   expect(output.turns[1].replies).toEqual(["q3-report.md: The Q3 budget is 12 million."]);
