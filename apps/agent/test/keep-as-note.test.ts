@@ -106,7 +106,7 @@ discordScenario("a turn names the message of text longer than 2000 characters, s
   expect(said(1)).not.toContain(short.id);
 });
 
-discordScenario("an email pasted as three messages, one of them by Bob, becomes one Note: the texts joined in the order asked, unchanged, with authors, asker, date and message links", async (s) => {
+discordScenario("an email pasted as three messages, one of them by Bob, becomes one Note: the texts joined in the order asked, unchanged, with one author per message, asker, date and message links", async (s) => {
   s.clock.set("2026-10-15T03:00:00Z");
   await s.guildSettings({ useThreads: false });
   const part = (n: number) => `Part ${n} of the vendor email:\n${Array.from({ length: 60 }, (_, i) => `  - item ${n}.${i + 1}: *delivered* on schedule  `).join("\n")}`;
@@ -120,7 +120,7 @@ discordScenario("an email pasted as three messages, one of them by Bob, becomes 
   expect(s.discord.botMessages.at(-1)?.content).toBe("Kept as channel/notes/vendor-email.md");
   const link = (id: string) => `https://discord.com/channels/guild-1/channel-1/${id}`;
   expect(await s.workspace.read("guilds/guild-1/channels/channel-1/notes/vendor-email.md")).toBe(
-    `---\nsource: ${JSON.stringify([link(one.id), link(two.id), link(three.id)])}\nauthor: ["Alice","Bob"]\naskedBy: "Bob"\ndate: "2026-10-15"\n---\n${part(1)}\n\n${part(2)}\n\n${part(3)}`,
+    `---\nsource: ${JSON.stringify([link(one.id), link(two.id), link(three.id)])}\nauthor: ["Alice","Bob","Alice"]\naskedBy: "Bob"\ndate: "2026-10-15"\n---\n${part(1)}\n\n${part(2)}\n\n${part(3)}`,
   );
 });
 

@@ -69,11 +69,13 @@ export async function keepNote(ctx: SkillContext, path: unknown, pieces: KeptTex
   if (!note) throw new Error(t.keepNotNotes(filesRoot(ctx)!));
   const full = resolvePath(ctx, note);
   if (await store.read(ctx.tenantId, full).catch(() => true)) throw new Error(t.keepTaken(note));
-  const one = <T>(items: T[]) => (items.length === 1 ? items[0] : items);
-  const authors = [...new Set(pieces.flatMap((p) => (p.author ? [p.author] : [])))];
+  // One source stays a scalar; several messages give parallel lists, one source and one author per message, in order.
+  const [single] = pieces;
+  const origin = pieces.length === 1
+    ? { source: single!.source, ...(single!.author && { author: single!.author }) }
+    : { source: pieces.map((p) => p.source), author: pieces.map((p) => p.author || "unknown") };
   const head = {
-    source: one(pieces.map((p) => p.source)),
-    ...(authors.length && { author: one(authors) }),
+    ...origin,
     askedBy: ctx.userName || ctx.userId || "unknown",
     date: isoInZone(ctx.timezone || DEFAULT_TIMEZONE).slice(0, 10),
   };
