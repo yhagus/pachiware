@@ -15,11 +15,11 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
         const { db, gitAccounts, bots, tenantSkills, encryptSecret, setBotGitAccounts, replaceGitScopes, and, eq } = await imp("packages/db/src/index.ts");
-        const { createTenant } = await imp("packages/db/src/tenancy.ts");
+        const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const { skillRegistry } = await imp("packages/skills/src/registry.ts");
         const { handleConfirmButton, pendingOf } = await imp("apps/agent/src/discord/gitConfirm.ts");
-        const t = await createTenant({ name: "T", slug: "t" });
+        const t = await repositories().tenants.create({ name: "T", slug: "t" });
         await db.update(tenantSkills).set({ isEnabled: true }).where(and(eq(tenantSkills.tenantId, t.id), eq(tenantSkills.skillId, "git_repositories")));
         const [acc] = await db.insert(gitAccounts).values({ tenantId: t.id, name: "work", provider: "github", username: "octo", tokenEncrypted: encryptSecret("tok") }).returning();
         const [bot] = await db.insert(bots).values({ tenantId: t.id, tokenEncrypted: "x", isEnabled: false }).returning();

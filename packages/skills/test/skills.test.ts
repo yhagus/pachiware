@@ -21,10 +21,10 @@ describe("tenant-aware skill registry", () => {
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))});
       const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
       const { db, tenantSkills, eq } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
-      const { createTenant } = await import(${JSON.stringify(join(workspace, "packages/db/src/tenancy.ts"))});
+      const { repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       const { skillRegistry } = await import(${JSON.stringify(join(workspace, "packages/skills/src/registry.ts"))});
       await runMigrations(); await runSeed();
-      const alpha = await createTenant({ name: "Alpha", slug: "alpha" }); const beta = await createTenant({ name: "Beta", slug: "beta" });
+      const alpha = await repositories().tenants.create({ name: "Alpha", slug: "alpha" }); const beta = await repositories().tenants.create({ name: "Beta", slug: "beta" });
       const context = { db, tenantId: alpha.id };
       const created = await skillRegistry.executeTool({ id: "create", name: "createTask", arguments: { title: "Alpha only" } }, context);
       assert(created.success, "createTask failed"); const taskId = created.data.task.id;
@@ -48,8 +48,8 @@ describe("tenant-aware skill registry", () => {
     const { directory, result } = runScenario(`
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))}); const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
-      const { db } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))}); const { createTenant } = await import(${JSON.stringify(join(workspace, "packages/db/src/tenancy.ts"))}); const { skillRegistry } = await import(${JSON.stringify(join(workspace, "packages/skills/src/registry.ts"))});
-      await runMigrations(); await runSeed(); const tenant = await createTenant({ name: "Discord", slug: "discord" });
+      const { db, repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))}); const { skillRegistry } = await import(${JSON.stringify(join(workspace, "packages/skills/src/registry.ts"))});
+      await runMigrations(); await runSeed(); const tenant = await repositories().tenants.create({ name: "Discord", slug: "discord" });
       const adapter = { createChannel: async (args) => ({ id: "channel-1", name: args.channelName }), archiveChannel: async () => ({ id: "channel-1", message: "archived" }), listChannels: async () => [], setChannelTopic: async () => ({ id: "channel-1", topic: "topic" }) };
       const result = await skillRegistry.executeTool({ id: "discord", name: "createChannel", arguments: { channelName: "ops" } }, { db, tenantId: tenant.id, discord: adapter, confirmed: true, userId: "u", guildId: "g", channelId: "c", auth: { tenantId: tenant.id, userId: "u", guildId: "g", channelId: "c", roleIds: [], permissions: ["Administrator"] } });
       assert(result.success && result.data.channel.id === "channel-1" && !result.data.simulated, "adapter result was not used"); console.log(JSON.stringify({ ok: true }));

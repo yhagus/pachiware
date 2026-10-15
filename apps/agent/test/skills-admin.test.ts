@@ -12,8 +12,8 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     const imp = (p) => import(${JSON.stringify(root + "/")} + p);
     const { runMigrations } = await imp("packages/db/src/migrate.ts"); const { runSeed } = await imp("packages/db/src/seed.ts");
     await runMigrations(); await runSeed();
-    const { createServer } = await imp("apps/agent/src/server.ts"); const { createTenant } = await imp("packages/db/src/tenancy.ts");
-    const app = createServer(), alpha = await createTenant({ name: "A", slug: "a" }), beta = await createTenant({ name: "B", slug: "b" });
+    const { createServer } = await imp("apps/agent/src/server.ts"); const { repositories } = await imp("packages/db/src/index.ts");
+    const app = createServer(), alpha = await repositories().tenants.create({ name: "A", slug: "a" }), beta = await repositories().tenants.create({ name: "B", slug: "b" });
     const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
     const list = async (t) => (await (await app.request("/api/admin/tenants/" + t.id + "/skills", { headers: h })).json()).skills;
     assert((await app.request("/api/admin/tenants/" + alpha.id + "/skills")).status === 401, "admin key required");

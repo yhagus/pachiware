@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, bots, conversations, messages, createBot, updateBot, deleteBot, getTenantById, setBotGitAccounts, listBotGitAccounts, listGitScopes, replaceGitScopes, eq, type GuildConfigInput } from "@pachiware/db";
+import { repositories, db, bots, conversations, messages, createBot, updateBot, deleteBot, setBotGitAccounts, listBotGitAccounts, listGitScopes, replaceGitScopes, eq, type GuildConfigInput } from "@pachiware/db";
 import { ne, and, or, desc, sql } from "drizzle-orm";
 import { discordBotManager } from "../../discord/client.js";
 import { loadGuildSettings, saveGuildSettings } from "../../loop/prompt.js";
@@ -9,7 +9,7 @@ import { botAvailabilityRoutes } from "../availability.js";
 import { botReminderRoutes } from "../reminders.js";
 export const botAdminRoutes = new Hono();
 botAdminRoutes.post("/tenants/:id/bots", async (c) => {
-  if (!await getTenantById(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
+  if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
   const fields = botFields(object(await c.req.json(), "body"), true);
   await assertProfile(c.req.param("id"), fields.profileId);
   await assertGitAccounts(c.req.param("id"), fields.gitAccountIds);
@@ -21,7 +21,7 @@ botAdminRoutes.post("/tenants/:id/bots", async (c) => {
 });
 botAdminRoutes.get("/tenants/:id/bots", async (c) => {
   const tenantId = c.req.param("id");
-  if (!await getTenantById(tenantId)) return c.json({ error: "Tenant not found" }, 404);
+  if (!await repositories().tenants.get(tenantId)) return c.json({ error: "Tenant not found" }, 404);
   const pageSize = Math.min(48, Math.max(1, Number(c.req.query("pageSize")) || 12));
   const page = Math.max(1, Number(c.req.query("page")) || 1);
   const q = c.req.query("q")?.trim().toLowerCase(), platform = c.req.query("platform");
@@ -33,12 +33,12 @@ botAdminRoutes.get("/tenants/:id/bots", async (c) => {
 });
 botAdminRoutes.use("/bots/:botId/*", async (c, next) => {
   const [row] = await db.select().from(bots).where(and(eq(bots.id, c.req.param("botId")!), ne(bots.connectionStatus, "deleted"))).limit(1);
-  if (!row || !await getTenantById(row.tenantId)) return c.json({ error: "Bot not found" }, 404);
+  if (!row || !await repositories().tenants.get(row.tenantId)) return c.json({ error: "Bot not found" }, 404);
   await next();
 });
 botAdminRoutes.use("/bots/:botId", async (c, next) => {
   const [row] = await db.select().from(bots).where(and(eq(bots.id, c.req.param("botId")!), ne(bots.connectionStatus, "deleted"))).limit(1);
-  if (!row || !await getTenantById(row.tenantId)) return c.json({ error: "Bot not found" }, 404);
+  if (!row || !await repositories().tenants.get(row.tenantId)) return c.json({ error: "Bot not found" }, 404);
   await next();
 });
 botAdminRoutes.get("/bots/:botId", async (c) => {

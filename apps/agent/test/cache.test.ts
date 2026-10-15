@@ -48,7 +48,7 @@ describe("system prompt stays stable between turns", () => {
       const db = await import(${JSON.stringify(join(root, "packages/db/src/index.ts"))});
       const { SystemPromptBuilder } = await import(${JSON.stringify(join(root, "apps/agent/src/loop/prompt.ts"))});
       const { skillRegistry } = await import(${JSON.stringify(join(root, "packages/skills/src/index.ts"))});
-      const t = await db.createTenant({ name: "T", slug: "t" });
+      const t = await db.repositories().tenants.create({ name: "T", slug: "t" });
       const base = { tenantId: t.id, platform: "discord", guildId: "g1", guildName: "Srv" };
       const a = await SystemPromptBuilder.build({ ...base, userName: "Ana", userId: "1", channelId: "c1" });
       await skillRegistry.executeTool({ id: "s", name: "createTask", arguments: { title: "new task" } }, { db: db.db, tenantId: t.id, guildId: "g1", channelId: "c2", userId: "2" });

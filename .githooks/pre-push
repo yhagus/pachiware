@@ -1,2 +1,3 @@
 #!/bin/sh
-bun run typecheck && bun test
+# Contract suites run on SQLite only here; PostgreSQL and MongoDB runs stay opt-in.
+bun run typecheck && TEST_POSTGRES_URL= TEST_MONGODB_URL= bun test

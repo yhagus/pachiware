@@ -39,23 +39,23 @@ describe("tenant persistence helpers", () => {
   test("global keys: issue, ownership lookup, revoke, list counts, soft-delete", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { createTenant, issueApiKey, getApiKeyByRaw, getTenantForApiKey, listTenantsForApiKey, revokeApiKey, listApiKeys, deleteTenant } from ${JSON.stringify(join(source, "tenancy.ts"))};
-      import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+      import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
-      const issued = await issueApiKey("deploy"), other = await issueApiKey("other");
-      const owned = await createTenant({ name: "Acme", slug: "acme", apiKeyId: issued.keyId });
-      const loose = await createTenant({ name: "Loose", slug: "loose" });
-      const found = await getApiKeyByRaw(issued.raw);
-      const bySlug = (await getTenantForApiKey(issued.keyId, "acme"))?.id === owned.id;
-      const byId = (await getTenantForApiKey(issued.keyId, owned.id))?.id === owned.id;
-      const foreign = await getTenantForApiKey(other.keyId, "acme");
-      const unowned = await getTenantForApiKey(issued.keyId, "loose");
-      const listedOwned = (await listTenantsForApiKey(issued.keyId)).map((t) => t.slug);
-      const listed = await listApiKeys();
-      await deleteTenant(owned.id);
-      const afterDelete = await getTenantForApiKey(issued.keyId, "acme");
-      await revokeApiKey(issued.keyId);
-      const revoked = await getApiKeyByRaw(issued.raw);
+      const tenants = repositories().tenants;
+      const issued = await tenants.issueApiKey("deploy"), other = await tenants.issueApiKey("other");
+      const owned = await tenants.create({ name: "Acme", slug: "acme", apiKeyId: issued.keyId });
+      const loose = await tenants.create({ name: "Loose", slug: "loose" });
+      const found = await tenants.resolveApiKey(issued.raw);
+      const bySlug = (await tenants.getForApiKey(issued.keyId, "acme"))?.id === owned.id;
+      const byId = (await tenants.getForApiKey(issued.keyId, owned.id))?.id === owned.id;
+      const foreign = await tenants.getForApiKey(other.keyId, "acme");
+      const unowned = await tenants.getForApiKey(issued.keyId, "loose");
+      const listedOwned = (await tenants.listForApiKey(issued.keyId)).map((t) => t.slug);
+      const listed = await tenants.listApiKeys();
+      await tenants.remove(owned.id);
+      const afterDelete = await tenants.getForApiKey(issued.keyId, "acme");
+      await tenants.revokeApiKey(issued.keyId);
+      const revoked = await tenants.resolveApiKey(issued.raw);
       const stored = queryClient.query("SELECT key_hash FROM api_keys WHERE id = ?").get(issued.keyId);
       console.log(JSON.stringify({ found: found?.name, scopes: found?.scopes, bySlug, byId, foreign, unowned, listedOwned, counts: Object.fromEntries(listed.map((k) => [k.name, k.tenantCount])), looseOwner: loose.apiKeyId, afterDelete, revoked, hash: stored.key_hash }));
     `);
@@ -72,12 +72,11 @@ describe("tenant persistence helpers", () => {
   test("creates tenant defaults without creating sample tasks", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { createTenant } from ${JSON.stringify(join(source, "tenancy.ts"))};
-      import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+      import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
       queryClient.query("INSERT INTO skills (id, name, description, default_enabled, config) VALUES (?, ?, ?, ?, ?)").run("enabled", "Enabled", "enabled skill", 1, JSON.stringify({ level: 1 }));
       queryClient.query("INSERT INTO skills (id, name, description, default_enabled, config) VALUES (?, ?, ?, ?, ?)").run("disabled", "Disabled", "disabled skill", 0, JSON.stringify({ level: 2 }));
-      const tenant = await createTenant({ name: "New Tenant", slug: "new-tenant" });
+      const tenant = await repositories().tenants.create({ name: "New Tenant", slug: "new-tenant" });
       const tenantSkillsRows = queryClient.query("SELECT skill_id AS skillId, is_enabled AS isEnabled, config FROM tenant_skills WHERE tenant_id = ?").all(tenant.id).map((row) => ({ ...row, isEnabled: Boolean(row.isEnabled), config: JSON.parse(row.config) }));
       const taskRows = queryClient.query("SELECT id FROM tasks WHERE tenant_id = ?").all(tenant.id);
       console.log(JSON.stringify({ tenantSkillsRows, taskCount: taskRows.length }));
@@ -98,10 +97,10 @@ describe("tenant persistence helpers", () => {
   test("encrypts bot tokens at rest and supports bot lifecycle helpers", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { createTenant, createBot, getBotDecrypted, updateBot, listBotsForTenant, listAllActiveBots, deleteBot } from ${JSON.stringify(join(source, "tenancy.ts"))};
-      import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+      import { createBot, getBotDecrypted, updateBot, listBotsForTenant, listAllActiveBots, deleteBot } from ${JSON.stringify(join(source, "tenancy.ts"))};
+      import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
-      const tenant = await createTenant({ name: "Bots", slug: "bots" });
+      const tenant = await repositories().tenants.create({ name: "Bots", slug: "bots" });
       const bot = await createBot({ tenantId: tenant.id, token: "first-token", guildIds: ["guild-1"] });
       const storedBefore = queryClient.query("SELECT token_encrypted FROM bots WHERE id = ?").get(bot.id);
       const first = await getBotDecrypted(bot.id);
@@ -134,11 +133,11 @@ describe("tenant persistence helpers", () => {
   test("rejects cross-tenant bot and conversation links at the database boundary", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { createTenant, createBot } from ${JSON.stringify(join(source, "tenancy.ts"))};
-      import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+      import { createBot } from ${JSON.stringify(join(source, "tenancy.ts"))};
+      import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
-      const first = await createTenant({ name: "First", slug: "first" });
-      const second = await createTenant({ name: "Second", slug: "second" });
+      const first = await repositories().tenants.create({ name: "First", slug: "first" });
+      const second = await repositories().tenants.create({ name: "Second", slug: "second" });
       const bot = await createBot({ tenantId: first.id, token: "secret" });
       queryClient.query("INSERT INTO conversations (id, tenant_id, bot_id, platform) VALUES (?, ?, ?, ?)").run("conversation-1", first.id, bot.id, "discord");
       let botRejected = false;

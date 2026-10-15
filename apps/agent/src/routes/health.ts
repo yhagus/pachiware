@@ -1,7 +1,6 @@
 import { Hono } from "hono";
-import { ne } from "drizzle-orm";
 import { config } from "../config.js";
-import { pingDatabase, activeDialect, db, tenants } from "@pachiware/db";
+import { pingDatabase, activeDialect, repositories } from "@pachiware/db";
 import { redis, isRedisConnected } from "../cache/redis.js";
 import { discordBotManager } from "../discord/client.js";
 
@@ -29,7 +28,7 @@ healthRoutes.get("/", async (c) => {
   const discordStatus = discordBotManager.getAggregateStatus();
   let tenantCount = 0;
   let schemaReady = false;
-  try { tenantCount = (await db.select({ id: tenants.id }).from(tenants).where(ne(tenants.status, "deleted")).limit(1)).length; schemaReady = true; } catch {}
+  try { tenantCount = await repositories().tenants.count(); schemaReady = true; } catch {}
   const setupRequired = dbStatus !== "healthy" || !schemaReady || tenantCount === 0;
 
   return c.json({

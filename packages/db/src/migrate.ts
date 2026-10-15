@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { queryClient } from "./index.js";
-import { activeDialect } from "./schema/index.js";
+import type { Connection } from "./connection.js";
 import { encryptSecret, generateApiKey, hashApiKey } from "./crypto.js";
 import { DEFAULT_SYSTEM_PROMPT, OLD_DEFAULT_PROMPTS } from "./persona.js";
 import { recordDatabaseEngine } from "./runtime-store.js";
 
-const tables = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "availability_rules", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events", "schedules"] as const;
+export const SQL_TABLES = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "availability_rules", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events", "schedules"] as const;
 
 function definitions(pg: boolean): Record<string, string> {
   const time = pg ? "TIMESTAMPTZ" : "INTEGER";
@@ -64,7 +63,7 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   }
   const ddl = definitions(pg);
   // PostgreSQL legacy tables remain in place until their columns have been backfilled.
-  for (const table of tables) await exec(`CREATE TABLE IF NOT EXISTS ${table} (${ddl[table]})`);
+  for (const table of SQL_TABLES) await exec(`CREATE TABLE IF NOT EXISTS ${table} (${ddl[table]})`);
   const botCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='bots'" : "PRAGMA table_info(bots)");
   if (!botCols.some((c) => c.name === "profile_id")) await exec("ALTER TABLE bots ADD COLUMN profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL");
   // ponytail: SQLite cannot add a composite FK via ALTER, so upgraded SQLite DBs rely on the API's tenant check; fresh DBs and PostgreSQL enforce it.
@@ -202,9 +201,18 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   return bootstrapKey;
 }
 
+/** Brings the schema of the configured database up to date, then records its engine if none is yet. */
 export async function runMigrations(): Promise<void> {
+  const { connection } = await import("./index.js");
+  await migrateDatabase(connection);
+  recordDatabaseEngine(connection.engine);
+}
+
+/** Brings the schema of one open database up to date; safe to run again. */
+export async function migrateDatabase(connection: Connection): Promise<void> {
+  const { engine, client: queryClient } = connection;
   let key: string | null;
-  if (activeDialect === "postgres") {
+  if (engine === "postgres") {
     key = await queryClient.begin(async (client: any) => {
       await client.unsafe("SELECT pg_advisory_xact_lock(73418263)");
       return migrate((sql, values = []) => client.unsafe(sql, values), true);
@@ -227,9 +235,8 @@ export async function runMigrations(): Promise<void> {
       queryClient.exec("PRAGMA foreign_keys = ON");
     }
   }
-  recordDatabaseEngine(activeDialect);
   if (key) console.log(`Bootstrap API key (shown once): ${key}`);
-  console.log(`Database schema migrated successfully (${activeDialect}).`);
+  console.log(`Database schema migrated successfully (${engine}).`);
 }
 
 if (import.meta.main) runMigrations().then(() => process.exit(0)).catch(() => { console.error("Migration failed; check database and encryption key configuration."); process.exit(1); });

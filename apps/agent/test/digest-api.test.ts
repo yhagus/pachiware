@@ -14,11 +14,11 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, schedules, tenants, eq, and } = await import(${src("packages/db/src/index.ts")}); const { createTenant, createBot, issueApiKey } = await import(${src("packages/db/src/tenancy.ts")});
+        const { db, schedules, eq, and, repositories } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")});
         const { setClock } = await import(${src("packages/skills/src/clock.ts")});
         setClock(() => Date.parse("2026-03-06T20:00:00+07:00"));
         await runMigrations(); await runSeed();
-        const tenant = await createTenant({ name: "Acme", slug: "acme" });
+        const tenant = await repositories().tenants.create({ name: "Acme", slug: "acme" });
         const bot = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
         const admin = { "X-Platform-Key": "digest-admin-key", "Content-Type": "application/json" };
@@ -111,8 +111,8 @@ describe("Digest channels on the server settings", () => {
       rows = await digests();
       assert(rows[0].timezone === "Europe/Berlin" && rows[0].nextAt.toISOString() === "2026-03-07T07:00:00.000Z", "a language save must not move the rows: " + JSON.stringify(rows));
 
-      const key = await issueApiKey("one");
-      await db.update(tenants).set({ apiKeyId: key.keyId }).where(eq(tenants.id, tenant.id));
+      const key = await repositories().tenants.issueApiKey("one");
+      await repositories().tenants.linkApiKey(tenant.id, key.keyId);
       const headers = { Authorization: "Bearer " + key.raw, "Content-Type": "application/json", "X-Tenant-Id": tenant.id };
       assert(await status("PUT", "/api/v1/config", { timezone: "America/New_York" }, headers) === 200, "tenant API zone change refused");
       rows = await digests();

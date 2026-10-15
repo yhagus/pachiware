@@ -47,12 +47,8 @@ export type NewMessage = typeof pgSchema.messages.$inferInsert;
 export { pgSchema, sqliteSchema };
 
 export let tenants = active.tenants;
-export type Tenant = typeof pgSchema.tenants.$inferSelect;
-export type NewTenant = typeof pgSchema.tenants.$inferInsert;
 
 export let apiKeys = active.apiKeys;
-export type ApiKey = typeof pgSchema.apiKeys.$inferSelect;
-export type NewApiKey = typeof pgSchema.apiKeys.$inferInsert;
 
 export let profiles = active.profiles;
 export type Profile = typeof pgSchema.profiles.$inferSelect;

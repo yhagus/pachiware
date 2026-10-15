@@ -36,7 +36,7 @@ describe("completeOperatorSetup", () => {
       const result = runSetup(directory, `
         import { statSync, readFileSync } from "node:fs";
         import { completeOperatorSetup } from ${JSON.stringify(join(source, "setup.ts"))};
-        import { getTenantBySlug } from ${JSON.stringify(join(source, "tenancy.ts"))};
+        import { repositories } from ${JSON.stringify(join(source, "index.ts"))};
         const file = ${JSON.stringify(join(directory, "operator-access.json"))};
         const first = await completeOperatorSetup(${JSON.stringify(directory)});
         const saved = readFileSync(file, "utf8");
@@ -48,7 +48,7 @@ describe("completeOperatorSetup", () => {
           sameTenant: again.id === first.id && parsed.tenantId === first.id,
           noTenantKey: !("apiKeyEncrypted" in parsed) && !("keyId" in parsed),
           plaintextPlatformKey: saved.includes(process.env.PLATFORM_ADMIN_KEY),
-          defaultTenant: (await getTenantBySlug("default"))?.id === first.id,
+          defaultTenant: (await repositories().tenants.getBySlug("default"))?.id === first.id,
         }));
       `);
       expect(result.exitCode, stderr(result)).toBe(0);
@@ -63,10 +63,10 @@ describe("completeOperatorSetup", () => {
     try {
       const result = runSetup(directory, `
         import { completeOperatorSetup } from ${JSON.stringify(join(source, "setup.ts"))};
-        import { getTenantBySlug, updateTenant } from ${JSON.stringify(join(source, "tenancy.ts"))};
+        import { repositories } from ${JSON.stringify(join(source, "index.ts"))};
         await completeOperatorSetup(${JSON.stringify(directory)});
-        const tenant = await getTenantBySlug("default");
-        await updateTenant(tenant.id, { status: "suspended" });
+        const tenant = await repositories().tenants.getBySlug("default");
+        await repositories().tenants.update(tenant.id, { status: "suspended" });
         try {
           await completeOperatorSetup(${JSON.stringify(directory)});
           console.log("unexpected success");

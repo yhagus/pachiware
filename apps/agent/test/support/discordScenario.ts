@@ -330,7 +330,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { runSeed } = await import("../../../../packages/db/src/seed.ts");
   const dbModule = await import("../../../../packages/db/src/index.ts");
   const { db, gitAccounts, tenantSkills, encryptSecret, setBotGitAccounts, replaceGitScopes, and, eq } = dbModule as any;
-  const { createTenant, createBot, updateBot } = await import("../../../../packages/db/src/tenancy.ts");
+  const { createBot, updateBot } = await import("../../../../packages/db/src/tenancy.ts"); const { repositories } = await import("../../../../packages/db/src/index.ts");
   await runMigrations(); await runSeed();
   const { llmRouter } = await import("../../src/llm/router.ts");
   const { retryPolicy } = await import("../../src/llm/retry.ts");
@@ -343,7 +343,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { skillRegistry } = await import("../../../../packages/skills/src/registry.ts");
   const { schedulerTick } = await import("../../src/scheduler.ts");
 
-  const tenant = await createTenant({ name: "Acme", slug: "acme" });
+  const tenant = await repositories().tenants.create({ name: "Acme", slug: "acme" });
   const bot = await createBot({ tenantId: tenant.id, token: "scenario-token", guildIds: [GUILD.id] });
 
   const steps: ModelStep[] = [];

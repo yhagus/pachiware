@@ -272,16 +272,16 @@ test("migration replaces only prompts byte-equal to an old default, the first pe
       cmd: ["bun", "--eval", `
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
         import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
-        import { createTenant } from ${JSON.stringify(join(source, "tenancy.ts"))};
+        import { repositories } from ${JSON.stringify(join(source, "index.ts"))};
         await runMigrations();
         const prompts = ${JSON.stringify([...OLD_DEFAULTS, "You are Pachiware Agent, a helpful and precise assistant. Answer in Javanese.", "custom persona", PERSONA_85 + "\nAnswer in Javanese."])};
         const ids = [];
         for (const prompt of prompts) {
-          const t = await createTenant({ name: "t" + ids.length });
+          const t = await repositories().tenants.create({ name: "t" + ids.length });
           queryClient.query("UPDATE agents_config SET system_prompt = ? WHERE tenant_id = ?").run(prompt, t.id);
           ids.push(t.id);
         }
-        const fresh = await createTenant({ name: "fresh" });
+        const fresh = await repositories().tenants.create({ name: "fresh" });
         await runMigrations();
         const read = (id) => queryClient.query("SELECT system_prompt AS p FROM agents_config WHERE tenant_id = ?").get(id).p;
         console.log(JSON.stringify({ fresh: read(fresh.id), migrated: ids.map(read) }));

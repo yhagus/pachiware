@@ -12,7 +12,7 @@ function run(body: string) {
     const imp = (p) => import(${JSON.stringify(root + "/")} + p);
     const { runMigrations } = await imp("packages/db/src/migrate.ts"); const { runSeed } = await imp("packages/db/src/seed.ts");
     await runMigrations(); await runSeed();
-    const { createServer } = await imp("apps/agent/src/server.ts"); const db = await imp("packages/db/src/tenancy.ts");
+    const { createServer } = await imp("apps/agent/src/server.ts"); const db = await imp("packages/db/src/tenancy.ts"); const { repositories } = await imp("packages/db/src/index.ts");
     const app = createServer();
     // Imported built-ins start off at the tenant, so every level inherits them; these tests look past them.
     const importedOff = new Set((await imp("packages/skills/src/playbooks.ts")).builtinPlaybooks().filter((p) => p.defaultOff).map((p) => p.name));
@@ -25,7 +25,7 @@ function run(body: string) {
 }
 
 test("admin API sets and clears availability rules at every level", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   const levels = ["/api/admin/tenants/" + t.id, "/api/admin/bots/" + bot.id, "/api/admin/bots/" + bot.id + "/guilds/g1", "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1"];
   for (const base of levels) {
@@ -45,7 +45,7 @@ test("admin API sets and clears availability rules at every level", () => run(`
 `));
 
 test("availability rules refuse playbook tools, unknown targets and bad values with 400", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   const url = "/api/admin/bots/" + bot.id + "/guilds/g1/availability";
   const refused = async (rule, why) => { const r = await call("PUT", url, h, rule); assert(r.status === 400 && typeof r.body.error === "string", why + ": " + r.status + " " + JSON.stringify(r.body)); return r.body.error; };
@@ -61,7 +61,7 @@ test("availability rules refuse playbook tools, unknown targets and bad values w
 `));
 
 test("effect rules set and clear at every level, and an unknown effect is refused", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   const levels = ["/api/admin/tenants/" + t.id, "/api/admin/bots/" + bot.id, "/api/admin/bots/" + bot.id + "/guilds/g1", "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1"];
   for (const base of levels) {
@@ -78,7 +78,7 @@ test("effect rules set and clear at every level, and an unknown effect is refuse
 `));
 
 test("a channel cannot turn back on a tool or an effect that its guild turned off", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   assert((await call("PUT", "/api/admin/bots/" + bot.id + "/guilds/g1/availability", h, { kind: "effect", name: "danger", value: "off" })).status === 200, "guild danger off");
   const channel = "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1/availability";
@@ -90,7 +90,7 @@ test("a channel cannot turn back on a tool or an effect that its guild turned of
 `));
 
 test("an opt_in or on beneath an off on the same target is refused with 400", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   assert((await call("PUT", "/api/admin/tenants/" + t.id + "/availability", h, { kind: "playbook", name: "issue-draft", value: "off" })).status === 200, "tenant off");
   const r = await call("PUT", "/api/admin/bots/" + bot.id + "/availability", h, { kind: "playbook", name: "issue-draft", value: "opt_in" });
@@ -99,7 +99,7 @@ test("an opt_in or on beneath an off on the same target is refused with 400", ()
 `));
 
 test("two PUTs on the same target at once both succeed and leave one rule", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" }, url = "/api/admin/bots/" + bot.id + "/availability";
   const both = await Promise.all([call("PUT", url, h, { kind: "tool", name: "createTask", value: "off" }), call("PUT", url, h, { kind: "tool", name: "createTask", value: "off" })]);
   assert(both.every((r) => r.status === 200), JSON.stringify(both));
@@ -109,7 +109,7 @@ test("two PUTs on the same target at once both succeed and leave one rule", () =
 `));
 
 test("on needs an opt_in above it, and opt_in stays at a bot or a guild", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   const at = { tenant: "/api/admin/tenants/" + t.id, bot: "/api/admin/bots/" + bot.id, guild: "/api/admin/bots/" + bot.id + "/guilds/g1", channel: "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1" };
   const put = (level, rule) => call("PUT", at[level] + "/availability", h, rule);
@@ -133,8 +133,8 @@ test("on needs an opt_in above it, and opt_in stays at a bot or a guild", () => 
 `));
 
 test("the tenant API manages the tenant's own rules and no other tenant's", () => run(`
-  const key = await db.issueApiKey("k1");
-  const a = await db.createTenant({ name: "A", slug: "a", apiKeyId: key.keyId }), b = await db.createTenant({ name: "B", slug: "b", apiKeyId: key.keyId });
+  const key = await repositories().tenants.issueApiKey("k1");
+  const a = await repositories().tenants.create({ name: "A", slug: "a", apiKeyId: key.keyId }), b = await repositories().tenants.create({ name: "B", slug: "b", apiKeyId: key.keyId });
   const botA = await db.createBot({ tenantId: a.id, token: "x" }), botB = await db.createBot({ tenantId: b.id, token: "y" });
   const as = (tenant) => ({ Authorization: "Bearer " + key.raw, "X-Tenant-Id": tenant.id, "Content-Type": "application/json" });
   const rule = { kind: "tool", name: "createTask", value: "off" };
@@ -152,7 +152,7 @@ test("the tenant API manages the tenant's own rules and no other tenant's", () =
 `));
 
 test("the tenant skill switch keeps working beside availability rules", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   const skills = async () => Object.fromEntries((await call("GET", "/api/admin/tenants/" + t.id + "/skills", h)).body.skills.map((s) => [s.id, s.isEnabled]));
   assert((await skills()).task_management === true, "tasks start on");
@@ -164,7 +164,7 @@ test("the tenant skill switch keeps working beside availability rules", () => ru
 `));
 
 test("a playbook rule is set and cleared at any level, and an unknown playbook is refused with 400", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   const { workspaceStore } = await imp("packages/skills/src/workspace/store.ts");
   await workspaceStore().write(t.id, "shared/playbooks/retro/PLAYBOOK.md", '---\\nname: retro\\ntrigger: {"word": "retro"}\\n---\\nGroup the points.\\n');
@@ -182,7 +182,7 @@ test("a playbook rule is set and cleared at any level, and an unknown playbook i
 `));
 
 test("each level reports what the levels above leave it, apart from its own rules", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   const at = { tenant: "/api/admin/tenants/" + t.id, bot: "/api/admin/bots/" + bot.id, guild: "/api/admin/bots/" + bot.id + "/guilds/g1", channel: "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c1" };
   const put = async (level, kind, name, value) => { const r = await call("PUT", at[level] + "/availability", h, { kind, name, value }); assert(r.status === 200, level + " " + name + " " + JSON.stringify(r.body)); };
@@ -209,8 +209,8 @@ test("each level reports what the levels above leave it, apart from its own rule
 `));
 
 test("the tenant API reports what a bot level inherits", () => run(`
-  const key = await db.issueApiKey("k1");
-  const a = await db.createTenant({ name: "A", slug: "a", apiKeyId: key.keyId }), botA = await db.createBot({ tenantId: a.id, token: "x" });
+  const key = await repositories().tenants.issueApiKey("k1");
+  const a = await repositories().tenants.create({ name: "A", slug: "a", apiKeyId: key.keyId }), botA = await db.createBot({ tenantId: a.id, token: "x" });
   const as = { Authorization: "Bearer " + key.raw, "X-Tenant-Id": a.id, "Content-Type": "application/json" };
   assert((await call("PUT", "/api/v1/availability", as, { kind: "effect", name: "danger", value: "off" })).status === 200, "tenant rule");
   const got = await call("GET", "/api/v1/bots/" + botA.id + "/guilds/g1/availability", as);
@@ -219,7 +219,7 @@ test("the tenant API reports what a bot level inherits", () => run(`
 `));
 
 test("the admin skills catalogue lists the tenant's playbooks with the skills they require", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   const { workspaceStore } = await imp("packages/skills/src/workspace/store.ts");
   await workspaceStore().write(t.id, "shared/playbooks/retro/PLAYBOOK.md", '---\\nname: retro\\ndescription: Group the points\\ntrigger: {"word": "retro"}\\nrequires: ["task_management"]\\n---\\nGroup the points.\\n');
@@ -230,7 +230,7 @@ test("the admin skills catalogue lists the tenant's playbooks with the skills th
 `));
 
 test("a default-off playbook is turned on at the tenant and only then reaches the levels below", () => run(`
-  const t = await db.createTenant({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
+  const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await db.createBot({ tenantId: t.id, token: "x" });
   const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
   const { workspaceStore } = await imp("packages/skills/src/workspace/store.ts");
   await workspaceStore().write(t.id, "shared/playbooks/retro/PLAYBOOK.md", '---\\nname: retro\\ntrigger: {"word": "retro"}\\ndefault: off\\n---\\nGroup the points.\\n');

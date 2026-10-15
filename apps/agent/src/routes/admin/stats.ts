@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import os from "node:os";
 import { statfs, readFile, stat } from "node:fs/promises";
-import { db, bots, tenants, activeDialect, getInfraConfig, resolveSqlitePath } from "@pachiware/db";
+import { db, bots, activeDialect, getInfraConfig, resolveSqlitePath, repositories } from "@pachiware/db";
 import { redis, isRedisConnected, memoryCache } from "../../cache/redis.js";
 import { ne, sql } from "drizzle-orm";
 export const statsAdminRoutes = new Hono();
@@ -67,7 +67,7 @@ statsAdminRoutes.get("/stats", async (c) => {
   const count = async (table: any, col: any) => Number((await db.select({ n: sql<number>`count(*)` }).from(table).where(ne(col, "deleted")))[0]?.n ?? 0);
   return c.json({
     success: true,
-    tenants: await count(tenants, tenants.status),
+    tenants: await repositories().tenants.count(),
     bots: await count(bots, bots.connectionStatus),
     storage: { dbBytes: await dbSize(), cacheBytes: await cacheSize() },
     system: {

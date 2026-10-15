@@ -14,9 +14,9 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, tenants, eq } = await import(${src("packages/db/src/index.ts")}); const { createTenant, createBot, issueApiKey } = await import(${src("packages/db/src/tenancy.ts")});
+        const { db, eq, repositories } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")});
         await runMigrations(); await runSeed();
-        const tenant = await createTenant({ name: "Acme", slug: "acme" });
+        const tenant = await repositories().tenants.create({ name: "Acme", slug: "acme" });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
         const admin = { "X-Platform-Key": "settings-admin-key", "Content-Type": "application/json" };
         const call = async (method, path, body, headers = admin) => app.request(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -53,8 +53,8 @@ describe("time zone and language settings", () => {
 
   test("the tenant API carries both settings on the config resource with the same validation", () => {
     const { code, stderr } = scenario(`
-      const key = await issueApiKey("one");
-      await db.update(tenants).set({ apiKeyId: key.keyId }).where(eq(tenants.id, tenant.id));
+      const key = await repositories().tenants.issueApiKey("one");
+      await repositories().tenants.linkApiKey(tenant.id, key.keyId);
       const headers = { Authorization: "Bearer " + key.raw, "Content-Type": "application/json", "X-Tenant-Id": tenant.id };
       const fresh = await read("GET", "/api/v1/config", undefined, headers);
       assert(fresh.config.timezone === "Asia/Jakarta" && fresh.config.language === "id", "config lacks the settings: " + JSON.stringify(fresh.config));

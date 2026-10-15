@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { runMigrations, runSeed, getTenantBySlug, createTenant } from "./index.js";
+import { runMigrations, runSeed, repositories } from "./index.js";
 import { encryptSecret } from "./crypto.js";
 
 export async function completeOperatorSetup(workspaceRoot = process.cwd()) {
@@ -8,8 +8,9 @@ export async function completeOperatorSetup(workspaceRoot = process.cwd()) {
   encryptSecret("");
   await runMigrations();
   await runSeed();
-  let tenant = await getTenantBySlug("default");
-  if (!tenant) tenant = await createTenant({ name: "Default Tenant", slug: "default", metadata: { operatorSetup: true } });
+  const { tenants } = repositories();
+  let tenant = await tenants.getBySlug("default");
+  if (!tenant) tenant = await tenants.create({ name: "Default Tenant", slug: "default", metadata: { operatorSetup: true } });
   if (tenant.status !== "active") throw new Error("Default tenant is suspended; enable it through the Admin API before completing setup.");
 
   persistAccess(resolve(workspaceRoot, "operator-access.json"), tenant.id);

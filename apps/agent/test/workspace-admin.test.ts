@@ -12,8 +12,8 @@ test("admin Workspace routes: browse, edit with version check, move, delete, ref
     const imp = (p) => import(${JSON.stringify(root + "/")} + p);
     const { runMigrations } = await imp("packages/db/src/migrate.ts"); const { runSeed } = await imp("packages/db/src/seed.ts");
     await runMigrations(); await runSeed();
-    const { createServer } = await imp("apps/agent/src/server.ts"); const { createTenant } = await imp("packages/db/src/tenancy.ts");
-    const app = createServer(), alpha = await createTenant({ name: "A", slug: "a" }), beta = await createTenant({ name: "B", slug: "b" });
+    const { createServer } = await imp("apps/agent/src/server.ts"); const { repositories } = await imp("packages/db/src/index.ts");
+    const app = createServer(), alpha = await repositories().tenants.create({ name: "A", slug: "a" }), beta = await repositories().tenants.create({ name: "B", slug: "b" });
     const h = { "X-Platform-Key": "k", "Content-Type": "application/json" };
     const base = (t) => "/api/admin/tenants/" + t.id + "/workspace";
     const put = (t, body) => app.request(base(t) + "/file", { method: "PUT", headers: h, body: JSON.stringify(body) });
