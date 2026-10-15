@@ -1,7 +1,7 @@
 import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
 import { eq, and, sql } from "drizzle-orm";
 import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, type ToolCall, type ToolResult, type SkillContext, type MemberAuth, type Language } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
@@ -14,6 +14,8 @@ export interface ReActInput {
   /** Sent with this turn only; `message` should already name them, since that text is what history keeps. */
   images?: ImagePart[];
   conversationId?: string;
+  /** The language the person wrote in, for a refusal they read; detected from `message` when absent. `context.language` stays the place's. */
+  replyLanguage?: Language;
   context: PromptContext & {
     skillContext?: Partial<SkillContext> & { member?: MemberAuth };
   };
@@ -69,11 +71,9 @@ export class AgentReActLoop {
 
     if (!convId) throw new Error("Conversation creation failed");
 
-    // Guardrail before the loop: refuse oversized or rule-rewriting messages, answer the rest.
-    const verdict = GuardrailService.classify(input.message);
-    // A playbook's brief may be long: that refusal is only logged there.
-    const waived = !!input.context.playbook && !verdict.decision.allow && verdict.decision.kind === "limit";
-    if (!verdict.decision.allow && isEnforced(verdict.decision.kind) && !waived) {
+    // Guardrail before the loop: refuse rule-rewriting messages, answer the rest however long.
+    const verdict = GuardrailService.classify(input.message, input.replyLanguage);
+    if (!verdict.decision.allow && isEnforced(verdict.decision.kind)) {
       const auditCtx = { db, tenantId: input.tenantId, botId: input.botId };
       await audit(auditCtx, verdict.decision.kind === "prompt_injection" ? "prompt_injection_detected" : "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", platform: input.context.platform });
       return { conversationId: convId, reply: verdict.decision.message, toolCallsExecuted, iterations: 0, historyOffset: 0 };

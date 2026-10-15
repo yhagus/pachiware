@@ -178,7 +178,7 @@ export class SkillRegistry {
           const { botId, userId, guildId, channelId } = context;
           if (!botId || !userId || !guildId || !channelId) {
             await audit(context, "guardrail_denied", { tool: name, kind: "no_confirmer" });
-            return { toolCallId, name, success: false, error: "This action needs a person to confirm it, which only works in a Discord channel." };
+            return { toolCallId, name, success: false, error: GuardrailService.denyNoConfirmer(context.language).message };
           }
           const summary = `${name} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`;
           const q = queueAction({ tenantId: context.tenantId, botId, userId, guildId, channelId, parentChannelId: context.parentChannelId, tool: name, args: args ?? {}, summary, auth: context.auth });

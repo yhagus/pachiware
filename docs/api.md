@@ -86,7 +86,7 @@ All `/api/v1/*` requests require `Authorization: Bearer <API key>`. Except `/api
 | --- | --- | --- |
 | GET, PUT | `/api/v1/config` | Prompt, model, settings, provider credentials, `timezone` (IANA) and `language` (`id` or `en`) |
 | POST | `/api/v1/config/test/llm` | `{provider, apiKey?, baseUrl?}`; masked key uses saved tenant credential |
-| POST | `/api/v1/chat` | `{message, conversationId?}` -> reply, steps, tools, conversation ID |
+| POST | `/api/v1/chat` | `{message, conversationId?}` -> reply, steps, tools, conversation ID. A `message` over 50,000 characters is not run: `reply` is the refusal, in the language the message was written in, with `iterations` 0 |
 | GET | `/api/v1/conversations` | Tenant conversations |
 | GET | `/api/v1/conversations/:id/messages` | Tenant-owned history |
 | GET, POST | `/api/v1/tasks` | Filter/search/counts or create task |

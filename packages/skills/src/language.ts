@@ -152,6 +152,16 @@ const en = {
   saveNoMessage: "I can't find that message in this channel.",
   saveNoFile: "That message has no file attached.",
   saveWhich: (names: string[]) => `That message holds several files: ${names.join(", ")}. Say which one.`,
+  // Guardrail refusals: the first two reach the person, the rest the model as a tool error
+  guardInjection: "I can't follow instructions that try to change my rules or reveal internal details.",
+  guardTooLong: (limit: number) => `That message is too long (limit ${limit.toLocaleString("en-US")} characters). Please shorten it.`,
+  guardArgsTooLarge: "Tool arguments are too large.",
+  guardAuthMismatch: "Authorization context does not match this request.",
+  guardOutOfScope: (scope: string) => `This action only works inside a Discord server channel (missing ${scope}).`,
+  guardPermission: (names: string) => `You need one of these Discord permissions to ask for this: ${names}.`,
+  guardRateLimit: "Too many requests right now. Wait a minute and try again.",
+  guardDuplicate: "That exact action just ran. It was not repeated.",
+  guardNoConfirmer: "This action needs a person to confirm it, which only works in a Discord channel.",
 };
 
 const id: typeof en = {
@@ -264,6 +274,15 @@ const id: typeof en = {
   saveNoMessage: "Pesan itu tidak ketemu di channel ini.",
   saveNoFile: "Pesan itu tidak punya lampiran file.",
   saveWhich: (names) => `Pesan itu punya beberapa file: ${names.join(", ")}. Sebutkan yang mana.`,
+  guardInjection: "Saya tidak bisa mengikuti instruksi yang mencoba mengubah aturan saya atau membuka detail internal.",
+  guardTooLong: (limit) => `Pesan itu terlalu panjang (batas ${limit.toLocaleString("id-ID")} karakter). Tolong persingkat.`,
+  guardArgsTooLarge: "Argumen tool terlalu besar.",
+  guardAuthMismatch: "Konteks otorisasi tidak cocok dengan permintaan ini.",
+  guardOutOfScope: (scope) => `Aksi ini hanya bisa dilakukan di channel server Discord (tidak ada ${scope}).`,
+  guardPermission: (names) => `Untuk meminta ini kamu perlu salah satu izin Discord berikut: ${names}.`,
+  guardRateLimit: "Terlalu banyak permintaan saat ini. Tunggu satu menit lalu coba lagi.",
+  guardDuplicate: "Aksi yang persis sama baru saja dijalankan. Tidak saya ulangi.",
+  guardNoConfirmer: "Aksi ini perlu dikonfirmasi seseorang, dan itu hanya bisa di channel Discord.",
 };
 
 export type Strings = typeof en;
