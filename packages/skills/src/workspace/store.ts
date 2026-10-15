@@ -1,5 +1,6 @@
 import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { IndexedWorkspaceStore } from "./search.js";
 
 export const MAX_FILE_BYTES = 256 * 1024;
 /** Filed documents (PDF, DOCX, ...) are stored as bytes and never read back as text through `read`. */
@@ -19,6 +20,8 @@ export interface WorkspaceStore {
   /** A new binary file; refuses to replace one. */
   writeBytes(tenantId: string, path: string, bytes: Uint8Array): Promise<{ version: string }>;
   list(tenantId: string, path: string): Promise<WorkspaceEntry[]>;
+  /** Every file below a folder, at any depth, with its version, in the order a walk of `list` gives. Names starting with "." and everything inside them are left out. No entry cap. */
+  files(tenantId: string, path: string): Promise<{ path: string; version: string }[]>;
   /** Refuses to overwrite. */
   move(tenantId: string, from: string, to: string): Promise<void>;
   /** A file, or a folder only when empty. */
@@ -129,6 +132,28 @@ export class LocalWorkspaceStore implements WorkspaceStore {
     });
   }
 
+  async files(tenantId: string, path: string) {
+    const { base, target } = this.locate(tenantId, path);
+    const found: { path: string; version: string }[] = [], walked = new Set<string>();
+    const walk = (dir: string) => {
+      let names: string[];
+      try { names = readdirSync(dir); } catch { return; }
+      for (const name of names.sort()) {
+        if (name.startsWith(".")) continue;
+        const full = join(dir, name);
+        try {
+          const stat = statSync(full), real = realpathSync(full);
+          if (real !== base && !real.startsWith(base + sep)) continue;
+          if (stat.isFile()) found.push({ path: relative(base, full).split(sep).join("/"), version: versionOf(stat) });
+          else if (stat.isDirectory() && !walked.has(real)) { walked.add(real); walk(full); }
+        } catch {}
+      }
+    };
+    try { walked.add(realpathSync(target)); } catch { return found; }
+    walk(target);
+    return found;
+  }
+
   async move(tenantId: string, from: string, to: string) {
     const a = this.locate(tenantId, from), b = this.locate(tenantId, to);
     return this.serial(`${tenantId}/${to}`, () => {
@@ -152,11 +177,11 @@ export class LocalWorkspaceStore implements WorkspaceStore {
   }
 }
 
-let store: WorkspaceStore | null = null;
-/** The configured driver. Local disk is the default; WORKSPACE_DRIVER=s3 is reserved for a later release. */
-export function workspaceStore(): WorkspaceStore {
+let store: IndexedWorkspaceStore | null = null;
+/** The configured driver, behind the search index. Local disk is the default; WORKSPACE_DRIVER=s3 is reserved for a later release. */
+export function workspaceStore(): IndexedWorkspaceStore {
   if (store) return store;
   const driver = process.env.WORKSPACE_DRIVER || "local";
   if (driver !== "local") throw new Error(`Workspace driver "${driver}" is not available yet`);
-  return (store = new LocalWorkspaceStore(process.env.WORKSPACE_DIR || "./data/workspace"));
+  return (store = new IndexedWorkspaceStore(new LocalWorkspaceStore(process.env.WORKSPACE_DIR || "./data/workspace")));
 }
