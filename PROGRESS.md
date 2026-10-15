@@ -942,3 +942,12 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
     - #147's access filter runs at query time: `searchFiles` passes the index's matches through `threadAccess(ctx).filter`, then caps at 50, so unreadable thread folders and `threads/<tid>.md` bindings never return or use up the cap. #147's per-folder `readable` parameter is gone.
     - Known limits: an on-disk change in the same ms to the same size isn't re-read (version = mtime+size). The index is per process: empty after a restart, it fills as searches run. A too-large or unreadable file is indexed with no text, so only its name matches.
     - Verification: `bun run typecheck` exits 0; `bun test` 654 pass, 0 fail across 120 files.
+  - [x] #149 merged into `spec/146-across-channels`: old private-thread files move to the thread's folder.
+    - `packages/skills/src/workspace/threadMove.ts` `moveOldThreadFiles(tenantId, guildId, kindOf)`, run from the bot's ClientReady (`DiscordBotManager.moveOldThreadFiles`, `apps/agent/src/discord/client.ts`), only for guilds in `runtime.guildIds` the client is in; two bots of one tenant in one guild run one after the other.
+    - Minutes under `channels/<c>/minutes/` whose `postedIn` ≠ `<c>` move.
+    - Notes under `channels/<c>/notes/` (any depth) move when their source links point to exactly one channel id ≠ `<c>` in the guild; starter-message links point at the parent, so those stay.
+    - A thread counts as private when fetch returns a PrivateThread, nothing, or throws. Target: `threadFolder(g,c,t)/<minutes|notes>/<same relative path>`.
+    - Moves go through `workspaceStore().move`, so the index stays current. Never overwrites: a taken name stays, is logged and listed under `notMoved`.
+    - Once per guild: hidden marker `guilds/<g>/.private-threads-moved.json` `{at, moved, notMoved}`, written only once `guilds/<g>/channels` has folders.
+    - Known limits: taken names need an operator; the report is only in logs and the hidden marker; a failed lookup counts as private; a Note linking several threads stays; Documents, Decisions and other Notes stay (spec).
+    - Verification: `bun run typecheck` exits 0; `bun test` 658 pass, 0 fail across 121 files.
