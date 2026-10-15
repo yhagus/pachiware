@@ -8,6 +8,7 @@ import { describeBriefImages, describeBriefImagesTool } from "../briefImages.js"
 import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 import { forget, memoryLevel, remember } from "../workspace/memory.js";
 import { fileDocument, filesRoot, isDocument } from "../workspace/files.js";
+import { keepNote, keptDocument } from "../workspace/notes.js";
 import { textIn } from "../language.js";
 import { hasPermission } from "../permissions.js";
 
@@ -51,7 +52,7 @@ export const workspaceSkill: SkillModule = {
   description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
   capabilities: ["workspace"],
   allowedScopes: ["tenant"],
-  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, searchFiles: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true }, remember: { effect: "write", requiresConfirmation: false }, forget: { effect: "write", requiresConfirmation: false }, saveAttachment: { effect: "write", requiresConfirmation: false } },
+  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, searchFiles: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true }, remember: { effect: "write", requiresConfirmation: false }, forget: { effect: "write", requiresConfirmation: false }, saveAttachment: { effect: "write", requiresConfirmation: false }, keepAsNote: { effect: "write", requiresConfirmation: false } },
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "readFile", description: "Reads a Markdown file from the Workspace.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
@@ -63,6 +64,7 @@ export const workspaceSkill: SkillModule = {
     { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name; say nothing about it unless asked. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { level: levelArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["level", "text"] } },
     { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { level: levelArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["level", "match"] } },
     { name: "saveAttachment", description: "Files one attachment of a message in this channel under files/, when a person asks to keep a file that was not sent to the bot. Same rules as files sent to the bot: PDF, DOCX, XLSX, CSV, MD or TXT, 10 MB at most, a taken name gets -2.", parameters: { type: "object", properties: { messageId: { type: "string", description: 'The message id from the file placeholder, e.g. "[file: report.pdf (message 123)]"' }, name: { type: "string", description: "Attachment name, when the message holds more than one file" } }, required: ["messageId"] } },
+    { name: "keepAsNote", description: "Keeps text a person gave you as a new Note, word for word: the server copies a Document's text (a PDF's or DOCX's extracted text) under notes/, headed with who wrote it, who asked and the date, however long it is. Use it when a person asks to keep that text as it is; use writeFile for your own writing. The Document stays in files/. Refuses a path that exists.", parameters: { type: "object", properties: { document: { type: "string", description: 'The Document under files/, e.g. "channel/files/minutes.pdf"' }, path: { type: "string", description: 'The new Note under notes/, e.g. "channel/notes/2026-10-14-minutes.md"' } }, required: ["path"] } },
     postBriefRoundTool,
     recordBriefAnswersTool,
     writeIssueDraftTool,
@@ -126,11 +128,17 @@ export const workspaceSkill: SkillModule = {
       const candidates = wanted ? message.attachments.filter((a) => a.name.toLowerCase() === wanted) : documents.length ? documents : message.attachments;
       if (!candidates.length) throw new Error(t.saveNoFile);
       if (candidates.length > 1) throw new Error(t.saveWhich(candidates.map((a) => a.name)));
-      const outcome = await fileDocument(ctx.tenantId, ctx, candidates[0]!);
+      const outcome = await fileDocument(ctx.tenantId, ctx, candidates[0]!, { givenBy: { name: message.authorName, id: message.authorId } });
       if ("reason" in outcome) throw new Error(t.notFiled[outcome.reason]);
       await labelFolder(ctx, filesRoot(ctx)!);
       const text = !outcome.text ? {} : "path" in outcome.text ? { text: outcome.text.path } : { note: t.textNotExtracted };
       return { path: outcome.path, name: candidates[0]!.name, messageId: message.id, ...text };
+    },
+    keepAsNote: async (args, ctx) => {
+      if (typeof args.document !== "string" || !args.document.trim()) throw new Error("document is required");
+      const kept = await keepNote(ctx, args.path, [await keptDocument(ctx, args.document.trim())]);
+      await labelFolder(ctx, filesRoot(ctx)!);
+      return { success: true, path: kept.path, source: args.document.trim() };
     },
     postBriefRound,
     recordBriefAnswers,

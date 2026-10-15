@@ -1,6 +1,7 @@
 import type { Message } from "discord.js";
 import { textIn, jumpLink, fileDocument, takenNames, type Filed, type Language, type Strings } from "@pachiware/skills";
 import type { ImagePart } from "../llm/types.js";
+import { speakerName } from "./routing.js";
 
 const MAX_IMAGES = 4;
 const MAX_EDGE = 2000;
@@ -47,7 +48,7 @@ export async function fileTurnDocuments(tenantId: string, items: { msg: Message;
     for (const a of attachmentsOf(msg).filter((a) => !isImage(a))) {
       const names = taken.get(key) ?? (await takenNames(tenantId, where).catch(() => new Set<string>()));
       taken.set(key, names);
-      const outcome = await fileDocument(tenantId, where, a, names).catch(() => ({ reason: "download" as const }));
+      const outcome = await fileDocument(tenantId, where, a, { taken: names, givenBy: { name: speakerName(msg), id: msg.author.id } }).catch(() => ({ reason: "download" as const }));
       notes.set(a.id, "path" in outcome ? `[file: ${a.name} saved as ${outcome.path}${textNote(outcome, t)}]` : filePlaceholder(a, msg, t.notFiled[outcome.reason]));
     }
   }

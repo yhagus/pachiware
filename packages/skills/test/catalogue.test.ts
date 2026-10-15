@@ -23,7 +23,7 @@ describe("tool catalogue", () => {
 
   test("danger covers irreversible tools and tools that change access, security or settings, multi-action tools included", () => {
     for (const name of ["archiveChannel", "deleteFile", "repoSecrets", "repoAddMember", "repoSetRole", "repoDelete", "repoTransfer", "repoWebhooks", "repoVariables", "repoSnippets", "orgManageTeam"]) expect([name, tool(name).effect]).toEqual([name, "danger"]);
-    for (const name of ["repoCreateIssue", "repoWriteFile", "createTask", "writeFile", "setChannelTopic", "createBriefIssues"]) expect([name, tool(name).effect]).toEqual([name, "write"]);
+    for (const name of ["repoCreateIssue", "repoWriteFile", "createTask", "writeFile", "keepAsNote", "setChannelTopic", "createBriefIssues"]) expect([name, tool(name).effect]).toEqual([name, "write"]);
     for (const name of ["repoList", "listTasks", "listChannels", "readFile", "briefRead", "gitAccounts"]) expect([name, tool(name).effect]).toEqual([name, "read"]);
   });
 
@@ -38,7 +38,7 @@ describe("tool catalogue", () => {
 
   test("tools keep their descriptions and every skill lists all its tools", () => {
     expect(skill("git_repositories").tools.length).toBe(92);
-    expect(skill("workspace").tools.length).toBe(14);
+    expect(skill("workspace").tools.length).toBe(15);
     expect(skill("reminders").tools.map((t) => t.name)).toEqual(["createReminder", "listReminders", "cancelReminder"]);
     expect(tool("repoList").description).toMatch(/^Lists repositories/);
   });

@@ -152,6 +152,13 @@ const en = {
   saveNoMessage: "I can't find that message in this channel.",
   saveNoFile: "That message has no file attached.",
   saveWhich: (names: string[]) => `That message holds several files: ${names.join(", ")}. Say which one.`,
+  // keepAsNote
+  keepNoPlace: "Notes are kept in a channel's or a DM's folder, and this place has none.",
+  keepNotDocument: (root: string) => `Only a Document under ${root}/files/ can be kept as a Note.`,
+  keepNoDocument: (path: string) => `There is no Document at ${path}.`,
+  keepNoText: (path: string) => `${path} has no text to keep.`,
+  keepNotNotes: (root: string) => `A Note is kept under ${root}/notes/.`,
+  keepTaken: (path: string) => `${path} already exists. Pick another name; I never replace a file this way.`,
 };
 
 const id: typeof en = {
@@ -264,6 +271,12 @@ const id: typeof en = {
   saveNoMessage: "Pesan itu tidak ketemu di channel ini.",
   saveNoFile: "Pesan itu tidak punya lampiran file.",
   saveWhich: (names) => `Pesan itu punya beberapa file: ${names.join(", ")}. Sebutkan yang mana.`,
+  keepNoPlace: "Catatan disimpan di folder channel atau DM, dan tempat ini tidak punya folder.",
+  keepNotDocument: (root) => `Hanya Dokumen di ${root}/files/ yang bisa disimpan sebagai Catatan.`,
+  keepNoDocument: (path) => `Tidak ada Dokumen di ${path}.`,
+  keepNoText: (path) => `${path} tidak punya teks untuk disimpan.`,
+  keepNotNotes: (root) => `Catatan disimpan di ${root}/notes/.`,
+  keepTaken: (path) => `${path} sudah ada. Pilih nama lain; cara ini tidak pernah menimpa file.`,
 };
 
 export type Strings = typeof en;

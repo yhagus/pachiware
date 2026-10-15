@@ -15,6 +15,10 @@ export type Extracted = { path: string } | { failed: true };
 /** `path` is the agent-facing path (`channel/files/report.pdf`), which `readFile` and `searchFiles` accept; `text` is set for a PDF or DOCX. */
 export type Filed = { path: string; bytes: Uint8Array; text?: Extracted };
 export type NotFiled = { reason: NotFiledReason };
+/** The person who gave a Document to the bot; a Note kept from it names them as its author. */
+export type Giver = { name: string; id: string };
+/** What the place remembers about a filed Document: who gave it, and for a PDF or DOCX where its text went. */
+export type Provenance = Giver & { text?: string };
 type Where = Pick<SkillContext, "guildId" | "channelId" | "parentChannelId" | "userId">;
 
 export const isDocument = (name: string) => (DOCUMENT_TYPES as readonly string[]).includes(extensionOf(name));
@@ -52,7 +56,7 @@ export function freeName(name: string, taken: Set<string>) {
  * Fetches one allowed document and writes it into `files/` under the turn's folder, never over an existing file.
  * A PDF's or DOCX's text then goes to a sibling `<name>.md` for `searchFiles`; `saveAttachment` calls this for a named message.
  */
-export async function fileDocument(tenantId: string, where: Where, doc: Document, taken?: Set<string>): Promise<Filed | NotFiled> {
+export async function fileDocument(tenantId: string, where: Where, doc: Document, { taken, givenBy }: { taken?: Set<string>; givenBy?: Giver } = {}): Promise<Filed | NotFiled> {
   const reason = documentReason(doc);
   if (reason) return { reason };
   const root = filesRoot(where);
@@ -62,7 +66,40 @@ export async function fileDocument(tenantId: string, where: Where, doc: Document
   if (!bytes || bytes.byteLength > MAX_DOCUMENT_BYTES) return { reason: bytes ? "tooLarge" : "download" };
   const name = freeName(safeName(doc.name), names), path = `${root}/files/${name}`;
   await workspaceStore().writeBytes(tenantId, resolvePath(where, path), bytes);
-  return extractsText(name) ? { path, bytes, text: await extractInto(tenantId, where, root, name, bytes, names) } : { path, bytes };
+  if (!extractsText(name)) {
+    if (givenBy) await recordProvenance(tenantId, where, path, givenBy);
+    return { path, bytes };
+  }
+  const text = await extractInto(tenantId, where, root, name, bytes, names);
+  if (givenBy) {
+    await recordProvenance(tenantId, where, path, { ...givenBy, ...("path" in text && { text: text.path }) });
+    if ("path" in text) await recordProvenance(tenantId, where, text.path, givenBy);
+  }
+  return { path, bytes, text };
+}
+
+/** Kept in a hidden `.documents/` folder of the place, outside `files/`, so listing `files/` shows only Documents. */
+function provenancePath(where: Where, path: string) {
+  const [root, ...rest] = path.split("/");
+  const dir = visibleRoots(where)[root!];
+  return dir && rest.length ? `${dir}/.documents/${rest.join("/")}.json` : null;
+}
+
+/** Best effort: a Document is filed even when this fails, and a stale record of an earlier file of the same name is replaced. */
+async function recordProvenance(tenantId: string, where: Where, path: string, record: Provenance) {
+  const at = provenancePath(where, path);
+  if (!at) return;
+  try { await workspaceStore().write(tenantId, at, JSON.stringify(record), (await workspaceStore().read(tenantId, at))?.version); } catch {}
+}
+
+/** Who gave the Document at `path` (agent-facing), when it was filed with a giver; null for a file filed otherwise. */
+export async function provenanceOf(tenantId: string, where: Where, path: string): Promise<Provenance | null> {
+  const at = provenancePath(where, path);
+  const file = at ? await workspaceStore().read(tenantId, at).catch(() => null) : null;
+  try {
+    const record = file && JSON.parse(file.content);
+    return typeof record?.name === "string" && typeof record.id === "string" ? { name: record.name, id: record.id, ...(typeof record.text === "string" && { text: record.text }) } : null;
+  } catch { return null; }
 }
 
 async function extractInto(tenantId: string, where: Where, root: string, name: string, bytes: Uint8Array, names: Set<string>): Promise<Extracted> {
