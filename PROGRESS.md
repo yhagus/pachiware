@@ -1072,3 +1072,9 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
       - `ConversationRepository.remove(tenantId, id)` deletes a conversation and its messages in one transaction on every engine; nothing in production calls it yet.
       - Due schedules read through `schedules_due_idx` (status, `nextAt`, `_id`); an explain plan showed no sort step. Another tenant's bot is refused inside the insert's transaction.
     - Verification after both: `bun test` 800 pass, 227 skip, 0 fail; contract plus `mongo-migrations` SQLite 86, PostgreSQL 86, MongoDB 62 pass (Skills, Availability and Git skip until #170); `database-engine.test.ts` on MongoDB 12 pass, 1 skip.
+    - [x] #170 merged (3e69e1f): MongoDB `git` (reusing `rules.ts`), `skills` and `availability` (steps `0200-skills`, `0210-availability-rules`, `0220-git`). Every repository now runs on MongoDB; the `notOnMongoYet` stand-in is gone.
+      - The seed registers built-in skills through `repos.skills.register` on every engine; the MongoDB harness reset clears and re-registers skills like SQL. Linking a git account switches the git skill on through `skills.enable`.
+      - Behaviour: deleting a git account removes its bot links and Git scopes in one transaction on every engine (PostgreSQL used to refuse with a foreign-key error when a deleted bot kept a link). The admin route still refuses while a live bot uses the account.
+      - Parity limit, as on SQL: a link or availability rule checks the git account's tenant, not the bot's.
+      - Flaky once: "updatedAt >= createdAt" on PostgreSQL, from about 110 ms of clock skew between the database's `createdAt` and the host's update time.
+      - Verification: `bun test` 802 pass, 231 skip, 0 fail; contract plus `mongo-migrations` SQLite 88, PostgreSQL 88, MongoDB 91 pass, no MongoDB suite skips; `database-engine.test.ts` 12 pass, 1 skip (the standalone server, which needs `TEST_MONGODB_STANDALONE_URL`).
