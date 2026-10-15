@@ -57,7 +57,6 @@ test("web chat cannot read or search another channel's Minutes", () => {
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, eq } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         const { workspaceStore } = await imp("packages/skills/src/workspace/store.ts");
         await runMigrations(); await runSeed();

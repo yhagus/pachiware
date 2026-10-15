@@ -1,4 +1,4 @@
-import { db, repositories, type Message } from "@pachiware/db";
+import { repositories, type Message } from "@pachiware/db";
 import { dropLeadingOrphans, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
@@ -99,11 +99,11 @@ export class AgentReActLoop {
     // Guardrail before the loop: refuse rule-rewriting messages, answer the rest however long.
     const verdict = GuardrailService.classify(input.message, input.replyLanguage);
     if (!verdict.decision.allow && isEnforced(verdict.decision.kind)) {
-      const auditCtx = { db, tenantId: input.tenantId, botId: input.botId };
+      const auditCtx = { tenantId: input.tenantId, botId: input.botId };
       await audit(auditCtx, verdict.decision.kind === "prompt_injection" ? "prompt_injection_detected" : "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", platform: input.context.platform });
       return { conversationId: convId, reply: verdict.decision.message, toolCallsExecuted, iterations: 0, historyOffset: 0 };
     }
-    else if (!verdict.decision.allow) await audit({ db, tenantId: input.tenantId, botId: input.botId }, "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", observed: true });
+    else if (!verdict.decision.allow) await audit({ tenantId: input.tenantId, botId: input.botId }, "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", observed: true });
 
     // 2. Build dynamic system prompt
     const place = availabilityPlace({ tenantId: input.tenantId, botId: input.botId, guildId: input.context.guildId, channelId: input.context.channelId, parentChannelId: input.context.skillContext?.parentChannelId });
@@ -149,7 +149,6 @@ export class AgentReActLoop {
 
     // 6. Build execution context for tools
     const skillContext: SkillContext = {
-      db,
       tenantId: input.tenantId,
       botId: input.botId,
       discord: input.context.skillContext?.discord,

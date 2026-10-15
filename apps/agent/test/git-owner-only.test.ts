@@ -14,7 +14,7 @@ test("a danger effect does not make a git tool owner-only: owner-only stays exac
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, encryptSecret } = await imp("packages/db/src/index.ts");
+        const { encryptSecret } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const { skillRegistry } = await imp("packages/skills/src/registry.ts");
@@ -28,7 +28,7 @@ test("a danger effect does not make a git tool owner-only: owner-only stays exac
         const calls = [];
         globalThis.fetch = async (url, init) => { calls.push((init?.method ?? "GET") + " " + url); return Response.json({}); };
         process.env.GIT_OWNER_DISCORD_IDS = "owner";
-        const ctx = (userId) => ({ db, tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1", userId });
+        const ctx = (userId) => ({ tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1", userId });
         const run = (name, args, userId = "alice") => skillRegistry.executeTool({ id: name, name, arguments: args }, ctx(userId));
         const effect = (name) => skillRegistry.catalogue().flatMap((s) => s.tools).find((x) => x.name === name).effect;
 

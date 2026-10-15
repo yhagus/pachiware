@@ -14,7 +14,7 @@ test("LLM lists repos then merge requests of the first one; scope hides other re
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, encryptSecret } = await imp("packages/db/src/index.ts");
+        const { encryptSecret } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const { agentReActLoop } = await imp("apps/agent/src/loop/react.ts");
@@ -65,10 +65,10 @@ test("LLM lists repos then merge requests of the first one; scope hides other re
         // Direct call outside the pattern is refused before reaching the provider.
         urls.length = 0;
         const { skillRegistry } = await imp("packages/skills/src/registry.ts");
-        const refused = await skillRegistry.executeTool({ id: "x", name: "repoMergeRequests", arguments: { repo: "secret/vault" } }, { db, tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1" });
+        const refused = await skillRegistry.executeTool({ id: "x", name: "repoMergeRequests", arguments: { repo: "secret/vault" } }, { tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1" });
         assert(!refused.success && refused.error.includes("not enabled") && urls.length === 0, "out-of-scope repo allowed");
         // Another server has no rule.
-        const other = await skillRegistry.executeTool({ id: "y", name: "repoList", arguments: {} }, { db, tenantId: t.id, botId: bot.id, guildId: "g2", channelId: "c9" });
+        const other = await skillRegistry.executeTool({ id: "y", name: "repoList", arguments: {} }, { tenantId: t.id, botId: bot.id, guildId: "g2", channelId: "c9" });
         assert(!other.success && other.error.includes("No git account"), "other server not closed");
         console.log("ok");
       `],

@@ -271,7 +271,7 @@ test("migration replaces only prompts byte-equal to an old default, the first pe
     const result = Bun.spawnSync({
       cmd: ["bun", "--eval", `
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-        import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
         import { repositories } from ${JSON.stringify(join(source, "index.ts"))};
         await runMigrations();
         const prompts = ${JSON.stringify([...OLD_DEFAULTS, "You are Pachiware Agent, a helpful and precise assistant. Answer in Javanese.", "custom persona", PERSONA_85 + "\nAnswer in Javanese."])};
