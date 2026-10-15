@@ -1030,6 +1030,10 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
     - The pre-push hook blanks `TEST_POSTGRES_URL` and `TEST_MONGODB_URL`.
     - Verification: `bun run typecheck` exits 0; `bun test` 722 pass, 13 skip, 0 fail across 126 files; contract suite 22/22 with PostgreSQL.
   - [ ] #161–#166 move the remaining records to repositories (blocked by #160)
+    - [x] #162 merged (def4b52): `bots: BotRepository` in `packages/db/src/repositories/bots/` replaces `listAllActiveBots` and the bot and guild-config helpers in `tenancy.ts`. It covers token encryption, the admin list's case-insensitive search with count and paging, the bot-delete tombstone (which also removes the bot's availability rules), and guild configs.
+      - Behaviour: updating a deleted bot does nothing and returns null, so a late gateway event cannot revive it. Bot answers drop the unused `gitAccountId` column and `publicBot`. The v1 bot list is oldest first.
+      - The bots suite sets `PLATFORM_ENCRYPTION_KEY` itself; it may move into the harness.
+      - Verification: `bun test` 733 pass, 26 skip, 0 fail across 127 files; contract 44/44 with PostgreSQL.
   - [ ] #167 the database package exports repositories only (blocked by #161–#166)
   - [ ] #168 MongoDB foundation, with Tenants and API keys (blocked by #156, #160)
   - [ ] #169–#172 MongoDB repositories and setup (held until `TEST_MONGODB_URL` points at a live replica set, as the user asked)
