@@ -3,6 +3,9 @@ import { tenantMigrations } from "../repositories/tenants/mongo.js";
 import { botMigrations } from "../repositories/bots/mongo.js";
 import { profileMigrations } from "../repositories/profiles/mongo.js";
 import { usageMigrations } from "../repositories/usage/mongo.js";
+import { scheduleMigrations } from "../repositories/schedules/mongo.js";
+import { taskRowMigrations } from "../repositories/task-rows/mongo.js";
+import { conversationMigrations } from "../repositories/conversations/mongo.js";
 import { skillMigrations } from "../repositories/skills/mongo.js";
 import { availabilityMigrations } from "../repositories/availability/mongo.js";
 import { gitMigrations } from "../repositories/git/mongo.js";
@@ -14,6 +17,9 @@ export const MONGO_MIGRATIONS: MongoMigration[] = [
   ...botMigrations,
   ...profileMigrations,
   ...usageMigrations,
+  ...scheduleMigrations,
+  ...taskRowMigrations,
+  ...conversationMigrations,
   ...skillMigrations,
   ...availabilityMigrations,
   ...gitMigrations,

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, setSystemTime, test } from "bun:test";
 import { contract } from "./engines.ts";
 
 // Bots keep their tokens encrypted, so adding one needs a platform key; the one a developer set is kept.
@@ -44,6 +44,22 @@ contract("Conversations and messages", (use) => {
     expect((await conversations.listMessages(acme.id, chat.id, { offset: 1, limit: 1 })).map((m) => m.role)).toEqual(["assistant"]);
   });
 
+  test("messages written within the same millisecond keep the order they were added in", async () => {
+    const { conversations } = use().repos;
+    const acme = await tenant("acme");
+    const chat = await conversations.create({ tenantId: acme.id, platform: "web" });
+    const contents = Array.from({ length: 12 }, (_, i) => `m${i}`);
+    setSystemTime(new Date("2026-10-16T09:00:00.000Z"));
+    try {
+      for (const content of contents) await conversations.addMessage({ tenantId: acme.id, conversationId: chat.id, role: "user", content });
+    } finally {
+      setSystemTime();
+    }
+    expect((await conversations.listMessages(acme.id, chat.id, { offset: 0, limit: 20 })).map((m) => m.content)).toEqual(contents);
+    expect((await conversations.listMessages(acme.id, chat.id, { offset: 5, limit: 3 })).map((m) => m.content)).toEqual(["m5", "m6", "m7"]);
+    expect((await conversations.latestMessages(acme.id, chat.id, { limit: 4 })).map((m) => m.content)).toEqual(["m8", "m9", "m10", "m11"]);
+  });
+
   test("a message joins only a conversation of its own tenant, and only that tenant reads it", async () => {
     const { conversations } = use().repos;
     const [acme, other] = [await tenant("acme"), await tenant("other")];
@@ -54,6 +70,27 @@ contract("Conversations and messages", (use) => {
     expect(await conversations.countMessages(acme.id, chat.id)).toBe(1);
     expect(await conversations.countMessages(other.id, chat.id)).toBe(0);
     expect(await conversations.listMessages(other.id, chat.id, { offset: 0, limit: 10 })).toEqual([]);
+  });
+
+  test("deleting a conversation removes its messages, for that tenant only, and keeps every other conversation", async () => {
+    const { conversations } = use().repos;
+    const [acme, other] = [await tenant("acme"), await tenant("other")];
+    const doomed = await conversations.create({ tenantId: acme.id, platform: "web" });
+    const kept = await conversations.create({ tenantId: acme.id, platform: "web" });
+    for (const chat of [doomed, kept]) {
+      await conversations.addMessage({ tenantId: acme.id, conversationId: chat.id, role: "user", content: "hello" });
+      await conversations.addMessage({ tenantId: acme.id, conversationId: chat.id, role: "assistant", content: "hi" });
+    }
+    expect(await conversations.remove(other.id, doomed.id)).toBe(false);
+    expect(await conversations.countMessages(acme.id, doomed.id)).toBe(2);
+
+    const owned = await use().ownedRecords(acme.id);
+    expect(await conversations.remove(acme.id, doomed.id)).toBe(true);
+    expect(await conversations.get(acme.id, doomed.id)).toBeNull();
+    expect(await conversations.countMessages(acme.id, doomed.id)).toBe(0);
+    expect(await use().ownedRecords(acme.id)).toBe(owned - 3);
+    expect(await conversations.countMessages(acme.id, kept.id)).toBe(2);
+    expect(await conversations.remove(acme.id, doomed.id)).toBe(false);
   });
 
   test("setting metadata replaces it, for that tenant only", async () => {

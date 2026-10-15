@@ -76,6 +76,8 @@ export interface ConversationRepository {
   listForBot(botId: string, options: { channelId?: string; limit: number }): Promise<ConversationListing[]>;
   /** Replaces the conversation's metadata. */
   setMetadata(tenantId: string, id: string, metadata: Record<string, any>): Promise<void>;
+  /** Deletes a conversation of this tenant with all its messages; false when there was none. */
+  remove(tenantId: string, id: string): Promise<boolean>;
 
   /** Adds a message to a conversation of the same tenant; any other conversation rejects. */
   addMessage(input: NewMessage): Promise<Message>;
