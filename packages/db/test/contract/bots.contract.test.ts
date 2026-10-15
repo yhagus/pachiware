@@ -33,6 +33,15 @@ contract("Bots and guild configuration", (use) => {
     await expect(bots.create({ tenantId: acme.id, token: "t" })).rejects.toThrow("Tenant not found");
   });
 
+  test("a bot naming a profile that does not exist is rejected", async () => {
+    const { bots } = use().repos;
+    const acme = await tenant("acme");
+    await expect(bots.create({ tenantId: acme.id, token: "t", profileId: "missing" })).rejects.toThrow();
+    const bot = await bots.create({ tenantId: acme.id, token: "t" });
+    await expect(bots.update(bot.id, { profileId: "missing" })).rejects.toThrow();
+    expect(await bots.listForTenant(acme.id)).toEqual([bot]);
+  });
+
   test("a bot is read only within its own tenant when one is named", async () => {
     const { bots } = use().repos;
     const [a, b] = [await tenant("a"), await tenant("b")];

@@ -7,14 +7,19 @@ import type { ScheduleRepository } from "./schedules/types.js";
 import { createSqlTaskRowRepository } from "./task-rows/sql.js";
 import type { TaskRowRepository } from "./task-rows/types.js";
 import { createSqlProfileRepository } from "./profiles/sql.js";
+import { createMongoProfileRepository } from "./profiles/mongo.js";
 import type { ProfileRepository } from "./profiles/types.js";
 import { createSqlAgentConfigRepository } from "./agent-config/sql.js";
+import { createMongoAgentConfigRepository } from "./agent-config/mongo.js";
 import type { AgentConfigRepository } from "./agent-config/types.js";
 import { createSqlUsageRepository } from "./usage/sql.js";
+import { createMongoUsageRepository } from "./usage/mongo.js";
 import type { UsageRepository } from "./usage/types.js";
 import { createSqlStatsRepository } from "./stats/sql.js";
+import { createMongoStatsRepository } from "./stats/mongo.js";
 import type { StatsRepository } from "./stats/types.js";
 import { createSqlBotRepository } from "./bots/sql.js";
+import { createMongoBotRepository } from "./bots/mongo.js";
 import type { BotRepository } from "./bots/types.js";
 import { createSqlSkillRepository } from "./skills/sql.js";
 import type { SkillRepository } from "./skills/types.js";
@@ -79,13 +84,13 @@ export function createRepositories(connection: Connection): Repositories {
     case "mongodb":
       return {
         tenants: createMongoTenantRepository(connection),
-        profiles: notOnMongoYet("Profiles"),
-        agentConfig: notOnMongoYet("Agent configuration"),
-        usage: notOnMongoYet("Usage"),
-        stats: notOnMongoYet("Stats"),
+        profiles: createMongoProfileRepository(connection),
+        agentConfig: createMongoAgentConfigRepository(connection),
+        usage: createMongoUsageRepository(connection),
+        stats: createMongoStatsRepository(connection),
         schedules: notOnMongoYet("Schedules"),
         taskRows: notOnMongoYet("Task rows"),
-        bots: notOnMongoYet("Bots"),
+        bots: createMongoBotRepository(connection),
         skills: notOnMongoYet("Skills"),
         availability: notOnMongoYet("Availability rules"),
         conversations: notOnMongoYet("Conversations"),
