@@ -8,7 +8,6 @@ export interface ThreadMoveReport { moved: { from: string; to: string }[]; taken
 
 /** Written once a guild's old files were moved, with what could not be; a later connect leaves the guild alone. */
 const doneMarker = (guildId: string) => `guilds/${guildId}/.private-threads-moved.json`;
-const MAX_DEPTH = 6;
 const LINK = /^https:\/\/discord\.com\/channels\/([^/]+)\/([^/]+)\/[^/]+$/;
 const running = new Map<string, Promise<ThreadMoveReport | null>>();
 
@@ -54,15 +53,9 @@ async function run(store: WorkspaceStore, tenantId: string, guildId: string, kin
   return report;
 }
 
-/** Every Markdown file under `dir`, hidden ones skipped. */
-async function files(store: WorkspaceStore, tenantId: string, dir: string, depth = 0): Promise<string[]> {
-  const out: string[] = [];
-  for (const e of await store.list(tenantId, dir).catch(() => [])) {
-    if (e.path.split("/").pop()!.startsWith(".")) continue;
-    if (e.type === "dir") { if (depth < MAX_DEPTH) out.push(...await files(store, tenantId, e.path, depth + 1)); }
-    else if (e.path.endsWith(".md")) out.push(e.path);
-  }
-  return out;
+/** Every Markdown file under `dir` at any depth, hidden ones skipped. */
+async function files(store: WorkspaceStore, tenantId: string, dir: string) {
+  return (await store.files(tenantId, dir).catch(() => [])).map((f) => f.path).filter((p) => p.endsWith(".md"));
 }
 
 /** The thread a Minutes record was posted in, when it was not the channel itself. */

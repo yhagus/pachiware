@@ -13,7 +13,6 @@ const oldMinutes = (postedIn: string, decided: string, channelId = "channel-1", 
   "---",
   `**Decided**\n- ${decided}\n`,
 ].join("\n");
-const said = (turn: any) => JSON.stringify(turn.toolResults.map((r: any) => r.error ?? r.content));
 
 discordScenario("old Minutes posted in a private thread move to its folder when the bot connects, out of reach of the parent's other members", async (s) => {
   await s.guildSettings({ language: "en", useThreads: false });
@@ -29,14 +28,18 @@ discordScenario("old Minutes posted in a private thread move to its folder when 
     s.model.script([
       { tool: "readFile", args: { path: "channel/minutes/2026-10-01-salaries.md" } },
       { tool: "readFile", args: { path: "channel/threads/thread-p/minutes/2026-10-01-salaries.md" } },
-    ], said);
+      { tool: "searchFiles", args: { query: "Dana", path: "channel" } },
+    ], (turn) => JSON.stringify(turn.toolResults.map((r: any) => r.error ?? r.content ?? r.matches.map((m: any) => m.path))));
     await s.discord.send(`${s.discord.mention} what were the salary decisions?`, { author: user });
     return JSON.parse(s.discord.botMessages.at(-1)!.content);
   };
-  const [gone, moved] = await ask(bob);
+  const [gone, moved, found] = await ask(bob);
   expect(gone).toContain("not found");
   expect(moved).toBe("Only people added to that private thread can have its files read.");
-  expect((await ask(alice))[1]).toContain("Salary band 5 for Dana");
+  expect(found).toEqual([]);
+  const forAlice = await ask(alice);
+  expect(forAlice[1]).toContain("Salary band 5 for Dana");
+  expect(forAlice[2]).toEqual(["channel/threads/thread-p/minutes/2026-10-01-salaries.md"]);
 });
 
 /** A Note kept from messages before a private thread had its own folder: the source links name the channel each message was in. */
