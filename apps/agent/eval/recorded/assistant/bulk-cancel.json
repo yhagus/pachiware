@@ -1,0 +1,119 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "bulk-cancel",
+  "turns": [
+    {
+      "n": 1,
+      "message": "cancel all of Bob's tasks, he's off the project",
+      "replies": [
+        "These four tasks of Bob's would be cancelled:\npending | due 2026-10-16 | Bob | 00000001 | Draft the sponsor email\npending | due 2026-10-19 | Bob | 00000002 | Book the photographer\nin_progress | no due date | Bob | 00000004 | Order the banners\npending | no due date | Bob | 00000003 | Print the badges\nCancel all four?"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Book the photographer",
+            "status": "pending",
+            "dueAt": "2026-10-19",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Confirm the venue",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Draft the sponsor email",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Order the banners",
+            "status": "in_progress",
+            "dueAt": null,
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Print the badges",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "yes, cancel them",
+      "replies": [
+        "Cancelled 4 of Bob's tasks: sponsor email, photographer, badges, banners."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Book the photographer",
+            "status": "cancelled",
+            "dueAt": "2026-10-19",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Confirm the venue",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Draft the sponsor email",
+            "status": "cancelled",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Order the banners",
+            "status": "cancelled",
+            "dueAt": null,
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Print the badges",
+            "status": "cancelled",
+            "dueAt": null,
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}
