@@ -1,5 +1,5 @@
 import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type SendableChannels, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
-import { repositories, db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, updateBot, eq } from "@pachiware/db";
+import { repositories, db, agentsConfig, conversations, usageEvents, eq } from "@pachiware/db";
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
@@ -121,7 +121,7 @@ export class DiscordBotManager {
     return pending;
   }
   async startAll() {
-    const active = await listAllActiveBots();
+    const active = await repositories().bots.listRunnable();
     await Promise.allSettled(active.map(({ bot }: any) => this.startBot(bot.id)));
   }
   startBot(id: string) { return this.serialize(id, () => this.start(id)); }
@@ -135,15 +135,14 @@ export class DiscordBotManager {
     const runtime = this.clients.get(id);
     this.clients.delete(id);
     if (runtime) await runtime.client.destroy();
-    const [row] = await db.select().from(bots).where(eq(bots.id, id)).limit(1);
-    if (row && row.connectionStatus !== "deleted") await updateBot(id, { connectionStatus: "disconnected" });
+    await repositories().bots.update(id, { connectionStatus: "disconnected" });
     return { success: true, message: "Bot stopped." };
   }
   private async start(id: string) {
     if (this.clients.has(id)) return { success: true, message: "Bot already started." };
     let resolved;
-    try { resolved = await getBotDecrypted(id); }
-    catch { await updateBot(id, { connectionStatus: "error", lastError: "Unable to decrypt bot token." }); return { success: false, message: "Unable to decrypt bot token." }; }
+    try { resolved = await repositories().bots.getWithToken(id); }
+    catch { await repositories().bots.update(id, { connectionStatus: "error", lastError: "Unable to decrypt bot token." }); return { success: false, message: "Unable to decrypt bot token." }; }
     if (!resolved) return { success: false, message: "Bot not found." };
     const { bot, token } = resolved;
     const tenant = await repositories().tenants.get(bot.tenantId);
@@ -151,19 +150,19 @@ export class DiscordBotManager {
     const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages], partials: [Partials.Channel, Partials.Message] });
     const runtime: BotRuntime = { client, adapter: adapterFor({ client, guildIds: bot.guildIds }), tenantId: bot.tenantId, connected: false, guildIds: bot.guildIds, globalCleared: false, sentCommands: new Map() };
     this.clients.set(id, runtime);
-    await updateBot(id, { connectionStatus: "connecting", lastError: null });
+    await repositories().bots.update(id, { connectionStatus: "connecting", lastError: null });
     client.once(Events.ClientReady, () => {
       if (this.clients.get(id) !== runtime) return;
       runtime.connected = true;
-      void updateBot(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
+      void repositories().bots.update(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
       this.scheduleCommands(id);
       this.track(this.moveOldThreadFiles(runtime));
     });
     client.on(Events.GuildCreate, () => { if (runtime.connected) this.scheduleCommands(id); });
     client.on(Events.GuildDelete, (guild) => { runtime.sentCommands.delete(guild.id); });
-    client.on(Events.ShardDisconnect, () => { runtime.connected = false; void updateBot(id, { connectionStatus: "disconnected" }).catch(() => {}); });
-    client.on(Events.ShardResume, () => { runtime.connected = true; void updateBot(id, { connectionStatus: "connected" }).catch(() => {}); });
-    client.on(Events.Error, () => { void updateBot(id, { lastError: "Discord gateway error" }).catch(() => {}); });
+    client.on(Events.ShardDisconnect, () => { runtime.connected = false; void repositories().bots.update(id, { connectionStatus: "disconnected" }).catch(() => {}); });
+    client.on(Events.ShardResume, () => { runtime.connected = true; void repositories().bots.update(id, { connectionStatus: "connected" }).catch(() => {}); });
+    client.on(Events.Error, () => { void repositories().bots.update(id, { lastError: "Discord gateway error" }).catch(() => {}); });
     client.on(Events.InteractionCreate, (i) => {
       if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), async (action, result) => (await afterBriefConfirm(runtime.client, runtime.tenantId, action, result)) ?? issueBatchReport(action.tool, result)));
       else if (i.isMessageContextMenuCommand()) this.track(this.handleCommand(id, i));
@@ -176,7 +175,7 @@ export class DiscordBotManager {
     } catch {
       this.clients.delete(id);
       await client.destroy();
-      await updateBot(id, { connectionStatus: "error", lastError: "Discord login failed; verify token, intents, and connectivity." });
+      await repositories().bots.update(id, { connectionStatus: "error", lastError: "Discord login failed; verify token, intents, and connectivity." });
       return { success: false, message: "Discord login failed." };
     }
   }
@@ -224,7 +223,7 @@ export class DiscordBotManager {
       // One guild refusing (no applications.commands scope there) must not keep the others from their commands.
       try { await application.commands.set(commands, guildId); runtime.sentCommands.set(guildId, sent); } catch { refused.push(guildId); }
     }
-    if (refused.length) await updateBot(botId, { lastError: `Discord refused the slash commands in server ${refused.join(", ")}; they are sent again on the next change.` }).catch(() => {});
+    if (refused.length) await repositories().bots.update(botId, { lastError: `Discord refused the slash commands in server ${refused.join(", ")}; they are sent again on the next change.` }).catch(() => {});
   }
   static async testToken(token: string) {
     if (!token) return { success: false, error: "Bot token is empty." };

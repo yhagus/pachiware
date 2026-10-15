@@ -1,9 +1,14 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { contract, type EngineUnderTest } from "./engines.ts";
+
+// Every schedule needs a bot, and bot tokens are encrypted at rest; the platform key a developer set is kept.
+const savedKey = process.env.PLATFORM_ENCRYPTION_KEY;
+beforeAll(() => { process.env.PLATFORM_ENCRYPTION_KEY ||= Buffer.alloc(32, 4).toString("base64"); });
+afterAll(() => { if (savedKey === undefined) delete process.env.PLATFORM_ENCRYPTION_KEY; else process.env.PLATFORM_ENCRYPTION_KEY = savedKey; });
 
 async function setup(engine: EngineUnderTest) {
   const tenant = await engine.repos.tenants.create({ name: "Acme", slug: "acme" });
-  return { tenantId: tenant.id, botId: await engine.addBot(tenant.id) };
+  return { tenantId: tenant.id, botId: (await engine.repos.bots.create({ tenantId: tenant.id, token: crypto.randomUUID() })).id };
 }
 
 contract("Schedules", (use) => {
@@ -46,7 +51,7 @@ contract("Schedules", (use) => {
   test("listing and counting match every field given, soonest first", async () => {
     const { schedules } = use().repos;
     const { tenantId, botId } = await setup(use());
-    const otherBot = await use().addBot(tenantId);
+    const otherBot = (await use().repos.bots.create({ tenantId, token: "other" })).id;
     const other = await setup2(use());
     const add = (text: string, nextAt: string, extra = {}) => schedules.create({ tenantId, botId, guildId: "g1", channelId: "c1", ownerId: "u-alice", text, timezone: "UTC", nextAt: new Date(nextAt), ...extra });
     await add("late", "2026-03-06T12:00:00Z");
@@ -109,5 +114,5 @@ contract("Schedules", (use) => {
 
 async function setup2(engine: EngineUnderTest) {
   const tenant = await engine.repos.tenants.create({ name: "Other", slug: "other" });
-  return { tenantId: tenant.id, botId: await engine.addBot(tenant.id) };
+  return { tenantId: tenant.id, botId: (await engine.repos.bots.create({ tenantId: tenant.id, token: crypto.randomUUID() })).id };
 }

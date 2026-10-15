@@ -14,12 +14,12 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { repositories } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")});
+        const { repositories } = await import(${src("packages/db/src/index.ts")});
         const { setClock } = await import(${src("packages/skills/src/clock.ts")});
         setClock(() => Date.parse("2026-03-06T20:00:00+07:00"));
         await runMigrations(); await runSeed();
         const tenant = await repositories().tenants.create({ name: "Acme", slug: "acme" });
-        const bot = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false });
+        const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
         const admin = { "X-Platform-Key": "digest-admin-key", "Content-Type": "application/json" };
         const call = async (method, path, body, headers = admin) => app.request(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });

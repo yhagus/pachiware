@@ -12,8 +12,8 @@ discordScenario("a tool off in one channel is not offered there but is offered i
 });
 
 discordScenario("a skill off for a bot removes all its tools for that bot only", async (s) => {
-  const { createBot } = await import("../../../packages/db/src/tenancy.ts");
-  const other = await createBot({ tenantId: s.tenant.id, token: "other-token", guildIds: [s.discord.guildId] });
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const other = await repositories().bots.create({ tenantId: s.tenant.id, token: "other-token", guildIds: [s.discord.guildId] });
   await s.availability({ level: "bot", botId: other.id }, { kind: "skill", name: "task_management", value: "off" });
   s.model.script("ok", "ok");
   await s.discord.send(`${s.discord.mention} list my tasks`);

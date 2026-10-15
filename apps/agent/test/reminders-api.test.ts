@@ -12,10 +12,10 @@ function run(body: string) {
     const imp = (p) => import(${JSON.stringify(root + "/")} + p);
     const { runMigrations } = await imp("packages/db/src/migrate.ts"); const { runSeed } = await imp("packages/db/src/seed.ts");
     await runMigrations(); await runSeed();
-    const { createServer } = await imp("apps/agent/src/server.ts"); const tenancy = await imp("packages/db/src/tenancy.ts"); const { repositories } = await imp("packages/db/src/index.ts");
+    const { createServer } = await imp("apps/agent/src/server.ts"); const { repositories } = await imp("packages/db/src/index.ts");
     const app = createServer();
     const call = async (method, path, headers, body) => { const r = await app.request(path, { method, headers, body: body && JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => null) }; };
-    const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await tenancy.createBot({ tenantId: t.id, token: "x" });
+    const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await repositories().bots.create({ tenantId: t.id, token: "x" });
     // Rows as the reminders skill writes them; the console never creates one.
     const insert = async (row) => (await repositories().schedules.create({ tenantId: t.id, botId: bot.id, kind: "reminder", guildId: "g1", channelId: "c1", ownerId: "u-alice", ownerName: "Alice", text: "send the invoice", mentions: [], recurrence: "once", timeOfDay: "15:00", timezone: "Asia/Jakarta", nextAt: new Date("2026-03-06T08:00:00Z"), ...row })).id;
     ${body}
@@ -32,7 +32,7 @@ test("the admin API lists a bot's active Reminders soonest first and cancels one
   await insert({ status: "done", text: "already posted" });
   await insert({ status: "cancelled", text: "already cancelled" });
   await insert({ kind: "digest", ownerId: null, ownerName: null, text: "", recurrence: "daily", timeOfDay: "08:00" });
-  const other = await tenancy.createBot({ tenantId: t.id, token: "y" });
+  const other = await repositories().bots.create({ tenantId: t.id, token: "y" });
   await insert({ botId: other.id, text: "another bot's" });
 
   const listed = await call("GET", url, h);
@@ -69,7 +69,7 @@ test("the tenant API lists and cancels Reminders of an owned bot only", () => ru
   assert((await repositories().schedules.get(id)).status === "cancelled", "row not cancelled");
   assert((await call("GET", url, h)).body.reminders.length === 0, "cancelled Reminder still listed");
 
-  const otherTenant = await repositories().tenants.create({ name: "B", slug: "b" }), theirs = await tenancy.createBot({ tenantId: otherTenant.id, token: "z" });
+  const otherTenant = await repositories().tenants.create({ name: "B", slug: "b" }), theirs = await repositories().bots.create({ tenantId: otherTenant.id, token: "z" });
   const theirRow = await insert({ tenantId: otherTenant.id, botId: theirs.id });
   assert((await call("GET", "/api/v1/bots/" + theirs.id + "/reminders", h)).status === 404, "another tenant's bot listed");
   assert((await call("DELETE", "/api/v1/bots/" + theirs.id + "/reminders/" + theirRow, h)).status === 404, "another tenant's Reminder cancelled");

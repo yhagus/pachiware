@@ -1,5 +1,4 @@
-import { db, guildConfigs, eq, and, repositories, type DigestChannel, type Schedule } from "@pachiware/db";
-import { isNull } from "drizzle-orm";
+import { repositories, type DigestChannel, type Schedule } from "@pachiware/db";
 import { now, nextOccurrence, wallClock, hhmm, loadTasks, readInFull, workspaceStore, dueMoment, taskLine, isOpen, type Strings } from "@pachiware/skills";
 
 const hourText = (hour: number) => hhmm(hour, 0);
@@ -7,7 +6,7 @@ const DAY_MS = 24 * 60 * 60_000;
 
 /** After the tenant's zone changed: the guilds without a zone of their own follow it, so their Digest rows move with it. */
 export async function syncTenantDigestSchedules(tenantId: string, timezone: string) {
-  const guilds = await db.select({ botId: guildConfigs.botId, guildId: guildConfigs.guildId, digestChannels: guildConfigs.digestChannels }).from(guildConfigs).where(and(eq(guildConfigs.tenantId, tenantId), isNull(guildConfigs.timezone)));
+  const guilds = (await repositories().bots.listGuildConfigs(tenantId)).filter((guild) => guild.timezone === null);
   for (const guild of guilds) if (guild.digestChannels.length) await syncDigestSchedules({ tenantId, botId: guild.botId, guildId: guild.guildId, timezone }, guild.digestChannels);
 }
 

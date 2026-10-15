@@ -1,6 +1,5 @@
 import type { Context, Hono } from "hono";
-import { db, bots, repositories, type Schedule } from "@pachiware/db";
-import { and, eq, ne } from "drizzle-orm";
+import { repositories, type Schedule } from "@pachiware/db";
 
 const reminderOut = (r: Schedule) => ({
   id: r.id, ownerId: r.ownerId, ownerName: r.ownerName, guildId: r.guildId, channelId: r.channelId, text: r.text, withTasks: r.withTasks, mentions: r.mentions,
@@ -14,8 +13,7 @@ const reminderOut = (r: Schedule) => ({
 export function botReminderRoutes(app: Hono<any>, botPath: string, param: string, tenantOf?: (c: Context<any>) => string) {
   const botOf = async (c: Context<any>) => {
     const botId = c.req.param(param)!, tenantId = tenantOf?.(c);
-    const [bot] = await db.select({ id: bots.id }).from(bots).where(and(eq(bots.id, botId), ne(bots.connectionStatus, "deleted"), tenantId ? eq(bots.tenantId, tenantId) : undefined)).limit(1);
-    return bot?.id ?? null;
+    return (await repositories().bots.get(botId, tenantId))?.id ?? null;
   };
   const active = (botId: string, id?: string) => repositories().schedules.list({ botId, kind: "reminder", status: "active", ...(id ? { id } : {}) });
   app.get(`${botPath}/reminders`, async (c) => {
