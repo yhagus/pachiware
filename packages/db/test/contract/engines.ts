@@ -13,6 +13,8 @@ export type EngineUnderTest = {
   repos: Repositories;
   /** How many records of any kind name this tenant as their owner. */
   ownedRecords(tenantId: string): Promise<number>;
+  /** Adds a bot answering with this profile, until a bots repository can; returns its id. */
+  addBot(tenantId: string, profileId: string | null): Promise<string>;
 };
 
 type Fixture = { subject: EngineUnderTest; reset(): Promise<void>; close(): Promise<void> };
@@ -79,6 +81,11 @@ async function openSql(url: string): Promise<Fixture> {
         let total = 0;
         for (const table of owners) total += Number((await run(`SELECT COUNT(*) AS n FROM ${table} WHERE tenant_id = ${connection.engine === "postgres" ? "$1" : "?"}`, [tenantId]))[0].n);
         return total;
+      },
+      async addBot(tenantId, profileId) {
+        const id = crypto.randomUUID(), p = (n: number) => (connection.engine === "postgres" ? `$${n}` : "?");
+        await run(`INSERT INTO bots (id, tenant_id, token_encrypted, profile_id) VALUES (${p(1)}, ${p(2)}, ${p(3)}, ${p(4)})`, [id, tenantId, `token-${id}`, profileId]);
+        return id;
       },
     },
     async reset() {
