@@ -9,6 +9,7 @@ export * from "./builtin/checklist.js";
 export * from "./builtin/workspace.js";
 export * from "./workspace/store.js";
 export * from "./workspace/paths.js";
+export * from "./workspace/threads.js";
 export * from "./workspace/memory.js";
 export * from "./workspace/files.js";
 export * from "./builtin/discord.js";

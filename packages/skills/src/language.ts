@@ -54,6 +54,9 @@ const en = {
   notFiled: { type: "not filed: not a PDF, DOCX, XLSX, CSV, MD or TXT", tooLarge: "not filed: over 10 MB", download: "not filed: could not be downloaded", place: "not filed: no folder for this place" },
   textNotExtracted: "its text could not be extracted",
   folderRefused: (allowed: string[]) => `Only ${allowed.join(", ")} may sit at the top of a channel or DM folder; put it under one of them.`,
+  // Private thread folders (ADR 0009)
+  threadFolderRefused: "Only people added to that private thread can have its files read.",
+  threadFolderReadOnly: "A private thread's files can only be changed from inside that thread.",
   // Memory compaction, written into MEMORY.md as the bot
   memoryCompacted: (from: number, to: number) => `Memory compacted from ${plural(from, "line")} to ${to}; every line from the last 30 days kept.`,
   memoryCut: (dropped: number) => `Memory over its size; the ${plural(dropped, "oldest line")} dropped, every line from the last 30 days kept.`,
@@ -205,6 +208,8 @@ const id: typeof en = {
   notFiled: { type: "tidak disimpan: bukan PDF, DOCX, XLSX, CSV, MD, atau TXT", tooLarge: "tidak disimpan: lebih dari 10 MB", download: "tidak disimpan: tidak bisa diunduh", place: "tidak disimpan: tidak ada folder untuk tempat ini" },
   textNotExtracted: "teksnya tidak bisa diekstrak",
   folderRefused: (allowed: string[]) => `Di tingkat atas folder channel atau DM hanya boleh ada ${allowed.join(", ")}; letakkan di salah satunya.`,
+  threadFolderRefused: "Hanya orang yang ditambahkan ke thread privat itu yang bisa meminta file-nya dibaca.",
+  threadFolderReadOnly: "File thread privat hanya bisa diubah dari dalam thread itu sendiri.",
   memoryCompacted: (from, to) => `Memori dipadatkan dari ${from} baris menjadi ${to}; semua baris 30 hari terakhir dipertahankan.`,
   memoryCut: (dropped) => `Memori melebihi batas; ${dropped} baris tertua dihapus, semua baris 30 hari terakhir dipertahankan.`,
   breakdown: (n) => `**Rincian** · ${n} draf`,

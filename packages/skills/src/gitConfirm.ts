@@ -4,7 +4,7 @@ import { payloadHash } from "./guardrails.js";
 
 // Generic single-use confirmation for any write or destructive tool (git keeps its historical file name).
 export interface PendingAction {
-  id: string; tenantId: string; botId: string; userId: string; guildId: string; channelId: string; parentChannelId?: string;
+  id: string; tenantId: string; botId: string; userId: string; guildId: string; channelId: string; parentChannelId?: string; privateThread?: boolean;
   tool: string; args: Record<string, any>; summary: string; expires: number;
   /** Hash of tool + arguments taken when queued; a confirmation only runs a payload that still matches. */
   hash: string;

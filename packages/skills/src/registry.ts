@@ -188,7 +188,7 @@ export class SkillRegistry {
             return { toolCallId, name, success: false, error: GuardrailService.denyNoConfirmer(context.language).message };
           }
           const summary = `${name} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`;
-          const q = queueAction({ tenantId: context.tenantId, botId, userId, guildId, channelId, parentChannelId: context.parentChannelId, tool: name, args: args ?? {}, summary, auth: context.auth });
+          const q = queueAction({ tenantId: context.tenantId, botId, userId, guildId, channelId, parentChannelId: context.parentChannelId, privateThread: context.privateThread, tool: name, args: args ?? {}, summary, auth: context.auth });
           await audit(context, "confirmation_requested", { tool: name, effect: policyOf(skill, name).effect, confirmationId: q.id });
           await audit(context, "thread_confirmation_requested", { tool: name, confirmationId: q.id });
           return { toolCallId, name, success: true, data: { pending: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the user to press Confirm or Cancel on the message that appears in the channel. Do not call this tool again." } };

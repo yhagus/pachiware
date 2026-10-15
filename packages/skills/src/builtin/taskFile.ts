@@ -86,7 +86,8 @@ export interface Found { path: string; version: string; task: Task }
 const MAX_FILES = 500, MAX_DEPTH = 8;
 /** Every valid task under the folders this turn can see: in a DM only the person's Personal tasks. ponytail: reads files per call; add an index when a Workspace outgrows MAX_FILES task files. */
 export async function loadTasks(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "userId">, shortId?: string): Promise<Found[]> {
-  const roots = visibleRoots(ctx);
+  // A private thread's own folder sits inside its parent's and holds no tasks: a thread's tasks are its parent's.
+  const { thread: _, ...roots } = visibleRoots(ctx);
   return walkTasks(store, ctx.tenantId, roots.dm ? [roots.dm] : Object.values(roots), shortId);
 }
 

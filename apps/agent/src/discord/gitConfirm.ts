@@ -37,7 +37,7 @@ type ActionContextOptions = { userId?: string; discord?: SkillContext["discord"]
 /** Build the execution context once so audit and confirmed runs share identical scope. */
 const actionContext = (action: QueuedAction, options: ActionContextOptions = {}) => ({
   db, tenantId: action.tenantId, botId: action.botId, guildId: action.guildId, channelId: action.channelId,
-  parentChannelId: action.parentChannelId, userId: options.userId ?? action.userId, auth: action.auth,
+  parentChannelId: action.parentChannelId, privateThread: action.privateThread, userId: options.userId ?? action.userId, auth: action.auth,
   ...(options.discord === undefined ? {} : { discord: options.discord }),
   ...(options.confirmed === undefined ? {} : { confirmed: options.confirmed }),
 });

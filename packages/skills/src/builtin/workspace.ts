@@ -1,6 +1,7 @@
 import type { SkillContext, SkillModule } from "../types.js";
 import { KEPT_FOLDERS, keptPath, resolvePath, visibleRoots } from "../workspace/paths.js";
-import { workspaceStore, type WorkspaceStore } from "../workspace/store.js";
+import { workspaceStore, type WorkspaceEntry, type WorkspaceStore } from "../workspace/store.js";
+import { checkThreadWrite, threadAccess } from "../workspace/threads.js";
 import { readPlaybookFile } from "../playbooks.js";
 import { postBriefRound, postBriefRoundTool } from "../brief.js";
 import { recordBriefAnswers, recordBriefAnswersTool, writeIssueDraft, writeIssueDraftTool } from "../issueDrafts.js";
@@ -35,6 +36,13 @@ export async function labelFolder(ctx: SkillContext, root: string) {
 function writable(path: unknown) {
   if (typeof path === "string" && path.split("/")[1]?.toLowerCase() === "playbooks") throw new Error("Files under playbooks/ cannot be changed from chat. Playbooks are edited in the console.");
   return path;
+}
+
+/** The tenant-relative path of a change, refused under a private thread's folder from outside that thread. */
+function changeable(ctx: SkillContext, path: unknown) {
+  const full = resolvePath(ctx, path);
+  checkThreadWrite(ctx, full);
+  return full;
 }
 
 const TOP_FOLDERS = ["tasks", ...KEPT_FOLDERS], TOP_FILES = ["MEMORY.md", "glossary.md"];
@@ -75,29 +83,33 @@ export const workspaceSkill: SkillModule = {
   ],
   handlers: {
     listFiles: async (args, ctx) => {
-      const entries = await workspaceStore().list(ctx.tenantId, resolvePath(ctx, args.path, true));
+      const dir = resolvePath(ctx, args.path, true), access = threadAccess(ctx);
+      await access.check(dir);
+      const entries = await access.filter(await workspaceStore().list(ctx.tenantId, dir));
       const name = String(args.path).split("/")[0]!, prefix = visibleRoots(ctx)[name]!;
       return { entries: entries.filter((e) => !e.path.split("/").pop()!.startsWith(".")).map((e) => ({ ...e, path: name + e.path.slice(prefix.length) })) };
     },
     readFile: async (args, ctx) => {
-      const file = await workspaceStore().read(ctx.tenantId, resolvePath(ctx, args.path));
+      const path = resolvePath(ctx, args.path);
+      await threadAccess(ctx).check(path);
+      const file = await workspaceStore().read(ctx.tenantId, path);
       if (!file) throw new Error(`File "${args.path}" not found.`);
       return { content: file.content, version: file.version };
     },
     writeFile: async (args, ctx) => {
       if (typeof args.content !== "string") throw new Error("content is required");
       const target = creatable(ctx, args.path);
-      const { version } = await workspaceStore().write(ctx.tenantId, resolvePath(ctx, target), args.content, typeof args.version === "string" ? args.version : undefined);
+      const { version } = await workspaceStore().write(ctx.tenantId, changeable(ctx, target), args.content, typeof args.version === "string" ? args.version : undefined);
       await labelFolder(ctx, String(target).split("/")[0]!);
       return { success: true, path: target, version };
     },
     moveFile: async (args, ctx) => {
       const to = creatable(ctx, args.to);
-      await workspaceStore().move(ctx.tenantId, resolvePath(ctx, writable(args.from)), resolvePath(ctx, to));
+      await workspaceStore().move(ctx.tenantId, changeable(ctx, writable(args.from)), changeable(ctx, to));
       return { success: true, from: args.from, to };
     },
     deleteFile: async (args, ctx) => {
-      await workspaceStore().remove(ctx.tenantId, resolvePath(ctx, writable(args.path)));
+      await workspaceStore().remove(ctx.tenantId, changeable(ctx, writable(args.path)));
       return { success: true, path: args.path };
     },
     readPlaybookFile: async (args, ctx) => {
@@ -144,7 +156,7 @@ export const workspaceSkill: SkillModule = {
       const hasDocument = document !== "", hasMessages = args.messageIds !== undefined;
       if (hasDocument && hasMessages) throw new Error(t.keepOneSource);
       if (!hasDocument && !hasMessages) throw new Error(t.keepNoSource);
-      const pieces = hasDocument ? [await keptDocument(ctx, document)] : await keptMessages(ctx, args.messageIds);
+      const pieces = hasDocument ? [await keptDocument(ctx, keptPath(ctx, document))] : await keptMessages(ctx, args.messageIds);
       const kept = await keepNote(ctx, keptPath(ctx, args.path), pieces);
       await labelFolder(ctx, filesRoot(ctx)!);
       return { success: true, path: kept.path, source: document || pieces.map((p) => p.source) };
@@ -157,18 +169,20 @@ export const workspaceSkill: SkillModule = {
       const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
       if (!query) throw new Error("query is required");
       const name = String(args.path).split("/")[0]!, prefix = visibleRoots(ctx)[name]!;
-      return { matches: await search(workspaceStore(), ctx.tenantId, resolvePath(ctx, args.path, true), query, (p) => name + p.slice(prefix.length)) };
+      const root = resolvePath(ctx, args.path, true), access = threadAccess(ctx);
+      await access.check(root);
+      return { matches: await search(workspaceStore(), ctx.tenantId, root, query, (p) => name + p.slice(prefix.length), access.filter) };
     },
   },
 };
 
 const MAX_MATCHES = 50, MAX_SCANNED = 500;
 /** ponytail: walks and reads files per query; add an index when a Workspace outgrows MAX_SCANNED files. */
-async function search(store: WorkspaceStore, tenantId: string, root: string, query: string, show: (p: string) => string) {
+async function search(store: WorkspaceStore, tenantId: string, root: string, query: string, show: (p: string) => string, readable: (entries: WorkspaceEntry[]) => Promise<WorkspaceEntry[]>) {
   const matches: { path: string; line?: number; text?: string }[] = [];
   let scanned = 0;
   const walk = async (dir: string): Promise<void> => {
-    for (const e of await store.list(tenantId, dir)) {
+    for (const e of await readable(await store.list(tenantId, dir))) {
       if (matches.length >= MAX_MATCHES || scanned >= MAX_SCANNED) return;
       if (e.path.split("/").pop()!.startsWith(".")) continue;
       if (e.type === "dir") { await walk(e.path); continue; }

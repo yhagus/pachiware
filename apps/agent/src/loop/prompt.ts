@@ -41,8 +41,8 @@ export interface PromptContext {
   userId?: string;
   /** Discord only: whether this turn's message mentions the bot, replies to it, or is a DM. */
   addressed?: boolean;
-  /** Set when channelId is a thread: the channel whose Workspace folder it uses. */
-  skillContext?: { parentChannelId?: string };
+  /** Set when channelId is a thread: the channel whose Workspace folder it uses, and whether it is private and so keeps its own folder too. */
+  skillContext?: { parentChannelId?: string; privateThread?: boolean };
   /** The playbook this thread is bound to. Its body joins the cached prefix, which stays stable because the binding lasts for the thread. */
   playbook?: { name: string; body: string; closes?: string[]; repository?: ThreadRepository; documents?: ThreadDocuments };
   /** What availability rules turn off where the message came from. It changes only when an admin changes a rule, so it may sit in the cached prompt. */
@@ -160,6 +160,7 @@ ${toolNames.length > 0 ? toolNames : "None currently active."}
     if (context.channelName || context.channelId) lines.push(`Channel: ${context.channelName ? `#${context.channelName} ` : ""}(ID: ${context.channelId})`);
     if (context.userName) lines.push(`User: ${context.userName} (ID: ${context.userId})`);
     if (context.addressed !== undefined) lines.push(`Addresses you: ${context.addressed ? "yes" : "no"}`);
+    if (context.skillContext?.privateThread) lines.push("Private thread: thread/ is this private thread's own folder, readable only by people added to it; the minutes, notes, decisions and files kept here go there. channel/ is the parent channel's folder.");
     const zone = context.timezone ?? configuredTimezone(await tenantConfig(context.tenantId)), at = now();
     lines.push(`Now: ${describeTime(zone, at)}`);
     const where = { tenantId: context.tenantId, guildId: context.guildId, channelId: context.channelId, parentChannelId: context.skillContext?.parentChannelId, userId: context.userId };

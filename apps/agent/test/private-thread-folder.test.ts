@@ -4,6 +4,7 @@ import { attachment } from "./support/images";
 
 const THREAD = "guilds/guild-1/channels/channel-1/threads/thread-p";
 const said = (turn: any) => { const r = turn.toolResults[0]; return r.error ? `refused: ${r.error}` : r.content ?? r.path ?? JSON.stringify(r); };
+const show = (turn: any) => { const r = turn.toolResults[0]; return r.error ? `refused: ${r.error}` : JSON.stringify(r); };
 
 discordScenario("minutes written in a private thread go to the thread's folder, are read from inside it, and take corrections there", async (s) => {
   const { alice } = s.discord;
@@ -48,4 +49,119 @@ discordScenario("a Note, a Decision and a Document kept in a private thread land
   expect(await s.workspace.read(`${THREAD}/notes/hire.md`)).toContain("We hire Dana at band 5");
   expect(await s.workspace.read(`${THREAD}/decisions/2026-10-15-hire-dana.md`)).toBe("# Hire Dana at band 5\n");
   for (const folder of ["files", "notes", "decisions", ".documents"]) expect(await s.workspace.list(`guilds/guild-1/channels/channel-1/${folder}`)).toEqual([]);
+});
+
+discordScenario("in the parent channel only people added to a private thread can list, read or search its folder; a deleted thread's is read by nobody", async (s) => {
+  await s.guildSettings({ language: "en", useThreads: false });
+  const { alice, bob } = s.discord;
+  s.discord.channel("thread-p", { thread: true, private: true, parentId: "channel-1", members: [alice.id] });
+  await s.workspace.write(`${THREAD}/minutes/2026-10-14-salaries.md`, "Salary bands agreed\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/threads/thread-gone/minutes/2026-09-01-salaries.md", "Old salary talk\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/threads/thread-x.md", "---\nplaybook: issue-draft\n---\nSalary page brief\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/notes/lunch.md", "Salary day lunch\n");
+  const calls = [
+    { tool: "listFiles", args: { path: "channel/threads/thread-p/minutes" } },
+    { tool: "readFile", args: { path: "channel/threads/thread-p/minutes/2026-10-14-salaries.md" } },
+    { tool: "searchFiles", args: { query: "salary", path: "channel/threads/thread-p" } },
+    { tool: "searchFiles", args: { query: "salary", path: "channel" } },
+    { tool: "listFiles", args: { path: "channel/threads" } },
+    { tool: "readFile", args: { path: "channel/threads/thread-gone/minutes/2026-09-01-salaries.md" } },
+    { tool: "readFile", args: { path: "channel/threads/thread-x.md" } },
+  ];
+  const ask = async (user: typeof alice) => {
+    s.model.script(calls, (turn) => JSON.stringify(turn.toolResults.map((r: any) => r.error ?? r)));
+    await s.discord.send(`${s.discord.mention} what do we have on salaries?`, { author: user });
+    return JSON.parse(s.discord.botMessages.at(-1)!.content);
+  };
+  const refused = "Only people added to that private thread can have its files read.";
+  const lunch = { path: "channel/notes/lunch.md", line: 1, text: "Salary day lunch" };
+  const salaries = { path: "channel/threads/thread-p/minutes/2026-10-14-salaries.md", line: 1, text: "Salary bands agreed" };
+
+  expect(await ask(bob)).toEqual([refused, refused, refused, { matches: [lunch] }, { entries: [] }, refused, refused]);
+  expect(await ask(alice)).toEqual([
+    { entries: [{ path: salaries.path, type: "file", size: 20 }] },
+    { content: "Salary bands agreed\n", version: expect.any(String) },
+    { matches: [{ ...salaries, path: salaries.path }] },
+    { matches: [lunch, salaries] },
+    { entries: [{ path: "channel/threads/thread-p", type: "dir" }] },
+    refused,
+    refused,
+  ]);
+});
+
+discordScenario("inside a private thread the parent channel's files are still read, and the turn says where the thread keeps its own", async (s) => {
+  const { alice } = s.discord;
+  const thread = s.discord.channel("thread-p", { thread: true, private: true, parentId: "channel-1", members: [alice.id] });
+  await s.workspace.write("guilds/guild-1/channels/channel-1/notes/lunch.md", "Salary day lunch\n");
+  await s.workspace.write(`${THREAD}/notes/bands.md`, "Salary bands\n");
+  s.model.script(
+    [{ tool: "readFile", args: { path: "channel/notes/lunch.md" } }, { tool: "searchFiles", args: { query: "salary", path: "channel" } }, { tool: "listFiles", args: { path: "thread/notes" } }],
+    (turn) => JSON.stringify(turn.toolResults.map((r: any) => r.error ?? r.content ?? r.matches?.map((m: any) => m.path) ?? r.entries.map((e: any) => e.path))),
+  );
+  await s.discord.send(`${s.discord.mention} what do we know about salaries?`, { channel: thread });
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toEqual([
+    "Salary day lunch\n",
+    ["channel/notes/lunch.md", "channel/threads/thread-p/notes/bands.md"],
+    ["thread/notes/bands.md"],
+  ]);
+  expect(s.model.calls[0]!.map((m) => m.content).join("\n")).toContain("thread/ is this private thread's own folder");
+});
+
+discordScenario("a private thread's files change only from inside it, and the refusals speak the place's language", async (s) => {
+  const { alice, bob } = s.discord;
+  await s.guildSettings({ useThreads: false });
+  s.discord.channel("thread-p", { thread: true, private: true, parentId: "channel-1", members: [alice.id] });
+  await s.workspace.write(`${THREAD}/minutes/2026-10-14-salaries.md`, "Salary bands agreed\n");
+  const calls = [
+    { tool: "readFile", args: { path: "channel/threads/thread-p/minutes/2026-10-14-salaries.md" } },
+    { tool: "moveFile", args: { from: "channel/threads/thread-p/minutes/2026-10-14-salaries.md", to: "channel/notes/salaries.md" } },
+    { tool: "writeFile", args: { path: "channel/threads/thread-p/notes/x.md", content: "x" } },
+  ];
+  const ask = async (user: typeof alice) => {
+    s.model.script(calls, (turn) => JSON.stringify(turn.toolResults.map((r: any) => r.error ?? "ok")));
+    await s.discord.send(`${s.discord.mention} pindahkan notulen gaji ke catatan channel`, { author: user });
+    return JSON.parse(s.discord.botMessages.at(-1)!.content);
+  };
+  const readOnly = "File thread privat hanya bisa diubah dari dalam thread itu sendiri.";
+  const topOnly = "Di tingkat atas folder channel atau DM hanya boleh ada tasks, notes, decisions, files, minutes, MEMORY.md, glossary.md; letakkan di salah satunya.";
+  expect(await ask(bob)).toEqual(["Hanya orang yang ditambahkan ke thread privat itu yang bisa meminta file-nya dibaca.", readOnly, topOnly]);
+  expect(await ask(alice)).toEqual(["ok", readOnly, topOnly]);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/notes")).toEqual([]);
+  expect(await s.workspace.read(`${THREAD}/minutes/2026-10-14-salaries.md`)).toBe("Salary bands agreed\n");
+});
+
+discordScenario("a public thread still keeps its Minutes, Notes, Decisions and Documents in the parent channel's folders", async (s) => {
+  s.clock.set("2026-10-15T03:00:00Z");
+  const { alice } = s.discord;
+  const thread = s.discord.channel("thread-pub", { thread: true, parentId: "channel-1", ownerId: alice.id });
+  const CHANNEL = "guilds/guild-1/channels/channel-1";
+  const plan = attachment(s, "plan.txt", new TextEncoder().encode("Launch plan\n"), { contentType: "text/plain" });
+  s.model.script("Filed.");
+  await s.discord.send(`${s.discord.mention} the plan`, { channel: thread, attachments: [plan] });
+  const [said] = s.discord.history([{ content: "We launch on the 20th, agreed", author: alice }], { channel: thread });
+  s.model.script(
+    [{ tool: "keepAsNote", args: { messageIds: [said!.id], path: "channel/notes/launch.md" } }, { tool: "writeFile", args: { path: "channel/decisions/2026-10-15-launch.md", content: "# Launch on the 20th\n" } }],
+    (turn) => turn.toolResults.map((r: any) => r.error ?? r.path).join(" "),
+  );
+  await s.discord.send(`${s.discord.mention} keep that and record the decision`, { channel: thread });
+  expect(s.discord.botMessages.at(-1)!.content).toBe("channel/notes/launch.md channel/decisions/2026-10-15-launch.md");
+  s.model.script(JSON.stringify({ title: "Launch", decided: [{ text: "Launch on the 20th", ref: 1 }], open: [], actions: [] }));
+  await s.discord.send(`${s.discord.mention} minutes`, { channel: thread });
+
+  expect(await s.workspace.read(`${CHANNEL}/files/plan.txt`)).toBe("Launch plan\n");
+  expect(await s.workspace.read(`${CHANNEL}/notes/launch.md`)).toContain("We launch on the 20th, agreed");
+  expect(await s.workspace.read(`${CHANNEL}/decisions/2026-10-15-launch.md`)).toBe("# Launch on the 20th\n");
+  expect(await s.workspace.list(`${CHANNEL}/minutes`)).toEqual([`${CHANNEL}/minutes/2026-10-15-launch.md`]);
+  expect(await s.workspace.list(`${CHANNEL}/threads`)).toEqual([]);
+});
+
+discordScenario("a file of the private thread deleted from inside it goes once its asker presses Confirm", async (s) => {
+  const { alice } = s.discord;
+  const thread = s.discord.channel("thread-p", { thread: true, private: true, parentId: "channel-1", members: [alice.id] });
+  await s.workspace.write(`${THREAD}/notes/old.md`, "outdated\n");
+  s.model.script({ tool: "deleteFile", args: { path: "thread/notes/old.md" } }, "Waiting for your Confirm.");
+  await s.discord.send(`${s.discord.mention} delete the old note`, { channel: thread });
+  const confirm = s.discord.botMessages.find((m) => m.components.length)!;
+  await s.discord.click(confirm, "Confirm");
+  expect(await s.workspace.read(`${THREAD}/notes/old.md`)).toBeNull();
 });
