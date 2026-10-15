@@ -3,8 +3,10 @@ import { createMongoTenantRepository } from "./tenants/mongo.js";
 import { createSqlTenantRepository } from "./tenants/sql.js";
 import type { TenantRepository } from "./tenants/types.js";
 import { createSqlScheduleRepository } from "./schedules/sql.js";
+import { createMongoScheduleRepository } from "./schedules/mongo.js";
 import type { ScheduleRepository } from "./schedules/types.js";
 import { createSqlTaskRowRepository } from "./task-rows/sql.js";
+import { createMongoTaskRowRepository } from "./task-rows/mongo.js";
 import type { TaskRowRepository } from "./task-rows/types.js";
 import { createSqlProfileRepository } from "./profiles/sql.js";
 import { createMongoProfileRepository } from "./profiles/mongo.js";
@@ -26,6 +28,7 @@ import type { SkillRepository } from "./skills/types.js";
 import { createSqlAvailabilityRuleRepository } from "./availability/sql.js";
 import type { AvailabilityRuleRepository } from "./availability/types.js";
 import { createSqlConversationRepository } from "./conversations/sql.js";
+import { createMongoConversationRepository } from "./conversations/mongo.js";
 import type { ConversationRepository } from "./conversations/types.js";
 import { createSqlGitRepository } from "./git/sql.js";
 import type { GitRepository } from "./git/types.js";
@@ -88,12 +91,12 @@ export function createRepositories(connection: Connection): Repositories {
         agentConfig: createMongoAgentConfigRepository(connection),
         usage: createMongoUsageRepository(connection),
         stats: createMongoStatsRepository(connection),
-        schedules: notOnMongoYet("Schedules"),
-        taskRows: notOnMongoYet("Task rows"),
+        schedules: createMongoScheduleRepository(connection),
+        taskRows: createMongoTaskRowRepository(connection),
         bots: createMongoBotRepository(connection),
         skills: notOnMongoYet("Skills"),
         availability: notOnMongoYet("Availability rules"),
-        conversations: notOnMongoYet("Conversations"),
+        conversations: createMongoConversationRepository(connection),
         git: notOnMongoYet("Git"),
       };
   }

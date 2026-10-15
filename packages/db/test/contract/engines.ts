@@ -31,7 +31,7 @@ type Engine = {
 };
 
 /** Suites whose repositories MongoDB implements. #169–#171 add theirs here as they land. */
-const ON_MONGODB = new Set(["Tenants and API keys", "Platform stats and health", "Agent configuration", "Bots and guild configuration", "Profiles", "Usage events"]);
+const ON_MONGODB = new Set(["Tenants and API keys", "Platform stats and health", "Agent configuration", "Bots and guild configuration", "Profiles", "Usage events", "Task rows", "Schedules", "Conversations and messages"]);
 
 let sqliteDir: string | undefined;
 
