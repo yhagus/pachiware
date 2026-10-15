@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { repositories, db, gitAccounts, bots, botGitAccounts, botsUsingGitAccount, encryptSecret, decryptSecret, assertGitHostAllowed, eq } from "@pachiware/db";
-import { and, desc, ne } from "drizzle-orm";
+import { repositories, encryptSecret, assertGitHostAllowed, type GitAccountUpdate } from "@pachiware/db";
 import { object, string } from "../validation.js";
 import { fetchGitUsername, isDefaultGitHost, findOAuthApp, buildAuthorizeUrl, getGitToken, browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, GIT_PROVIDERS, type GitConn, type GitProvider, type GitState } from "@pachiware/skills";
 import { redirectUri } from "./gitOAuthApps.js";
@@ -26,10 +25,10 @@ async function verify(provider: GitProvider, baseUrl: string | null, token: stri
 
 gitAccountAdminRoutes.get("/tenants/:id/git-accounts", async (c) => {
   if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
-  const rows = await db.select().from(gitAccounts).where(eq(gitAccounts.tenantId, c.req.param("id"))).orderBy(desc(gitAccounts.createdAt)).limit(200);
-  const used = await db.select({ id: bots.id, name: bots.name, gitAccountId: botGitAccounts.gitAccountId }).from(botGitAccounts).innerJoin(bots, eq(bots.id, botGitAccounts.botId))
-    .where(and(eq(botGitAccounts.tenantId, c.req.param("id")), ne(bots.connectionStatus, "deleted")));
-  return c.json({ success: true, gitAccounts: rows.map((r: any) => ({ ...publicAccount(r), bots: used.filter((b: any) => b.gitAccountId === r.id).map((b: any) => ({ id: b.id, name: b.name })) })) });
+  const { git } = repositories();
+  const rows = await git.listAccounts(c.req.param("id"));
+  const used = await git.botsByAccount(c.req.param("id"));
+  return c.json({ success: true, gitAccounts: rows.map((r) => ({ ...publicAccount(r), bots: used[r.id] ?? [] })) });
 });
 gitAccountAdminRoutes.post("/tenants/:id/git-accounts", async (c) => {
   if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
@@ -39,7 +38,7 @@ gitAccountAdminRoutes.post("/tenants/:id/git-accounts", async (c) => {
   const baseUrl = baseUrlOf(body.baseUrl), token = string(body.token, "token")!;
   const username = await verify(provider, baseUrl, token);
   try {
-    const [row] = await db.insert(gitAccounts).values({ tenantId: c.req.param("id"), name: string(body.name, "name")!, provider, baseUrl, username, tokenEncrypted: encryptSecret(token) }).returning();
+    const row = await repositories().git.createAccount({ tenantId: c.req.param("id"), name: string(body.name, "name")!, provider, baseUrl, username, tokenEncrypted: encryptSecret(token) });
     return c.json({ success: true, gitAccount: publicAccount(row) }, 201);
   } catch { return c.json({ error: "A git account with this name already exists" }, 409); }
 });
@@ -55,12 +54,12 @@ gitAccountAdminRoutes.post("/tenants/:id/git-accounts/oauth/start", async (c) =>
   return c.json({ success: true, authorizeUrl: buildAuthorizeUrl(app, { tenantId: id, provider, baseUrl }, redirectUri()) });
 });
 gitAccountAdminRoutes.patch("/git-accounts/:accountId", async (c) => {
-  const [current] = await db.select().from(gitAccounts).where(eq(gitAccounts.id, c.req.param("accountId")!)).limit(1);
+  const current = await repositories().git.getAccount(c.req.param("accountId")!);
   if (!current) return c.json({ error: "Git account not found" }, 404);
   const body = object(await c.req.json(), "body");
   // Provider is fixed: switching GitHub <-> GitLab is a different account, not an edit.
   if (body.provider !== undefined && body.provider !== current.provider) throw new HTTPException(400, { message: "provider cannot be changed; create a new account" });
-  const values: Record<string, any> = {};
+  const values: GitAccountUpdate = {};
   if (body.name !== undefined) values.name = string(body.name, "name");
   const baseUrl = body.baseUrl !== undefined ? baseUrlOf(body.baseUrl) : current.baseUrl;
   const token = typeof body.token === "string" && body.token.trim() && !body.token.includes("••••") ? body.token.trim() : null;
@@ -73,23 +72,23 @@ gitAccountAdminRoutes.patch("/git-accounts/:accountId", async (c) => {
     Object.assign(values, { authType: "token", refreshTokenEncrypted: null, tokenExpiresAt: null });
   }
   try {
-    const [row] = await db.update(gitAccounts).set({ ...values, updatedAt: new Date() }).where(eq(gitAccounts.id, current.id)).returning();
+    const row = await repositories().git.updateAccount(current.id, values);
     return c.json({ success: true, gitAccount: publicAccount(row) });
   } catch { return c.json({ error: "A git account with this name already exists" }, 409); }
 });
 gitAccountAdminRoutes.delete("/git-accounts/:accountId", async (c) => {
   const id = c.req.param("accountId")!;
-  const [acc] = await db.select({ tenantId: gitAccounts.tenantId }).from(gitAccounts).where(eq(gitAccounts.id, id)).limit(1);
+  const { git } = repositories();
+  const acc = await git.getAccount(id);
   if (!acc) return c.json({ error: "Git account not found" }, 404);
-  const using = await botsUsingGitAccount(acc.tenantId, id);
+  const using = (await git.botsByAccount(acc.tenantId))[id] ?? [];
   if (using.length) return c.json({ error: "Git account is still used by bots; unbind them first", bots: using }, 409);
-  const [row] = await db.delete(gitAccounts).where(eq(gitAccounts.id, id)).returning();
-  return row ? c.json({ success: true }) : c.json({ error: "Git account not found" }, 404);
+  return await git.deleteAccount(id) ? c.json({ success: true }) : c.json({ error: "Git account not found" }, 404);
 });
 
 // Read-only browsing of an account's repositories, using the stored (and, for OAuth, refreshed) token.
 async function connOf(accountId: string): Promise<GitConn> {
-  const [acc] = await db.select().from(gitAccounts).where(eq(gitAccounts.id, accountId)).limit(1);
+  const acc = await repositories().git.getAccount(accountId);
   if (!acc) throw new HTTPException(404, { message: "Git account not found" });
   try { assertGitHostAllowed(acc.baseUrl); } catch (e) { throw new HTTPException(400, { message: (e as Error).message }); }
   return { provider: acc.provider as GitProvider, baseUrl: acc.baseUrl, token: await getGitToken(acc), oauth: acc.authType === "oauth" };

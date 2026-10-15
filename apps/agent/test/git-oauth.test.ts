@@ -13,7 +13,7 @@ test("git oauth: start needs an app, callback is single-use, account created, to
         const assert = (c, m) => { if (!c) throw new Error(m); };
         const { runMigrations } = await import(${JSON.stringify(join(w, "packages/db/src/migrate.ts"))});
         const { runSeed } = await import(${JSON.stringify(join(w, "packages/db/src/seed.ts"))});
-        const { db, gitAccounts, eq } = await import(${JSON.stringify(join(w, "packages/db/src/index.ts"))});
+        const { repositories } = await import(${JSON.stringify(join(w, "packages/db/src/index.ts"))});
         const { getGitToken } = await import(${JSON.stringify(join(w, "packages/skills/src/gitOAuth.ts"))});
         await runMigrations(); await runSeed();
         const { createServer } = await import(${JSON.stringify(join(w, "apps/agent/src/server.ts"))});
@@ -50,11 +50,11 @@ test("git oauth: start needs an app, callback is single-use, account created, to
         await app.request("/api/admin/git-oauth-apps", { method: "POST", headers: admin, body: JSON.stringify({ provider: "gitlab", clientId: "gid", clientSecret: "gs" }) });
         const g = new URL((await j(await start({ provider: "gitlab" }))).authorizeUrl);
         await cb("state=" + g.searchParams.get("state") + "&code=c2");
-        const [gl] = await db.select().from(gitAccounts).where(eq(gitAccounts.provider, "gitlab"));
+        const gl = (await repositories().git.listAccounts(t.id)).find((a) => a.provider === "gitlab");
         assert(gl.refreshTokenEncrypted && gl.tokenExpiresAt, "gitlab refresh data not stored");
         assert(await getGitToken(gl) === "gl_2", "fresh token should be returned as-is");
-        await db.update(gitAccounts).set({ tokenExpiresAt: new Date(Date.now() - 1000) }).where(eq(gitAccounts.id, gl.id));
-        const [stale] = await db.select().from(gitAccounts).where(eq(gitAccounts.id, gl.id));
+        await repositories().git.updateAccount(gl.id, { tokenExpiresAt: new Date(Date.now() - 1000) });
+        const stale = await repositories().git.getAccount(gl.id);
         assert(await getGitToken(stale) === "gl_3" && tokenCalls.at(-1).includes("grant_type=refresh_token"), "expired token not refreshed");
         console.log("ok");
       `],

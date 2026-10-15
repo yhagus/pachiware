@@ -14,17 +14,17 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, gitAccounts, bots, tenantSkills, encryptSecret, setBotGitAccounts, replaceGitScopes, and, eq } = await imp("packages/db/src/index.ts");
+        const { db, bots, tenantSkills, encryptSecret, and, eq } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const { skillRegistry } = await imp("packages/skills/src/registry.ts");
         const { handleConfirmButton, pendingOf } = await imp("apps/agent/src/discord/gitConfirm.ts");
         const t = await repositories().tenants.create({ name: "T", slug: "t" });
         await db.update(tenantSkills).set({ isEnabled: true }).where(and(eq(tenantSkills.tenantId, t.id), eq(tenantSkills.skillId, "git_repositories")));
-        const [acc] = await db.insert(gitAccounts).values({ tenantId: t.id, name: "work", provider: "github", username: "octo", tokenEncrypted: encryptSecret("tok") }).returning();
+        const acc = await repositories().git.createAccount({ tenantId: t.id, name: "work", provider: "github", username: "octo", tokenEncrypted: encryptSecret("tok") });
         const [bot] = await db.insert(bots).values({ tenantId: t.id, tokenEncrypted: "x", isEnabled: false }).returning();
-        await setBotGitAccounts(t.id, bot.id, [acc.id]);
-        await replaceGitScopes(t.id, bot.id, "g1", "", [{ gitAccountId: acc.id, repoPatterns: ["acme/*"] }]);
+        await repositories().git.setBotAccounts(t.id, bot.id, [acc.id]);
+        await repositories().git.replaceScopes(t.id, bot.id, "g1", "", [{ gitAccountId: acc.id, repoPatterns: ["acme/*"] }]);
 
         const calls = [];
         globalThis.fetch = async (url, init) => { calls.push((init?.method ?? "GET") + " " + url); return Response.json({ html_url: "https://x/1", number: 5, merged: true }); };
@@ -63,7 +63,7 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         assert(no.updates.length === 1 && calls.length === before, "cancel ran the action");
         // 7. Scope narrowed after queueing: confirm re-checks and refuses.
         const q3 = pendingOf((await run("repoCreateIssue", { repo: "acme/web", title: "T" })).data);
-        await replaceGitScopes(t.id, bot.id, "g1", "", [{ gitAccountId: acc.id, repoPatterns: ["acme/api"] }]);
+        await repositories().git.replaceScopes(t.id, bot.id, "g1", "", [{ gitAccountId: acc.id, repoPatterns: ["acme/api"] }]);
         const late = await click("ok", q3.confirmationId, "alice");
         assert(late.updates[0].content.includes("couldn't complete") && !late.updates[0].embeds && !calls.join().includes("/repos/acme/web/issues"), "narrowed scope not re-checked");
         // 8. Not a git button: left alone.
@@ -71,7 +71,7 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         assert(foreign === false, "foreign button handled");
         // 9. A configured owner can grant the current thread once; the waiting action runs and the grant is reusable.
         process.env.GIT_OWNER_DISCORD_IDS = "owner";
-        await replaceGitScopes(t.id, bot.id, "g1", "", [{ gitAccountId: acc.id, repoPatterns: ["acme/*"] }]);
+        await repositories().git.replaceScopes(t.id, bot.id, "g1", "", [{ gitAccountId: acc.id, repoPatterns: ["acme/*"] }]);
         const grantQueued = pendingOf((await run("repoComment", { repo: "acme/api", number: 7, kind: "issue", body: "grant me" })).data);
         const deniedGrant = await click("grant", grantQueued.confirmationId, "alice");
         assert(deniedGrant.replies.length === 1 && deniedGrant.updates.length === 0 && calls.length === n, "non-owner grant was accepted");

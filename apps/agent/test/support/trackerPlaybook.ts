@@ -10,8 +10,8 @@ export async function acmeRepos(s: Scenario, channelRepos?: string[]) {
   const account = await s.git({ repos: ["acme/*"] });
   s.http.on("GET api.github.com/user/repos", () => [{ full_name: "acme/api" }, { full_name: "acme/web" }, { full_name: "acme/infra" }]);
   if (channelRepos) {
-    const { replaceGitScopes } = await import(process.cwd() + "/packages/db/src/tenancy.ts");
-    await replaceGitScopes(s.tenant.id, s.bot.id, s.discord.guildId, "channel-1", [{ gitAccountId: account.id, repoPatterns: channelRepos }]);
+    const { repositories } = await import(process.cwd() + "/packages/db/src/index.ts");
+    await repositories().git.replaceScopes(s.tenant.id, s.bot.id, s.discord.guildId, "channel-1", [{ gitAccountId: account.id, repoPatterns: channelRepos }]);
   }
   return account;
 }

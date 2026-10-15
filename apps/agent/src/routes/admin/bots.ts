@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { repositories, db, bots, conversations, messages, createBot, updateBot, deleteBot, setBotGitAccounts, listBotGitAccounts, listGitScopes, replaceGitScopes, eq, type GuildConfigInput } from "@pachiware/db";
+import { repositories, db, bots, conversations, messages, createBot, updateBot, deleteBot, eq, type GuildConfigInput } from "@pachiware/db";
 import { ne, and, or, desc, sql } from "drizzle-orm";
 import { discordBotManager } from "../../discord/client.js";
 import { loadGuildSettings, saveGuildSettings } from "../../loop/prompt.js";
@@ -15,7 +15,7 @@ botAdminRoutes.post("/tenants/:id/bots", async (c) => {
   await assertGitAccounts(c.req.param("id"), fields.gitAccountIds);
   const { gitAccountIds, ...rest } = fields;
   const bot = await createBot({ tenantId: c.req.param("id"), ...rest } as any);
-  if (gitAccountIds) await setBotGitAccounts(c.req.param("id"), bot.id, gitAccountIds);
+  if (gitAccountIds) await repositories().git.setBotAccounts(c.req.param("id"), bot.id, gitAccountIds);
   if (bot.isEnabled) void discordBotManager.startBot(bot.id).catch(() => {});
   return c.json({ success: true, bot: (await botsOut([bot]))[0] }, 201);
 });
@@ -74,19 +74,20 @@ botAdminRoutes.put("/bots/:botId/guilds/:guildId/config", async (c) => {
 // Git access per server (channelId "") and per channel: which attached accounts are on, and which repos (wildcard patterns).
 const scopesOut = (rows: any[], channelId: string) => rows.filter((r) => r.channelId === channelId).map((r) => ({ gitAccountId: r.gitAccountId, repoPatterns: r.repoPatterns }));
 botAdminRoutes.get("/bots/:botId/guilds/:guildId/git", async (c) => {
-  const botId = c.req.param("botId")!, rows = await listGitScopes(botId, c.req.param("guildId")!);
+  const botId = c.req.param("botId")!, rows = await repositories().git.listScopes(botId, c.req.param("guildId")!);
   const channels: Record<string, ReturnType<typeof scopesOut>> = {};
   for (const id of new Set<string>(rows.filter((r: any) => r.channelId).map((r: any) => r.channelId))) channels[id] = scopesOut(rows, id);
-  return c.json({ success: true, accounts: await listBotGitAccounts(botId), server: scopesOut(rows, ""), channels });
+  const accounts = (await repositories().git.listBotAccounts(botId)).map(({ id, name, provider, baseUrl, username }) => ({ id, name, provider, baseUrl, username }));
+  return c.json({ success: true, accounts, server: scopesOut(rows, ""), channels });
 });
 async function putScope(c: any, channelId: string) {
   const [bot] = await db.select().from(bots).where(eq(bots.id, c.req.param("botId")!)).limit(1);
   const body = object(await c.req.json(), "body");
   if (!Array.isArray(body.rules)) return c.json({ error: "rules must be an array" }, 400);
   const rules = body.rules.map((r: any) => { const o = object(r, "rule"); return { gitAccountId: string(o.gitAccountId, "gitAccountId")!, repoPatterns: stringArray(o.repoPatterns, "repoPatterns") }; });
-  try { await replaceGitScopes(bot.tenantId, bot.id, c.req.param("guildId")!, channelId, rules); }
+  try { await repositories().git.replaceScopes(bot.tenantId, bot.id, c.req.param("guildId")!, channelId, rules); }
   catch (e) { return c.json({ error: (e as Error).message }, 400); }
-  const rows = await listGitScopes(bot.id, c.req.param("guildId")!);
+  const rows = await repositories().git.listScopes(bot.id, c.req.param("guildId")!);
   return c.json({ success: true, server: scopesOut(rows, ""), rules: scopesOut(rows, channelId) });
 }
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/git", (c) => putScope(c, ""));
@@ -119,7 +120,7 @@ botAdminRoutes.patch("/bots/:botId", async (c) => {
   await assertGitAccounts(owner!.tenantId, fields.gitAccountIds);
   const { gitAccountIds, ...rest } = fields;
   const bot = await updateBot(c.req.param("botId"), rest);
-  if (gitAccountIds) await setBotGitAccounts(owner!.tenantId, c.req.param("botId"), gitAccountIds);
+  if (gitAccountIds) await repositories().git.setBotAccounts(owner!.tenantId, c.req.param("botId"), gitAccountIds);
   if (bot?.isEnabled) void discordBotManager.restartBot(bot.id).catch(() => {});
   else await discordBotManager.stopBot(c.req.param("botId"));
   return c.json({ success: true, bot: (await botsOut([bot]))[0] });

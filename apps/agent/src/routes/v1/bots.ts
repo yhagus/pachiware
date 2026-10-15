@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { db, bots, profiles, gitAccounts, botGitAccounts, setBotGitAccounts, createBot, updateBot, deleteBot, getBotDecrypted, listBotsForTenant } from "@pachiware/db";
-import { and, eq, ne, inArray } from "drizzle-orm";
+import { repositories, db, bots, profiles, createBot, updateBot, deleteBot, getBotDecrypted, listBotsForTenant } from "@pachiware/db";
+import { and, eq, ne } from "drizzle-orm";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { DiscordBotManager, discordBotManager } from "../../discord/client.js";
 import { object, string, stringArray, publicBot } from "../validation.js";
@@ -18,13 +18,12 @@ export async function assertProfile(tenantId: string, profileId: string | null |
 // A bot may hold many git accounts, all of its own tenant (the DB composite FK enforces the same).
 export async function assertGitAccounts(tenantId: string, ids: string[] | undefined) {
   if (!ids?.length) return;
-  const rows = await db.select({ id: gitAccounts.id }).from(gitAccounts).where(and(eq(gitAccounts.tenantId, tenantId), inArray(gitAccounts.id, ids)));
-  if (rows.length !== new Set(ids).size) throw new HTTPException(400, { message: "Git account not found for this tenant" });
+  if (!await repositories().git.ownsAccounts(tenantId, ids)) throw new HTTPException(400, { message: "Git account not found for this tenant" });
 }
 // Bot rows as the API returns them, plus the ids of the git accounts attached to each.
 export async function botsOut(rows: any[]) {
-  const links = rows.length ? await db.select({ botId: botGitAccounts.botId, id: botGitAccounts.gitAccountId }).from(botGitAccounts).where(inArray(botGitAccounts.botId, rows.map((r) => r.id))) : [];
-  return rows.map((r) => ({ ...publicBot(r), gitAccountIds: links.filter((l: any) => l.botId === r.id).map((l: any) => l.id) }));
+  const links = await repositories().git.botAccountIds(rows.map((r) => r.id));
+  return rows.map((r) => ({ ...publicBot(r), gitAccountIds: links[r.id] ?? [] }));
 }
 export function botFields(body: Record<string, any>, creating = false) {
   const fields: Record<string, any> = {};
@@ -50,7 +49,7 @@ botRoutes.post("/", async (c) => {
   await assertGitAccounts(c.get("tenantId"), fields.gitAccountIds);
   const { gitAccountIds, ...rest } = fields;
   const bot = await createBot({ tenantId: c.get("tenantId"), ...rest } as any);
-  if (gitAccountIds) await setBotGitAccounts(c.get("tenantId"), bot.id, gitAccountIds);
+  if (gitAccountIds) await repositories().git.setBotAccounts(c.get("tenantId"), bot.id, gitAccountIds);
   if (bot.isEnabled) void discordBotManager.startBot(bot.id).catch(() => {});
   return c.json({ success: true, bot: (await botsOut([bot]))[0] }, 201);
 });
@@ -71,7 +70,7 @@ botRoutes.patch("/:id", async (c) => {
   await assertGitAccounts(c.get("tenantId"), fields.gitAccountIds);
   const { gitAccountIds, ...rest } = fields;
   const bot = await updateBot(c.req.param("id"), rest);
-  if (gitAccountIds) await setBotGitAccounts(c.get("tenantId"), c.req.param("id"), gitAccountIds);
+  if (gitAccountIds) await repositories().git.setBotAccounts(c.get("tenantId"), c.req.param("id"), gitAccountIds);
   if (bot?.isEnabled) void discordBotManager.restartBot(bot.id).catch(() => {});
   else await discordBotManager.stopBot(c.req.param("id"));
   return c.json({ success: true, bot: (await botsOut([bot]))[0] });

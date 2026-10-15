@@ -55,8 +55,8 @@ discordScenario("without a repository the glossary is the channel folder's gloss
   await addDocs(s);
   // The git skill is on, but the bot has no git account, so git scope allows no repository.
   await s.git({ repos: ["acme/api"] });
-  const { setBotGitAccounts } = await import(process.cwd() + "/packages/db/src/tenancy.ts");
-  await setBotGitAccounts(s.tenant.id, s.bot.id, []);
+  const { repositories } = await import(process.cwd() + "/packages/db/src/index.ts");
+  await repositories().git.setBotAccounts(s.tenant.id, s.bot.id, []);
   s.clock.set("2026-10-14T09:00:00Z");
   const ok = (turn: any) => (turn.toolResults.every((r: any) => r.success !== false && !r.error) ? "Written." : `failed: ${JSON.stringify(turn.toolResults)}`);
   s.model.script(

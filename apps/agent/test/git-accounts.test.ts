@@ -13,7 +13,7 @@ test("git accounts: verified, write-only token, shared across bots, tenant-bound
         const assert = (c, m) => { if (!c) throw new Error(m); };
         const { runMigrations } = await import(${JSON.stringify(join(w, "packages/db/src/migrate.ts"))});
         const { runSeed } = await import(${JSON.stringify(join(w, "packages/db/src/seed.ts"))});
-        const { db, gitAccounts, bots, tenantSkills, eq, and } = await import(${JSON.stringify(join(w, "packages/db/src/index.ts"))});
+        const { db, repositories, tenantSkills, eq, and } = await import(${JSON.stringify(join(w, "packages/db/src/index.ts"))});
         await runMigrations(); await runSeed();
         const { createServer } = await import(${JSON.stringify(join(w, "apps/agent/src/server.ts"))});
         const app = createServer();
@@ -33,7 +33,7 @@ test("git accounts: verified, write-only token, shared across bots, tenant-bound
         assert(created.status === 201, "create failed");
         const acc = (await j(created)).gitAccount;
         assert(acc.username === "octo" && acc.hasToken && !("tokenEncrypted" in acc), "public shape wrong");
-        const [row] = await db.select().from(gitAccounts).where(eq(gitAccounts.id, acc.id));
+        const row = await repositories().git.getAccount(acc.id);
         assert(row.tokenEncrypted && row.tokenEncrypted !== "good", "token not encrypted");
         assert((await post(a, { name: "main", provider: "github", token: "good" })).status === 409, "duplicate name accepted");
         const other = (await j(await post(b, { name: "main", provider: "gitlab", token: "good" }))).gitAccount;
