@@ -85,10 +85,10 @@ async function questionsOf(s: Scenario, thread: NonNullable<Message["thread"]>):
 
 /** Attaches `profile` to the scenario's bot and lets its model calls reach the provider. */
 export async function useLiveProfile(s: Scenario, profile: EvalProfile) {
-  const { repositories, bots, encryptSecret, eq } = await db();
+  const { encryptSecret, repositories } = await db();
   const { providerBaseUrl } = await import("../src/llm/providers.ts");
   const row = await repositories().profiles.create(s.tenant.id, { name: profile.name, provider: profile.provider, model: profile.model, baseUrl: profile.baseUrl, apiKeyEncrypted: encryptSecret(profile.apiKey), acceptsImages: profile.acceptsImages });
-  await s.db.update(bots).set({ profileId: row.id }).where(eq(bots.id, s.bot.id));
+  await repositories().bots.update(s.bot.id, { profileId: row.id });
   s.model.live();
   s.http.passthrough(`POST ${providerBaseUrl(profile.provider, profile.baseUrl)}/`);
 }

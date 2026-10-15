@@ -88,7 +88,7 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, bots, tenantSkills, tasks, and, eq } = await imp("packages/db/src/index.ts");
+        const { db, tenantSkills, tasks, and, eq } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const sk = await imp("packages/skills/src/index.ts");
@@ -96,7 +96,7 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         const { handleConfirmButton, pendingOf } = await imp("apps/agent/src/discord/gitConfirm.ts");
         const t = await repositories().tenants.create({ name: "T", slug: "t" });
         await db.update(tenantSkills).set({ isEnabled: true }).where(eq(tenantSkills.tenantId, t.id));
-        const [bot] = await db.insert(bots).values({ tenantId: t.id, tokenEncrypted: "x", isEnabled: false }).returning();
+        const bot = await repositories().bots.create({ tenantId: t.id, token: "x", isEnabled: false });
         const adapterCalls = [];
         const discord = { createChannel: async (a) => { adapterCalls.push("create"); return { id: "n1", name: a.channelName, type: "text" }; }, archiveChannel: async () => { adapterCalls.push("archive"); return { id: "c1", archived: true, message: "ok" }; }, listChannels: async () => [], setChannelTopic: async () => ({ id: "c1", topic: "t", success: true }) };
         const member = (perms, id = "alice") => ({ tenantId: t.id, botId: bot.id, userId: id, guildId: "g1", channelId: "c1", roleIds: [], permissions: perms });

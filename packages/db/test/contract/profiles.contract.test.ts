@@ -1,5 +1,10 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { contract } from "./engines.ts";
+
+// Some tests add bots, whose tokens are encrypted at rest, so this suite needs a platform key; the one a developer set is kept.
+const savedKey = process.env.PLATFORM_ENCRYPTION_KEY;
+beforeAll(() => { process.env.PLATFORM_ENCRYPTION_KEY ||= Buffer.alloc(32, 4).toString("base64"); });
+afterAll(() => { if (savedKey === undefined) delete process.env.PLATFORM_ENCRYPTION_KEY; else process.env.PLATFORM_ENCRYPTION_KEY = savedKey; });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -46,12 +51,12 @@ contract("Profiles", (use) => {
     const { tenants, profiles } = use().repos;
     const [acme, other] = [await tenants.create({ name: "Acme", slug: "acme" }), await tenants.create({ name: "Other", slug: "other" })];
     const own = await profiles.create(acme.id, { name: "Own", provider: "openai", model: "a" });
-    const bot = await use().addBot(acme.id, own.id);
+    const bot = (await use().repos.bots.create({ tenantId: acme.id, token: "token", profileId: own.id })).id;
     expect(await profiles.getForBot(acme.id, bot)).toEqual(own);
     expect(await profiles.getForBot(other.id, bot)).toBeNull();
-    expect(await profiles.getForBot(acme.id, await use().addBot(acme.id, null))).toBeNull();
+    expect(await profiles.getForBot(acme.id, (await use().repos.bots.create({ tenantId: acme.id, token: "token", profileId: null })).id)).toBeNull();
     const foreign = await profiles.create(other.id, { name: "Foreign", provider: "openai", model: "b" });
-    expect(await profiles.getForBot(acme.id, await use().addBot(acme.id, foreign.id))).toBeNull();
+    expect(await profiles.getForBot(acme.id, (await use().repos.bots.create({ tenantId: acme.id, token: "token", profileId: foreign.id })).id)).toBeNull();
 
     expect(await profiles.remove(own.id)).toBe(true);
     expect(await profiles.remove(own.id)).toBe(false);

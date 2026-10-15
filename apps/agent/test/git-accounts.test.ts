@@ -13,7 +13,7 @@ test("git accounts: verified, write-only token, shared across bots, tenant-bound
         const assert = (c, m) => { if (!c) throw new Error(m); };
         const { runMigrations } = await import(${JSON.stringify(join(w, "packages/db/src/migrate.ts"))});
         const { runSeed } = await import(${JSON.stringify(join(w, "packages/db/src/seed.ts"))});
-        const { db, gitAccounts, bots, tenantSkills, eq, and } = await import(${JSON.stringify(join(w, "packages/db/src/index.ts"))});
+        const { db, gitAccounts, tenantSkills, eq, and } = await import(${JSON.stringify(join(w, "packages/db/src/index.ts"))});
         await runMigrations(); await runSeed();
         const { createServer } = await import(${JSON.stringify(join(w, "apps/agent/src/server.ts"))});
         const app = createServer();

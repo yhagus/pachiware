@@ -47,13 +47,13 @@ describe("guild config", () => {
       const assert = (c, m) => { if (!c) throw new Error(m); };
       const { runMigrations } = await import(${JSON.stringify(join(root, "packages/db/src/migrate.ts"))});
       await runMigrations(); await runMigrations();
-      const { createBot, repositories } = await import(${JSON.stringify(join(root, "packages/db/src/index.ts"))});
+      const { repositories } = await import(${JSON.stringify(join(root, "packages/db/src/index.ts"))});
       const { createServer } = await import(${JSON.stringify(join(root, "apps/agent/src/server.ts"))});
       const { SystemPromptBuilder } = await import(${JSON.stringify(join(root, "apps/agent/src/loop/prompt.ts"))});
       const app = createServer();
       const admin = { "X-Platform-Key": "k", "Content-Type": "application/json" };
       const t = await repositories().tenants.create({ name: "T", slug: "t" });
-      const bot = await createBot({ tenantId: t.id, token: "tok" });
+      const bot = await repositories().bots.create({ tenantId: t.id, token: "tok" });
       const url = "/api/admin/bots/" + bot.id + "/guilds/g1/config";
       const put = (b) => app.request(url, { method: "PUT", headers: admin, body: JSON.stringify(b) });
       const ctx = { tenantId: t.id, botId: bot.id, platform: "discord", guildId: "g1", guildName: "Srv" };

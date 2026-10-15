@@ -14,13 +14,13 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { encryptSecret } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
+        const { encryptSecret, repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
         const tenant = await repositories().tenants.create({ name: "Images", slug: "images" });
         const { llmRouter } = await import(${src("apps/agent/src/llm/router.ts")});
         const botWith = async (provider, model) => {
           const profile = await repositories().profiles.create(tenant.id, { name: model, provider, model, apiKeyEncrypted: encryptSecret("key"), acceptsImages: true });
-          return createBot({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
+          return repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
         };
         const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
         const calls = []; let reply = () => json({});

@@ -1,5 +1,10 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { contract } from "./engines.ts";
+
+// Some tests add bots, whose tokens are encrypted at rest, so this suite needs a platform key; the one a developer set is kept.
+const savedKey = process.env.PLATFORM_ENCRYPTION_KEY;
+beforeAll(() => { process.env.PLATFORM_ENCRYPTION_KEY ||= Buffer.alloc(32, 4).toString("base64"); });
+afterAll(() => { if (savedKey === undefined) delete process.env.PLATFORM_ENCRYPTION_KEY; else process.env.PLATFORM_ENCRYPTION_KEY = savedKey; });
 
 contract("Usage events", (use) => {
   test("a recorded event can be listed back with its defaults", async () => {
@@ -30,7 +35,7 @@ contract("Usage events", (use) => {
   test("an event naming a bot of another tenant is rejected", async () => {
     const { tenants, usage } = use().repos;
     const [acme, other] = [await tenants.create({ name: "Acme", slug: "acme" }), await tenants.create({ name: "Other", slug: "other" })];
-    const bot = await use().addBot(acme.id, null);
+    const bot = (await use().repos.bots.create({ tenantId: acme.id, token: "token", profileId: null })).id;
     await usage.record({ tenantId: acme.id, botId: bot, type: "discord_message" });
     await expect(usage.record({ tenantId: other.id, botId: bot, type: "discord_message" })).rejects.toThrow();
     expect((await usage.list({ tenantId: acme.id }))[0]?.botId).toBe(bot);
