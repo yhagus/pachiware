@@ -4,6 +4,7 @@ import { extensionOf, extractsText } from "./extract.js";
 import { filesRoot, provenanceOf } from "./files.js";
 import { DEFAULT_TIMEZONE, isoInZone } from "../clock.js";
 import { textIn } from "../language.js";
+import { jumpLink } from "../playbooks.js";
 import type { SkillContext } from "../types.js";
 
 /** One piece of text a person asked to keep, word for word, and where it came from; a Note joins its pieces in order. */
@@ -30,6 +31,28 @@ export async function keptDocument(ctx: SkillContext, path: unknown): Promise<Ke
   const file = textPath ? await store.read(ctx.tenantId, resolvePath(ctx, textPath)) : null;
   if (!file) throw new Error(t.keepNoText(document));
   return { text: file.content, source: document, ...(given && { author: given.name }) };
+}
+
+/** How many messages one Note may join. */
+export const MAX_KEPT_MESSAGES = 20;
+
+/** The texts of messages in this channel or thread, as written, in the order given, each with its author and its link as the source. */
+export async function keptMessages(ctx: SkillContext, messageIds: unknown): Promise<KeptText[]> {
+  const t = textIn(ctx.language);
+  const ids = Array.isArray(messageIds) ? messageIds.map((id) => (typeof id === "string" ? id.trim() : "")) : [];
+  if (!ids.length || ids.some((id) => !id)) throw new Error(t.keepMessageIds);
+  if (ids.length > MAX_KEPT_MESSAGES) throw new Error(t.keepTooManyMessages(MAX_KEPT_MESSAGES));
+  const { discord, channelId } = ctx;
+  if (!discord || !channelId) throw new Error(t.keepNoMessage(ids[0]!));
+  // A thread opened from a message shares its id, and that starter message sits in the parent channel.
+  const placeOf = (messageId: string) => (messageId === channelId && ctx.parentChannelId ? ctx.parentChannelId : channelId);
+  const messages = await Promise.all(ids.map((messageId) => discord.fetchMessage({ channelId: placeOf(messageId), messageId })));
+  return messages.map((message, i) => {
+    if (!message) throw new Error(t.keepNoMessage(ids[i]!));
+    const source = jumpLink(ctx.guildId, message.channelId, message.id);
+    if (!message.content) throw new Error(t.keepNoText(source));
+    return { text: message.content, source, ...(message.authorName && { author: message.authorName }) };
+  });
 }
 
 /**

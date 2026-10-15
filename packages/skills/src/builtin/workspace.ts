@@ -8,7 +8,7 @@ import { describeBriefImages, describeBriefImagesTool } from "../briefImages.js"
 import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 import { forget, memoryLevel, remember } from "../workspace/memory.js";
 import { fileDocument, filesRoot, isDocument } from "../workspace/files.js";
-import { keepNote, keptDocument } from "../workspace/notes.js";
+import { keepNote, keptDocument, keptMessages, MAX_KEPT_MESSAGES } from "../workspace/notes.js";
 import { textIn } from "../language.js";
 import { hasPermission } from "../permissions.js";
 
@@ -64,7 +64,7 @@ export const workspaceSkill: SkillModule = {
     { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name; say nothing about it unless asked. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { level: levelArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["level", "text"] } },
     { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { level: levelArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["level", "match"] } },
     { name: "saveAttachment", description: "Files one attachment of a message in this channel under files/, when a person asks to keep a file that was not sent to the bot. Same rules as files sent to the bot: PDF, DOCX, XLSX, CSV, MD or TXT, 10 MB at most, a taken name gets -2.", parameters: { type: "object", properties: { messageId: { type: "string", description: 'The message id from the file placeholder, e.g. "[file: report.pdf (message 123)]"' }, name: { type: "string", description: "Attachment name, when the message holds more than one file" } }, required: ["messageId"] } },
-    { name: "keepAsNote", description: "Keeps text a person gave you as a new Note, word for word: the server copies a Document's text (a PDF's or DOCX's extracted text) under notes/, headed with who wrote it, who asked and the date, however long it is. Use it when a person asks to keep that text as it is; use writeFile for your own writing. The Document stays in files/. Refuses a path that exists.", parameters: { type: "object", properties: { document: { type: "string", description: 'The Document under files/, e.g. "channel/files/minutes.pdf"' }, path: { type: "string", description: 'The new Note under notes/, e.g. "channel/notes/2026-10-14-minutes.md"' } }, required: ["path"] } },
+    { name: "keepAsNote", description: `Keeps text a person gave you as a new Note, word for word: the server copies a Document's text (a PDF's or DOCX's extracted text), or the texts of messages in this channel or thread joined in the order given, under notes/, headed with who wrote it, who asked and the date, however long it is. Use it when a person asks to keep that text as it is; use writeFile for your own writing. Give exactly one source: document, or messageIds (at most ${MAX_KEPT_MESSAGES}), any person's messages. The Document stays in files/. Refuses a path that exists.`, parameters: { type: "object", properties: { document: { type: "string", description: 'The Document under files/, e.g. "channel/files/minutes.pdf"' }, messageIds: { type: "array", items: { type: "string" }, description: 'Message ids in reading order, from turn lines such as "Alice (message 123): ..."' }, path: { type: "string", description: 'The new Note under notes/, e.g. "channel/notes/2026-10-14-minutes.md"' } }, required: ["path"] } },
     postBriefRoundTool,
     recordBriefAnswersTool,
     writeIssueDraftTool,
@@ -135,10 +135,12 @@ export const workspaceSkill: SkillModule = {
       return { path: outcome.path, name: candidates[0]!.name, messageId: message.id, ...text };
     },
     keepAsNote: async (args, ctx) => {
-      if (typeof args.document !== "string" || !args.document.trim()) throw new Error("document is required");
-      const kept = await keepNote(ctx, args.path, [await keptDocument(ctx, args.document.trim())]);
+      const document = typeof args.document === "string" ? args.document.trim() : "";
+      if (!document === (args.messageIds === undefined)) throw new Error(textIn(ctx.language).keepOneSource);
+      const pieces = document ? [await keptDocument(ctx, document)] : await keptMessages(ctx, args.messageIds);
+      const kept = await keepNote(ctx, args.path, pieces);
       await labelFolder(ctx, filesRoot(ctx)!);
-      return { success: true, path: kept.path, source: args.document.trim() };
+      return { success: true, path: kept.path, source: document || pieces.map((p) => p.source) };
     },
     postBriefRound,
     recordBriefAnswers,

@@ -4,7 +4,7 @@ import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
-import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName } from "./routing.js";
+import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
@@ -478,7 +478,7 @@ export class DiscordBotManager {
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);
       if (media.blind && !briefAuthor && !items.some((i) => i.text)) { await send(`${t.blind} ${t.describeImage}`); return; }
       const filed = await fileTurnDocuments(runtime.tenantId, items, language);
-      let turn = [items.map((i) => speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed))).join("\n"), media.context].filter(Boolean).join("\n");
+      let turn = [items.map((i) => speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed), keepableId(i.text, i.msg.id))).join("\n"), media.context].filter(Boolean).join("\n");
       const brief = opts.binding && { place: bindingPlace(opts.binding), authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
       if (brief?.outsider) turn = outsiderTurn(turn);
       else if (brief) { const input = await takeBriefInput(runtime.tenantId, brief.place).catch(() => null); if (input) turn = inputTurn(input, turn); }

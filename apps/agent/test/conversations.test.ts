@@ -31,6 +31,8 @@ describe("respondReason", () => {
   test("formats turns and thread names", () => {
     expect(speakerTurn("g1", "Ana", "hi")).toBe("Ana: hi");
     expect(speakerTurn(null, "Ana", "hi")).toBe("hi");
+    expect(speakerTurn("g1", "Ana", "hi", "42")).toBe("Ana (message 42): hi");
+    expect(speakerTurn(null, "Ana", "hi", "42")).toBe("(message 42): hi");
     expect(threadName("  a\n\n b ")).toBe("a b");
     expect(threadName("x".repeat(100))).toHaveLength(60);
     expect(threadName("   ")).toBe("Conversation");

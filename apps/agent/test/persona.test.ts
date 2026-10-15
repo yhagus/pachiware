@@ -26,6 +26,16 @@ discordScenario("the persona describes project work in the glossary's terms and 
   expect(ownerLines.every((line) => line.includes("Reminder"))).toBe(true);
 });
 
+discordScenario("the persona keeps long text a person asks to keep with keepAsNote, and the bot's own writing with writeFile", async (s) => {
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const persona = systemPrompt(s.model.calls[0]!).split("### Policy")[0]!;
+  const noteLine = persona.split("\n").find((line) => line.includes("Keep this as a note"));
+  expect(noteLine).toContain("keepAsNote");
+  expect(noteLine).toContain("writeFile");
+  expect(noteLine).toContain("(message <id>)");
+});
+
 discordScenario("a question about channels reaches the model when the Discord skill is off, instead of a regex refusal", async (s) => {
   const { tenantSkills, and, eq } = await import("../../../packages/db/src/index.ts");
   await s.db.update(tenantSkills).set({ isEnabled: false }).where(and(eq(tenantSkills.tenantId, s.tenant.id), eq(tenantSkills.skillId, "discord_management")));

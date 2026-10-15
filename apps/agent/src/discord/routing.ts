@@ -40,9 +40,17 @@ export function threadName(text: string) {
 /** The name someone goes by here: their server nickname, else their username. */
 export const speakerName = (m: { member?: { displayName?: string } | null; author: { username: string } }) => m.member?.displayName || m.author.username;
 
+/** Text longer than this is too long for the model to copy into a tool call, so its turn line names the message for keepAsNote. */
+export const LONG_TEXT = 2000;
+
+/** The message id a turn line shows for `text`: only for long text, which keepAsNote keeps by id. */
+export const keepableId = (text: string, messageId: string) => (text.length > LONG_TEXT ? messageId : undefined);
+
 // Guild conversations are shared by everyone in the channel/thread, so turns carry the speaker.
-export function speakerTurn(guildId: string | null, name: string, text: string) {
-  return guildId ? `${name}: ${text}` : text;
+export function speakerTurn(guildId: string | null, name: string, text: string, messageId?: string) {
+  const ref = messageId ? `(message ${messageId})` : "";
+  if (!guildId) return ref ? `${ref}: ${text}` : text;
+  return `${ref ? `${name} ${ref}` : name}: ${text}`;
 }
 
 // Emoji, stickers-as-text, punctuation and whitespace alone carry nothing to answer.

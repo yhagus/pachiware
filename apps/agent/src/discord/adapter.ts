@@ -309,7 +309,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     const message = await channel.messages.fetch(args.messageId).catch(() => null);
     if (!message) return null;
     return {
-      id: message.id, channelId: message.channelId ?? channel.id, authorId: message.author?.id ?? "", authorName: message.member?.displayName || message.author?.username || "",
+      id: message.id, channelId: message.channelId ?? channel.id, authorId: message.author?.id ?? "", authorName: message.member?.displayName || message.author?.username || "", content: message.content ?? "",
       attachments: [...(message.attachments?.values() ?? [])].map((a: any) => ({ id: a.id, name: a.name ?? "attachment", url: a.url, size: a.size ?? 0, contentType: a.contentType ?? null })),
     };
   }
