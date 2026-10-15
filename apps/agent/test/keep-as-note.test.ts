@@ -155,7 +155,7 @@ discordScenario("a kept message loses only the bot's own mention, in either form
   expect(note?.split("---\n")[2]).toBe(`Hey please read\n${body}`);
 });
 
-discordScenario("keepAsNote refuses a message from another channel, more than 20 messages, and a Document with messages, writing nothing", async (s) => {
+discordScenario("keepAsNote refuses a message from another channel, more than 20 messages, a Document with messages, and no source at all, writing nothing", async (s) => {
   await s.guildSettings({ language: "en", useThreads: false });
   const notes = attachment(s, "notes.txt", new TextEncoder().encode("The plan\n"), { contentType: "text/plain" });
   s.model.script("Filed.");
@@ -168,7 +168,7 @@ discordScenario("keepAsNote refuses a message from another channel, more than 20
     [{ messageIds: [ids[0], elsewhere!.id], path: "channel/notes/a.md" }, `refused: I can't find message ${elsewhere!.id} in this channel or thread.`],
     [{ messageIds: ids, path: "channel/notes/a.md" }, "refused: One Note keeps at most 20 messages."],
     [{ document: "channel/files/notes.txt", messageIds: [ids[0]], path: "channel/notes/a.md" }, "refused: Keep one source per Note: a Document, or a list of message ids, not both."],
-    [{ path: "channel/notes/a.md" }, "refused: Keep one source per Note: a Document, or a list of message ids, not both."],
+    [{ path: "channel/notes/a.md" }, "refused: Name what to keep: a Document, or a list of message ids."],
   ] as const;
   for (const [args, reply] of attempts) {
     s.model.script({ tool: "keepAsNote", args }, kept);
@@ -205,6 +205,7 @@ discordScenario("keepAsNote refuses in Indonesian where the place speaks it", as
 
   const attempts = [
     [{ document: "channel/files/notes.txt", path: "channel/notes/rencana.txt" }, "refused: Catatan berupa file Markdown: akhiri namanya dengan .md."],
+    [{ path: "channel/notes/rencana.md" }, "refused: Sebutkan yang mau disimpan: sebuah Dokumen, atau daftar id pesan."],
   ] as const;
   for (const [args, reply] of attempts) {
     s.model.script({ tool: "keepAsNote", args }, kept);

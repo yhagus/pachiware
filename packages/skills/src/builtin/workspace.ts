@@ -136,9 +136,12 @@ export const workspaceSkill: SkillModule = {
       return { path: outcome.path, name: candidates[0]!.name, messageId: message.id, ...text };
     },
     keepAsNote: async (args, ctx) => {
+      const t = textIn(ctx.language);
       const document = typeof args.document === "string" ? args.document.trim() : "";
-      if (!document === (args.messageIds === undefined)) throw new Error(textIn(ctx.language).keepOneSource);
-      const pieces = document ? [await keptDocument(ctx, document)] : await keptMessages(ctx, args.messageIds);
+      const hasDocument = document !== "", hasMessages = args.messageIds !== undefined;
+      if (hasDocument && hasMessages) throw new Error(t.keepOneSource);
+      if (!hasDocument && !hasMessages) throw new Error(t.keepNoSource);
+      const pieces = hasDocument ? [await keptDocument(ctx, document)] : await keptMessages(ctx, args.messageIds);
       const kept = await keepNote(ctx, args.path, pieces);
       await labelFolder(ctx, filesRoot(ctx)!);
       return { success: true, path: kept.path, source: document || pieces.map((p) => p.source) };
