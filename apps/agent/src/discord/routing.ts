@@ -38,7 +38,7 @@ export function threadName(text: string) {
 }
 
 /** The name someone goes by here: their server nickname, else their username. */
-export const speakerName = (m: { member?: { displayName?: string } | null; author: { username: string } }) => m.member?.displayName || m.author.username;
+export const speakerName = (m: { member?: { displayName?: string } | null; author?: { username: string } | null }) => m.member?.displayName || m.author?.username || "";
 
 /**
  * `text` without the bot's own mention (`<@id>` or `<@!id>`) and the spaces around it; a mention between words leaves one space.
