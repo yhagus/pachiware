@@ -7,10 +7,10 @@ export const MESSAGE_LIMIT = 2000;
 const EN = new Set("the a an and or but is are was were be been to of in on at for with from by as it its this that these those when which who not no should must can does do has have will would every each than then so if".split(" "));
 const ID = new Set("yang dan atau di ke dari untuk dengan tidak bukan ini itu ada akan pada saat jika kalau bisa dapat harus sudah juga dalam oleh sebagai agar supaya karena masih setiap tetap hanya lebih sama tanpa ketika sehingga perlu sedang belum lalu tolong saya aku kamu kita kami apa gimana bagaimana kenapa nggak gak udah aja dong sih nih".split(" "));
 
-/** English or Indonesian by function words; "unknown" when neither leads or fewer than `least` were found. */
+/** English or Indonesian by function words; "unknown" when neither leads or fewer than `least` were found. A token with a digit in it (an id, a hash) is not a word, so its letters never count. */
 export function languageOf(text: string, least = 3): Language | "unknown" {
   let en = 0, id = 0;
-  for (const word of text.toLowerCase().match(/\p{L}+/gu) ?? []) { if (EN.has(word)) en++; if (ID.has(word)) id++; }
+  for (const word of text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) { if (EN.has(word)) en++; if (ID.has(word)) id++; }
   return en + id < least || en === id ? "unknown" : en > id ? "en" : "id";
 }
 
