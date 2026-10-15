@@ -8,7 +8,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachments.js";
@@ -157,6 +157,7 @@ export class DiscordBotManager {
       runtime.connected = true;
       void updateBot(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
       this.scheduleCommands(id);
+      this.track(this.moveOldThreadFiles(runtime));
     });
     client.on(Events.GuildCreate, () => { if (runtime.connected) this.scheduleCommands(id); });
     client.on(Events.GuildDelete, (guild) => { runtime.sentCommands.delete(guild.id); });
@@ -177,6 +178,20 @@ export class DiscordBotManager {
       await client.destroy();
       await updateBot(id, { connectionStatus: "error", lastError: "Discord login failed; verify token, intents, and connectivity." });
       return { success: false, message: "Discord login failed." };
+    }
+  }
+  /**
+   * The one-time move of old private-thread Minutes and Notes (ADR 0009), in each guild this bot serves and is in: a thread is looked up
+   * only there, since one that cannot be looked up counts as private.
+   */
+  private async moveOldThreadFiles(runtime: BotRuntime) {
+    const kindOf = async (threadId: string) => {
+      const channel = await runtime.client.channels.fetch(threadId).catch(() => null);
+      return channel && channel.type !== ChannelType.PrivateThread ? "keep" as const : "private" as const;
+    };
+    for (const guildId of runtime.guildIds.filter((g) => runtime.client.guilds.cache.has(g))) {
+      const report = await moveOldThreadFiles(runtime.tenantId, guildId, kindOf).catch(() => null);
+      for (const { from, to } of report?.taken ?? []) console.warn(`Kept in place, "${to}" is taken: ${from}`);
     }
   }
   /** Re-registers the commands of every running bot of the tenant, so an edited playbook or rule needs no restart. */
