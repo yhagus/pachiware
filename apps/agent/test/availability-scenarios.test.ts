@@ -45,8 +45,8 @@ discordScenario("execution refuses a tool that is off here even when the model c
   s.model.script({ tool: "createTask", args: { title: "Fix login" } }, (turn) => `result: ${JSON.stringify(turn.toolResults[0])}`);
   await s.discord.send(`${s.discord.mention} add a task "Fix login"`);
   expect(s.discord.botMessages.at(-1)?.content).toMatch(/disabled or unavailable here/);
-  const { tasks } = await import("../../../packages/db/src/index.ts");
-  expect(await s.db.select().from(tasks)).toEqual([]);
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  expect(await repositories().taskRows.list()).toEqual([]);
 });
 
 discordScenario("danger off in a guild removes every danger tool in its channels and keeps read and write tools", async (s) => {

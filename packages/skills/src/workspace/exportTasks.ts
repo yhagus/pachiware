@@ -1,4 +1,4 @@
-import { db, tasks } from "@pachiware/db";
+import { repositories } from "@pachiware/db";
 import { parseTask, PRIORITIES, STATUSES, render, slug, type Task } from "../builtin/taskFile.js";
 import { parseAssignee } from "../builtin/assignee.js";
 import { safeId } from "./paths.js";
@@ -28,7 +28,7 @@ async function existingIds(store: WorkspaceStore, tenantId: string) {
 
 /** One-off: writes every row of the old tasks table as a task file in the Workspace. Safe to rerun; the table is left as it is. */
 export async function exportTasks(store: WorkspaceStore = workspaceStore()) {
-  const rows = await db.select().from(tasks);
+  const rows = await repositories().taskRows.list();
   const seen = new Map<string, Set<string>>();
   let written = 0, skipped = 0;
   for (const row of rows as any[]) {

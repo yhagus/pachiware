@@ -78,7 +78,7 @@ describe("tenant persistence helpers", () => {
       await repositories().skills.register({ id: "disabled", name: "Disabled", description: "disabled skill", defaultEnabled: false, toolDefinitions: [], handlerType: "builtin", config: { level: 2 } });
       const tenant = await repositories().tenants.create({ name: "New Tenant", slug: "new-tenant" });
       const tenantSkillsRows = (await repositories().skills.listForTenant(tenant.id)).map(({ state }) => state);
-      const taskRows = queryClient.query("SELECT id FROM tasks WHERE tenant_id = ?").all(tenant.id);
+      const taskRows = await repositories().taskRows.list(tenant.id);
       console.log(JSON.stringify({ tenantSkillsRows, taskCount: taskRows.length }));
     `);
     try {

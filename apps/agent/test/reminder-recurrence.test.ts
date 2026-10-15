@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
 
-const SCHEDULES = () => import("../../../packages/db/src/index.ts").then((m) => m.schedules);
+const SCHEDULES = () => import("../../../packages/db/src/index.ts").then((m) => m.repositories().schedules);
 const posts = (s: any) => s.discord.botMessages.filter((m: any) => m.allowedMentions?.users).map((m: any) => m.content);
 
 discordScenario("a weekly Reminder posts on each chosen weekday at its time and advances to the next chosen one", async (s) => {
@@ -14,7 +14,7 @@ discordScenario("a weekly Reminder posts on each chosen weekday at its time and 
   await s.scheduler.tick();
   expect(posts(s)).toEqual([`<@${s.discord.alice.id}> Pengingat: standup`]);
   const schedules = await SCHEDULES();
-  let [row] = await s.db.select().from(schedules);
+  let [row] = await schedules.list();
   expect([row.status, row.recurrence, row.weekdays, row.nextAt.toISOString()]).toEqual(["active", "weekly", [1, 4], "2026-03-12T02:00:00.000Z"]);
 
   s.clock.set("2026-03-10T09:00:10+07:00");
@@ -23,7 +23,7 @@ discordScenario("a weekly Reminder posts on each chosen weekday at its time and 
   s.clock.set("2026-03-12T09:00:10+07:00");
   await s.scheduler.tick();
   expect(posts(s).length).toBe(2);
-  [row] = await s.db.select().from(schedules);
+  [row] = await schedules.list();
   expect(row.nextAt.toISOString()).toBe("2026-03-16T02:00:00.000Z");
 });
 
@@ -40,7 +40,7 @@ discordScenario("a tick more than six hours late skips a once Reminder and advan
   await s.scheduler.tick();
   expect(posts(s)).toEqual([`<@${s.discord.alice.id}> Pengingat: later one\n-# Terlambat: seharusnya diposting 6 Mar 14:00.`]);
   const schedules = await SCHEDULES();
-  const rows = (await s.db.select().from(schedules)).sort((a: any, b: any) => a.text.localeCompare(b.text));
+  const rows = (await schedules.list()).sort((a: any, b: any) => a.text.localeCompare(b.text));
   expect(rows.map((r: any) => [r.text, r.status, r.nextAt.toISOString(), r.lastFiredAt?.toISOString() ?? null])).toEqual([
     ["daily one", "active", "2026-03-07T02:00:00.000Z", null],
     ["later one", "done", "2026-03-06T07:00:00.000Z", "2026-03-06T09:00:00.000Z"],
@@ -61,7 +61,7 @@ discordScenario("a post Discord refuses keeps its time and is retried next tick;
   const send = channel.send;
   channel.send = async () => { throw new Error("Missing Access"); };
   const schedules = await SCHEDULES();
-  const row = async () => { const [r] = await s.db.select().from(schedules); return [r.status, r.attempts, r.nextAt.toISOString(), r.error]; };
+  const row = async () => { const [r] = await schedules.list(); return [r.status, r.attempts, r.nextAt.toISOString(), r.error]; };
 
   s.clock.set("2026-03-06T09:00:10+07:00");
   await s.scheduler.tick();
@@ -85,7 +85,7 @@ discordScenario("a monthly Reminder on the 31st lands on the last day of a short
   await s.discord.send(`${s.discord.mention} remind me on the 31st of every month at 09:00 until mid-March: invoices`);
   expect(s.discord.botMessages.at(-1)!.content).toBe("2026-01-31T09:00:00+07:00 until 2026-03-15T23:59:59+07:00");
   const schedules = await SCHEDULES();
-  const row = async () => { const [r] = await s.db.select().from(schedules); return [r.status, r.nextAt.toISOString()]; };
+  const row = async () => { const [r] = await schedules.list(); return [r.status, r.nextAt.toISOString()]; };
 
   s.clock.set("2026-01-31T09:00:20+07:00");
   await s.scheduler.tick();
@@ -98,5 +98,5 @@ discordScenario("a monthly Reminder on the 31st lands on the last day of a short
   s.model.script({ tool: "createReminder", args: { text: "never", recurrence: "weekly", weekdays: ["friday"], time: "09:00", until: "2026-03-01" } }, (turn) => turn.toolResults[0].error);
   await s.discord.send(`${s.discord.mention} remind me every Friday at 09:00 until yesterday: never`, { channel: "channel-2" });
   expect(s.discord.botMessages.at(-1)!.content).toMatch(/end date comes before/);
-  expect((await s.db.select().from(schedules)).length).toBe(1);
+  expect((await schedules.list()).length).toBe(1);
 });

@@ -43,18 +43,18 @@ discordScenario("cancelReminder is refused for a stranger, allowed for the owner
   s.clock.set("2026-03-06T15:00:00+07:00");
   await s.scheduler.tick();
   expect(s.discord.botMessages.length).toBe(before);
-  const { schedules } = await import("../../../packages/db/src/index.ts");
-  expect((await s.db.select().from(schedules)).map((r: any) => r.status)).toEqual(["cancelled", "cancelled"]);
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  expect((await repositories().schedules.list()).map((r: any) => r.status)).toEqual(["cancelled", "cancelled"]);
 });
 
 discordScenario("the 51st active Reminder of a person and the 501st of a tenant are refused in the configured language", async (s) => {
   s.clock.set("2026-03-06T09:00:00+07:00");
-  const { schedules } = await import("../../../packages/db/src/index.ts");
+  const { schedules } = (await import("../../../packages/db/src/index.ts")).repositories();
   const rows = (n: number, ownerId: string, status: "active" | "cancelled" = "active") => Array.from({ length: n }, (_, i) => ({
     tenantId: s.tenant.id, botId: s.bot.id, kind: "reminder" as const, guildId: s.discord.guildId, channelId: "channel-1", ownerId, ownerName: ownerId,
     text: `r${i}`, timezone: "Asia/Jakarta", nextAt: new Date("2026-03-07T02:00:00Z"), status,
   }));
-  const insert = async (list: ReturnType<typeof rows>) => { for (let i = 0; i < list.length; i += 100) await s.db.insert(schedules).values(list.slice(i, i + 100)); };
+  const insert = async (list: ReturnType<typeof rows>) => { for (const row of list) await schedules.create(row); };
   await insert(rows(49, s.discord.alice.id));
   await insert(rows(5, s.discord.alice.id, "cancelled"));
   const fiftieth = await set(s, "the fiftieth", "2026-03-06T15:00");
@@ -65,5 +65,5 @@ discordScenario("the 51st active Reminder of a person and the 501st of a tenant 
   expect(await set(s, "tenant full", "2026-03-06T16:00", { author: s.discord.bob })).toBe("error: Pengingat di sini sudah mencapai batas 500 yang aktif. Batalkan satu dulu sebelum membuat yang baru.");
   await s.guildSettings({ language: "en" });
   expect(await set(s, "tenant full", "2026-03-06T16:00", { author: s.discord.bob })).toBe("error: Reminders here are at their limit of 500 active. Cancel one before setting another.");
-  expect((await s.db.select().from(schedules)).filter((r: any) => r.status === "active").length).toBe(500);
+  expect((await schedules.list()).filter((r: any) => r.status === "active").length).toBe(500);
 });

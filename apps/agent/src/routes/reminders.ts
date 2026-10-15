@@ -1,8 +1,7 @@
 import type { Context, Hono } from "hono";
-import { db, repositories, schedules } from "@pachiware/db";
-import { and, asc, eq } from "drizzle-orm";
+import { repositories, type Schedule } from "@pachiware/db";
 
-const reminderOut = (r: typeof schedules.$inferSelect) => ({
+const reminderOut = (r: Schedule) => ({
   id: r.id, ownerId: r.ownerId, ownerName: r.ownerName, guildId: r.guildId, channelId: r.channelId, text: r.text, withTasks: r.withTasks, mentions: r.mentions,
   recurrence: r.recurrence, weekdays: r.weekdays, dayOfMonth: r.dayOfMonth, timeOfDay: r.timeOfDay, timezone: r.timezone, until: r.until, nextAt: r.nextAt, lastFiredAt: r.lastFiredAt, createdAt: r.createdAt,
 });
@@ -16,18 +15,18 @@ export function botReminderRoutes(app: Hono<any>, botPath: string, param: string
     const botId = c.req.param(param)!, tenantId = tenantOf?.(c);
     return (await repositories().bots.get(botId, tenantId))?.id ?? null;
   };
-  const active = (botId: string, id?: string) => and(eq(schedules.botId, botId), eq(schedules.kind, "reminder"), eq(schedules.status, "active"), id ? eq(schedules.id, id) : undefined);
+  const active = (botId: string, id?: string) => repositories().schedules.list({ botId, kind: "reminder", status: "active", ...(id ? { id } : {}) });
   app.get(`${botPath}/reminders`, async (c) => {
     const botId = await botOf(c);
     if (!botId) return c.json({ error: "Not found" }, 404);
-    const rows = await db.select().from(schedules).where(active(botId)).orderBy(asc(schedules.nextAt), asc(schedules.id));
+    const rows = await active(botId);
     return c.json({ success: true, reminders: rows.map(reminderOut) });
   });
   app.delete(`${botPath}/reminders/:reminderId`, async (c) => {
     const botId = await botOf(c);
-    const [row] = botId ? await db.select().from(schedules).where(active(botId, c.req.param("reminderId")!)).limit(1) : [];
+    const [row] = botId ? await active(botId, c.req.param("reminderId")!) : [];
     if (!row) return c.json({ error: "Reminder not found" }, 404);
-    await db.update(schedules).set({ status: "cancelled" }).where(eq(schedules.id, row.id));
+    await repositories().schedules.update(row.id, { status: "cancelled" });
     return c.json({ success: true, reminder: reminderOut({ ...row, status: "cancelled" }) });
   });
 }

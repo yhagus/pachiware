@@ -236,15 +236,15 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
   test("the tasks table exports into task files by guild and channel, rerunnable, table untouched", () => {
     scenario(`
       const fs = await import("node:fs"), ws = process.env.WORKSPACE_DIR + "/" + alpha.id;
-      const { tasks } = await imp("packages/db/src/index.ts"), { exportTasks } = await imp("packages/skills/src/workspace/exportTasks.ts");
+      const { exportTasks } = await imp("packages/skills/src/workspace/exportTasks.ts");
       const base = { tenantId: alpha.id, status: "in_progress", priority: "high" };
-      await db.insert(tasks).values([
+      for (const row of [
         { ...base, title: "Channel task", description: "body", assignedTo: "dewi", discordGuildId: "g1", discordChannelId: "c1" },
         { ...base, title: "Guild only", discordGuildId: "g1" },
         { ...base, title: "No place" },
         { ...base, title: "Channel without guild", discordChannelId: "c9" },
         { tenantId: beta.id, title: "Other tenant" },
-      ]);
+      ]) await repositories().taskRows.create(row);
       const first = await exportTasks();
       assert(first.written === 5, "wrote " + first.written);
       const files = (path) => fs.readdirSync(path).filter((name) => !name.startsWith("."));
@@ -261,7 +261,7 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
       const second = await exportTasks();
       assert(second.written === 0 && second.skipped === 5, "rerun wrote " + second.written);
       assert(files(ws + "/guilds/g1/channels/c1/tasks").every((n) => n === "web"), "moved task duplicated");
-      assert((await db.select().from(tasks)).length === 5, "tasks table was changed");
+      assert((await repositories().taskRows.list()).length === 5, "tasks table was changed");
     `);
   });
 });

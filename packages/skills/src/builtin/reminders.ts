@@ -1,5 +1,4 @@
-import { schedules, eq, and, or, type Schedule } from "@pachiware/db";
-import { count } from "drizzle-orm";
+import { repositories, type Schedule } from "@pachiware/db";
 import type { SkillContext, SkillModule } from "../types.js";
 import { DEFAULT_TIMEZONE, hhmm, isoInZone, now, wallClock, wallToInstant } from "../clock.js";
 import { hasPermission } from "../permissions.js";
@@ -26,7 +25,7 @@ function mentionIds(input: unknown, ownerId: string): string[] {
 }
 
 const canModerate = (ctx: SkillContext) => hasPermission(ctx, "ManageMessages");
-const activeReminders = (ctx: SkillContext) => and(eq(schedules.tenantId, ctx.tenantId), eq(schedules.kind, "reminder"), eq(schedules.status, "active"));
+const activeReminders = (ctx: SkillContext) => ({ tenantId: ctx.tenantId, kind: "reminder", status: "active" }) as const;
 
 const describe = (row: Schedule) => ({
   id: row.id, text: row.text, channelId: row.channelId, guildId: row.guildId, owner: { id: row.ownerId, name: row.ownerName },
@@ -36,10 +35,9 @@ const describe = (row: Schedule) => ({
 
 async function assertUnderLimits(ctx: SkillContext) {
   const t = textIn(ctx.language);
-  const [owner] = await ctx.db.select({ n: count() }).from(schedules).where(and(activeReminders(ctx), eq(schedules.ownerId, ctx.userId!)));
-  if (owner!.n >= MAX_ACTIVE_PER_OWNER) throw new Error(t.reminderLimitOwner(MAX_ACTIVE_PER_OWNER));
-  const [tenant] = await ctx.db.select({ n: count() }).from(schedules).where(activeReminders(ctx));
-  if (tenant!.n >= MAX_ACTIVE_PER_TENANT) throw new Error(t.reminderLimitTenant(MAX_ACTIVE_PER_TENANT));
+  const { schedules } = repositories();
+  if (await schedules.count({ ...activeReminders(ctx), ownerId: ctx.userId! }) >= MAX_ACTIVE_PER_OWNER) throw new Error(t.reminderLimitOwner(MAX_ACTIVE_PER_OWNER));
+  if (await schedules.count(activeReminders(ctx)) >= MAX_ACTIVE_PER_TENANT) throw new Error(t.reminderLimitTenant(MAX_ACTIVE_PER_TENANT));
 }
 
 /** "HH:MM" from "9:00" or "09:00". */
@@ -125,8 +123,8 @@ export const remindersSkill: SkillModule = {
         if (at === null) throw new Error('at must be a date and time such as "2026-03-06T15:00"');
         if (at <= from) throw new Error("That time has already passed; pick a later one.");
         const wall = wallClock(timezone, at);
-        const [row] = await ctx.db.insert(schedules).values({ ...base, recurrence, timeOfDay: hhmm(wall.hour, wall.minute), nextAt: new Date(at) }).returning({ id: schedules.id });
-        return { id: row!.id, at: isoInZone(timezone, at), recurrence, text, mentions, withTasks, channelId: ctx.channelId };
+        const row = await repositories().schedules.create({ ...base, recurrence, timeOfDay: hhmm(wall.hour, wall.minute), nextAt: new Date(at) });
+        return { id: row.id, at: isoInZone(timezone, at), recurrence, text, mentions, withTasks, channelId: ctx.channelId };
       }
 
       const time = timeOfDay(args.time ?? args.at);
@@ -140,24 +138,23 @@ export const remindersSkill: SkillModule = {
       const until = untilAt === null ? null : new Date(untilAt);
       const next = nextOccurrence({ recurrence, weekdays, dayOfMonth, timeOfDay: time, timezone, until }, from);
       if (next === null) throw new Error("That end date comes before the first time it would post; pick a later one.");
-      const [row] = await ctx.db.insert(schedules).values({ ...base, recurrence, weekdays, dayOfMonth, timeOfDay: time, until, nextAt: new Date(next) }).returning({ id: schedules.id });
-      return { id: row!.id, at: isoInZone(timezone, next), recurrence, time, ...(weekdays.length ? { weekdays } : {}), ...(dayOfMonth ? { dayOfMonth } : {}), ...(until ? { until: isoInZone(timezone, until.getTime()) } : {}), text, mentions, withTasks, channelId: ctx.channelId };
+      const row = await repositories().schedules.create({ ...base, recurrence, weekdays, dayOfMonth, timeOfDay: time, until, nextAt: new Date(next) });
+      return { id: row.id, at: isoInZone(timezone, next), recurrence, time, ...(weekdays.length ? { weekdays } : {}), ...(dayOfMonth ? { dayOfMonth } : {}), ...(until ? { until: isoInZone(timezone, until.getTime()) } : {}), text, mentions, withTasks, channelId: ctx.channelId };
     },
     listReminders: async (_args, ctx) => {
       if (!ctx.userId) throw new Error("Reminders can only be listed from a Discord channel or DM.");
-      const mine = eq(schedules.ownerId, ctx.userId);
-      const visible = canModerate(ctx) && ctx.guildId ? or(mine, eq(schedules.guildId, ctx.guildId)) : mine;
-      const rows: Schedule[] = await ctx.db.select().from(schedules).where(and(activeReminders(ctx), visible)).orderBy(schedules.nextAt, schedules.id);
+      const visibleTo = { ownerId: ctx.userId, guildId: canModerate(ctx) ? ctx.guildId : undefined };
+      const rows = await repositories().schedules.list({ ...activeReminders(ctx), visibleTo });
       return { reminders: rows.map(describe), count: rows.length };
     },
     cancelReminder: async (args, ctx) => {
       if (!ctx.userId) throw new Error("Reminders can only be cancelled from a Discord channel or DM.");
       const t = textIn(ctx.language), id = typeof args.id === "string" ? args.id.trim() : "";
-      const [row]: Schedule[] = id ? await ctx.db.select().from(schedules).where(and(activeReminders(ctx), eq(schedules.id, id))).limit(1) : [];
+      const [row] = id ? await repositories().schedules.list({ ...activeReminders(ctx), id }) : [];
       if (!row) throw new Error(t.reminderNotFound);
       // Manage Messages reaches only the moderator's own guild; a DM Reminder has none, so only its owner can cancel it.
       if (row.ownerId !== ctx.userId && !(canModerate(ctx) && row.guildId && row.guildId === ctx.guildId)) throw new Error(t.reminderNotYours);
-      await ctx.db.update(schedules).set({ status: "cancelled" }).where(eq(schedules.id, row.id));
+      await repositories().schedules.update(row.id, { status: "cancelled" });
       return { id: row.id, cancelled: true, text: row.text };
     },
   },

@@ -14,7 +14,7 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, schedules, eq, and, repositories } = await import(${src("packages/db/src/index.ts")});
+        const { repositories } = await import(${src("packages/db/src/index.ts")});
         const { setClock } = await import(${src("packages/skills/src/clock.ts")});
         setClock(() => Date.parse("2026-03-06T20:00:00+07:00"));
         await runMigrations(); await runSeed();
@@ -26,7 +26,7 @@ function scenario(body: string) {
         const status = async (method, path, body, headers) => (await call(method, path, body, headers)).status;
         const read = async (method, path, body, headers) => (await call(method, path, body, headers)).json();
         const path = "/api/admin/bots/" + bot.id + "/guilds/guild-1/config";
-        const digests = async () => (await db.select().from(schedules).where(and(eq(schedules.botId, bot.id), eq(schedules.kind, "digest")))).sort((a, b) => a.channelId.localeCompare(b.channelId));
+        const digests = async () => (await repositories().schedules.list({ botId: bot.id, kind: "digest" })).sort((a, b) => a.channelId.localeCompare(b.channelId));
         ${body}
         console.log(JSON.stringify({ ok: true }));
       `],

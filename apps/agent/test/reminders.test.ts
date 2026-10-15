@@ -36,8 +36,8 @@ discordScenario("the people named when the Reminder was made are pinged with the
   const post = s.discord.botMessages.at(-1)!;
   expect(post.content).toBe(`<@${s.discord.alice.id}> <@${s.discord.bob.id}> Pengingat: standup moved to 16:00`);
   expect(post.allowedMentions).toEqual({ users: [s.discord.alice.id, s.discord.bob.id] });
-  const { schedules } = await import("../../../packages/db/src/index.ts");
-  const [row] = await s.db.select().from(schedules);
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const [row] = await repositories().schedules.list();
   expect([row.status, row.recurrence, row.kind, row.timezone, row.lastFiredAt?.toISOString()]).toEqual(["done", "once", "reminder", "Asia/Jakarta", "2026-03-06T08:00:30.000Z"]);
 });
 
@@ -69,6 +69,6 @@ discordScenario("a time that has passed or cannot be read is refused and nothing
   s.model.script({ tool: "createReminder", args: { text: "when?", at: "soonish" } }, (turn) => `2: ${turn.toolResults[0].error}`);
   await s.discord.send(`${s.discord.mention} remind me soonish`, { channel: "channel-2" });
   expect(s.discord.botMessages.at(-1)!.content).toMatch(/^2: at must be a date and time/);
-  const { schedules } = await import("../../../packages/db/src/index.ts");
-  expect(await s.db.select().from(schedules)).toEqual([]);
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  expect(await repositories().schedules.list()).toEqual([]);
 });

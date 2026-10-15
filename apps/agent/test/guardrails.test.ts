@@ -88,7 +88,7 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, usageEvents, tasks, and, eq } = await imp("packages/db/src/index.ts");
+        const { db, usageEvents, and, eq } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const sk = await imp("packages/skills/src/index.ts");

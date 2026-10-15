@@ -1,6 +1,10 @@
 import type { Connection } from "../connection.js";
 import { createSqlTenantRepository } from "./tenants/sql.js";
 import type { TenantRepository } from "./tenants/types.js";
+import { createSqlScheduleRepository } from "./schedules/sql.js";
+import type { ScheduleRepository } from "./schedules/types.js";
+import { createSqlTaskRowRepository } from "./task-rows/sql.js";
+import type { TaskRowRepository } from "./task-rows/types.js";
 import { createSqlBotRepository } from "./bots/sql.js";
 import type { BotRepository } from "./bots/types.js";
 import { createSqlSkillRepository } from "./skills/sql.js";
@@ -12,6 +16,8 @@ import type { AvailabilityRuleRepository } from "./availability/types.js";
 // and PostgreSQL, and a MongoDB file will sit beside them. Its contract suite lives in
 // packages/db/test/contract/<name>.contract.test.ts and runs on every engine through `contract()`.
 export type * from "./tenants/types.js";
+export type * from "./schedules/types.js";
+export type * from "./task-rows/types.js";
 export type * from "./bots/types.js";
 export type * from "./skills/types.js";
 export type * from "./availability/types.js";
@@ -19,6 +25,8 @@ export type * from "./availability/types.js";
 /** Every repository, one per kind of record. Code outside the database package reads and writes records only through these. */
 export type Repositories = {
   tenants: TenantRepository;
+  schedules: ScheduleRepository;
+  taskRows: TaskRowRepository;
   bots: BotRepository;
   skills: SkillRepository;
   availability: AvailabilityRuleRepository;
@@ -31,6 +39,8 @@ export function createRepositories(connection: Connection): Repositories {
     case "postgres":
       return {
         tenants: createSqlTenantRepository(connection),
+        schedules: createSqlScheduleRepository(connection),
+        taskRows: createSqlTaskRowRepository(connection),
         bots: createSqlBotRepository(connection),
         skills: createSqlSkillRepository(connection),
         availability: createSqlAvailabilityRuleRepository(connection),

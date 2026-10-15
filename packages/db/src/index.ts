@@ -52,6 +52,7 @@ export * from "./crypto.js";
 export * from "./tenancy.js";
 export { createRepositories } from "./repositories/index.js";
 export type { Repositories, Tenant, TenantStatus, NewTenant, TenantUpdate, ApiKey, ApiKeyListing, IssuedApiKey, TenantRepository } from "./repositories/index.js";
+export type { Schedule, NewSchedule, ScheduleUpdate, ScheduleFilter, ScheduleKind, ScheduleRecurrence, ScheduleStatus, ScheduleRepository, TaskRow, NewTaskRow, TaskRowRepository } from "./repositories/index.js";
 export type { Bot, NewBot, BotUpdate, BotWithToken, BotSearch, GuildConfig, GuildConfigInput, BotRepository } from "./repositories/index.js";
 export type { Skill, SkillDefinition, TenantSkill, TenantSkillListing, SkillRepository } from "./repositories/index.js";
 export type { RuleLevel, RuleTargetKind, RuleValue, RuleScope, RuleTarget, AvailabilityRuleRecord, AvailabilityRuleRepository } from "./repositories/index.js";
