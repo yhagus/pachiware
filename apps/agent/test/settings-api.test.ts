@@ -14,7 +14,7 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, eq, repositories } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")});
+        const { db, eq, repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
         const tenant = await repositories().tenants.create({ name: "Acme", slug: "acme" });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
@@ -70,7 +70,7 @@ describe("time zone and language settings", () => {
 
   test("guild settings override the tenant per guild, nullable, beside useThreads and always-on channels", () => {
     const { code, stderr } = scenario(`
-      const bot = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false });
+      const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false });
       const path = "/api/admin/bots/" + bot.id + "/guilds/guild-1/config";
       const fresh = await read("GET", path);
       assert(fresh.config.timezone === null && fresh.config.language === null && fresh.config.useThreads === true, "defaults wrong: " + JSON.stringify(fresh.config));

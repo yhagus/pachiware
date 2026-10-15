@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { repositories, db, bots, profiles, createBot, updateBot, deleteBot, getBotDecrypted, listBotsForTenant } from "@pachiware/db";
-import { and, eq, ne } from "drizzle-orm";
+import { repositories, db, profiles, type Bot } from "@pachiware/db";
+import { and, eq } from "drizzle-orm";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { DiscordBotManager, discordBotManager } from "../../discord/client.js";
-import { object, string, stringArray, publicBot } from "../validation.js";
+import { object, string, stringArray } from "../validation.js";
 import { botAvailabilityRoutes } from "../availability.js";
 import { botReminderRoutes } from "../reminders.js";
 
@@ -20,10 +20,10 @@ export async function assertGitAccounts(tenantId: string, ids: string[] | undefi
   if (!ids?.length) return;
   if (!await repositories().git.ownsAccounts(tenantId, ids)) throw new HTTPException(400, { message: "Git account not found for this tenant" });
 }
-// Bot rows as the API returns them, plus the ids of the git accounts attached to each.
-export async function botsOut(rows: any[]) {
+// Bots as the API returns them, plus the ids of the git accounts attached to each.
+export async function botsOut(rows: Bot[]) {
   const links = await repositories().git.botAccountIds(rows.map((r) => r.id));
-  return rows.map((r) => ({ ...publicBot(r), gitAccountIds: links[r.id] ?? [] }));
+  return rows.map((r) => ({ ...r, gitAccountIds: links[r.id] ?? [] }));
 }
 export function botFields(body: Record<string, any>, creating = false) {
   const fields: Record<string, any> = {};
@@ -41,27 +41,25 @@ export function botFields(body: Record<string, any>, creating = false) {
   if (body.platform !== undefined && body.platform !== "discord") throw new HTTPException(400, { message: "Only Discord bots are supported" });
   return fields;
 }
-botRoutes.get("/", async (c) => c.json({ success: true, bots: await botsOut(await listBotsForTenant(c.get("tenantId"))) }));
+botRoutes.get("/", async (c) => c.json({ success: true, bots: await botsOut(await repositories().bots.listForTenant(c.get("tenantId"))) }));
 botRoutes.post("/", async (c) => {
   const body = object(await c.req.json(), "body");
   const fields = botFields(body, true);
   await assertProfile(c.get("tenantId"), fields.profileId);
   await assertGitAccounts(c.get("tenantId"), fields.gitAccountIds);
   const { gitAccountIds, ...rest } = fields;
-  const bot = await createBot({ tenantId: c.get("tenantId"), ...rest } as any);
+  const bot = await repositories().bots.create({ tenantId: c.get("tenantId"), ...rest } as any);
   if (gitAccountIds) await repositories().git.setBotAccounts(c.get("tenantId"), bot.id, gitAccountIds);
   if (bot.isEnabled) void discordBotManager.startBot(bot.id).catch(() => {});
   return c.json({ success: true, bot: (await botsOut([bot]))[0] }, 201);
 });
 botRoutes.use("/:id/*", async (c, next) => {
-  const [owned] = await db.select().from(bots).where(and(eq(bots.id, c.req.param("id")!), eq(bots.tenantId, c.get("tenantId")), ne(bots.connectionStatus, "deleted"))).limit(1);
-  if (!owned) return c.json({ error: "Bot not found" }, 404);
+  if (!await repositories().bots.get(c.req.param("id")!, c.get("tenantId"))) return c.json({ error: "Bot not found" }, 404);
   await next();
 });
 // Apply the same ownership guard to the bare resource path.
 botRoutes.use("/:id", async (c, next) => {
-  const [owned] = await db.select().from(bots).where(and(eq(bots.id, c.req.param("id")!), eq(bots.tenantId, c.get("tenantId")), ne(bots.connectionStatus, "deleted"))).limit(1);
-  if (!owned) return c.json({ error: "Bot not found" }, 404);
+  if (!await repositories().bots.get(c.req.param("id")!, c.get("tenantId"))) return c.json({ error: "Bot not found" }, 404);
   await next();
 });
 botRoutes.patch("/:id", async (c) => {
@@ -69,17 +67,17 @@ botRoutes.patch("/:id", async (c) => {
   await assertProfile(c.get("tenantId"), fields.profileId);
   await assertGitAccounts(c.get("tenantId"), fields.gitAccountIds);
   const { gitAccountIds, ...rest } = fields;
-  const bot = await updateBot(c.req.param("id"), rest);
+  const bot = (await repositories().bots.update(c.req.param("id"), rest))!;
   if (gitAccountIds) await repositories().git.setBotAccounts(c.get("tenantId"), c.req.param("id"), gitAccountIds);
-  if (bot?.isEnabled) void discordBotManager.restartBot(bot.id).catch(() => {});
+  if (bot.isEnabled) void discordBotManager.restartBot(bot.id).catch(() => {});
   else await discordBotManager.stopBot(c.req.param("id"));
   return c.json({ success: true, bot: (await botsOut([bot]))[0] });
 });
-botRoutes.delete("/:id", async (c) => { await discordBotManager.removeBot(c.req.param("id")); await deleteBot(c.req.param("id")); return c.json({ success: true }); });
+botRoutes.delete("/:id", async (c) => { await discordBotManager.removeBot(c.req.param("id")); await repositories().bots.remove(c.req.param("id")); return c.json({ success: true }); });
 botRoutes.post("/:id/restart", async (c) => c.json(await discordBotManager.restartBot(c.req.param("id"))));
 botRoutes.post("/:id/test", async (c) => {
   const body = object(await c.req.json(), "body");
-  const resolved = await getBotDecrypted(c.req.param("id"));
+  const resolved = await repositories().bots.getWithToken(c.req.param("id"));
   const token = typeof body.token === "string" && !body.token.includes("••••") ? body.token : resolved!.token;
   return c.json(await DiscordBotManager.testToken(token));
 });

@@ -14,7 +14,7 @@ test("LLM lists repos then merge requests of the first one; scope hides other re
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, bots, tenantSkills, encryptSecret, and, eq } = await imp("packages/db/src/index.ts");
+        const { db, tenantSkills, encryptSecret, and, eq } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const { agentReActLoop } = await imp("apps/agent/src/loop/react.ts");
@@ -22,7 +22,7 @@ test("LLM lists repos then merge requests of the first one; scope hides other re
         const t = await repositories().tenants.create({ name: "T", slug: "t" });
         await db.update(tenantSkills).set({ isEnabled: true }).where(and(eq(tenantSkills.tenantId, t.id), eq(tenantSkills.skillId, "git_repositories")));
         const acc = await repositories().git.createAccount({ tenantId: t.id, name: "work", provider: "github", username: "octo", tokenEncrypted: encryptSecret("tok") });
-        const [bot] = await db.insert(bots).values({ tenantId: t.id, tokenEncrypted: "x", isEnabled: false }).returning();
+        const bot = await repositories().bots.create({ tenantId: t.id, token: "x", isEnabled: false });
         await repositories().git.setBotAccounts(t.id, bot.id, [acc.id]);
 
         const urls = [];

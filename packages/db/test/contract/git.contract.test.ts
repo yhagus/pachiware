@@ -1,5 +1,10 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { contract } from "./engines.ts";
+
+// The suite links accounts to bots, whose tokens are encrypted at rest; the key a developer set is kept.
+const savedKey = process.env.PLATFORM_ENCRYPTION_KEY;
+beforeAll(() => { process.env.PLATFORM_ENCRYPTION_KEY ||= Buffer.alloc(32, 4).toString("base64"); });
+afterAll(() => { if (savedKey === undefined) delete process.env.PLATFORM_ENCRYPTION_KEY; else process.env.PLATFORM_ENCRYPTION_KEY = savedKey; });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -7,6 +12,7 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
   const tenant = (slug: string) => use().repos.tenants.create({ name: slug, slug });
   const account = (tenantId: string, name: string, extra: Record<string, any> = {}) =>
     use().repos.git.createAccount({ tenantId, name, provider: "github", username: "octo", tokenEncrypted: "enc", ...extra });
+  const newBot = async (tenantId: string, name = "Bot") => (await use().repos.bots.create({ tenantId, name, token: "x" })).id;
 
   test("a new git account can be read back, with its token kept as given", async () => {
     const { git } = use().repos;
@@ -70,7 +76,7 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
     const { git } = use().repos;
     const t = await tenant("acme");
     const [main, alt] = [await account(t.id, "main"), await account(t.id, "alt")];
-    const [b1, b2, idle] = [await use().addBot(t.id), await use().addBot(t.id), await use().addBot(t.id)];
+    const [b1, b2, idle] = [await newBot(t.id), await newBot(t.id), await newBot(t.id)];
     await git.setBotAccounts(t.id, b1, [main.id, alt.id, main.id]);
     await git.setBotAccounts(t.id, b2, [main.id]);
     expect((await git.listBotAccounts(b1)).map((a) => a.id).sort()).toEqual([main.id, alt.id].sort());
@@ -92,7 +98,7 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
     const { git } = use().repos;
     const [a, b] = [await tenant("a"), await tenant("b")];
     const [mine, theirs] = [await account(a.id, "mine"), await account(b.id, "theirs")];
-    const bot = await use().addBot(a.id);
+    const bot = await newBot(a.id);
     await git.setBotAccounts(a.id, bot, [mine.id]);
     await expect(git.setBotAccounts(a.id, bot, [theirs.id])).rejects.toThrow("Git account not found");
     await expect(git.setBotAccounts(a.id, bot, [mine.id, "missing"])).rejects.toThrow("Git account not found");
@@ -107,12 +113,13 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
     const { git } = use().repos;
     const [a, b] = [await tenant("a"), await tenant("b")];
     const [main, spare, foreign] = [await account(a.id, "main"), await account(a.id, "spare"), await account(b.id, "foreign")];
-    const live = await use().addBot(a.id, { name: "live" });
-    const gone = await use().addBot(a.id, { name: "gone", deleted: true });
-    const other = await use().addBot(b.id, { name: "other" });
+    const live = await newBot(a.id, "live");
+    const gone = await newBot(a.id, "gone");
+    const other = await newBot(b.id, "other");
     await git.setBotAccounts(a.id, live, [main.id]);
     await git.setBotAccounts(a.id, gone, [main.id]);
     await git.setBotAccounts(b.id, other, [foreign.id]);
+    await use().repos.bots.remove(gone);
     const used = await git.botsByAccount(a.id);
     expect(used[main.id]).toEqual([{ id: live, name: "live" }]);
     expect(used[spare.id] ?? []).toEqual([]);
@@ -124,7 +131,7 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
   const linkedBot = async () => {
     const t = await tenant("acme");
     const [main, alt] = [await account(t.id, "main"), await account(t.id, "alt")];
-    const bot = await use().addBot(t.id);
+    const bot = await newBot(t.id);
     await use().repos.git.setBotAccounts(t.id, bot, [main.id, alt.id]);
     return { t, main, alt, bot };
   };
