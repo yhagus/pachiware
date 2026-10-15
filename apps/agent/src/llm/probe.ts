@@ -30,17 +30,17 @@ const chatReply = (message: any): string | null =>
   : typeof message.content === "string" ? message.content
   : Array.isArray(message.content) ? message.content.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("")
   : "";
-// Per format: the request body, and the reply, finish reason, and token counts read back. A reply of null means the answer has another shape.
+// Per format: the request body (stream: false, because some routers such as 9router stream unless told not to), and the reply, finish reason, and token counts read back. A reply of null means the answer has another shape.
 const WIRE: Record<ApiFormat, {
   body: (model: string, content: string | ContentPart[], system: string | undefined, maxTokens: number) => object;
   read: (data: any) => { reply: string | null; finishReason: string | null; usage: { input: number; output: number } | null };
 }> = {
   chat_completions: {
-    body: (model, content, system, maxTokens) => ({ model, max_tokens: maxTokens, temperature: DEFAULT_TEMPERATURE, messages: [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: openAIContent(content) }] }),
+    body: (model, content, system, maxTokens) => ({ model, max_tokens: maxTokens, temperature: DEFAULT_TEMPERATURE, stream: false, messages: [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: openAIContent(content) }] }),
     read: (data) => ({ reply: chatReply(data?.choices?.[0]?.message), finishReason: data?.choices?.[0]?.finish_reason ?? null, usage: data?.usage ? { input: data.usage.prompt_tokens ?? 0, output: data.usage.completion_tokens ?? 0 } : null }),
   },
   responses: {
-    body: (model, content, system, maxTokens) => ({ model, max_output_tokens: maxTokens, temperature: DEFAULT_TEMPERATURE, store: false, input: [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: responsesContent(content) }] }),
+    body: (model, content, system, maxTokens) => ({ model, max_output_tokens: maxTokens, temperature: DEFAULT_TEMPERATURE, store: false, stream: false, input: [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: responsesContent(content) }] }),
     read: (data) => ({
       reply: !Array.isArray(data?.output) ? null : data.output.filter((i: any) => i?.type === "message").flatMap((i: any) => i.content ?? []).filter((c: any) => c?.type === "output_text").map((c: any) => c.text).join(""),
       finishReason: data?.incomplete_details?.reason ?? data?.status ?? null,
@@ -48,7 +48,7 @@ const WIRE: Record<ApiFormat, {
     }),
   },
   messages: {
-    body: (model, content, system, maxTokens) => ({ model, max_tokens: maxTokens, ...(system ? { system } : {}), messages: [{ role: "user", content: typeof content === "string" ? content : anthropicBlocks(content) }] }),
+    body: (model, content, system, maxTokens) => ({ model, max_tokens: maxTokens, stream: false, ...(system ? { system } : {}), messages: [{ role: "user", content: typeof content === "string" ? content : anthropicBlocks(content) }] }),
     read: (data) => ({
       reply: Array.isArray(data?.content) ? data.content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("") : null,
       finishReason: data?.stop_reason ?? null,

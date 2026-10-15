@@ -166,6 +166,7 @@ export class LLMRouter {
       messages: formattedMessages,
       temperature: options.temperature ?? DEFAULT_TEMPERATURE,
       max_tokens: options.maxTokens ?? 4096,
+      stream: false,
     };
 
     // Routes requests of one conversation to the same cache; only OpenAI itself is known to accept the field.
@@ -289,6 +290,7 @@ export class LLMRouter {
       system: systemBlocks.length ? markLast(systemBlocks) : undefined,
       messages: anthropicMessages,
       max_tokens: options.maxTokens ?? 4096,
+      stream: false,
     };
 
     if (options.tools && options.tools.length > 0) {
@@ -392,6 +394,7 @@ export class LLMRouter {
       messages: formattedMessages,
       temperature: options.temperature ?? DEFAULT_TEMPERATURE,
       max_tokens: options.maxTokens ?? 4096,
+      stream: false,
     };
 
     if (options.tools && options.tools.length > 0) {
@@ -468,7 +471,7 @@ export class LLMRouter {
         for (const tc of m.toolCalls ?? []) input.push({ type: "function_call", call_id: tc.id, name: tc.name, arguments: JSON.stringify(tc.arguments) });
       } else input.push({ role: m.role, content: responsesContent(m.content) });
     }
-    const body: any = { model, input, temperature: options.temperature ?? DEFAULT_TEMPERATURE, max_output_tokens: options.maxTokens ?? 4096, store: false };
+    const body: any = { model, input, temperature: options.temperature ?? DEFAULT_TEMPERATURE, max_output_tokens: options.maxTokens ?? 4096, store: false, stream: false };
     // Responses function tools are flat, and strict by default; the skill schemas are not written for strict mode.
     if (options.tools && options.tools.length > 0) body.tools = skillRegistry.toOpenAITools(options.tools).map((t: any) => ({ type: "function", ...t.function, strict: false }));
 

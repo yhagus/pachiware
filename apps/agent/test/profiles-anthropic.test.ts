@@ -263,6 +263,34 @@ describe("Anthropic profiles and image input", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("every request says stream: false, so a router that streams unless told otherwise answers Test, Playground, and the bot in JSON", () => {
+    const { code, stderr } = scenario(`
+      // Like 9router: a POST without "stream": false gets a stream back.
+      const answers = {
+        responses: { object: "response", status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "OK" }] }] },
+        chat_completions: { choices: [{ message: { content: "OK" }, finish_reason: "stop" }] },
+        messages: { content: [{ type: "text", text: "OK" }], stop_reason: "end_turn" },
+      };
+      const formatOf = (url) => url.endsWith("/responses") ? "responses" : url.endsWith("/messages") ? "messages" : "chat_completions";
+      reply = (call) => call.method === "GET" ? json({ data: [{ id: "cc/claude-sonnet-5-5" }] })
+        : call.body.stream !== false ? new Response('event: response.created\\ndata: {"type":"response.created"}\\n\\n', { status: 200, headers: { "Content-Type": "text/event-stream" } })
+        : json(answers[formatOf(call.url)]);
+      for (const apiFormat of ["responses", "chat_completions", "messages"]) {
+        const byok = { provider: "custom", apiFormat, model: "cc/claude-sonnet-5-5", baseUrl: "http://localhost:20128/v1", apiKey: "k" };
+        const tried = await (await post("/profiles/playground", { ...byok, prompt: "hi" })).json();
+        assert(tried.success && tried.reply === "OK", apiFormat + " playground streamed: " + JSON.stringify(tried));
+        const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Router " + apiFormat, ...byok })).json()).profile;
+        const bot = await createBot({ tenantId: tenant.id, token: "t-" + apiFormat, isEnabled: false, profileId: profile.id });
+        const answer = await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id });
+        assert(answer.content === "OK", apiFormat + " bot answer streamed: " + JSON.stringify(answer));
+      }
+      const anthropic = await post("/tenants/" + tenant.id + "/profiles", { name: "Claude", provider: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-ant" });
+      const claudeBot = await createBot({ tenantId: tenant.id, token: "t-claude", isEnabled: false, profileId: (await anthropic.json()).profile.id });
+      assert((await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: claudeBot.id })).content === "OK", "anthropic answer streamed");
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("image capability follows the bot's profile flag, and an Anthropic tenant default asks the models endpoint", () => {
     const { code, stderr } = scenario(`
       const { encryptSecret } = await import(${src("packages/db/src/index.ts")});
