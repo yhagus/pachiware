@@ -92,5 +92,6 @@ discordScenario("since and limit narrow the history, and the bot missing a permi
   const dm = s.discord.channel("dm-alice", { dm: true });
   s.model.script({ tool: "readChannelHistory", args: {} }, answer);
   await s.discord.send("recap", { channel: dm });
-  expect(JSON.parse(s.discord.botMessages.at(-1)!.content.replace(/^history: /, ""))).toEqual({ error: expect.stringContaining("Discord server channel") });
+  // A DM has no guild override, so the refusal is in the tenant's language, Indonesian by default.
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content.replace(/^history: /, ""))).toEqual({ error: expect.stringContaining("channel server Discord") });
 });

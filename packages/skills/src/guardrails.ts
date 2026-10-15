@@ -3,6 +3,7 @@ import { usageEvents } from "@pachiware/db";
 import type { SkillContext, SkillModule, SkillScope, ToolPolicy } from "./types.js";
 import { hasThreadConfirmation } from "./threadConfirmation.js";
 import { hasPermission } from "./permissions.js";
+import { replyLanguage, textIn, type Language } from "./language.js";
 
 /**
  * observe: nothing is refused, would-be refusals are only logged.
@@ -17,14 +18,15 @@ export type GuardrailDecision = { allow: true } | { allow: false; kind: Guardrai
 
 export type AuditEvent = "guardrail_denied" | "tool_denied" | "confirmation_requested" | "confirmation_accepted" | "confirmation_expired" | "prompt_injection_detected" | "thread_confirmation_requested" | "thread_confirmation_granted" | "thread_confirmation_denied" | "thread_confirmation_expired";
 
-export const MAX_INPUT = 4000;
+/** Web chat has no Workspace place to keep a long text as a Document, so it takes inline text up to this length. */
+export const MAX_WEB_INPUT = 50_000;
 export const MAX_ARGS = 8000;
 const LIMITS = { user: 30, tenant: 120, writeTool: 10 }, WINDOW_MS = 60_000, COOLDOWN_MS = 60_000;
 
 export const isEnforced = (kind: GuardrailKind, mode = guardrailMode()) =>
   mode === "enforce" || (mode === "write" && (kind === "confirmation_required" || kind === "limit" || kind === "duplicate"));
 
-const deny = (kind: GuardrailKind, message: string): GuardrailDecision => ({ allow: false, kind, message });
+const deny = (kind: GuardrailKind, message: string): Extract<GuardrailDecision, { allow: false }> => ({ allow: false, kind, message });
 
 // ponytail: counters live in memory, so they reset on restart and are per process; move to Redis when the agent runs on more than one instance.
 const hits = new Map<string, number[]>();
@@ -86,32 +88,36 @@ export const GuardrailService = {
   denyOutOfScope: (message: string) => deny("out_of_scope", message),
   denyUnauthorized: (message: string) => deny("unauthorized", message),
   requireConfirmation: (message: string) => deny("confirmation_required", message),
-  denyPromptInjection: (message = "I can't follow instructions that try to change my rules or reveal internal details.") => deny("prompt_injection", message),
+  denyPromptInjection: (language?: Language) => deny("prompt_injection", textIn(language).guardInjection),
+  /** A refusal for text over `limit` characters; only web chat has one, since a long Discord paste arrives as a Document. */
+  limitLength: (message: string, limit: number, language: Language = replyLanguage(message)): GuardrailDecision => (message.length > limit ? deny("limit", textIn(language).guardTooLong(limit)) : { allow: true }),
+  /** A confirmed action needs a Discord channel for its Confirm button. */
+  denyNoConfirmer: (language?: Language) => deny("confirmation_required", textIn(language).guardNoConfirmer),
 
-  /** Runs before the ReAct loop: refuses oversized and rule-rewriting messages. Whether a skill can serve the request is the model's call, from the prompt. */
-  classify(message: string): { kind: RequestKind; decision: GuardrailDecision } {
-    if (message.length > MAX_INPUT) return { kind: "conversation", decision: deny("limit", `That message is too long (limit ${MAX_INPUT} characters). Please shorten it.`) };
-    if (looksLikeInjection(message)) return { kind: "conversation", decision: this.denyPromptInjection() };
+  /** Runs before the ReAct loop on the assembled turn: refuses rule-rewriting messages, never long ones. Whether a skill can serve the request is the model's call, from the prompt. */
+  classify(message: string, language: Language = replyLanguage(message)): { kind: RequestKind; decision: GuardrailDecision } {
+    if (looksLikeInjection(message)) return { kind: "conversation", decision: this.denyPromptInjection(language) };
     if (DISCOVERY.test(message)) return { kind: "capability_discovery", decision: this.allowConversation() };
     return { kind: "conversation", decision: this.allowConversation() };
   },
 
-  /** Runs inside SkillRegistry.executeTool, after the tool is known to be active for the tenant. */
+  /** Runs inside SkillRegistry.executeTool, after the tool is known to be active for the tenant. Refusals are in the place's language, for the model to relay. */
   checkTool(skill: SkillModule, tool: string, args: unknown, ctx: SkillContext): GuardrailDecision {
-    if (JSON.stringify(args ?? {}).length > MAX_ARGS) return deny("limit", "Tool arguments are too large.");
+    const t = textIn(ctx.language);
+    if (JSON.stringify(args ?? {}).length > MAX_ARGS) return deny("limit", t.guardArgsTooLarge);
     const a = ctx.auth;
-    if (a && (a.tenantId !== ctx.tenantId || a.botId !== ctx.botId || a.userId !== ctx.userId || a.guildId !== ctx.guildId || a.channelId !== ctx.channelId)) return this.denyUnauthorized("Authorization context does not match this request.");
+    if (a && (a.tenantId !== ctx.tenantId || a.botId !== ctx.botId || a.userId !== ctx.userId || a.guildId !== ctx.guildId || a.channelId !== ctx.channelId)) return this.denyUnauthorized(t.guardAuthMismatch);
     const present: Record<SkillScope, unknown> = { tenant: ctx.tenantId, guild: ctx.guildId, channel: ctx.channelId, user: ctx.userId };
-    for (const s of skill.allowedScopes ?? []) if (!present[s]) return this.denyOutOfScope(`This action only works inside a Discord server channel (missing ${s}).`);
+    for (const s of skill.allowedScopes ?? []) if (!present[s]) return this.denyOutOfScope(t.guardOutOfScope(s));
     const policy = policyOf(skill, tool);
     const needs = policy.requiredPermissions ?? skill.requiredPermissions;
-    if (policy.effect !== "read" && needs?.length && !hasPermission(ctx, ...needs)) return this.denyUnauthorized(`You need one of these Discord permissions to ask for this: ${needs.join(", ")}.`);
+    if (policy.effect !== "read" && needs?.length && !hasPermission(ctx, ...needs)) return this.denyUnauthorized(t.guardPermission(needs.join(", ")));
     const who = ctx.userId ?? "anon";
     // A skill that confirms internally (git) runs its own duplicate guard behind Confirm, so the per-tool write limit and the checks below skip it.
-    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !skill.confirmsInternally && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", "Too many requests right now. Wait a minute and try again.");
+    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !skill.confirmsInternally && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", t.guardRateLimit);
     if (policy.effect !== "read" && !skill.confirmsInternally) {
       const until = done.get(actionKey(tool, args, ctx));
-      if (until && until > Date.now()) return deny("duplicate", "That exact action just ran. It was not repeated.");
+      if (until && until > Date.now()) return deny("duplicate", t.guardDuplicate);
       if (policy.requiresConfirmation && !ctx.confirmed && !hasThreadConfirmation(ctx)) return this.requireConfirmation(`${tool} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`);
     }
     return this.allowTool();
