@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { db } from "@pachiware/db";
-import { GuardrailService, MAX_WEB_INPUT, audit, isEnforced } from "@pachiware/skills";
+import { GuardrailService, audit, isEnforced } from "@pachiware/skills";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { agentReActLoop } from "../../loop/react.js";
 import { object, string } from "../validation.js";
@@ -10,8 +10,7 @@ chatRoutes.post("/", async (c) => {
   const body = object(await c.req.json(), "body");
   const message = string(body.message, "message")!;
   const conversationId = string(body.conversationId, "conversationId", true);
-  // No Workspace place here to keep a long text as a Document, so text over the limit is refused, in the language it was written in.
-  const length = GuardrailService.limitLength(message, MAX_WEB_INPUT);
+  const length = GuardrailService.limitLength(message);
   if (!length.allow) {
     const enforced = isEnforced(length.kind);
     await audit({ db, tenantId: c.get("tenantId") }, "guardrail_denied", { kind: length.kind, source: "user_message", platform: "web", ...(enforced ? {} : { observed: true }) });

@@ -89,8 +89,8 @@ export const GuardrailService = {
   denyUnauthorized: (message: string) => deny("unauthorized", message),
   requireConfirmation: (message: string) => deny("confirmation_required", message),
   denyPromptInjection: (language?: Language) => deny("prompt_injection", textIn(language).guardInjection),
-  /** A refusal for text over `limit` characters; only web chat has one, since a long Discord paste arrives as a Document. */
-  limitLength: (message: string, limit: number, language: Language = replyLanguage(message)): GuardrailDecision => (message.length > limit ? deny("limit", textIn(language).guardTooLong(limit)) : { allow: true }),
+  /** A refusal for web chat text over MAX_WEB_INPUT characters. */
+  limitLength: (message: string, language: Language = replyLanguage(message)): GuardrailDecision => (message.length > MAX_WEB_INPUT ? deny("limit", textIn(language).guardTooLong(MAX_WEB_INPUT)) : { allow: true }),
   /** A confirmed action needs a Discord channel for its Confirm button. */
   denyNoConfirmer: (language?: Language) => deny("confirmation_required", textIn(language).guardNoConfirmer),
 
