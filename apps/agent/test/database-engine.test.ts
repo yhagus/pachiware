@@ -67,24 +67,24 @@ function testDatabase(url: string, suffix: string) {
   return url.replace(/^(mongodb(?:\+srv)?:\/\/[^/?]*)\/?([^?]*)/, (_, server, name) => `${server}/${name || "pachiware"}_${suffix}`);
 }
 
-/** Calls the admin infrastructure API in its own process, against a database URL that is never connected to. */
-function infrastructureApi(databaseUrl: string) {
-  const directory = mkdtempSync(join(tmpdir(), "pachiware-infra-"));
+type Request = { method: string; path: string; body?: unknown };
+
+/** Sends requests to the agent's server in its own process, as the platform admin, and returns each status and body. */
+function serverRequests(databaseUrl: string, requests: Request[], directory = mkdtempSync(join(tmpdir(), "pachiware-server-"))) {
   directories.push(directory);
   const result = Bun.spawnSync({
     cmd: ["bun", "--eval", `
       const { createServer } = await import(${JSON.stringify(join(workspace, "apps/agent/src/server.ts"))});
       const app = createServer();
-      const admin = { "X-Platform-Key": "infra-key", "Content-Type": "application/json" };
-      const call = async (method, path, body) => {
-        const res = await app.request("/api/admin/infrastructure" + path, { method, headers: admin, body: body && JSON.stringify(body) });
-        return { status: res.status, body: await res.text() };
-      };
-      console.log(JSON.stringify({
-        get: await call("GET", ""),
-        change: await call("PUT", "", { databaseUrl: "sqlite:${directory}/other.db" }),
-        test: await call("POST", "/test-db", { databaseUrl: "sqlite:${directory}/other.db" }),
-      }));
+      const admin = { "X-Platform-Key": "server-key", "Content-Type": "application/json" };
+      const responses = [];
+      for (const { method, path, body } of ${JSON.stringify(requests)}) {
+        const res = await app.request(path, { method, headers: admin, body: body && JSON.stringify(body) });
+        responses.push({ status: res.status, body: await res.text() });
+      }
+      console.log(JSON.stringify(responses));
+      // An open MongoDB client would keep the process alive.
+      process.exit(0);
     `],
     cwd: workspace,
     env: {
@@ -92,13 +92,25 @@ function infrastructureApi(databaseUrl: string) {
       DATABASE_URL: databaseUrl,
       PACHIWARE_RUNTIME_CONFIG: join(directory, "runtime-config.json"),
       PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 43).toString("base64"),
-      PLATFORM_ADMIN_KEY: "infra-key",
+      PLATFORM_ADMIN_KEY: "server-key",
       NODE_ENV: "test",
     },
   });
   const output = new TextDecoder().decode(result.stdout).trim().split("\n").at(-1)!;
   if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
-  return { ...JSON.parse(output), files: readdirSync(directory) };
+  return { responses: JSON.parse(output) as { status: number; body: string }[], files: readdirSync(directory) };
+}
+
+/** Calls the admin infrastructure API in its own process, against a database URL that is never connected to. */
+function infrastructureApi(databaseUrl: string) {
+  const directory = mkdtempSync(join(tmpdir(), "pachiware-infra-"));
+  const other = { databaseUrl: `sqlite:${directory}/other.db` };
+  const { responses: [get, change, test], files } = serverRequests(databaseUrl, [
+    { method: "GET", path: "/api/admin/infrastructure" },
+    { method: "PUT", path: "/api/admin/infrastructure", body: other },
+    { method: "POST", path: "/api/admin/infrastructure/test-db", body: other },
+  ], directory);
+  return { get: get!, change: change!, test: test!, files };
 }
 
 describe("admin infrastructure API", () => {
@@ -118,6 +130,18 @@ describe("admin infrastructure API", () => {
     const api = infrastructureApi("sqlite::memory:");
     expect(JSON.parse(api.get.body).infrastructure).toMatchObject({ databaseEngine: "sqlite", databaseHost: null });
   });
+
+  test.skipIf(!process.env.TEST_MONGODB_URL)("on MongoDB the health check reports the database answering, and stats show its size", () => {
+    const { responses: [health, stats] } = serverRequests(testDatabase(process.env.TEST_MONGODB_URL!, "server"), [
+      { method: "GET", path: "/api/health" },
+      { method: "GET", path: "/api/admin/stats" },
+    ]);
+    expect(JSON.parse(health!.body).services).toMatchObject({ database: "healthy", databaseDialect: "mongodb" });
+    expect(stats!.status, stats!.body).toBe(200);
+    expect(JSON.parse(stats!.body)).toMatchObject({ tenants: 0, bots: 0 });
+    // Nothing migrated this database, so it may hold no bytes yet; null would mean the size could not be read.
+    expect(JSON.parse(stats!.body).storage.dbBytes).toBeNumber();
+  }, 30_000);
 });
 
 describe("database engine lock at start-up", () => {
