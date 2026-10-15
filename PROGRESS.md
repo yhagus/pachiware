@@ -1019,7 +1019,16 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
     - Start-up tests in `apps/agent/test/database-engine.test.ts` start the real agent with async `Bun.spawn`. The MongoDB standalone case waits for #168.
     - Known limit for #172: re-running `pachiware init` with another engine edits `.env` before the lock refuses the start.
     - Verification: `bun run typecheck` exits 0; `bun test` 711 pass, 0 fail across 125 files.
-  - [ ] #160 repository entry point and contract harness, with Tenants and API keys (starts immediately)
+  - [x] #160 merged into `spec/155-mongodb` (8571a84): repository entry point and contract harness, with Tenants and API keys.
+    - `repositories()` in `packages/db/src/index.ts` is built once on the single connection after the engine lock. `createRepositories(connection)` in `packages/db/src/repositories/index.ts` switches on `connection.engine`; `openConnection(url)` lives in `packages/db/src/connection.ts`.
+    - One folder per repository: `repositories/<name>/types.ts` (domain types and interface, UUID string ids, `Date` dates) and `repositories/<name>/sql.ts` (`createSql<Name>Repository(conn)`, using `conn.tables`, never the global `db`). `mongo.ts` will sit beside them.
+    - Contract suites in `packages/db/test/contract/<name>.contract.test.ts` use `contract("Name", (use) => ...)` from `engines.ts`: SQLite always, PostgreSQL when `TEST_POSTGRES_URL` is set. Each test starts from an empty, migrated and seeded database. The harness drops every app table in that database, so point it only at a test database.
+    - `migrateDatabase(conn)` / `seedDatabase(conn)` work on any connection; only `runMigrations()` records `databaseEngine`.
+    - The admin DELETE still soft-deletes (`tenants.remove`). `tenants.purge(id)` removes everything the tenant owns in one transaction, with explicit deletes because old SQLite files may lack ownership foreign keys; it has no production caller yet. The contract probes owned rows with `ownedRecords(tenantId)` until other repositories can show them.
+    - Small changes: tenant and key listings are ordered oldest first; linking a key updates the tenant's `updatedAt`; the `ApiKey` domain type has no `keyHash`.
+    - Raw access left: `listAllActiveBots` in `tenancy.ts` (bots ticket); bootstrap SQL in `migrate.ts` and one `api_keys` hash assertion in `packages/db/test/tenancy.test.ts` (#167); `seedTenant` for the skills routes.
+    - The pre-push hook blanks `TEST_POSTGRES_URL` and `TEST_MONGODB_URL`.
+    - Verification: `bun run typecheck` exits 0; `bun test` 722 pass, 13 skip, 0 fail across 126 files; contract suite 22/22 with PostgreSQL.
   - [ ] #161–#166 move the remaining records to repositories (blocked by #160)
   - [ ] #167 the database package exports repositories only (blocked by #161–#166)
   - [ ] #168 MongoDB foundation, with Tenants and API keys (blocked by #156, #160)
