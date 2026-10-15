@@ -10,19 +10,7 @@ export async function runSeed() {
 /** Registers the built-in skills in one open database, then gives every tenant the defaults it lacks. */
 export async function seedDatabase(connection: Connection) {
   const repos = createRepositories(connection);
-  if (connection.engine === "mongodb") {
-    // Skills have no MongoDB repository yet, so the seed upserts them into their collection itself.
-    const now = new Date();
-    for (const { id, name, description, toolDefinitions, ...rest } of builtInSkills()) {
-      await connection.db.collection<{ _id: string }>("skills").updateOne(
-        { _id: id },
-        { $set: { name, description, toolDefinitions, updatedAt: now }, $setOnInsert: { ...rest, createdAt: now } },
-        { upsert: true },
-      );
-    }
-  } else {
-    for (const skill of builtInSkills()) console.log(`  ${await repos.skills.register(skill) ? "[+] Registered" : "[*] Updated"} skill: ${skill.name}`);
-  }
+  for (const skill of builtInSkills()) console.log(`  ${await repos.skills.register(skill) ? "[+] Registered" : "[*] Updated"} skill: ${skill.name}`);
   await repos.tenants.seedDefaults();
   console.log("Platform skills and tenant defaults seeded.");
 }

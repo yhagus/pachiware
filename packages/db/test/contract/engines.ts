@@ -31,7 +31,7 @@ type Engine = {
 };
 
 /** Suites whose repositories MongoDB implements. #169–#171 add theirs here as they land. */
-const ON_MONGODB = new Set(["Tenants and API keys"]);
+const ON_MONGODB = new Set(["Tenants and API keys", "Skills"]);
 
 let sqliteDir: string | undefined;
 
@@ -118,10 +118,11 @@ async function openMongo(url: string): Promise<Fixture> {
   await seedDatabase(connection);
   // Everything a tenant owns carries its tenantId, whatever collection it sits in.
   const collections = () => dataCollections(connection);
+  const repos = createRepositories(connection);
   return {
     subject: {
       engine: connection.engine,
-      repos: createRepositories(connection),
+      repos,
       async ownedRecords(tenantId) {
         let total = 0;
         for (const name of await collections()) total += await db.collection(name).countDocuments({ tenantId });
@@ -134,7 +135,8 @@ async function openMongo(url: string): Promise<Fixture> {
       },
     },
     async reset() {
-      for (const name of await collections()) if (name !== "skills") await db.collection(name).deleteMany({});
+      for (const name of await collections()) await db.collection(name).deleteMany({});
+      for (const skill of builtInSkills()) await repos.skills.register(skill);
     },
     close: () => connection.close(),
   };

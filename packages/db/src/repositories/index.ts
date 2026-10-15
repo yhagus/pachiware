@@ -17,6 +17,7 @@ import type { StatsRepository } from "./stats/types.js";
 import { createSqlBotRepository } from "./bots/sql.js";
 import type { BotRepository } from "./bots/types.js";
 import { createSqlSkillRepository } from "./skills/sql.js";
+import { createMongoSkillRepository } from "./skills/mongo.js";
 import type { SkillRepository } from "./skills/types.js";
 import { createSqlAvailabilityRuleRepository } from "./availability/sql.js";
 import type { AvailabilityRuleRepository } from "./availability/types.js";
@@ -86,7 +87,7 @@ export function createRepositories(connection: Connection): Repositories {
         schedules: notOnMongoYet("Schedules"),
         taskRows: notOnMongoYet("Task rows"),
         bots: notOnMongoYet("Bots"),
-        skills: notOnMongoYet("Skills"),
+        skills: createMongoSkillRepository(connection),
         availability: notOnMongoYet("Availability rules"),
         conversations: notOnMongoYet("Conversations"),
         git: notOnMongoYet("Git"),
