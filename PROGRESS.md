@@ -924,3 +924,12 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
     - PDF/DOCX/XLSX match by name; their text is searched through the sibling `.md`, so both may be returned. Hidden files are skipped.
     - The walk still stops at 50 matches / 500 files scanned; #150 replaces the walk, #151 adds grouping, order and totals.
     - Verification: `bun run typecheck` exits 0; `bun test` 638 pass, 0 fail across 118 files.
+  - [x] #147 merged into `spec/146-across-channels`: a private thread keeps its own folder.
+    - Host sets `SkillContext.privateThread` from the channel type (`placeOfChannel` in `apps/agent/src/discord/routing.ts`); turns, minutes, filed Documents and queued Confirm actions carry it.
+    - In a private thread `visibleRoots` adds a `thread` root at `guilds/<g>/channels/<parent>/threads/<tid>`; `placeRoot(where)` picks thread → channel → dm; `threadFolder(g,c,t)` builds the path.
+    - Writes aimed at `channel/{notes,decisions,files,minutes}/` from a private thread are redirected to `thread/...`, not refused; the tool result returns the real path. Only those four folders at a thread folder's top. A thread's Tasks and Memory stay with the parent.
+    - New `packages/skills/src/workspace/threads.ts`: `threadsPath`, `threadAccess(ctx)` (`threadReadable`, `readable`, `check`, `filter`), `checkThreadWrite`. A thread folder is readable from its own thread or by someone `channelView` says can view it, same guild; an unresolvable thread is read by nobody. Playbook bindings `threads/<tid>.md` are never listed, read or searched as kept material.
+    - Changed only from inside the thread: moving out of or deleting under `threads/` from elsewhere is refused; `threads` dropped from the top-level folders writeFile may create. Refusals `threadFolderRefused`, `threadFolderReadOnly` in en and id.
+    - `searchFolder` takes an optional per-folder `readable` filter.
+    - Known limits: default persona still lists `threads/` (left for #154); `channelView` doesn't say a thread is private, so the rule relies on only private threads getting a folder; in a private thread, keeping a parent channel Document as a Note redirects to `thread/files/` and fails if it isn't there; old files move in #149.
+    - Verification: `bun run typecheck` exits 0; `bun test` 648 pass, 0 fail across 119 files.
