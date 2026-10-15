@@ -97,19 +97,19 @@ describe("tenant persistence helpers", () => {
   test("encrypts bot tokens at rest and supports bot lifecycle helpers", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { createBot, getBotDecrypted, updateBot, listBotsForTenant, listAllActiveBots, deleteBot } from ${JSON.stringify(join(source, "tenancy.ts"))};
       import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
+      const { bots } = repositories();
       const tenant = await repositories().tenants.create({ name: "Bots", slug: "bots" });
-      const bot = await createBot({ tenantId: tenant.id, token: "first-token", guildIds: ["guild-1"] });
+      const bot = await bots.create({ tenantId: tenant.id, token: "first-token", guildIds: ["guild-1"] });
       const storedBefore = queryClient.query("SELECT token_encrypted FROM bots WHERE id = ?").get(bot.id);
-      const first = await getBotDecrypted(bot.id);
-      await updateBot(bot.id, { token: "second-token", name: "Updated" });
-      const second = await getBotDecrypted(bot.id);
-      const listed = await listBotsForTenant(tenant.id);
-      const active = await listAllActiveBots();
-      await deleteBot(bot.id);
-      const afterDelete = await getBotDecrypted(bot.id);
+      const first = await bots.getWithToken(bot.id);
+      await bots.update(bot.id, { token: "second-token", name: "Updated" });
+      const second = await bots.getWithToken(bot.id);
+      const listed = await bots.listForTenant(tenant.id);
+      const active = await bots.listRunnable();
+      await bots.remove(bot.id);
+      const afterDelete = await bots.getWithToken(bot.id);
       const deleted = queryClient.query("SELECT name, is_enabled, connection_status, token_encrypted FROM bots WHERE id = ?").get(bot.id);
       console.log(JSON.stringify({ storedBefore, firstToken: first?.token, secondToken: second?.token, listed, active, afterDelete, deleted }));
     `);
@@ -121,7 +121,7 @@ describe("tenant persistence helpers", () => {
       expect(value.firstToken).toBe("first-token");
       expect(value.secondToken).toBe("second-token");
       expect(value.listed).toHaveLength(1);
-      expect(value.listed[0]).toMatchObject({ name: "Updated", isEnabled: true, tokenEncrypted: expect.stringMatching(/^v1:/) });
+      expect(value.listed[0]).toMatchObject({ name: "Updated", isEnabled: true, hasToken: true });
       expect(value.active).toMatchObject([{ bot: { id: value.listed[0].id }, token: "second-token" }]);
       expect(value.afterDelete).toBeNull();
       expect(value.deleted).toEqual({ name: "Updated", is_enabled: 0, connection_status: "deleted", token_encrypted: "" });
@@ -133,12 +133,11 @@ describe("tenant persistence helpers", () => {
   test("rejects cross-tenant bot and conversation links at the database boundary", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { createBot } from ${JSON.stringify(join(source, "tenancy.ts"))};
       import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
       const first = await repositories().tenants.create({ name: "First", slug: "first" });
       const second = await repositories().tenants.create({ name: "Second", slug: "second" });
-      const bot = await createBot({ tenantId: first.id, token: "secret" });
+      const bot = await repositories().bots.create({ tenantId: first.id, token: "secret" });
       queryClient.query("INSERT INTO conversations (id, tenant_id, bot_id, platform) VALUES (?, ?, ?, ?)").run("conversation-1", first.id, bot.id, "discord");
       let botRejected = false;
       let messageRejected = false;

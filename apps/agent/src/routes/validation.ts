@@ -56,7 +56,3 @@ export function maskConfig(row: any) {
   for (const field of ["openaiApiKeyEncrypted", "anthropicApiKeyEncrypted", "customApiKeyEncrypted"]) safe[field] = row[field] ? "••••••••" : null;
   return safe;
 }
-export function publicBot(row: any) {
-  const { tokenEncrypted, ...safe } = row;
-  return { ...safe, hasToken: Boolean(tokenEncrypted) };
-}

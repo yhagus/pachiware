@@ -14,7 +14,7 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, agentsConfig, eq } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
+        const { db, agentsConfig, eq } = await import(${src("packages/db/src/index.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
         const tenant = await repositories().tenants.create({ name: "Images", slug: "images" });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
@@ -41,7 +41,7 @@ describe("Anthropic profiles and image input", () => {
       const created = await post("/tenants/" + tenant.id + "/profiles", { name: "Claude", provider: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-ant-profile" });
       assert(created.status === 201, "anthropic profile rejected: " + created.status);
       const { profile } = await created.json();
-      const bot = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
+      const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
       reply = () => json({ content: [{ type: "text", text: "hello from claude" }], usage: { input_tokens: 4, output_tokens: 3 } });
       const answer = await llmRouter.complete([{ role: "system", content: "Be brief." }, { role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id });
       const [call] = calls;
@@ -202,7 +202,7 @@ describe("Anthropic profiles and image input", () => {
   test("a BYOK profile on the Responses format sends the conversation and flat tools to /responses and reads text, tool calls, and usage back", () => {
     const { code, stderr } = scenario(`
       const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Responses", provider: "custom", apiFormat: "responses", model: "gpt-r", baseUrl: "https://llm.example/v1", apiKey: "byok-key" })).json()).profile;
-      const bot = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
+      const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
       reply = () => json({ object: "response", status: "completed", output: [{ type: "reasoning", summary: [] }, { type: "message", role: "assistant", content: [{ type: "output_text", text: "Checking." }] }, { type: "function_call", call_id: "call_1", name: "lookup", arguments: '{"q":"x"}' }], usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25, input_tokens_details: { cached_tokens: 8 } } });
       const tools = [{ name: "lookup", description: "Look up", parameters: { type: "object", properties: { q: { type: "string" } }, required: ["q"] } }];
       const history = [
@@ -233,7 +233,7 @@ describe("Anthropic profiles and image input", () => {
   test("a BYOK profile on the Messages format answers through <base URL>/messages with both key headers", () => {
     const { code, stderr } = scenario(`
       const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Proxy", provider: "custom", apiFormat: "messages", model: "claude-proxy", baseUrl: "https://proxy.example/v1", apiKey: "proxy-key" })).json()).profile;
-      const bot = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
+      const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
       reply = () => json({ content: [{ type: "text", text: "hello via proxy" }], usage: { input_tokens: 4, output_tokens: 3 } });
       const answer = await llmRouter.complete([{ role: "system", content: "Be brief." }, { role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id });
       const [call] = calls;
@@ -280,12 +280,12 @@ describe("Anthropic profiles and image input", () => {
         const tried = await (await post("/profiles/playground", { ...byok, prompt: "hi" })).json();
         assert(tried.success && tried.reply === "OK", apiFormat + " playground streamed: " + JSON.stringify(tried));
         const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Router " + apiFormat, ...byok })).json()).profile;
-        const bot = await createBot({ tenantId: tenant.id, token: "t-" + apiFormat, isEnabled: false, profileId: profile.id });
+        const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t-" + apiFormat, isEnabled: false, profileId: profile.id });
         const answer = await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id });
         assert(answer.content === "OK", apiFormat + " bot answer streamed: " + JSON.stringify(answer));
       }
       const anthropic = await post("/tenants/" + tenant.id + "/profiles", { name: "Claude", provider: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-ant" });
-      const claudeBot = await createBot({ tenantId: tenant.id, token: "t-claude", isEnabled: false, profileId: (await anthropic.json()).profile.id });
+      const claudeBot = await repositories().bots.create({ tenantId: tenant.id, token: "t-claude", isEnabled: false, profileId: (await anthropic.json()).profile.id });
       assert((await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: claudeBot.id })).content === "OK", "anthropic answer streamed");
     `);
     expect(code, stderr).toBe(0);
@@ -339,13 +339,13 @@ describe("Anthropic profiles and image input", () => {
         const tried = await (await post("/profiles/playground", { ...byok, prompt: "hi" })).json();
         assert(tried.success && tried.reply === "OK" && tried.usage.input === 3 && tried.usage.output === 2, apiFormat + " playground not assembled: " + JSON.stringify(tried));
         const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Streams " + apiFormat, ...byok })).json()).profile;
-        const bot = await createBot({ tenantId: tenant.id, token: "t-" + apiFormat, isEnabled: false, profileId: profile.id });
+        const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t-" + apiFormat, isEnabled: false, profileId: profile.id });
         check(await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id, tools }), apiFormat);
       }
       const openai = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "GPT", provider: "openai", model: "gpt-4o", apiKey: "sk" })).json()).profile;
-      check(await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: (await createBot({ tenantId: tenant.id, token: "t-openai", isEnabled: false, profileId: openai.id })).id, tools }), "openai");
+      check(await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: (await repositories().bots.create({ tenantId: tenant.id, token: "t-openai", isEnabled: false, profileId: openai.id })).id, tools }), "openai");
       const claude = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Claude", provider: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-ant" })).json()).profile;
-      check(await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: (await createBot({ tenantId: tenant.id, token: "t-claude", isEnabled: false, profileId: claude.id })).id, tools }), "anthropic");
+      check(await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: (await repositories().bots.create({ tenantId: tenant.id, token: "t-claude", isEnabled: false, profileId: claude.id })).id, tools }), "anthropic");
     `);
     expect(code, stderr).toBe(0);
   });
@@ -354,9 +354,9 @@ describe("Anthropic profiles and image input", () => {
     const { code, stderr } = scenario(`
       const { encryptSecret } = await import(${src("packages/db/src/index.ts")});
       const make = async (body) => (await (await post("/tenants/" + tenant.id + "/profiles", { provider: "openai", model: "gpt-x", ...body })).json()).profile;
-      const seeing = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: (await make({ name: "Seeing", acceptsImages: true })).id });
-      const blind = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: (await make({ name: "Blind" })).id });
-      const plain = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false });
+      const seeing = await repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: (await make({ name: "Seeing", acceptsImages: true })).id });
+      const blind = await repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: (await make({ name: "Blind" })).id });
+      const plain = await repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false });
       assert(await llmRouter.acceptsImages(tenant.id, seeing.id) === true && await llmRouter.acceptsImages(tenant.id, blind.id) === false, "profile flag not followed");
       assert(await llmRouter.acceptsImages(tenant.id, plain.id) === false && calls.length === 0, "an OpenAI tenant default has no declared image input");
 
