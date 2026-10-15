@@ -1,43 +1,28 @@
-import { activeDialect, switchSchema } from "./schema/index.js";
+import { activeDialect } from "./schema/index.js";
 import { getInfraConfig } from "./runtime-store.js";
-import { detectDialect } from "./dialect.js";
+import { assertDatabaseEngine } from "./engine.js";
 import { openConnection, type Connection } from "./connection.js";
 import { createRepositories, type Repositories } from "./repositories/index.js";
 
-// The process-wide connection, chosen from the configured database URL.
+// The process-wide connection, opened once: the engine never changes at runtime (ADR 0010),
+// and the engine lock is checked before it opens.
 // `db` and `queryClient` stay exported until every module reads records through repositories.
 
 type AnyDrizzle = any;
 type AnyClient = any;
 
-export let connection: Connection = openConnection(getInfraConfig().databaseUrl);
-export let db: AnyDrizzle = connection.db;
-export let queryClient: AnyClient = connection.client;
+export const connection: Connection = (() => {
+  const { databaseUrl } = getInfraConfig();
+  assertDatabaseEngine(databaseUrl);
+  return openConnection(databaseUrl);
+})();
+export const db: AnyDrizzle = connection.db;
+export const queryClient: AnyClient = connection.client;
 
-export function reconnectDatabase(newConnectionString?: string) {
-  const conn = newConnectionString || getInfraConfig().databaseUrl;
-
-  // Tear down the previous client politely (postgres-js has .end, bun:sqlite has .close)
-  try {
-    if (queryClient?.end) {
-      queryClient.end({ timeout: 2 }).catch(() => {});
-    } else if (queryClient?.close) {
-      queryClient.close();
-    }
-  } catch {}
-
-  switchSchema(detectDialect(conn));
-  connection = openConnection(conn);
-  db = connection.db;
-  queryClient = connection.client;
-  return { queryClient, db };
-}
-
-let cached: { connection: Connection; repositories: Repositories } | undefined;
+let cached: Repositories | undefined;
 /** The repositories of the configured database, for whichever engine it is. */
 export function repositories(): Repositories {
-  if (cached?.connection !== connection) cached = { connection, repositories: createRepositories(connection) };
-  return cached.repositories;
+  return (cached ??= createRepositories(connection));
 }
 
 /**
@@ -62,6 +47,7 @@ export * from "./migrate.js";
 export * from "./seed.js";
 export * from "./runtime-store.js";
 export * from "./dialect.js";
+export * from "./engine.js";
 export * from "./crypto.js";
 export * from "./tenancy.js";
 export { createRepositories } from "./repositories/index.js";

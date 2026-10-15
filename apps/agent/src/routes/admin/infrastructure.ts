@@ -1,6 +1,5 @@
 import { Hono } from "hono";
-import { getInfraConfig, saveInfraConfig, getGitAllowedHosts, saveGitAllowedHosts, testDatabaseConnection, reconnectDatabase, runMigrations, runSeed, activeDialect } from "@pachiware/db";
-import { discordBotManager } from "../../discord/client.js";
+import { getInfraConfig, saveRedisUrl, getGitAllowedHosts, saveGitAllowedHosts, activeDialect, redactedDatabaseHost } from "@pachiware/db";
 import { object } from "../validation.js";
 import { redis, reconnectRedis } from "../../cache/redis.js";
 export const infrastructureRoutes = new Hono();
@@ -23,35 +22,20 @@ infrastructureRoutes.put("/git-hosts", async (c) => {
   return c.json({ success: true, hosts: saveGitAllowedHosts(hosts) });
 });
 
-// Get infrastructure configuration
+// The database shows only its engine and host: it is chosen at setup and changed on the server (ADR 0010).
 infrastructureRoutes.get("/", async (c) => {
   const infra = getInfraConfig();
   return c.json({
     success: true,
     infrastructure: {
-      databaseUrl: maskConnectionUrl(infra.databaseUrl),
-      rawDatabaseUrl: infra.databaseUrl,
-      databaseDialect: activeDialect,
+      databaseEngine: activeDialect,
+      databaseHost: redactedDatabaseHost(infra.databaseUrl),
       redisUrl: maskConnectionUrl(infra.redisUrl),
       rawRedisUrl: infra.redisUrl,
       isFromRuntimeStore: infra.isFromRuntimeStore,
       updatedAt: infra.updatedAt,
-      notice: ".env is protected and read-only. Runtime changes are persisted to runtime-config.json.",
     },
   });
-});
-
-// Test infrastructure database connection (dialect-aware: sqlite or postgres)
-infrastructureRoutes.post("/test-db", async (c) => {
-  const body = object(await c.req.json(), "body");
-  let url = body.databaseUrl;
-  if (!url || url.includes("••••")) {
-    const infra = getInfraConfig();
-    url = infra.databaseUrl;
-  }
-
-  const result = await testDatabaseConnection(url);
-  return c.json(result);
 });
 
 // Test infrastructure Redis connection
@@ -70,59 +54,24 @@ infrastructureRoutes.post("/test-redis", async (c) => {
   }
 });
 
-// Update infrastructure configuration (persists to runtime-config.json, does NOT touch .env)
+// Update the Redis URL (persists to runtime-config.json, does NOT touch .env)
 infrastructureRoutes.put("/", async (c) => {
   const body = object(await c.req.json(), "body");
-  const updates: { databaseUrl?: string; redisUrl?: string } = {};
-
-  if (body.databaseUrl !== undefined && typeof body.databaseUrl !== "string") return c.json({ error: "databaseUrl must be a string" }, 400);
+  if (body.databaseUrl !== undefined) {
+    return c.json({ error: "The database cannot be changed from the admin API. Its engine is fixed at setup; change its address in DATABASE_URL on the server." }, 400);
+  }
   if (body.redisUrl !== undefined && typeof body.redisUrl !== "string") return c.json({ error: "redisUrl must be a string" }, 400);
-  if (body.databaseUrl && !body.databaseUrl.includes("••••")) {
-    updates.databaseUrl = body.databaseUrl.trim();
-  }
-  if (body.redisUrl && !body.redisUrl.includes("••••")) {
-    updates.redisUrl = body.redisUrl.trim();
-  }
+  if (!body.redisUrl?.trim() || body.redisUrl.includes("••••")) return c.json({ error: "redisUrl is required" }, 400);
 
-  if (updates.databaseUrl) {
-    const tested = await testDatabaseConnection(updates.databaseUrl);
-    if (!tested.success) return c.json({ success: false, message: tested.message }, 400);
-  }
-  const updated = saveInfraConfig(updates);
-  let statusMessage = "Infrastructure settings successfully saved to persistent runtime store (runtime-config.json).";
-
-  if (updates.databaseUrl) {
-    try {
-      const running = discordBotManager.getAggregateStatus() as any[];
-      await Promise.all(running.map((bot) => discordBotManager.stopBot(bot.botId)));
-      reconnectDatabase(updated.databaseUrl);
-      await runMigrations();
-      await runSeed();
-      statusMessage = "Database connected; migrations and seed completed.";
-      void discordBotManager.startAll().catch(() => {});
-    } catch (err: any) {
-      return c.json(
-        {
-          success: false,
-          message: `Saved configuration, but failed to connect or migrate PostgreSQL: ${err.message}`,
-          error: err.message,
-        },
-        400
-      );
-    }
-  }
-
-  if (updates.redisUrl) await reconnectRedis(updated.redisUrl);
+  const updated = saveRedisUrl(body.redisUrl);
+  await reconnectRedis(updated.redisUrl);
   return c.json({
     success: true,
-    message: statusMessage,
+    message: "Redis URL saved to runtime-config.json.",
     infrastructure: {
-      databaseUrl: maskConnectionUrl(updated.databaseUrl),
       redisUrl: maskConnectionUrl(updated.redisUrl),
       isFromRuntimeStore: true,
       updatedAt: updated.updatedAt,
     },
   });
 });
-
-

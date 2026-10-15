@@ -1,4 +1,5 @@
-import { detectDialect, resolveSqlitePath, type DbDialect } from "./dialect.js";
+import { resolveSqlitePath, type DbDialect } from "./dialect.js";
+import { detectEngine } from "./engine.js";
 import * as pgSchema from "./schema/pg/index.js";
 import * as sqliteSchema from "./schema/sqlite/index.js";
 
@@ -19,7 +20,7 @@ export type Connection = SqlConnection;
 
 /** Opens the database a URL names. Nothing global is touched, so tests can hold several engines at once. */
 export function openConnection(url: string): Connection {
-  const engine = detectDialect(url);
+  const engine = detectEngine(url);
   if (engine === "sqlite") {
     const { Database } = require("bun:sqlite");
     const { drizzle } = require("drizzle-orm/bun-sqlite");

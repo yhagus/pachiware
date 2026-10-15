@@ -10,13 +10,14 @@
  * unchanged regardless of the active dialect.
  */
 import { getInfraConfig } from "../runtime-store.js";
-import { detectDialect, type DbDialect } from "../dialect.js";
+import { type DbDialect } from "../dialect.js";
+import { detectEngine } from "../engine.js";
 
 import * as pgSchema from "./pg/index.js";
 import * as sqliteSchema from "./sqlite/index.js";
 
 const { databaseUrl } = getInfraConfig();
-export let activeDialect: DbDialect = detectDialect(databaseUrl);
+export let activeDialect: DbDialect = detectEngine(databaseUrl);
 
 const active = activeDialect === "postgres" ? pgSchema : sqliteSchema;
 
@@ -88,9 +89,3 @@ export type NewSchedule = typeof pgSchema.schedules.$inferInsert;
 export let tenantSkills = active.tenantSkills;
 export type TenantSkill = typeof pgSchema.tenantSkills.$inferSelect;
 export type NewTenantSkill = typeof pgSchema.tenantSkills.$inferInsert;
-
-export function switchSchema(dialect: DbDialect) {
-  activeDialect = dialect;
-  const next = dialect === "postgres" ? pgSchema : sqliteSchema;
-  ({ agentsConfig, skills, tasks, conversations, messages, tenants, apiKeys, profiles, gitAccounts, gitOauthApps, bots, guildConfigs, botGitAccounts, gitScopes, availabilityRules, usageEvents, schedules, tenantSkills } = next);
-}

@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type HealthResponse, type InfrastructureData, type Stats } from "@/lib/api";
 
+const ENGINES: Record<string, string> = { sqlite: "SQLite", postgres: "PostgreSQL" };
 const ok = (s?: string) => !!s && s.startsWith("healthy");
 const gb = (n: number) => `${(n / 1073741824).toFixed(1)} GB`;
 const size = (n?: number | null) => n == null ? undefined : n >= 1073741824 ? `${(n / 1073741824).toFixed(2)} GB` : `${(n / 1048576).toFixed(n < 10485760 ? 2 : 1)} MB`;
@@ -27,7 +28,7 @@ function Service({ icon: Icon, name, engine, healthy, url, raw, size }: { icon: 
       {url && (
         <div className="flex items-center gap-1">
           <code className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{show ? raw ?? url : url}</code>
-          <Button size="icon" variant="ghost" className="size-7" onClick={() => setShow(!show)} aria-label={show ? "Hide URL" : "Show URL"}>{show ? <EyeOff /> : <Eye />}</Button>
+          {raw && <Button size="icon" variant="ghost" className="size-7" onClick={() => setShow(!show)} aria-label={show ? "Hide URL" : "Show URL"}>{show ? <EyeOff /> : <Eye />}</Button>}
         </div>
       )}
     </CardContent></Card>
@@ -79,7 +80,7 @@ export function Overview() {
       {stale && <p role="status" className="text-sm text-amber-500">Connection lost. Retrying…</p>}
       <Section title="Storage">
         <div className="grid gap-5 sm:grid-cols-2">
-          <Service icon={Database} name="Database" healthy={ok(health.services.database)} engine={infra.databaseDialect === "sqlite" ? "SQLite" : "PostgreSQL"} url={infra.databaseDialect === "sqlite" ? undefined : infra.databaseUrl} raw={infra.rawDatabaseUrl} size={size(stats.storage.dbBytes)} />
+          <Service icon={Database} name="Database" healthy={ok(health.services.database)} engine={ENGINES[infra.databaseEngine] ?? infra.databaseEngine} url={infra.databaseHost ?? undefined} size={size(stats.storage.dbBytes)} />
           {inMemory
             ? <Service icon={Zap} name="Cache" healthy engine="In-memory" size={size(stats.storage.cacheBytes)} />
             : <Service icon={Zap} name="Cache" healthy={ok(health.services.redis)} engine="Redis" url={infra.redisUrl} raw={infra.rawRedisUrl} size={size(stats.storage.cacheBytes)} />}

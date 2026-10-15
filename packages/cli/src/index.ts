@@ -285,7 +285,7 @@ function updateEnvValue(envFile: string, key: string, value: string): void {
 
 function completeCliSetup(workspace: string, databaseUrl = getDatabaseTarget(workspace).url) {
   const result = spawnSync("bun", [join(workspace, "packages/db/src/setup.ts")], {
-    cwd: workspace, stdio: "inherit", env: { ...process.env, DATABASE_URL: databaseUrl, PACHIWARE_DIR: workspace },
+    cwd: workspace, stdio: "inherit", env: { ...process.env, DATABASE_URL: databaseUrl, PACHIWARE_DIR: workspace, PACHIWARE_RUNTIME_CONFIG: join(workspace, "runtime-config.json") },
   });
   if (result.error || result.status !== 0) throw new Error("Setup did not complete. Check database connectivity and encryption configuration, then run pachiware init again.");
 }
@@ -437,7 +437,7 @@ program
     } else {
       console.log(`  ${c.yellow}ℹ ${dbDescription}.${c.reset}`);
       console.log(`  ${c.cyan}⚡ Starting Pachiware in Setup Wizard Mode.${c.reset}`);
-      console.log(`  ${c.dim}  (You can configure your database easily in the Web GUI at http://localhost:3000)${c.reset}`);
+      console.log(`  ${c.dim}  (Start the database or fix DATABASE_URL in .env, then run pachiware start again)${c.reset}`);
     }
 
     // 3. Print service endpoints
@@ -459,11 +459,11 @@ program
       console.log(`${c.yellow}${c.bold}====================================================${c.reset}`);
       console.log(`  ${c.cyan}🌐 Setup Console:${c.reset}     ${c.bold}http://localhost:3000${c.reset}`);
       console.log(`  ${c.cyan}⚡ Agent REST API:${c.reset}    ${c.bold}http://localhost:3001${c.reset}`);
-      console.log(`  ${c.cyan}🐘 Database:${c.reset}          ${c.yellow}Setup Required (Connect via Web GUI)${c.reset}`);
+      console.log(`  ${c.cyan}🐘 Database:${c.reset}          ${c.yellow}Not reachable (check DATABASE_URL in .env)${c.reset}`);
       console.log(`  ${c.cyan}🔴 Cache Engine:${c.reset}      ${c.green}Active (native in-memory fallback, zero-dependency)${c.reset}`);
       console.log(`  ${c.cyan}📡 Messaging:${c.reset}        Standby / Simulation mode`);
       console.log(`${c.gray}----------------------------------------------------${c.reset}`);
-      console.log(`  ${c.bold}👉 Open http://localhost:3000 to connect your PostgreSQL database.${c.reset}\n`);
+      console.log(`  ${c.bold}👉 Start the database, then run pachiware start again.${c.reset}\n`);
     }
 
     if (options.daemon) {

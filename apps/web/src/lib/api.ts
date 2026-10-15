@@ -62,7 +62,8 @@ export interface Stats {
   };
 }
 export interface InfrastructureData {
-  databaseUrl: string; rawDatabaseUrl?: string; databaseDialect?: string; redisUrl: string; rawRedisUrl?: string; isFromRuntimeStore?: boolean; updatedAt?: string;
+  /** The engine is fixed at setup; the host never carries credentials and is null for SQLite. */
+  databaseEngine: string; databaseHost: string | null; redisUrl: string; rawRedisUrl?: string; isFromRuntimeStore?: boolean; updatedAt?: string;
 }
 export interface ApiKey { id: string; name: string; keyPrefix: string; tenantCount: number; lastUsedAt: string | null; revokedAt: string | null; createdAt: string; }
 export interface Tenant { id: string; name: string; slug: string; status: string; apiKeyId: string | null; createdAt?: string; }
@@ -136,8 +137,6 @@ export const api = {
   getInfrastructure: () => fetchJSON<{ infrastructure: InfrastructureData }>("/api/admin/infrastructure"),
   getGitHosts: () => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/git-hosts"),
   saveGitHosts: (hosts: string[]) => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/git-hosts", json("PUT", { hosts })),
-  updateInfrastructure: (data: { databaseUrl?: string }) => fetchJSON<{ message: string }>("/api/admin/infrastructure", json("PUT", data)),
-  testPostgres: (data: { databaseUrl?: string }) => fetchJSON<{ success: boolean; message: string }>("/api/admin/infrastructure/test-db", json("POST", data)),
 
   listTenants: () => fetchJSON<{ tenants: Tenant[] }>("/api/admin/tenants"),
   getTenant: (id: string) => fetchJSON<{ tenant: Tenant }>(`/api/admin/tenants/${id}`),
