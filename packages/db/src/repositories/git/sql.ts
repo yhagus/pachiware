@@ -32,7 +32,18 @@ export function createSqlGitRepository(connection: SqlConnection): GitRepository
       return row ? toAccount(row) : null;
     },
     async deleteAccount(id) {
-      return (await db.delete(t.gitAccounts).where(eq(t.gitAccounts.id, id)).returning()).length > 0;
+      // A deleted bot keeps its links, so they and their scopes go explicitly, in one transaction with the account.
+      const owned = [t.gitScopes, t.botGitAccounts];
+      if (connection.engine === "sqlite") {
+        return db.transaction((tx: any) => {
+          for (const table of owned) tx.delete(table).where(eq(table.gitAccountId, id)).run();
+          return tx.delete(t.gitAccounts).where(eq(t.gitAccounts.id, id)).returning().all().length > 0;
+        });
+      }
+      return db.transaction(async (tx: any) => {
+        for (const table of owned) await tx.delete(table).where(eq(table.gitAccountId, id));
+        return (await tx.delete(t.gitAccounts).where(eq(t.gitAccounts.id, id)).returning()).length > 0;
+      });
     },
     ownsAccounts: (tenantId, ids) => ownsAll(tenantId, ids),
 

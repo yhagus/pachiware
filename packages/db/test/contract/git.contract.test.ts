@@ -94,6 +94,18 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
     expect(await git.listBotAccounts(b1)).toEqual([]);
   });
 
+  test("linking an account switches the git skill on for the tenant, and only for that tenant", async () => {
+    const { git, skills } = use().repos;
+    const [a, b] = [await tenant("a"), await tenant("b")];
+    const main = await account(a.id, "main");
+    const bot = await newBot(a.id);
+    await git.setBotAccounts(a.id, bot, []);
+    expect((await skills.getForTenant(a.id, "git_repositories"))?.isEnabled).toBe(false);
+    await git.setBotAccounts(a.id, bot, [main.id]);
+    expect((await skills.getForTenant(a.id, "git_repositories"))?.isEnabled).toBe(true);
+    expect((await skills.getForTenant(b.id, "git_repositories"))?.isEnabled).toBe(false);
+  });
+
   test("a bot cannot link an account of another tenant, and a rejected set changes nothing", async () => {
     const { git } = use().repos;
     const [a, b] = [await tenant("a"), await tenant("b")];
@@ -190,6 +202,21 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
     await git.replaceScopes(t.id, bot, "guild", "", [{ gitAccountId: main.id, repoPatterns: ["*"] }, { gitAccountId: alt.id, repoPatterns: ["*"] }]);
     await git.replaceScopes(t.id, bot, "guild", "chan", [{ gitAccountId: main.id, repoPatterns: ["a/b"] }]);
     await git.setBotAccounts(t.id, bot, [alt.id]);
+    expect((await git.listScopes(bot, "guild")).map((s) => s.gitAccountId)).toEqual([alt.id]);
+  });
+
+  test("deleting an account removes its links and scopes, and leaves the bot's other accounts", async () => {
+    const { git, bots } = use().repos;
+    const { t, main, alt, bot } = await linkedBot();
+    await git.replaceScopes(t.id, bot, "guild", "", [{ gitAccountId: main.id, repoPatterns: ["*"] }, { gitAccountId: alt.id, repoPatterns: ["*"] }]);
+    await git.replaceScopes(t.id, bot, "guild", "chan", [{ gitAccountId: main.id, repoPatterns: ["a/b"] }]);
+    const gone = await newBot(t.id, "gone");
+    await git.setBotAccounts(t.id, gone, [main.id]);
+    await bots.remove(gone);
+
+    expect(await git.deleteAccount(main.id)).toBe(true);
+    expect(await git.listBotAccounts(bot)).toEqual([alt]);
+    expect(await git.botAccountIds([bot, gone])).toEqual({ [bot]: [alt.id] });
     expect((await git.listScopes(bot, "guild")).map((s) => s.gitAccountId)).toEqual([alt.id]);
   });
 

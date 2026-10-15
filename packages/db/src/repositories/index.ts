@@ -24,13 +24,16 @@ import { createSqlBotRepository } from "./bots/sql.js";
 import { createMongoBotRepository } from "./bots/mongo.js";
 import type { BotRepository } from "./bots/types.js";
 import { createSqlSkillRepository } from "./skills/sql.js";
+import { createMongoSkillRepository } from "./skills/mongo.js";
 import type { SkillRepository } from "./skills/types.js";
 import { createSqlAvailabilityRuleRepository } from "./availability/sql.js";
+import { createMongoAvailabilityRuleRepository } from "./availability/mongo.js";
 import type { AvailabilityRuleRepository } from "./availability/types.js";
 import { createSqlConversationRepository } from "./conversations/sql.js";
 import { createMongoConversationRepository } from "./conversations/mongo.js";
 import type { ConversationRepository } from "./conversations/types.js";
 import { createSqlGitRepository } from "./git/sql.js";
+import { createMongoGitRepository } from "./git/mongo.js";
 import type { GitRepository } from "./git/types.js";
 
 // One folder per kind of record: `types.ts` holds its domain types and interface, `sql.ts` serves SQLite
@@ -94,22 +97,10 @@ export function createRepositories(connection: Connection): Repositories {
         schedules: createMongoScheduleRepository(connection),
         taskRows: createMongoTaskRowRepository(connection),
         bots: createMongoBotRepository(connection),
-        skills: notOnMongoYet("Skills"),
-        availability: notOnMongoYet("Availability rules"),
+        skills: createMongoSkillRepository(connection),
+        availability: createMongoAvailabilityRuleRepository(connection),
         conversations: createMongoConversationRepository(connection),
-        git: notOnMongoYet("Git"),
+        git: createMongoGitRepository(connection),
       };
   }
-}
-
-/**
- * Stands in for a repository not built for MongoDB yet (#169–#171) so the entry point stays complete:
- * every call rejects, naming the repository. Replace it with the `mongo.ts` implementation.
- */
-function notOnMongoYet<T extends object>(name: string): T {
-  return new Proxy({} as T, {
-    get: (_, method) => (method === "then" ? undefined : async () => {
-      throw new Error(`The ${name} repository is not available on MongoDB yet (${String(method)}).`);
-    }),
-  });
 }
