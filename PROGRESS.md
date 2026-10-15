@@ -860,6 +860,7 @@ Started from a report that messages over 4000 characters are refused in English 
   - [x] #143 `keepAsNote { messageIds, path }` joins up to 20 messages of this channel or thread (a thread's starter from its parent) verbatim minus the bot's own mention, with parallel `source`/`author` lists; exactly one source kind. Turns show `Name (message <id>): …` only for text over 2000 characters (`keepableId`, `speakerTurn`). Persona sends long text to `keepAsNote`; prior personas frozen as `PERSONA_PROJECTS` and `PERSONA_BULK_TASKS` for the migration.
   - [x] Code-review pass (Standards + Spec) fixed on the branch: shared extracted-text naming rule (`textName`, `unrecordedTextPath`) so an unrecorded PDF never copies an unrelated `<stem>.md` (ambiguous siblings are refused); `withoutMention` shared by turn and kept messages; per-message authors; `.md`-only targets; separate no-source refusal; `renderFrontmatter` reuse; `speakerName` shared with the adapter; renames (`textPath`, `pathInPlaceFolder`); `limitLength` without a limit parameter. Main (#136–#139) merged in first. Full suite 629 pass, 0 fail; typecheck exits 0.
   - Follow-up candidates, not filed: git skill and brief/issue-batch refusals and the bulk-task instruction are still English only; Documents filed before #142 carry no author.
+- [x] Landed on main at 0b4d5de (fast-forward, pushed 2026-10-15); #140–#143 closed with their commits.
 
 ## Phase 33 — Harness review fixes (#136–#139)
 
