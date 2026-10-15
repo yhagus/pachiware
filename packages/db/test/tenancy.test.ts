@@ -78,7 +78,7 @@ describe("tenant persistence helpers", () => {
       queryClient.query("INSERT INTO skills (id, name, description, default_enabled, config) VALUES (?, ?, ?, ?, ?)").run("disabled", "Disabled", "disabled skill", 0, JSON.stringify({ level: 2 }));
       const tenant = await repositories().tenants.create({ name: "New Tenant", slug: "new-tenant" });
       const tenantSkillsRows = queryClient.query("SELECT skill_id AS skillId, is_enabled AS isEnabled, config FROM tenant_skills WHERE tenant_id = ?").all(tenant.id).map((row) => ({ ...row, isEnabled: Boolean(row.isEnabled), config: JSON.parse(row.config) }));
-      const taskRows = queryClient.query("SELECT id FROM tasks WHERE tenant_id = ?").all(tenant.id);
+      const taskRows = await repositories().taskRows.list(tenant.id);
       console.log(JSON.stringify({ tenantSkillsRows, taskCount: taskRows.length }));
     `);
     try {

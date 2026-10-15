@@ -1,5 +1,4 @@
-import { db, schedules, agentsConfig, eq, and, type Schedule } from "@pachiware/db";
-import { asc, lte } from "drizzle-orm";
+import { db, agentsConfig, eq, repositories, type Schedule } from "@pachiware/db";
 import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, readGroups, MAX_SCOPED, workspaceStore, taskLine, isOpen, scopeSources, tasksIn, inScope, groupTasks, type DiscordClientAdapter, type TaskSource, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines } from "./digest.js";
@@ -22,7 +21,7 @@ export function startScheduler(manager: DiscordBotManager, everyMs = SCHEDULER_I
 }
 
 async function pass(manager: DiscordBotManager, at: number) {
-  const due = await db.select().from(schedules).where(and(eq(schedules.status, "active"), lte(schedules.nextAt, new Date(at)))).orderBy(asc(schedules.nextAt));
+  const due = await repositories().schedules.due(new Date(at));
   for (const row of due) await fire(manager, row, at).catch(() => {});
 }
 
@@ -91,11 +90,11 @@ function withinLimit(head: string, chunks: string[][], unlisted = 0, moreLine?: 
 
 async function moveOn(row: Schedule, at: number, firedAt: Date | null) {
   const next = nextOccurrence(row, at);
-  await db.update(schedules).set({ nextAt: next === null ? row.nextAt : new Date(next), status: next === null ? "done" : "active", lastFiredAt: firedAt ?? row.lastFiredAt, attempts: 0, error: null }).where(eq(schedules.id, row.id));
+  await repositories().schedules.update(row.id, { nextAt: next === null ? row.nextAt : new Date(next), status: next === null ? "done" : "active", lastFiredAt: firedAt ?? row.lastFiredAt, attempts: 0, error: null });
 }
 
 async function failed(row: Schedule, reason: string) {
   const attempts = row.attempts + 1;
   const over = attempts >= MAX_POST_ATTEMPTS;
-  await db.update(schedules).set({ attempts, ...(over ? { status: "done" as const, error: `Could not post after ${attempts} attempts: ${reason.slice(0, 200)}` } : {}) }).where(eq(schedules.id, row.id));
+  await repositories().schedules.update(row.id, { attempts, ...(over ? { status: "done" as const, error: `Could not post after ${attempts} attempts: ${reason.slice(0, 200)}` } : {}) });
 }

@@ -13,12 +13,11 @@ function run(body: string) {
     const { runMigrations } = await imp("packages/db/src/migrate.ts"); const { runSeed } = await imp("packages/db/src/seed.ts");
     await runMigrations(); await runSeed();
     const { createServer } = await imp("apps/agent/src/server.ts"); const tenancy = await imp("packages/db/src/tenancy.ts"); const { repositories } = await imp("packages/db/src/index.ts");
-    const { db, schedules, eq } = await imp("packages/db/src/index.ts");
     const app = createServer();
     const call = async (method, path, headers, body) => { const r = await app.request(path, { method, headers, body: body && JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => null) }; };
     const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await tenancy.createBot({ tenantId: t.id, token: "x" });
     // Rows as the reminders skill writes them; the console never creates one.
-    const insert = async (row) => (await db.insert(schedules).values({ tenantId: t.id, botId: bot.id, kind: "reminder", guildId: "g1", channelId: "c1", ownerId: "u-alice", ownerName: "Alice", text: "send the invoice", mentions: [], recurrence: "once", timeOfDay: "15:00", timezone: "Asia/Jakarta", nextAt: new Date("2026-03-06T08:00:00Z"), ...row }).returning({ id: schedules.id }))[0].id;
+    const insert = async (row) => (await repositories().schedules.create({ tenantId: t.id, botId: bot.id, kind: "reminder", guildId: "g1", channelId: "c1", ownerId: "u-alice", ownerName: "Alice", text: "send the invoice", mentions: [], recurrence: "once", timeOfDay: "15:00", timezone: "Asia/Jakarta", nextAt: new Date("2026-03-06T08:00:00Z"), ...row })).id;
     ${body}
     console.log(JSON.stringify({ ok: true }));`;
   const result = Bun.spawnSync({ cmd: ["bun", "--eval", script], cwd: root, env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "t.db")}`, WORKSPACE_DIR: join(dir, "ws"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" } });
@@ -46,12 +45,12 @@ test("the admin API lists a bot's active Reminders soonest first and cancels one
 
   const cancelled = await call("DELETE", url + "/" + soon, h);
   assert(cancelled.status === 200 && cancelled.body.success === true, "cancel " + cancelled.status + " " + JSON.stringify(cancelled.body));
-  const [row] = await db.select().from(schedules).where(eq(schedules.id, soon));
+  const row = await repositories().schedules.get(soon);
   assert(row.status === "cancelled", "cancel must mark the row cancelled, not delete it: " + JSON.stringify(row));
   assert(JSON.stringify((await call("GET", url, h)).body.reminders.map((r) => r.id)) === JSON.stringify([later]), "a cancelled Reminder is still listed");
   assert((await call("DELETE", url + "/" + soon, h)).status === 404, "cancelling twice");
   assert((await call("DELETE", url + "/nope", h)).status === 404, "unknown Reminder");
-  const foreign = (await db.select().from(schedules).where(eq(schedules.botId, other.id)))[0];
+  const foreign = (await repositories().schedules.list({ botId: other.id }))[0];
   assert((await call("DELETE", url + "/" + foreign.id, h)).status === 404, "another bot's Reminder cancelled through this bot");
   assert((await call("GET", "/api/admin/bots/nope/reminders", h)).status === 404, "unknown bot");
   assert((await call("GET", url, { "Content-Type": "application/json" })).status === 401, "admin key required");
@@ -67,13 +66,13 @@ test("the tenant API lists and cancels Reminders of an owned bot only", () => ru
   assert(listed.status === 200 && listed.body.reminders.length === 1 && listed.body.reminders[0].id === id && listed.body.reminders[0].text === "send the invoice", "list " + listed.status + " " + JSON.stringify(listed.body));
   const cancelled = await call("DELETE", url + "/" + id, h);
   assert(cancelled.status === 200 && cancelled.body.success === true, "cancel " + cancelled.status + " " + JSON.stringify(cancelled.body));
-  assert((await db.select().from(schedules).where(eq(schedules.id, id)))[0].status === "cancelled", "row not cancelled");
+  assert((await repositories().schedules.get(id)).status === "cancelled", "row not cancelled");
   assert((await call("GET", url, h)).body.reminders.length === 0, "cancelled Reminder still listed");
 
   const otherTenant = await repositories().tenants.create({ name: "B", slug: "b" }), theirs = await tenancy.createBot({ tenantId: otherTenant.id, token: "z" });
   const theirRow = await insert({ tenantId: otherTenant.id, botId: theirs.id });
   assert((await call("GET", "/api/v1/bots/" + theirs.id + "/reminders", h)).status === 404, "another tenant's bot listed");
   assert((await call("DELETE", "/api/v1/bots/" + theirs.id + "/reminders/" + theirRow, h)).status === 404, "another tenant's Reminder cancelled");
-  assert((await db.select().from(schedules).where(eq(schedules.id, theirRow)))[0].status === "active", "another tenant's row changed");
+  assert((await repositories().schedules.get(theirRow)).status === "active", "another tenant's row changed");
   assert((await call("GET", url, { "Content-Type": "application/json", "X-Tenant-Id": t.id })).status === 401, "tenant key required");
 `));

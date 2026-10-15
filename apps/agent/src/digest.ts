@@ -1,4 +1,4 @@
-import { db, schedules, guildConfigs, eq, and, type DigestChannel, type Schedule } from "@pachiware/db";
+import { db, guildConfigs, eq, and, repositories, type DigestChannel, type Schedule } from "@pachiware/db";
 import { isNull } from "drizzle-orm";
 import { now, nextOccurrence, wallClock, hhmm, loadTasks, readInFull, workspaceStore, dueMoment, taskLine, isOpen, type Strings } from "@pachiware/skills";
 
@@ -16,22 +16,23 @@ export async function syncTenantDigestSchedules(tenantId: string, timezone: stri
  * A row whose hour and zone already match is left alone, so an unrelated settings save never moves a Digest.
  */
 export async function syncDigestSchedules(where: { tenantId: string; botId: string; guildId: string; timezone: string }, entries: DigestChannel[]) {
-  const active = await db.select().from(schedules).where(and(eq(schedules.botId, where.botId), eq(schedules.guildId, where.guildId), eq(schedules.kind, "digest"), eq(schedules.status, "active")));
+  const { schedules } = repositories();
+  const active = await schedules.list({ botId: where.botId, guildId: where.guildId, kind: "digest", status: "active" });
   const wanted = new Map(entries.map((e) => [e.channelId, e]));
   const at = now();
   for (const row of active) {
     const entry = wanted.get(row.channelId);
-    if (!entry) { await db.update(schedules).set({ status: "cancelled" }).where(eq(schedules.id, row.id)); continue; }
+    if (!entry) { await schedules.update(row.id, { status: "cancelled" }); continue; }
     wanted.delete(row.channelId);
     const timeOfDay = hourText(entry.hour);
     if (row.timeOfDay === timeOfDay && row.timezone === where.timezone) continue;
     const next = nextOccurrence({ recurrence: "daily", weekdays: [], dayOfMonth: null, timeOfDay, timezone: where.timezone, until: null }, at)!;
-    await db.update(schedules).set({ timeOfDay, timezone: where.timezone, nextAt: new Date(next), attempts: 0, error: null }).where(eq(schedules.id, row.id));
+    await schedules.update(row.id, { timeOfDay, timezone: where.timezone, nextAt: new Date(next), attempts: 0, error: null });
   }
   for (const entry of wanted.values()) {
     const timeOfDay = hourText(entry.hour);
     const next = nextOccurrence({ recurrence: "daily", weekdays: [], dayOfMonth: null, timeOfDay, timezone: where.timezone, until: null }, at)!;
-    await db.insert(schedules).values({ tenantId: where.tenantId, botId: where.botId, kind: "digest", guildId: where.guildId, channelId: entry.channelId, recurrence: "daily", timeOfDay, timezone: where.timezone, nextAt: new Date(next) });
+    await schedules.create({ tenantId: where.tenantId, botId: where.botId, kind: "digest", guildId: where.guildId, channelId: entry.channelId, recurrence: "daily", timeOfDay, timezone: where.timezone, nextAt: new Date(next) });
   }
 }
 

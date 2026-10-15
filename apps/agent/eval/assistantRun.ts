@@ -73,7 +73,7 @@ async function stateOf(s: Scenario, channels: string[]): Promise<AssistantState>
   const { noteLine } = await import("../../../packages/skills/src/builtin/progressNotes.ts");
   const { taskChannelOf } = await import("../../../packages/skills/src/builtin/taskAccess.ts");
   const { workspaceStore } = await import("../../../packages/skills/src/workspace/store.ts");
-  const { schedules, eq } = await import("../../../packages/db/src/index.ts") as any;
+  const { repositories } = await import("../../../packages/db/src/index.ts");
   const lines = async (path: string) => ((await s.workspace.read(path)) ?? "").split("\n").filter((l) => l.trim());
   const store = workspaceStore(), found = new Map<string, Awaited<ReturnType<typeof loadTasks>>[number]>();
   for (const channelId of [CHANNEL_ID, ...channels]) for (const f of await loadTasks(store, { tenantId: s.tenant.id, guildId: GUILD, channelId })) found.set(f.path, f);
@@ -83,7 +83,7 @@ async function stateOf(s: Scenario, channels: string[]): Promise<AssistantState>
     return { title: t.title, status: t.status, dueAt: t.dueAt, assignedTo: t.assignedTo?.name ?? null, createdByName: t.createdByName, ...(channel && channel !== CHANNEL_ID && { channel: `#${channel}` }), ...(notes.length && { notes }) };
   }).sort((a, b) => a.title.localeCompare(b.title));
   const files = (await s.workspace.list(`${CHANNEL}/files`)).map((p) => p.slice(CHANNEL.length + 1)).filter((p) => !p.split("/").pop()!.startsWith(".")).sort();
-  const rows: any[] = await s.db.select().from(schedules).where(eq(schedules.kind, "reminder"));
+  const rows = await repositories().schedules.list({ kind: "reminder" });
   const reminders = rows.sort((a, b) => a.nextAt.getTime() - b.nextAt.getTime() || a.text.localeCompare(b.text))
     .map((r) => ({ text: r.text, recurrence: r.recurrence, weekdays: r.weekdays ?? [], timeOfDay: r.timeOfDay ?? null, timezone: r.timezone, nextAt: r.nextAt.toISOString(), status: r.status, mentions: r.mentions ?? [] }));
   return { tasks, memory: { channel: await lines(`${CHANNEL}/MEMORY.md`), guild: await lines(`${GUILD_SHARED}/MEMORY.md`) }, files, reminders };
