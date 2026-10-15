@@ -20,10 +20,12 @@ import { createSqlSkillRepository } from "./skills/sql.js";
 import { createMongoSkillRepository } from "./skills/mongo.js";
 import type { SkillRepository } from "./skills/types.js";
 import { createSqlAvailabilityRuleRepository } from "./availability/sql.js";
+import { createMongoAvailabilityRuleRepository } from "./availability/mongo.js";
 import type { AvailabilityRuleRepository } from "./availability/types.js";
 import { createSqlConversationRepository } from "./conversations/sql.js";
 import type { ConversationRepository } from "./conversations/types.js";
 import { createSqlGitRepository } from "./git/sql.js";
+import { createMongoGitRepository } from "./git/mongo.js";
 import type { GitRepository } from "./git/types.js";
 
 // One folder per kind of record: `types.ts` holds its domain types and interface, `sql.ts` serves SQLite
@@ -88,9 +90,9 @@ export function createRepositories(connection: Connection): Repositories {
         taskRows: notOnMongoYet("Task rows"),
         bots: notOnMongoYet("Bots"),
         skills: createMongoSkillRepository(connection),
-        availability: notOnMongoYet("Availability rules"),
+        availability: createMongoAvailabilityRuleRepository(connection),
         conversations: notOnMongoYet("Conversations"),
-        git: notOnMongoYet("Git"),
+        git: createMongoGitRepository(connection),
       };
   }
 }

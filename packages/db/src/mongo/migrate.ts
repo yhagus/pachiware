@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { tenantMigrations } from "../repositories/tenants/mongo.js";
 import { skillMigrations } from "../repositories/skills/mongo.js";
+import { availabilityMigrations } from "../repositories/availability/mongo.js";
+import { gitMigrations } from "../repositories/git/mongo.js";
 import { assertReplicaSet, type MongoConnection, type MongoMigration } from "./connection.js";
 
 /** Every step, in the order they run. Each repository's `mongo.ts` exports its own steps; add them here. */
-export const MONGO_MIGRATIONS: MongoMigration[] = [...tenantMigrations, ...skillMigrations];
+export const MONGO_MIGRATIONS: MongoMigration[] = [...tenantMigrations, ...skillMigrations, ...availabilityMigrations, ...gitMigrations];
 
 type Applied = { _id: string; appliedAt: Date };
 type Lock = { _id: string; owner: string; expiresAt: Date };

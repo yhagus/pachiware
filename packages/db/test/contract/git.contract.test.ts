@@ -193,6 +193,21 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
     expect((await git.listScopes(bot, "guild")).map((s) => s.gitAccountId)).toEqual([alt.id]);
   });
 
+  test("deleting an account removes its links and scopes, and leaves the bot's other accounts", async () => {
+    const { git, bots } = use().repos;
+    const { t, main, alt, bot } = await linkedBot();
+    await git.replaceScopes(t.id, bot, "guild", "", [{ gitAccountId: main.id, repoPatterns: ["*"] }, { gitAccountId: alt.id, repoPatterns: ["*"] }]);
+    await git.replaceScopes(t.id, bot, "guild", "chan", [{ gitAccountId: main.id, repoPatterns: ["a/b"] }]);
+    const gone = await newBot(t.id, "gone");
+    await git.setBotAccounts(t.id, gone, [main.id]);
+    await bots.remove(gone);
+
+    expect(await git.deleteAccount(main.id)).toBe(true);
+    expect(await git.listBotAccounts(bot)).toEqual([alt]);
+    expect(await git.botAccountIds([bot, gone])).toEqual({ [bot]: [alt.id] });
+    expect((await git.listScopes(bot, "guild")).map((s) => s.gitAccountId)).toEqual([alt.id]);
+  });
+
   test("purging a tenant removes its accounts, links and scopes, and leaves other tenants alone", async () => {
     const { git, tenants } = use().repos;
     const { t, main, bot } = await linkedBot();
