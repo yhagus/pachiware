@@ -6,6 +6,8 @@ import { insertTenantDefaults } from "./repositories/tenants/sql.js";
 /** Gives one tenant of the configured database the defaults it lacks. */
 export async function seedTenant(tenantId: string) {
   const { connection } = await import("./index.js");
+  // Seeding every tenant on MongoDB adds only what each lacks, so this tenant gets its defaults too.
+  if (connection.engine === "mongodb") return createRepositories(connection).tenants.seedDefaults();
   await insertTenantDefaults(connection.db, connection.tables, tenantId);
 }
 
@@ -17,7 +19,6 @@ export async function runSeed() {
 
 /** Registers the built-in skills in one open database, then gives every tenant the defaults it lacks. */
 export async function seedDatabase(connection: Connection) {
-  const { db, tables: { skills } } = connection;
   // 2. Seed Built-in Skills
   const taskManagementSkill = {
     id: "task_management",
@@ -193,7 +194,22 @@ export async function seedDatabase(connection: Connection) {
     config: {},
   };
 
-  for (const skill of [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill]) {
+  const builtIn = [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill];
+  if (connection.engine === "mongodb") {
+    const now = new Date();
+    for (const { id, name, description, toolDefinitions, ...rest } of builtIn) {
+      await connection.db.collection<{ _id: string }>("skills").updateOne(
+        { _id: id },
+        { $set: { name, description, toolDefinitions, updatedAt: now }, $setOnInsert: { ...rest, createdAt: now } },
+        { upsert: true },
+      );
+    }
+    await createRepositories(connection).tenants.seedDefaults();
+    console.log("Platform skills and tenant defaults seeded.");
+    return;
+  }
+  const { db, tables: { skills } } = connection;
+  for (const skill of builtIn) {
     const existing = await db.select().from(skills).where(eq(skills.id, skill.id)).limit(1);
     if (existing.length === 0) {
       await db.insert(skills).values(skill);

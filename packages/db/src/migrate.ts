@@ -3,6 +3,7 @@ import type { Connection } from "./connection.js";
 import { encryptSecret, generateApiKey, hashApiKey } from "./crypto.js";
 import { DEFAULT_SYSTEM_PROMPT, OLD_DEFAULT_PROMPTS } from "./persona.js";
 import { recordDatabaseEngine } from "./runtime-store.js";
+import { migrateMongo } from "./mongo/migrate.js";
 
 export const SQL_TABLES = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "availability_rules", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events", "schedules"] as const;
 
@@ -210,6 +211,11 @@ export async function runMigrations(): Promise<void> {
 
 /** Brings the schema of one open database up to date; safe to run again. */
 export async function migrateDatabase(connection: Connection): Promise<void> {
+  if (connection.engine === "mongodb") {
+    const applied = await migrateMongo(connection);
+    console.log(`Database schema migrated successfully (mongodb${applied.length ? `, applied ${applied.join(", ")}` : ""}).`);
+    return;
+  }
   const { engine, client: queryClient } = connection;
   let key: string | null;
   if (engine === "postgres") {

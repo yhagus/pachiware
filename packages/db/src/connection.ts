@@ -1,5 +1,6 @@
 import { resolveSqlitePath, type DbDialect } from "./dialect.js";
 import { detectEngine } from "./engine.js";
+import { openMongoConnection, type MongoConnection } from "./mongo/connection.js";
 import * as pgSchema from "./schema/pg/index.js";
 import * as sqliteSchema from "./schema/sqlite/index.js";
 
@@ -15,12 +16,15 @@ export type SqlConnection = {
   close(): Promise<void>;
 };
 
-/** Every engine's open connection; MongoDB joins this union when it lands. */
-export type Connection = SqlConnection;
+export type { MongoConnection };
+
+/** Every engine's open connection. */
+export type Connection = SqlConnection | MongoConnection;
 
 /** Opens the database a URL names. Nothing global is touched, so tests can hold several engines at once. */
 export function openConnection(url: string): Connection {
   const engine = detectEngine(url);
+  if (engine === "mongodb") return openMongoConnection(url);
   if (engine === "sqlite") {
     const { Database } = require("bun:sqlite");
     const { drizzle } = require("drizzle-orm/bun-sqlite");

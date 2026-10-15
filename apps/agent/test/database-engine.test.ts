@@ -62,6 +62,11 @@ async function startAgent({ databaseUrl, runtimeConfig }: { databaseUrl: string;
   };
 }
 
+/** The same server as a test MongoDB URL, in a database of its own. */
+function testDatabase(url: string, suffix: string) {
+  return url.replace(/^(mongodb(?:\+srv)?:\/\/[^/?]*)\/?([^?]*)/, (_, server, name) => `${server}/${name || "pachiware"}_${suffix}`);
+}
+
 /** Calls the admin infrastructure API in its own process, against a database URL that is never connected to. */
 function infrastructureApi(databaseUrl: string) {
   const directory = mkdtempSync(join(tmpdir(), "pachiware-infra-"));
@@ -165,11 +170,36 @@ describe("database engine lock at start-up", () => {
     expect(result.runtimeConfig).toBeNull();
   }, 30_000);
 
-  test("a MongoDB URL is not supported yet", async () => {
-    const result = await startAgent({ databaseUrl: "mongodb+srv://pachiware:secret@cluster0.example.net/pachiware" });
-    expect(result.started).toBe(false);
-    expect(result.errors).toContain("MongoDB is not supported yet.");
+  test("switching to or from MongoDB after records exist stops the start, naming both engines", async () => {
+    const toMongo = await startAgent({ databaseUrl: "mongodb+srv://pachiware:secret@cluster0.example.net/pachiware", runtimeConfig: { databaseEngine: "sqlite" } });
+    expect(toMongo.started).toBe(false);
+    expect(toMongo.errors).toContain("keeps its records in SQLite, but the database URL points at MongoDB.");
+    expect(toMongo.errors).not.toContain("secret");
+
+    const fromMongo = await startAgent({ databaseUrl: "postgresql://pachiware:secret@127.0.0.1:1/pachiware_agent", runtimeConfig: { databaseEngine: "mongodb" } });
+    expect(fromMongo.started).toBe(false);
+    expect(fromMongo.errors).toContain("keeps its records in MongoDB, but the database URL points at PostgreSQL.");
+    expect(fromMongo.runtimeConfig).toEqual({ databaseEngine: "mongodb" });
+  }, 60_000);
+
+  test("a new MongoDB address passes the lock, and an unreachable one starts in setup mode", async () => {
+    const result = await startAgent({ databaseUrl: "mongodb://pachiware:rotated@127.0.0.1:1/pachiware?serverSelectionTimeoutMS=500", runtimeConfig: { databaseEngine: "mongodb" } });
+    expect(result.started, result.errors).toBe(true);
+    expect(result.runtimeConfig).toEqual({ databaseEngine: "mongodb" });
+  }, 30_000);
+
+  test.skipIf(!process.env.TEST_MONGODB_URL)("a fresh install on a MongoDB replica set starts and records its engine", async () => {
+    const result = await startAgent({ databaseUrl: testDatabase(process.env.TEST_MONGODB_URL!, "agent_start") });
+    expect(result.started, result.errors).toBe(true);
+    expect(result.runtimeConfig).toEqual({ databaseEngine: "mongodb" });
     expect(result.installationFiles).toEqual([]);
+  }, 30_000);
+
+  test.skipIf(!process.env.TEST_MONGODB_STANDALONE_URL)("a standalone MongoDB stops the start, saying a replica set is required", async () => {
+    const result = await startAgent({ databaseUrl: process.env.TEST_MONGODB_STANDALONE_URL! });
+    expect(result.started).toBe(false);
+    expect(result.errors).toContain("MongoDB must run as a replica set");
+    expect(result.runtimeConfig).toBeNull();
   }, 30_000);
 
   test("an empty URL still uses the SQLite default", async () => {
