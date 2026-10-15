@@ -15,7 +15,7 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, agentsConfig, usageEvents, encryptSecret, eq } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
+        const { encryptSecret } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
         const tenant = await repositories().tenants.create({ name: "Router", slug: "router" });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
@@ -26,7 +26,7 @@ function scenario(body: string) {
         const post = async (path, body) => app.request("/api/admin" + path, { method: "POST", headers: admin, body: JSON.stringify(body) });
         const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
         const openai = (content) => ({ choices: [{ message: { content } }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } });
-        const useOpenAI = async (id) => db.update(agentsConfig).set({ openaiApiKeyEncrypted: encryptSecret("sk-openai") }).where(eq(agentsConfig.tenantId, id));
+        const useOpenAI = async (id) => repositories().agentConfig.update(id, { openaiApiKeyEncrypted: encryptSecret("sk-openai") });
         const HANG = Symbol("hang");
         const calls = []; let reply = () => json({});
         globalThis.fetch = (url, init = {}) => new Promise((resolve, reject) => {
@@ -62,7 +62,7 @@ describe("Router hardening", () => {
       assert(down.content === "Penyedia modelnya tidak bisa saya hubungi saat ini. Coba lagi sebentar lagi.", "fallback not in the tenant's language: " + down.content);
       assert(calls.length === 4 && waits.length === 3, "expected four requests and three waits: " + calls.length + " / " + JSON.stringify(waits));
       assert(waits.every((ms, i) => ms >= 500 * 2 ** i && ms <= 1500 * 2 ** i), "backoff not exponential with jitter: " + JSON.stringify(waits));
-      assert((await db.select().from(usageEvents)).filter((r) => r.type === "llm_tokens").length === 1, "a failed call must not record usage");
+      assert((await repositories().usage.list()).filter((r) => r.type === "llm_tokens").length === 1, "a failed call must not record usage");
 
       calls.length = 0; waits.length = 0; reply = () => { throw new TypeError("fetch failed"); };
       const gone = await ask();
@@ -111,7 +111,7 @@ describe("Router hardening", () => {
       assert(call.body.tools.length === 2 && !("cache_control" in call.body.tools[0]) && JSON.stringify(call.body.tools[1].cache_control) === '{"type":"ephemeral"}' && call.body.tools[1].name === "createTask", "tool cache mark wrong: " + JSON.stringify(call.body.tools));
       assert(!("temperature" in call.body), "current Claude models reject a non-default temperature");
       assert(answer.usage.cachedTokens === 30 && answer.usage.promptTokens === 40, "cached tokens not read: " + JSON.stringify(answer.usage));
-      const [row] = (await db.select().from(usageEvents)).filter((r) => r.type === "llm_tokens");
+      const [row] = (await repositories().usage.list()).filter((r) => r.type === "llm_tokens");
       assert(row && row.metadata.cachedTokens === 30 && row.promptTokens === 40, "cached tokens not in the usage event: " + JSON.stringify(row));
       const aggregate = await (await app.request("/api/admin/tenants/" + tenant.id + "/usage", { headers: admin })).json();
       const line = aggregate.usage.find((r) => r.type === "llm_tokens");
@@ -122,14 +122,14 @@ describe("Router hardening", () => {
 
   test("temperature is 0.2 from the seed and in OpenAI-shaped requests, and a tenant's own value still wins", () => {
     const { code, stderr } = scenario(`
-      const [config] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, tenant.id));
+      const config = await repositories().agentConfig.get(tenant.id);
       assert(config.temperature === 0.2, "seed wrote temperature " + config.temperature);
       await useOpenAI(tenant.id);
       reply = () => json(openai("ok"));
       await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id });
       assert(calls[0].body.temperature === 0.2, "default temperature wrong: " + calls[0].body.temperature);
       const warm = await repositories().tenants.create({ name: "Warm", slug: "warm" });
-      await useOpenAI(warm.id); await db.update(agentsConfig).set({ temperature: 0.9 }).where(eq(agentsConfig.tenantId, warm.id));
+      await useOpenAI(warm.id); await repositories().agentConfig.update(warm.id, { temperature: 0.9 });
       await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: warm.id });
       assert(calls[1].body.temperature === 0.9, "tenant temperature not kept: " + calls[1].body.temperature);
       await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: warm.id, temperature: 0 });

@@ -85,9 +85,9 @@ async function questionsOf(s: Scenario, thread: NonNullable<Message["thread"]>):
 
 /** Attaches `profile` to the scenario's bot and lets its model calls reach the provider. */
 export async function useLiveProfile(s: Scenario, profile: EvalProfile) {
-  const { profiles, bots, encryptSecret, eq } = await db();
+  const { repositories, bots, encryptSecret, eq } = await db();
   const { providerBaseUrl } = await import("../src/llm/providers.ts");
-  const [row] = await s.db.insert(profiles).values({ tenantId: s.tenant.id, name: profile.name, provider: profile.provider, model: profile.model, baseUrl: profile.baseUrl, apiKeyEncrypted: encryptSecret(profile.apiKey), acceptsImages: profile.acceptsImages }).returning();
+  const row = await repositories().profiles.create(s.tenant.id, { name: profile.name, provider: profile.provider, model: profile.model, baseUrl: profile.baseUrl, apiKeyEncrypted: encryptSecret(profile.apiKey), acceptsImages: profile.acceptsImages });
   await s.db.update(bots).set({ profileId: row.id }).where(eq(bots.id, s.bot.id));
   s.model.live();
   s.http.passthrough(`POST ${providerBaseUrl(profile.provider, profile.baseUrl)}/`);
@@ -95,8 +95,8 @@ export async function useLiveProfile(s: Scenario, profile: EvalProfile) {
 
 /** Tokens, model calls and provider latency from the tenant's usage events so far. */
 export async function usageOf(s: Scenario): Promise<Omit<TrialUsage, "ms">> {
-  const { usageEvents, and, eq } = await db();
-  const rows: any[] = await s.db.select().from(usageEvents).where(and(eq(usageEvents.tenantId, s.tenant.id), eq(usageEvents.type, "llm_tokens")));
+  const { repositories } = await db();
+  const rows: any[] = await repositories().usage.list({ tenantId: s.tenant.id, type: "llm_tokens" });
   return rows.reduce((t, r) => ({ prompt: t.prompt + (r.promptTokens ?? 0), completion: t.completion + (r.completionTokens ?? 0), calls: t.calls + 1, latencyMs: t.latencyMs + (r.metadata?.latencyMs ?? 0) }), { prompt: 0, completion: 0, calls: 0, latencyMs: 0 });
 }
 
