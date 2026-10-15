@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, agentsConfig, encryptSecret, decryptSecret, eq } from "@pachiware/db";
+import { repositories, encryptSecret, decryptSecret } from "@pachiware/db";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 import { syncTenantDigestSchedules } from "../../digest.js";
@@ -9,12 +9,12 @@ import { maskConfig, object, placeSettings } from "../validation.js";
 
 export const configRoutes = new Hono<TenantEnv>();
 configRoutes.get("/", async (c) => {
-  const [row] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, c.get("tenantId"))).limit(1);
+  const row = await repositories().agentConfig.get(c.get("tenantId"));
   return c.json({ success: true, config: maskConfig(row) });
 });
 configRoutes.put("/", async (c) => {
   const body = object(await c.req.json(), "body");
-  const values: Record<string, any> = { updatedAt: new Date() };
+  const values: Record<string, any> = {};
   const textFields = ["name", "systemPrompt", "defaultModel", "openaiBaseUrl", "openaiModel", "anthropicBaseUrl", "anthropicModel", "customBaseUrl", "customModel"];
   for (const field of textFields) if (body[field] !== undefined) {
     if (typeof body[field] !== "string" && body[field] !== null) return c.json({ error: `${field} must be a string` }, 400);
@@ -41,7 +41,7 @@ configRoutes.put("/", async (c) => {
     if (body[field]?.includes("••••")) continue;
     values[field] = body[field]?.trim() ? encryptSecret(body[field].trim()) : null;
   }
-  const [row] = await db.update(agentsConfig).set(values).where(eq(agentsConfig.tenantId, c.get("tenantId"))).returning();
+  const row = await repositories().agentConfig.update(c.get("tenantId"), values);
   await CacheService.del(tenantKey(c.get("tenantId"), "agent:config"));
   if (row && values.timezone) await syncTenantDigestSchedules(c.get("tenantId"), row.timezone);
   return c.json({ success: true, message: "Configuration updated.", config: maskConfig(row) });
@@ -50,7 +50,7 @@ configRoutes.post("/test/llm", async (c) => {
   const body = object(await c.req.json(), "body");
   const { provider } = body;
   if (!isProvider(provider)) return c.json({ error: "Invalid provider" }, 400);
-  const [row] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, c.get("tenantId"))).limit(1);
+  const row: Record<string, any> | null = await repositories().agentConfig.get(c.get("tenantId"));
   const field = `${provider}ApiKeyEncrypted`;
   let key = body.apiKey;
   if (typeof key !== "string" || !key || key.includes("••••")) key = row?.[field] ? decryptSecret(row[field]) : null;

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { config } from "../config.js";
-import { pingDatabase, activeDialect, repositories } from "@pachiware/db";
+import { activeDialect, repositories } from "@pachiware/db";
 import { redis, isRedisConnected } from "../cache/redis.js";
 import { discordBotManager } from "../discord/client.js";
 
@@ -9,7 +9,7 @@ export const healthRoutes = new Hono();
 healthRoutes.get("/", async (c) => {
   let dbStatus = "unknown";
   try {
-    const alive = await pingDatabase();
+    const alive = await repositories().stats.ping();
     dbStatus = alive ? "healthy" : "degraded";
   } catch {
     dbStatus = "unreachable";

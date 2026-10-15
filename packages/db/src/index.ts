@@ -1,4 +1,3 @@
-import { activeDialect } from "./schema/index.js";
 import { getInfraConfig } from "./runtime-store.js";
 import { assertDatabaseEngine } from "./engine.js";
 import { openConnection, type Connection } from "./connection.js";
@@ -23,23 +22,6 @@ let cached: Repositories | undefined;
 /** The repositories of the configured database, for whichever engine it is. */
 export function repositories(): Repositories {
   return (cached ??= createRepositories(connection));
-}
-
-/**
- * Dialect-agnostic liveness probe. Returns true if the active database
- * responds to a simple SELECT 1.
- */
-export async function pingDatabase(): Promise<boolean> {
-  try {
-    if (activeDialect === "sqlite") {
-      const row = queryClient.query("SELECT 1 as alive").get();
-      return Boolean(row);
-    }
-    const res = await queryClient`SELECT 1 as alive`;
-    return Array.isArray(res) ? res.length > 0 : Boolean(res);
-  } catch {
-    return false;
-  }
 }
 
 export * from "./schema/index.js";

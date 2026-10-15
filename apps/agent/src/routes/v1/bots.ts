@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { db, bots, profiles, gitAccounts, botGitAccounts, setBotGitAccounts, createBot, updateBot, deleteBot, getBotDecrypted, listBotsForTenant } from "@pachiware/db";
+import { db, bots, repositories, gitAccounts, botGitAccounts, setBotGitAccounts, createBot, updateBot, deleteBot, getBotDecrypted, listBotsForTenant } from "@pachiware/db";
 import { and, eq, ne, inArray } from "drizzle-orm";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { DiscordBotManager, discordBotManager } from "../../discord/client.js";
@@ -12,8 +12,7 @@ export const botRoutes = new Hono<TenantEnv>();
 // A profile can only be attached to integrations of the tenant that owns it.
 export async function assertProfile(tenantId: string, profileId: string | null | undefined) {
   if (!profileId) return;
-  const [row] = await db.select({ id: profiles.id }).from(profiles).where(and(eq(profiles.id, profileId), eq(profiles.tenantId, tenantId))).limit(1);
-  if (!row) throw new HTTPException(400, { message: "Profile not found for this tenant" });
+  if (!await repositories().profiles.getForTenant(tenantId, profileId)) throw new HTTPException(400, { message: "Profile not found for this tenant" });
 }
 // A bot may hold many git accounts, all of its own tenant (the DB composite FK enforces the same).
 export async function assertGitAccounts(tenantId: string, ids: string[] | undefined) {

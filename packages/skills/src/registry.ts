@@ -1,4 +1,4 @@
-import { db, skills as skillsTable, tenantSkills, usageEvents } from "@pachiware/db";
+import { db, skills as skillsTable, tenantSkills, repositories } from "@pachiware/db";
 import { eq, and } from "drizzle-orm";
 import { taskManagementSkill } from "./builtin/tasks.js";
 import { discordManagementSkill } from "./builtin/discord.js";
@@ -139,7 +139,7 @@ export class SkillRegistry {
    */
   public async executeTool(toolCall: ToolCall, context: SkillContext): Promise<ToolResult> {
     const result = await this.executeInternal(toolCall, context);
-    if (context.tenantId) await context.db.insert(usageEvents).values({ tenantId: context.tenantId, botId: context.botId || null, type: "tool_call", metadata: { name: toolCall.name, success: result.success } });
+    if (context.tenantId) await repositories().usage.record({ tenantId: context.tenantId, botId: context.botId || null, type: "tool_call", metadata: { name: toolCall.name, success: result.success } });
     return result;
   }
 

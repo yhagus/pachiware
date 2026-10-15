@@ -1,5 +1,5 @@
 import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type SendableChannels, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
-import { repositories, db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, updateBot, eq } from "@pachiware/db";
+import { repositories, db, bots, conversations, getBotDecrypted, listAllActiveBots, updateBot, eq } from "@pachiware/db";
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
@@ -297,7 +297,7 @@ export class DiscordBotManager {
     const rate = await CacheService.checkRateLimit(tenantKey(runtime.tenantId, `ratelimit:discord:user:${msg.author.id}`), 10, 60);
     if (!rate.allowed) { await msg.react("⏳").catch(() => {}); return; }
     if (!text && !msg.attachments.size) return;
-    await db.insert(usageEvents).values({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
+    await repositories().usage.record({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
     if (text && msg.guildId && msg.reference?.messageId) {
       const ref = await msg.fetchReference().catch(() => null);
       if (ref?.author.id === botUserId && minutesFileOf(ref)) {
@@ -484,7 +484,7 @@ export class DiscordBotManager {
     const send = (content: string) => thread ? thread.send({ content, allowedMentions: { parse: [] } }) : msg.reply({ content, allowedMentions: { parse: [] } });
     const language = replyLanguage(...items.map((i) => i.text)), t = textIn(language);
     try {
-      const [agent] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, runtime.tenantId)).limit(1);
+      const agent = await repositories().agentConfig.get(runtime.tenantId);
       const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
       const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;

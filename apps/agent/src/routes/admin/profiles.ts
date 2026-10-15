@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { repositories, db, profiles, encryptSecret, decryptSecret, eq } from "@pachiware/db";
-import { desc } from "drizzle-orm";
+import { repositories, encryptSecret, decryptSecret, type NewProfile, type ProfileUpdate } from "@pachiware/db";
 import { object, string } from "../validation.js";
 import { checkProfile, modelIds, sendToProfile } from "../../llm/probe.js";
 import { apiFormatOf, formatHeaders, isApiFormat, isProvider, providerBaseUrl, API_FORMAT_ERROR, PROVIDER_ERROR } from "../../llm/providers.js";
@@ -9,7 +8,7 @@ import { apiFormatOf, formatHeaders, isApiFormat, isProvider, providerBaseUrl, A
 export const profileAdminRoutes = new Hono();
 
 const publicProfile = ({ apiKeyEncrypted, ...p }: any) => ({ ...p, hasApiKey: Boolean(apiKeyEncrypted) });
-function fields(body: Record<string, any>, creating: boolean) {
+function fields(body: Record<string, any>, creating: boolean): ProfileUpdate {
   const out: Record<string, any> = {};
   if (creating || body.name !== undefined) out.name = string(body.name, "name");
   if (creating || body.model !== undefined) out.model = string(body.model, "model");
@@ -35,28 +34,27 @@ function fields(body: Record<string, any>, creating: boolean) {
 
 profileAdminRoutes.get("/tenants/:id/profiles", async (c) => {
   if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
-  return c.json({ success: true, profiles: (await db.select().from(profiles).where(eq(profiles.tenantId, c.req.param("id"))).orderBy(desc(profiles.createdAt)).limit(500)).map(publicProfile) });
+  return c.json({ success: true, profiles: (await repositories().profiles.listForTenant(c.req.param("id"))).map(publicProfile) });
 });
 profileAdminRoutes.post("/tenants/:id/profiles", async (c) => {
   if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
   const values = fields(object(await c.req.json(), "body"), true);
   if (values.provider === "custom" && !values.baseUrl) throw new HTTPException(400, { message: "A custom provider needs a baseUrl" });
-  const [row] = await db.insert(profiles).values({ tenantId: c.req.param("id"), ...values }).returning();
+  const row = await repositories().profiles.create(c.req.param("id"), values as NewProfile);
   return c.json({ success: true, profile: publicProfile(row) }, 201);
 });
 profileAdminRoutes.patch("/profiles/:profileId", async (c) => {
   const id = c.req.param("profileId");
-  const [current] = await db.select().from(profiles).where(eq(profiles.id, id)).limit(1);
+  const current = await repositories().profiles.get(id);
   if (!current) return c.json({ error: "Profile not found" }, 404);
   const values = fields(object(await c.req.json(), "body"), false);
   if ((values.provider ?? current.provider) === "custom" && !(values.baseUrl !== undefined ? values.baseUrl : current.baseUrl)) throw new HTTPException(400, { message: "A custom provider needs a baseUrl" });
-  const [row] = await db.update(profiles).set({ ...values, updatedAt: new Date() }).where(eq(profiles.id, id)).returning();
+  const row = await repositories().profiles.update(id, values);
   return c.json({ success: true, profile: publicProfile(row) });
 });
-// Integrations using the profile fall back to the tenant default (FK is ON DELETE SET NULL).
+// Integrations using the profile fall back to the tenant default.
 profileAdminRoutes.delete("/profiles/:profileId", async (c) => {
-  const [row] = await db.delete(profiles).where(eq(profiles.id, c.req.param("profileId")!)).returning();
-  return row ? c.json({ success: true }) : c.json({ error: "Profile not found" }, 404);
+  return await repositories().profiles.remove(c.req.param("profileId")!) ? c.json({ success: true }) : c.json({ error: "Profile not found" }, 404);
 });
 // Models and Test requests carry the form's unsaved values. The key stays server-side; a blank key reuses the saved profile's key.
 async function connection(body: Record<string, any>) {
@@ -67,7 +65,7 @@ async function connection(body: Record<string, any>) {
   if (body.apiFormat !== undefined && !isApiFormat(body.apiFormat)) throw new HTTPException(400, { message: API_FORMAT_ERROR });
   const format = apiFormatOf(provider, body.apiFormat);
   if (typeof body.apiKey === "string" && body.apiKey && !body.apiKey.includes("••••")) return { provider, format, baseUrl, key: body.apiKey.trim() };
-  const [row] = typeof body.profileId === "string" ? await db.select().from(profiles).where(eq(profiles.id, body.profileId)).limit(1) : [];
+  const row = typeof body.profileId === "string" ? await repositories().profiles.get(body.profileId) : null;
   return { provider, format, baseUrl, key: row?.apiKeyEncrypted ? decryptSecret(row.apiKeyEncrypted) : null };
 }
 profileAdminRoutes.post("/profiles/models", async (c) => {
