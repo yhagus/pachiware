@@ -1034,6 +1034,11 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
       - Behaviour: updating a deleted bot does nothing and returns null, so a late gateway event cannot revive it. Bot answers drop the unused `gitAccountId` column and `publicBot`. The v1 bot list is oldest first.
       - The bots suite sets `PLATFORM_ENCRYPTION_KEY` itself; it may move into the harness.
       - Verification: `bun test` 733 pass, 26 skip, 0 fail across 127 files; contract 44/44 with PostgreSQL.
+    - [x] #164 merged (a593372): `skills` (register, list, seedTenant, listForTenant, listEnabled, getForTenant, setEnabled, setConfig, idempotent enable) and `availability` (list(scope), listForBot, set, clear, removeForBot) repositories.
+      - Behaviour: the global `seedTenant` is gone; `skills.seedTenant` adds only missing skill switches and no longer fills in a missing agent configuration. Skill listings are ordered by skill id.
+      - `seedDatabase` registers built-ins through `skills.register` (`builtInSkills()` in `seed.ts`); the harness clears and re-registers skills between tests.
+      - Merge: #162's bot tombstone already removes availability rules; `enableGitSkill` uses `skills.enable`.
+      - Verification: `bun test` 744 pass, 41 skip, 0 fail; contract 66/66 with PostgreSQL.
   - [ ] #167 the database package exports repositories only (blocked by #161–#166)
   - [ ] #168 MongoDB foundation, with Tenants and API keys (blocked by #156, #160)
   - [ ] #169–#172 MongoDB repositories and setup (held until `TEST_MONGODB_URL` points at a live replica set, as the user asked)
