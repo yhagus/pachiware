@@ -6,9 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { api } from "@/lib/api";
 
-/** First run: optionally point at Postgres, then create the first tenant. SQLite is the zero-config default. */
+/** First run: create the first tenant. The database is chosen at setup on the server, never here (ADR 0010). */
 export function SetupWizard({ onDone }: { onDone: () => void }) {
-  const [databaseUrl, setDatabaseUrl] = useState("");
   const [name, setName] = useState("Default Tenant");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -16,7 +15,6 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setNotice("");
     try {
-      if (databaseUrl.trim()) await api.updateInfrastructure({ databaseUrl: databaseUrl.trim() });
       if (!(await api.listTenants()).tenants.length) await api.createTenant(name, "default");
       onDone();
     } catch (err: any) { setNotice(err.message); } finally { setBusy(false); }
@@ -32,8 +30,6 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
         <CardContent>
           <form onSubmit={submit} className="space-y-4">
             {notice && <Alert variant="destructive"><AlertDescription>{notice}</AlertDescription></Alert>}
-            <div className="space-y-2"><Label htmlFor="db">PostgreSQL URL (optional, default SQLite)</Label>
-              <Input id="db" value={databaseUrl} onChange={(e) => setDatabaseUrl(e.target.value)} placeholder="postgresql://user:pass@host:5432/db" /></div>
             <div className="space-y-2"><Label htmlFor="tn">Tenant name</Label>
               <Input id="tn" required value={name} onChange={(e) => setName(e.target.value)} /></div>
             <Button disabled={busy}>{busy ? "Initializing…" : "Initialize"}</Button>
