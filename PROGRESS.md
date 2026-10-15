@@ -855,3 +855,32 @@ Started from a report that messages over 4000 characters are refused in English 
   - #142 `keepAsNote` from a Document (starts immediately)
   - #143 message ids for text over 2000 characters, `keepAsNote` from messages, persona and migration (blocked by #142)
 - [ ] Implement #141–#143.
+
+## Phase 33 — Harness review fixes (#136–#139)
+
+Four issues filed from a review of the assistant harness. Triaged on 2026-10-15; the maintainer's decisions are posted on each issue.
+
+- [x] Decisions:
+  - #136 keeps counting the history window in rows; the stored tool row holds a short form, and the live turn sees the full result.
+  - #137 guards bulk task writes in the guardrail, per turn, above three. The batch is remembered for the asker's next turn only, and an approved batch skips the 10-a-minute write limit.
+  - #139 parses XLSX with `exceljs`.
+- [x] Implement #136–#139 on `spec/136-139-harness`.
+  - [x] #138 A response with `finishReason: "error"` is no longer stored as an assistant row, in the loop or in the budget-exhausted boundary call. When non-read tools succeeded earlier in the turn, the reply lists them before the failure text, in the place's language (`failureReply`, `doneBeforeFailure`, `SkillRegistry.effectOf`). 3 scenarios in `provider-failure.test.ts`.
+  - [x] #136 Stored `tool` rows hold `storedToolResult(result)`: success (read from `data.success` too), error and identifying fields, capped at 800 characters (`STORED_TOOL_RESULT`, `shorten` in `apps/agent/src/loop/history.ts`). `historyOffset`, its stepping and `rollSummary` are unchanged. Scenarios in `history-tool-results.test.ts`, plus a unit test in `cache.test.ts`.
+  - [x] #139 XLSX gets a sibling `.md` with one Markdown table per sheet, and so does a CSV over `MAX_FILE_BYTES`. A smaller CSV was already readable. Clipping cuts at a whole row and ends with a marker. Dates are written as ISO. A single `TYPES` table drives extraction in `packages/skills/src/workspace/extract.ts`. `searchFiles` no longer scans binary document bytes. The `readFile`/`searchFiles`/`saveAttachment` descriptions say where spreadsheet text is. Dependency `exceljs@^4.4.0`. 5 new scenarios in `discord-file-text.test.ts`, plus `packages/skills/test/extract.test.ts`.
+  - [x] #137 `bulkTaskTurn` in `packages/skills/src/guardrails.ts` checks each response's task writes (`BULK_TASK_TOOLS`) before any of them runs.
+    - Going over 3 in a turn refuses all of that response's task writes with `confirmation_required`.
+    - The refused batch is stored in `conversations.metadata.bulkApproval`. It is matched by tool, 8-character task id (or title for a create) and a hash of the other arguments, and only the asker's next turn can use it.
+    - Persona: "more than three" now covers changes. The prior persona is frozen as `PERSONA_PROJECTS`.
+    - Eval brief `bulk-cancel` with a dry run. 6 scenarios in `task-bulk-guard.test.ts`.
+  - [x] Code-review pass:
+    - The bulk refusal keeps its instruction in the stored row.
+    - `rollSummary` writes only its own key through `patchConversationMetadata`, in the new `apps/agent/src/loop/conversationMetadata.ts`, so it no longer restores a cleared approval.
+    - Failure lines use localized `taskChange` labels.
+    - `clipRows` no longer clips at exactly `MAX_TEXT_BYTES`.
+    - `executeCall` replaces the nested ternary in `react.ts`.
+  - [x] `bun run typecheck` exits 0. `bun test` passes 610, fails 0.
+- [x] Landed on main at aac8386 (fast-forward, pushed 2026-10-15); #136–#139 closed with their commits. The live eval (`EVAL_LIVE=1 bun run eval:assistant`) has not been run for `bulk-cancel` yet.
+- Known limits, accepted by the decisions:
+  - A 5-call turn still takes about 12 of the 30 history rows.
+  - A model making one task write per response gets three through before the fourth is refused.

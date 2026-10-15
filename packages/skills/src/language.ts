@@ -38,6 +38,12 @@ const en = {
   providerFailed: "I couldn't reach the model provider just now. Try again in a moment.",
   providerNoKey: (provider: string) => `No ${provider} API key is set for this tenant, so I can't answer. An admin has to add the API key first.`,
   providerNoBaseUrl: "No base URL is set for the custom provider, so I can't answer. An admin has to add the base URL first.",
+  doneBeforeFailure: (done: string[]) => `Done before the failure:\n${done.map((d) => `- ${d}`).join("\n")}`,
+  /** A task change as a line of `doneBeforeFailure`, by tool; a tool missing here shows its own name. */
+  taskChange: {
+    createTask: "Created task", updateTaskStatus: "Changed the status of", assignTask: "Assigned", setTaskDueDate: "Set the due date of",
+    editTask: "Edited", addProgressNote: "Added a progress note to", tickChecklistItem: "Ticked a checklist item in", moveTask: "Moved",
+  } as Record<string, string>,
   // Images
   blind: "I can't see images with this profile.",
   describeImage: "Describe the image in words and I'll work from that.",
@@ -184,6 +190,11 @@ const id: typeof en = {
   providerFailed: "Penyedia modelnya tidak bisa saya hubungi saat ini. Coba lagi sebentar lagi.",
   providerNoKey: (provider) => `Belum ada API key ${provider} untuk tenant ini, jadi saya belum bisa menjawab. Admin perlu menambahkan API key-nya dulu.`,
   providerNoBaseUrl: "Belum ada base URL untuk penyedia custom, jadi saya belum bisa menjawab. Admin perlu menambahkan base URL-nya dulu.",
+  doneBeforeFailure: (done) => `Sudah selesai sebelum gagal:\n${done.map((d) => `- ${d}`).join("\n")}`,
+  taskChange: {
+    createTask: "Membuat tugas", updateTaskStatus: "Mengubah status", assignTask: "Menugaskan", setTaskDueDate: "Mengatur jatuh tempo",
+    editTask: "Mengedit", addProgressNote: "Menambah catatan progres ke", tickChecklistItem: "Mencentang checklist di", moveTask: "Memindahkan",
+  },
   blind: "Saya tidak bisa melihat gambar dengan profil ini.",
   describeImage: "Jelaskan gambarnya dengan kata-kata, nanti saya kerjakan dari situ.",
   rejected: "Profil ini menolak gambarnya; admin bisa mematikan input gambar untuk profil ini.",

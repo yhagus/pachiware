@@ -1,11 +1,12 @@
 import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
 import { eq, and, sql } from "drizzle-orm";
-import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, type ToolCall, type ToolResult, type SkillContext, type MemberAuth, type Language } from "@pachiware/skills";
+import { dropLeadingOrphans, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
-import { summaryOf, summaryMessage, type ConversationSummary } from "./summary.js";
+import { summaryMessage } from "./summary.js";
+import { bulkApprovalOf, patchConversationMetadata, summaryOf, type ConversationSummary } from "./conversationMetadata.js";
 
 export interface ReActInput {
   tenantId: string;
@@ -23,10 +24,12 @@ export interface ReActInput {
   onStep?: (step: { type: "thought" | "tool_call" | "tool_result"; payload: any }) => void;
 }
 
+type Executed = { call: ToolCall; result: ToolResult };
+
 export interface ReActOutput {
   conversationId: string;
   reply: string;
-  toolCallsExecuted: { call: ToolCall; result: ToolResult }[];
+  toolCallsExecuted: Executed[];
   iterations: number;
   imagesRejected?: boolean;
   /** Where the history window started on this turn; the caller compares it after storing the turn to see whether the window stepped. */
@@ -37,6 +40,27 @@ const MAX_TOOL_RESULT = 12000;
 /** A grounded brief round takes several tool steps per point, more than a tenant's usual cap. */
 export const PLAYBOOK_ITERATIONS = 20;
 
+/** A change as the person reads it, in the turn's language: what was done and the thing it touched. */
+function changeLine({ call, result }: Executed, t: Strings) {
+  const data = result.data ?? {}, args = call.arguments ?? {};
+  const subject = [data.task?.title, data.title, data.name, data.path, args.title, args.name, args.path, args.taskId].find((v) => typeof v === "string" && v.trim());
+  const label = t.taskChange[call.name] ?? call.name;
+  return subject ? `${label} "${subject.trim().slice(0, 80)}"` : label;
+}
+
+/** Runs one tool call, or answers the refusal (a tool closed here, a task write of a bulk waiting for a yes) without running it; an approved bulk's call skips the per-tool write limit. */
+function executeCall(call: ToolCall, ctx: SkillContext, o: { refusal?: string; approved: boolean }): Promise<ToolResult> {
+  if (o.refusal) return Promise.resolve({ toolCallId: call.id, name: call.name, success: false, error: o.refusal });
+  return skillRegistry.executeTool(call, o.approved ? { ...ctx, bulkApproved: true } : ctx);
+}
+
+/** The reply to a provider failure; when changes already landed this turn it names them first, so nobody asks for them twice. */
+function failureReply(failure: string, executed: Executed[], language?: Language) {
+  const t = textIn(language), said = failure || t.providerFailed;
+  const done = executed.filter(({ call, result }) => result.success && result.data?.success !== false && !result.data?.pending && skillRegistry.effectOf(call.name) !== "read").map((e) => changeLine(e, t));
+  return redact(done.length ? `${t.doneBeforeFailure(done)}\n\n${said}` : said);
+}
+
 export class AgentReActLoop {
   /**
    * Executes the ReAct cycle (Thought -> Action -> Observation -> Answer).
@@ -44,15 +68,19 @@ export class AgentReActLoop {
   async run(input: ReActInput): Promise<ReActOutput> {
     const requestedIterations = Number(input.maxIterations) || 32;
     const maxIterations = Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, PLAYBOOK_ITERATIONS) : requestedIterations));
-    const toolCallsExecuted: { call: ToolCall; result: ToolResult }[] = [];
+    const toolCallsExecuted: Executed[] = [];
 
     // 1. Ensure conversation exists in PostgreSQL
     let convId = input.conversationId;
     let summary: ConversationSummary | null = null;
+    let approvedBulk: BulkItem[] = [];
     if (convId) {
       const [owned] = await db.select().from(conversations).where(and(eq(conversations.id, convId), eq(conversations.tenantId, input.tenantId))).limit(1);
       if (!owned) throw new Error("Conversation not found");
       summary = summaryOf(owned.metadata);
+      // A refused bulk unlocks only the asker's next turn; any next turn clears it, whoever speaks.
+      approvedBulk = bulkApprovalOf(owned.metadata, input.context.userId);
+      if ((owned.metadata as { bulkApproval?: unknown } | null)?.bulkApproval) await patchConversationMetadata(input.tenantId, convId, { bulkApproval: undefined }, owned.metadata);
     }
     if (!convId) {
       const [newConv] = await db
@@ -157,6 +185,7 @@ export class AgentReActLoop {
       },
     };
 
+    const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;
     let finalReply = "";
     let imagesRejected = false;
@@ -175,6 +204,12 @@ export class AgentReActLoop {
       });
 
       if (response.imagesRejected) { imagesRejected = true; turn.content = input.message; }
+
+      // The failure text is the host's, not the model's: kept out of history so later turns never read it as something the bot said.
+      if (response.finishReason === "error") {
+        finalReply = failureReply(response.content ?? "", toolCallsExecuted, input.context.language);
+        break;
+      }
 
       if (response.content) {
         input.onStep?.({ type: "thought", payload: response.content });
@@ -202,13 +237,21 @@ export class AgentReActLoop {
         break;
       }
 
+      // Guardrail on the whole response: too many task writes this turn and none of them run until the user says yes.
+      const bulkDecision = bulk.check(response.toolCalls);
+      const bulkRefusal = !bulkDecision.allow && isEnforced(bulkDecision.kind) ? bulkDecision.message : null;
+      if (!bulkDecision.allow) {
+        await audit(skillContext, bulkRefusal ? "confirmation_requested" : "guardrail_denied", { kind: "bulk_task", count: bulkDecision.batch.length, ...(bulkRefusal ? {} : { observed: true }) });
+        if (bulkRefusal && input.context.userId) await patchConversationMetadata(input.tenantId, convId, { bulkApproval: { userId: input.context.userId, items: bulkDecision.batch } });
+      }
+
       // Action Step: Execute each tool call
       for (const toolCall of response.toolCalls) {
         input.onStep?.({ type: "tool_call", payload: toolCall });
 
-        const result: ToolResult = closed.has(toolCall.name)
-          ? { toolCallId: toolCall.id, name: toolCall.name, success: false, error: closed.get(toolCall.name) }
-          : await skillRegistry.executeTool(toolCall, skillContext);
+        const refusal = closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
+        const approved = bulkDecision.allow && bulkDecision.approved.has(toolCall.id);
+        const result = await executeCall(toolCall, skillContext, { refusal, approved });
         toolCallsExecuted.push({ call: toolCall, result });
 
         input.onStep?.({ type: "tool_result", payload: result });
@@ -230,9 +273,9 @@ export class AgentReActLoop {
 
         await db.insert(messagesTable).values({
           tenantId: input.tenantId,
-        conversationId: convId,
+          conversationId: convId,
           role: "tool",
-          content: toolResultContent,
+          content: asUntrusted(`tool:${toolCall.name} (short form)`, redact(storedToolResult(result))),
           toolCallId: toolCall.id,
         });
       }
@@ -250,8 +293,11 @@ export class AgentReActLoop {
         botId: input.botId,
         cacheKey: convId,
         tools: [],
+        language: input.context.language,
       });
-      finalReply = redact(boundary.content || "I completed the available actions. Please continue this task in your next message.");
+      finalReply = boundary.finishReason === "error"
+        ? failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language)
+        : redact(boundary.content || "I completed the available actions. Please continue this task in your next message.");
       await audit(skillContext, "guardrail_denied", { kind: "limit", source: "iterations", synthesized: true });
     }
 

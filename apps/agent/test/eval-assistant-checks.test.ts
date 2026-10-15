@@ -131,7 +131,7 @@ describe("fixtures and recorded runs", () => {
   test("the briefs cover every daily behaviour named in the spec, in both languages", () => {
     const names = fixtures.map((f) => f.name);
     for (const name of ["task-casual-indonesian", "task-casual-english", "due-dates-relative", "status-by-title", "remember-forget", "file-search", "reminder-weekly",
-      "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels"]) expect(names).toContain(name);
+      "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels", "bulk-cancel"]) expect(names).toContain(name);
     expect(new Set(fixtures.map((f) => f.facts.language))).toEqual(new Set(["en", "id"]));
     for (const f of fixtures) {
       expect(f.facts.mustCover.length).toBeGreaterThan(0);

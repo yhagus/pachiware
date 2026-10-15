@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { usageEvents } from "@pachiware/db";
-import type { SkillContext, SkillModule, SkillScope, ToolPolicy } from "./types.js";
+import type { SkillContext, SkillModule, SkillScope, ToolCall, ToolPolicy } from "./types.js";
 import { hasThreadConfirmation } from "./threadConfirmation.js";
 import { hasPermission } from "./permissions.js";
 import { replyLanguage, textIn, type Language } from "./language.js";
@@ -114,7 +114,7 @@ export const GuardrailService = {
     if (policy.effect !== "read" && needs?.length && !hasPermission(ctx, ...needs)) return this.denyUnauthorized(t.guardPermission(needs.join(", ")));
     const who = ctx.userId ?? "anon";
     // A skill that confirms internally (git) runs its own duplicate guard behind Confirm, so the per-tool write limit and the checks below skip it.
-    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !skill.confirmsInternally && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", t.guardRateLimit);
+    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !skill.confirmsInternally && !ctx.bulkApproved && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", t.guardRateLimit);
     if (policy.effect !== "read" && !skill.confirmsInternally) {
       const until = done.get(actionKey(tool, args, ctx));
       if (until && until > Date.now()) return deny("duplicate", t.guardDuplicate);
@@ -123,6 +123,49 @@ export const GuardrailService = {
     return this.allowTool();
   },
 };
+
+/** Task writes that count toward a bulk change: more than BULK_TASK_LIMIT of them in one turn wait for the user's yes. */
+export const BULK_TASK_TOOLS = new Set(["updateTaskStatus", "assignTask", "setTaskDueDate", "editTask", "moveTask", "createTask"]);
+export const BULK_TASK_LIMIT = 3;
+/** A task write as the bulk guard remembers it: the task id's first eight characters (its short form), or the title for a new task, and the change it makes. */
+export type BulkItem = { tool: string; target: string; change: string };
+/** A refused bulk, kept on the conversation for the asker's next turn only. */
+export type BulkApproval = { userId: string; items: BulkItem[] };
+export type BulkDecision = { allow: true; approved: Set<string> } | { allow: false; kind: "confirmation_required"; message: string; batch: BulkItem[] };
+
+const normalized = (value: unknown) => typeof value === "string" ? value.trim().replace(/\s+/g, " ").toLowerCase() : value;
+const bulkItem = (call: ToolCall): BulkItem => {
+  const { taskId, ...rest } = call.arguments ?? {};
+  // Every other argument, so a yes to "assign to Bob" does not cover "assign to Alice"; a left-out argument and an empty one read the same.
+  // Hashed, so a long description is not copied into the conversation's metadata.
+  const change = Object.entries(rest).filter(([, v]) => v != null && v !== "").sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, normalized(v)]);
+  return { tool: call.name, target: String(normalized(taskId != null ? String(taskId).trim().slice(0, 8) : rest.title ?? "")), change: createHash("sha256").update(JSON.stringify(change)).digest("hex").slice(0, 16) };
+};
+const sameItem = (a: BulkItem, b: BulkItem) => a.tool === b.tool && a.target === b.target && a.change === b.change;
+
+const bulkMessage = (n: number) => `confirmation_required: none of these ${n} task changes ran, nothing changed. More than ${BULK_TASK_LIMIT} task changes in one turn need the user's yes first. List every task you meant to change, one per line as status | due | assignee | id | title (for a new task: title, assignee and due date), say what would happen to them, and wait for a yes. After the yes, make the same calls again.`;
+
+/**
+ * Counts one turn's task writes. Every response's calls are checked together before any runs, so a bulk is refused whole, never after its first few.
+ * `approved` is the bulk the user was asked about last turn: calls matching it neither count nor wait.
+ */
+export function bulkTaskTurn(approved: BulkItem[] = []) {
+  let written = 0, left = approved;
+  return {
+    check(calls: ToolCall[]): BulkDecision {
+      const writes = calls.filter((c) => BULK_TASK_TOOLS.has(c.name));
+      const remaining = [...left], matched = new Set<string>();
+      for (const call of writes) {
+        const item = bulkItem(call), i = remaining.findIndex((r) => sameItem(r, item));
+        if (i >= 0) { remaining.splice(i, 1); matched.add(call.id); }
+      }
+      const counted = writes.length - matched.size;
+      if (written + counted > BULK_TASK_LIMIT) return { allow: false, kind: "confirmation_required", message: bulkMessage(writes.length), batch: writes.map(bulkItem) };
+      written += counted; left = remaining;
+      return { allow: true, approved: matched };
+    },
+  };
+}
 
 /** Structured, categorical audit row. It never holds message text, model reasoning or secrets. */
 export async function audit(ctx: Pick<SkillContext, "db" | "tenantId" | "botId">, event: AuditEvent, meta: Record<string, unknown>) {

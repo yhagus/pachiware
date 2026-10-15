@@ -37,7 +37,8 @@ export type ModelTurn = { messages: ChatMessage[]; toolResults: any[] };
 export type ToolCallStep = { tool: string; args?: Record<string, unknown> };
 /** The provider failed: the router's fallback answer, as a real outage would produce. */
 export type ErrorStep = { error: string };
-export type ModelStep = string | ToolCallStep | ToolCallStep[] | ErrorStep | ((turn: ModelTurn) => ModelStep);
+/** A function step may be async, to change state while the model call is in flight. */
+export type ModelStep = string | ToolCallStep | ToolCallStep[] | ErrorStep | ((turn: ModelTurn) => ModelStep | Promise<ModelStep>);
 export type HttpRequest = { method: string; url: string; body: any };
 
 export type Payload = { content?: string; embeds?: any[]; components?: any[]; files?: any[] };
@@ -341,8 +342,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const steps: ModelStep[] = [];
   const calls: ChatMessage[][] = [], offered: string[][] = [];
   let callId = 0;
-  const toResponse = (step: ModelStep, turn: ModelTurn): LLMResponse => {
-    if (typeof step === "function") return toResponse(step(turn), turn);
+  const toResponse = async (step: ModelStep, turn: ModelTurn): Promise<LLMResponse> => {
+    if (typeof step === "function") return toResponse(await step(turn), turn);
     if (typeof step === "string") return { content: step, toolCalls: [], finishReason: "stop" };
     if ("error" in step) return { content: step.error, toolCalls: [], finishReason: "error" };
     const list = Array.isArray(step) ? step : [step];

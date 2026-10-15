@@ -10,9 +10,9 @@ const MAX_NAME = 100;
 
 export type Document = { name: string; url: string; size: number };
 export type NotFiledReason = "type" | "tooLarge" | "download" | "place";
-/** The sibling Markdown holding a PDF's or DOCX's text, or that none could be extracted. */
+/** The sibling Markdown holding a PDF's, DOCX's, XLSX's or large CSV's text, or that none could be extracted. */
 export type Extracted = { path: string } | { failed: true };
-/** `path` is the agent-facing path (`channel/files/report.pdf`), which `readFile` and `searchFiles` accept; `text` is set for a PDF or DOCX. */
+/** `path` is the agent-facing path (`channel/files/report.pdf`), which `readFile` and `searchFiles` accept; `text` is set for a PDF, DOCX, XLSX, or a CSV too large for `readFile`. */
 export type Filed = { path: string; bytes: Uint8Array; text?: Extracted };
 export type NotFiled = { reason: NotFiledReason };
 /** The person who gave a Document to the bot; a Note kept from it names them as its author. */
@@ -54,7 +54,7 @@ export function freeName(name: string, taken: Set<string>) {
 
 /**
  * Fetches one allowed document and writes it into `files/` under the turn's folder, never over an existing file.
- * A PDF's or DOCX's text then goes to a sibling `<name>.md` for `searchFiles`; `saveAttachment` calls this for a named message.
+ * The text of a PDF, DOCX, XLSX or large CSV then goes to a sibling `<name>.md` for `readFile` and `searchFiles`; `saveAttachment` calls this for a named message.
  */
 export async function fileDocument(tenantId: string, where: Where, doc: Document, { taken, givenBy }: { taken?: Set<string>; givenBy?: Giver } = {}): Promise<Filed | NotFiled> {
   const reason = documentReason(doc);
@@ -66,7 +66,7 @@ export async function fileDocument(tenantId: string, where: Where, doc: Document
   if (!bytes || bytes.byteLength > MAX_DOCUMENT_BYTES) return { reason: bytes ? "tooLarge" : "download" };
   const name = freeName(safeName(doc.name), names), path = `${root}/files/${name}`;
   await workspaceStore().writeBytes(tenantId, resolvePath(where, path), bytes);
-  if (!extractsText(name)) {
+  if (!extractsText(name, bytes.byteLength)) {
     if (givenBy) await recordProvenance(tenantId, where, path, givenBy);
     return { path, bytes };
   }
