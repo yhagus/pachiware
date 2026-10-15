@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { db, usageEvents, getTenantById } from "@pachiware/db";
+import { repositories, db, usageEvents } from "@pachiware/db";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 export const usageAdminRoutes = new Hono();
 async function aggregate(tenantId: string | undefined, from?: string, to?: string) {
@@ -15,7 +15,7 @@ async function aggregate(tenantId: string | undefined, from?: string, to?: strin
   return rows.map((row: any) => ({ ...row, events: Number(row.events), promptTokens: Number(row.promptTokens), completionTokens: Number(row.completionTokens), cachedTokens: Number(row.cachedTokens) }));
 }
 usageAdminRoutes.get("/tenants/:id/usage", async (c) => {
-  if (!await getTenantById(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
+  if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
   return c.json({ success: true, usage: await aggregate(c.req.param("id"), c.req.query("from"), c.req.query("to")) });
 });
 usageAdminRoutes.get("/usage", async (c) => c.json({ success: true, usage: await aggregate(undefined, c.req.query("from"), c.req.query("to")) }));

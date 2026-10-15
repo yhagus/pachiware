@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { getTenantById } from "@pachiware/db";
+import { repositories } from "@pachiware/db";
 import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, tenantPlaybookAt, TENANT_PLAYBOOKS_DIR } from "@pachiware/skills";
 import { object, string } from "../validation.js";
 import { slashNameUsable } from "../../discord/commands.js";
@@ -41,7 +41,7 @@ async function slashWarning(tenantId: string, path: string) {
 /** Runs a route for an existing tenant and turns the store's refusals into 400 and 409 answers. */
 const route = (job: (c: Context, tenantId: string) => Promise<Response>) => async (c: Context) => {
   const tenantId = c.req.param("id")!;
-  if (!await getTenantById(tenantId)) return c.json({ error: "Tenant not found" }, 404);
+  if (!await repositories().tenants.get(tenantId)) return c.json({ error: "Tenant not found" }, 404);
   try { return await job(c, tenantId); }
   catch (e: any) {
     if (e instanceof WorkspaceConflict) return c.json({ error: e.message }, 409);

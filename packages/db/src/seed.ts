@@ -1,15 +1,23 @@
-import { db, agentsConfig, skills, tenantSkills, tenants } from "./index.js";
 import { eq } from "drizzle-orm";
+import type { Connection } from "./connection.js";
+import { createRepositories } from "./repositories/index.js";
+import { insertTenantDefaults } from "./repositories/tenants/sql.js";
 
-export async function seedTenant(tenantId: string, store = db) {
-  await store.insert(agentsConfig).values({ tenantId, timezone: "Asia/Jakarta", language: "id", temperature: 0.2, settings: { maxReActIterations: 32 } }).onConflictDoNothing();
-  const definitions = await store.select().from(skills);
-  for (const skill of definitions) {
-    await store.insert(tenantSkills).values({ tenantId, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config }).onConflictDoNothing();
-  }
+/** Gives one tenant of the configured database the defaults it lacks. */
+export async function seedTenant(tenantId: string) {
+  const { connection } = await import("./index.js");
+  await insertTenantDefaults(connection.db, connection.tables, tenantId);
 }
 
+/** Registers the built-in skills and tenant defaults in the configured database. */
 export async function runSeed() {
+  const { connection } = await import("./index.js");
+  await seedDatabase(connection);
+}
+
+/** Registers the built-in skills in one open database, then gives every tenant the defaults it lacks. */
+export async function seedDatabase(connection: Connection) {
+  const { db, tables: { skills } } = connection;
   // 2. Seed Built-in Skills
   const taskManagementSkill = {
     id: "task_management",
@@ -204,10 +212,7 @@ export async function runSeed() {
     }
   }
 
-  const allTenants = await db.select().from(tenants);
-  for (const tenant of allTenants) {
-    await seedTenant(tenant.id);
-  }
+  await createRepositories(connection).tenants.seedDefaults();
   console.log("Platform skills and tenant defaults seeded.");
 }
 

@@ -1,75 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { eq, and, or, isNull, ne, sql, inArray } from "drizzle-orm";
-import { db, tenants, apiKeys, bots, guildConfigs, gitAccounts, botGitAccounts, gitScopes, availabilityRules, agentsConfig, skills, tenantSkills, activeDialect, type DigestChannel } from "./index.js";
-import { seedTenant } from "./seed.js";
-import { encryptSecret, decryptSecret, hashApiKey, generateApiKey } from "./crypto.js";
+import { eq, and, ne, inArray } from "drizzle-orm";
+import { db, repositories, tenants, bots, guildConfigs, gitAccounts, botGitAccounts, gitScopes, availabilityRules, skills, tenantSkills, type DigestChannel } from "./index.js";
+import { encryptSecret, decryptSecret } from "./crypto.js";
 
-export async function getTenantById(id: string) {
-  return (await db.select().from(tenants).where(and(eq(tenants.id, id), ne(tenants.status, "deleted"))).limit(1))[0] || null;
-}
-export async function getTenantBySlug(slug: string) {
-  return (await db.select().from(tenants).where(and(eq(tenants.slug, slug), ne(tenants.status, "deleted"))).limit(1))[0] || null;
-}
-export async function getApiKeyByRaw(raw: string) {
-  if (!raw || raw.length > 256) return null;
-  return (await db.select().from(apiKeys).where(and(eq(apiKeys.keyHash, hashApiKey(raw)), isNull(apiKeys.revokedAt))).limit(1))[0] || null;
-}
-// A key only reaches tenants created under it; `ref` is a tenant id or slug.
-export async function getTenantForApiKey(apiKeyId: string, ref: string) {
-  return (await db.select().from(tenants).where(and(eq(tenants.apiKeyId, apiKeyId), or(eq(tenants.id, ref), eq(tenants.slug, ref)), ne(tenants.status, "deleted"))).limit(1))[0] || null;
-}
-export async function listTenantsForApiKey(apiKeyId: string) {
-  return db.select().from(tenants).where(and(eq(tenants.apiKeyId, apiKeyId), ne(tenants.status, "deleted")));
-}
-export async function issueApiKey(name = "API Key", scopes: string[] = ["*"]) {
-  const key = generateApiKey();
-  const [row] = await db.insert(apiKeys).values({ name, scopes, keyPrefix: key.keyPrefix, keyHash: hashApiKey(key.raw) }).returning();
-  return { ...key, keyId: row.id };
-}
-export async function revokeApiKey(keyId: string) {
-  await db.update(apiKeys).set({ revokedAt: new Date() }).where(eq(apiKeys.id, keyId));
-}
-export async function touchApiKeyLastUsed(keyId: string) {
-  await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, keyId));
-}
-export async function createTenant(input: { name: string; slug?: string; apiKeyId?: string; metadata?: Record<string, any> }) {
-  const values = { id: randomUUID(), name: input.name, slug: input.slug || randomUUID(), apiKeyId: input.apiKeyId ?? null, platformMetadata: input.metadata || {} };
-  if (activeDialect === "sqlite") {
-    // Bun SQLite transactions must stay synchronous to retain rollback semantics.
-    return db.transaction((tx: any) => {
-      const row = tx.insert(tenants).values(values).returning().get();
-      tx.insert(agentsConfig).values({ tenantId: row.id, timezone: "Asia/Jakarta", language: "id", temperature: 0.2, settings: { maxReActIterations: 32 } }).run();
-      for (const skill of tx.select().from(skills).all()) {
-        tx.insert(tenantSkills).values({ tenantId: row.id, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config }).run();
-      }
-      return row;
-    });
-  }
-  return db.transaction(async (tx: any) => {
-    const [row] = await tx.insert(tenants).values(values).returning();
-    await seedTenant(row.id, tx);
-    return row;
-  });
-}
-export async function updateTenant(id: string, input: { name?: string; status?: string; metadata?: Record<string, any> }) {
-  const update: Record<string, any> = { updatedAt: new Date() };
-  if (input.name !== undefined) update.name = input.name;
-  if (input.status !== undefined) {
-    if (!["active", "suspended", "deleted"].includes(input.status)) throw new Error("Invalid tenant status");
-    update.status = input.status;
-  }
-  if (input.metadata !== undefined) update.platformMetadata = input.metadata;
-  return (await db.update(tenants).set(update).where(and(eq(tenants.id, id), ne(tenants.status, "deleted"))).returning())[0] || null;
-}
-export async function deleteTenant(id: string) { return updateTenant(id, { status: "deleted" }); }
-export async function listApiKeys() {
-  const keys = await db.select({ id: apiKeys.id, name: apiKeys.name, keyPrefix: apiKeys.keyPrefix, scopes: apiKeys.scopes, lastUsedAt: apiKeys.lastUsedAt, revokedAt: apiKeys.revokedAt, createdAt: apiKeys.createdAt }).from(apiKeys);
-  const counts = await db.select({ id: tenants.apiKeyId, n: sql<number>`count(*)` }).from(tenants).where(ne(tenants.status, "deleted")).groupBy(tenants.apiKeyId);
-  const byKey = new Map(counts.map((c: any) => [c.id, Number(c.n)]));
-  return keys.map((k: any) => ({ ...k, tenantCount: byKey.get(k.id) ?? 0 }));
-}
 export async function createBot(input: { tenantId: string; name?: string; platform?: string; token: string; clientId?: string; guildIds?: string[]; profileId?: string | null; isEnabled?: boolean }) {
-  if (!await getTenantById(input.tenantId)) throw new Error("Tenant not found");
+  if (!await repositories().tenants.get(input.tenantId)) throw new Error("Tenant not found");
   if (!input.token?.trim()) throw new Error("Bot token is required");
   if (input.platform && input.platform !== "discord") throw new Error("Unsupported bot platform");
   const { token, ...values } = input;

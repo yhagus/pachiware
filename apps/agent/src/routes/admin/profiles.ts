@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { db, profiles, getTenantById, encryptSecret, decryptSecret, eq } from "@pachiware/db";
+import { repositories, db, profiles, encryptSecret, decryptSecret, eq } from "@pachiware/db";
 import { desc } from "drizzle-orm";
 import { object, string } from "../validation.js";
 import { checkProfile, modelIds, sendToProfile } from "../../llm/probe.js";
@@ -34,11 +34,11 @@ function fields(body: Record<string, any>, creating: boolean) {
 }
 
 profileAdminRoutes.get("/tenants/:id/profiles", async (c) => {
-  if (!await getTenantById(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
+  if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
   return c.json({ success: true, profiles: (await db.select().from(profiles).where(eq(profiles.tenantId, c.req.param("id"))).orderBy(desc(profiles.createdAt)).limit(500)).map(publicProfile) });
 });
 profileAdminRoutes.post("/tenants/:id/profiles", async (c) => {
-  if (!await getTenantById(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
+  if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
   const values = fields(object(await c.req.json(), "body"), true);
   if (values.provider === "custom" && !values.baseUrl) throw new HTTPException(400, { message: "A custom provider needs a baseUrl" });
   const [row] = await db.insert(profiles).values({ tenantId: c.req.param("id"), ...values }).returning();

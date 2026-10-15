@@ -14,9 +14,9 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, profiles, encryptSecret } = await import(${src("packages/db/src/index.ts")}); const { createTenant, createBot } = await import(${src("packages/db/src/tenancy.ts")});
+        const { db, profiles, encryptSecret } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
-        const tenant = await createTenant({ name: "Images", slug: "images" });
+        const tenant = await repositories().tenants.create({ name: "Images", slug: "images" });
         const { llmRouter } = await import(${src("apps/agent/src/llm/router.ts")});
         const botWith = async (provider, model) => {
           const [profile] = await db.insert(profiles).values({ tenantId: tenant.id, name: model, provider, model, apiKeyEncrypted: encryptSecret("key"), acceptsImages: true }).returning();

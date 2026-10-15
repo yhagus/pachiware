@@ -14,9 +14,9 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, agentsConfig, eq } = await import(${src("packages/db/src/index.ts")}); const { createTenant, createBot } = await import(${src("packages/db/src/tenancy.ts")});
+        const { db, agentsConfig, eq } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
-        const tenant = await createTenant({ name: "Images", slug: "images" });
+        const tenant = await repositories().tenants.create({ name: "Images", slug: "images" });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
         const { llmRouter } = await import(${src("apps/agent/src/llm/router.ts")});
         const admin = { "X-Platform-Key": "profiles-admin-key", "Content-Type": "application/json" };
@@ -360,12 +360,12 @@ describe("Anthropic profiles and image input", () => {
       assert(await llmRouter.acceptsImages(tenant.id, seeing.id) === true && await llmRouter.acceptsImages(tenant.id, blind.id) === false, "profile flag not followed");
       assert(await llmRouter.acceptsImages(tenant.id, plain.id) === false && calls.length === 0, "an OpenAI tenant default has no declared image input");
 
-      const other = await createTenant({ name: "Default", slug: "default-anthropic" });
+      const other = await repositories().tenants.create({ name: "Default", slug: "default-anthropic" });
       await db.update(agentsConfig).set({ defaultProvider: "anthropic", defaultModel: "claude-text-only", anthropicApiKeyEncrypted: encryptSecret("sk-ant-other") }).where(eq(agentsConfig.tenantId, other.id));
       reply = (call) => json({ id: call.url.split("/").pop(), capabilities: { image_input: { supported: call.url.endsWith("claude-opus-5-5") } } });
       assert(await llmRouter.acceptsImages(other.id) === false, "unsupported image input reported as accepted");
       calls.length = 0;
-      const fresh = await createTenant({ name: "Fresh", slug: "fresh-anthropic" });
+      const fresh = await repositories().tenants.create({ name: "Fresh", slug: "fresh-anthropic" });
       await db.update(agentsConfig).set({ defaultProvider: "anthropic", defaultModel: "claude-opus-5-5", anthropicApiKeyEncrypted: encryptSecret("sk-ant-fresh") }).where(eq(agentsConfig.tenantId, fresh.id));
       assert(await llmRouter.acceptsImages(fresh.id) === true, "models endpoint capability not used");
       const [call] = calls;
@@ -376,7 +376,7 @@ describe("Anthropic profiles and image input", () => {
       await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: fresh.id });
       assert(calls[1].url === "https://api.anthropic.com/v1/messages" && calls[1].body.model === "claude-opus-5-5", "chat and capability lookup disagree on the model: " + JSON.stringify(calls[1]));
       reply = () => json({ error: { message: "nope" } }, 500);
-      const broken = await createTenant({ name: "Broken", slug: "broken-anthropic" });
+      const broken = await repositories().tenants.create({ name: "Broken", slug: "broken-anthropic" });
       await db.update(agentsConfig).set({ defaultProvider: "anthropic", defaultModel: "claude-opus-5-5", anthropicApiKeyEncrypted: encryptSecret("sk-ant-broken") }).where(eq(agentsConfig.tenantId, broken.id));
       assert(await llmRouter.acceptsImages(broken.id) === false, "a failed lookup must not claim image input");
     `);

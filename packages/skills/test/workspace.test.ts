@@ -11,10 +11,10 @@ function scenario(body: string, dir = mkdtempSync(join(tmpdir(), "pachiware-ws-"
     const assert = (c, m) => { if (!c) throw new Error(m); };
     const imp = (p) => import(${JSON.stringify(root + "/")} + p);
     const { runMigrations } = await imp("packages/db/src/migrate.ts"); const { runSeed } = await imp("packages/db/src/seed.ts");
-    const { db } = await imp("packages/db/src/index.ts"); const { createTenant } = await imp("packages/db/src/tenancy.ts");
+    const { db, repositories } = await imp("packages/db/src/index.ts");
     const { skillRegistry } = await imp("packages/skills/src/registry.ts");
     await runMigrations(); await runSeed();
-    const alpha = await createTenant({ name: "Alpha", slug: "alpha" }), beta = await createTenant({ name: "Beta", slug: "beta" });
+    const alpha = await repositories().tenants.create({ name: "Alpha", slug: "alpha" }), beta = await repositories().tenants.create({ name: "Beta", slug: "beta" });
     let n = 0;
     const call = (tenant, name, args, ctx = {}) => skillRegistry.executeTool({ id: "t" + n++, name, arguments: args },
       { db, tenantId: tenant.id, guildId: "g1", channelId: "c1", parentChannelId: "c1", userId: "u1", confirmed: true, ...ctx });

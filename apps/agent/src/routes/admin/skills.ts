@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { db, skills, tenantSkills, seedTenant, getTenantById, eq } from "@pachiware/db";
+import { repositories, db, skills, tenantSkills, seedTenant, eq } from "@pachiware/db";
 import { skillRegistry, listPlaybooks, playbookChain } from "@pachiware/skills";
 import { switchTenantSkill } from "../skillSwitch.js";
 import { availabilityRoutes } from "../availability.js";
@@ -8,7 +8,7 @@ export const skillAdminRoutes = new Hono();
 
 skillAdminRoutes.get("/tenants/:id/skills", async (c) => {
   const id = c.req.param("id");
-  if (!await getTenantById(id)) return c.json({ error: "Tenant not found" }, 404);
+  if (!await repositories().tenants.get(id)) return c.json({ error: "Tenant not found" }, 404);
   await seedTenant(id);
   const rows = await db.select({ s: skills, state: tenantSkills }).from(tenantSkills).innerJoin(skills, eq(tenantSkills.skillId, skills.id)).where(eq(tenantSkills.tenantId, id));
   // Tools, groups and effects come from the code registry; the seeded tool_definitions column is not kept in sync with it.
@@ -39,4 +39,4 @@ skillAdminRoutes.patch("/tenants/:id/skills/:skillId", async (c) => {
   return c.json({ success: true, isEnabled: state.isEnabled });
 });
 // Tenant-level rules for tools, effects and playbooks; a whole skill is switched with the PATCH above.
-availabilityRoutes(skillAdminRoutes, "/tenants/:id/availability", async (c) => (await getTenantById(c.req.param("id")!) ? { tenantId: c.req.param("id")!, level: "tenant" } : null));
+availabilityRoutes(skillAdminRoutes, "/tenants/:id/availability", async (c) => (await repositories().tenants.get(c.req.param("id")!) ? { tenantId: c.req.param("id")!, level: "tenant" } : null));

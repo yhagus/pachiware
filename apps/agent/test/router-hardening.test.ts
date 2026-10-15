@@ -15,9 +15,9 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, agentsConfig, usageEvents, encryptSecret, eq } = await import(${src("packages/db/src/index.ts")}); const { createTenant, createBot } = await import(${src("packages/db/src/tenancy.ts")});
+        const { db, agentsConfig, usageEvents, encryptSecret, eq } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
-        const tenant = await createTenant({ name: "Router", slug: "router" });
+        const tenant = await repositories().tenants.create({ name: "Router", slug: "router" });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
         const { llmRouter } = await import(${src("apps/agent/src/llm/router.ts")});
         const { retryPolicy } = await import(${src("apps/agent/src/llm/retry.ts")});
@@ -128,7 +128,7 @@ describe("Router hardening", () => {
       reply = () => json(openai("ok"));
       await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id });
       assert(calls[0].body.temperature === 0.2, "default temperature wrong: " + calls[0].body.temperature);
-      const warm = await createTenant({ name: "Warm", slug: "warm" });
+      const warm = await repositories().tenants.create({ name: "Warm", slug: "warm" });
       await useOpenAI(warm.id); await db.update(agentsConfig).set({ temperature: 0.9 }).where(eq(agentsConfig.tenantId, warm.id));
       await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: warm.id });
       assert(calls[1].body.temperature === 0.9, "tenant temperature not kept: " + calls[1].body.temperature);

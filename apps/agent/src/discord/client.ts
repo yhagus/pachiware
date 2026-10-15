@@ -1,5 +1,5 @@
 import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type SendableChannels, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
-import { db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, getTenantById, updateBot, eq } from "@pachiware/db";
+import { repositories, db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, updateBot, eq } from "@pachiware/db";
 import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
@@ -146,7 +146,7 @@ export class DiscordBotManager {
     catch { await updateBot(id, { connectionStatus: "error", lastError: "Unable to decrypt bot token." }); return { success: false, message: "Unable to decrypt bot token." }; }
     if (!resolved) return { success: false, message: "Bot not found." };
     const { bot, token } = resolved;
-    const tenant = await getTenantById(bot.tenantId);
+    const tenant = await repositories().tenants.get(bot.tenantId);
     if (!bot.isEnabled || tenant?.status !== "active") return { success: false, message: "Bot or tenant is disabled." };
     const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages], partials: [Partials.Channel, Partials.Message] });
     const runtime: BotRuntime = { client, adapter: adapterFor({ client, guildIds: bot.guildIds }), tenantId: bot.tenantId, connected: false, guildIds: bot.guildIds, globalCleared: false, sentCommands: new Map() };
@@ -239,7 +239,7 @@ export class DiscordBotManager {
     const runtime = this.clients.get(botId);
     if (!runtime || msg.author.bot) return;
     const botUserId = runtime.client.user?.id || "";
-    const tenant = await getTenantById(runtime.tenantId);
+    const tenant = await repositories().tenants.get(runtime.tenantId);
     if (tenant?.status !== "active") return;
     const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
     const channelId0 = msg.channelId;
@@ -369,7 +369,7 @@ export class DiscordBotManager {
     if (!await i.deferReply({ ephemeral: true }).then(() => true, () => false)) return;
     const target = i.targetMessage, language = replyLanguage(target.content), t = textIn(language);
     const say = (content: string) => i.editReply({ content }).catch(() => {});
-    if ((await getTenantById(runtime.tenantId))?.status !== "active") return say(t.botOff);
+    if ((await repositories().tenants.get(runtime.tenantId))?.status !== "active") return say(t.botOff);
     if (!i.guildId || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say(t.wrongServer);
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.menu === i.commandName);
     if (!playbook) return say(t.commandGone);
@@ -397,7 +397,7 @@ export class DiscordBotManager {
     const text = i.options.getString("text")?.trim() ?? "", file = i.options.getAttachment("file");
     const language = replyLanguage(text), t = textIn(language);
     const say = (content: string) => i.editReply({ content }).catch(() => {});
-    if ((await getTenantById(runtime.tenantId))?.status !== "active") return say(t.botOff);
+    if ((await repositories().tenants.get(runtime.tenantId))?.status !== "active") return say(t.botOff);
     if (!i.guildId || !i.channel?.isSendable() || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say(t.wrongServer);
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.name === i.commandName && p.start);
     if (!playbook) return say(t.commandGone);

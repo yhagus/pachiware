@@ -39,9 +39,9 @@ describe("DiscordBotManager tenant isolation", () => {
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))});
       const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
       const { db, bots, usageEvents, eq } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
-      const { createTenant, createBot, updateTenant, deleteBot } = await import(${JSON.stringify(join(workspace, "packages/db/src/tenancy.ts"))});
+      const { createBot, deleteBot } = await import(${JSON.stringify(join(workspace, "packages/db/src/tenancy.ts"))}); const { repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       await runMigrations(); await runSeed();
-      const alpha = await createTenant({ name: "Alpha", slug: "alpha-discord" }); const beta = await createTenant({ name: "Beta", slug: "beta-discord" });
+      const alpha = await repositories().tenants.create({ name: "Alpha", slug: "alpha-discord" }); const beta = await repositories().tenants.create({ name: "Beta", slug: "beta-discord" });
       const alphaBot = await createBot({ tenantId: alpha.id, token: "alpha-token", guildIds: ["guild-a"] });
       const betaBot = await createBot({ tenantId: beta.id, token: "beta-token", guildIds: ["guild-b"] });
       const badBot = await createBot({ tenantId: beta.id, token: "bad-token", guildIds: ["guild-b"] });
@@ -62,7 +62,7 @@ describe("DiscordBotManager tenant isolation", () => {
       const usage = await db.select().from(usageEvents).where(eq(usageEvents.tenantId, alpha.id)); assert(usage.filter((row) => row.type === "discord_message").length === 2, "Discord usage was not tenant-scoped");
       await Promise.all([manager.restartBot(alphaBot.id), manager.stopBot(alphaBot.id)]); assert(manager.getStatus(alphaBot.id) === null, "serialized lifecycle did not finish stopped");
       await manager.startBot(alphaBot.id); await manager.stopTenant(alpha.id); assert(manager.getStatus(alphaBot.id) === null, "stopTenant retained tenant runtime");
-      await updateTenant(beta.id, { status: "suspended" }); await manager.stopTenant(beta.id); const suspended = await manager.startBot(betaBot.id); assert(!suspended.success, "suspended tenant bot started");
+      await repositories().tenants.update(beta.id, { status: "suspended" }); await manager.stopTenant(beta.id); const suspended = await manager.startBot(betaBot.id); assert(!suspended.success, "suspended tenant bot started");
       await deleteBot(betaBot.id); const deleted = await manager.startBot(betaBot.id); assert(!deleted.success, "deleted bot started");
       assert(FakeClient.instances.length >= 4 && FakeClient.instances.some((client) => client.destroyed > 0), "client lifecycle did not destroy old runtimes");
       console.log(JSON.stringify({ ok: true, clients: FakeClient.instances.length, runs: runs.length, usage: usage.length }));
