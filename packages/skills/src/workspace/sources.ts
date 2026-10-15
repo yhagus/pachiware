@@ -1,7 +1,7 @@
 import type { DiscordClientAdapter, SkillContext } from "../types.js";
 import { channelsWithSkill } from "../availability.js";
 import { textIn } from "../language.js";
-import { checkSegments, KEPT_FOLDERS, safeId, visibleRoots } from "./paths.js";
+import { checkSegments, KEPT_FOLDERS, safeId, threadFolder, visibleRoots } from "./paths.js";
 import type { WorkspaceStore } from "./store.js";
 
 /** A channel of a guild one person can view, with its Workspace folder and whether it is a Public channel. */
@@ -26,7 +26,7 @@ export async function viewableChannels(store: WorkspaceStore, tenantId: string, 
  * A place whose Minutes, Decisions, Notes and Documents the asker may read from where they ask.
  * `root` is the name a path starts with: "channel", "thread" or "dm" for the place asked from (`here`), else "#name" (with " [id]" when two
  * channels share a name). `label` is how results name it. `folder` is its tenant-relative folder, `folders` the kept folders under it that
- * are read. `quotable`: what it holds may be shown here; a source that is not is never read in this ticket's tools.
+ * are read. `quotable`: what it holds may be shown here; a source that is not is only counted, never named or shown.
  */
 export interface Source {
   root: string;
@@ -47,8 +47,9 @@ const WORKSPACE_SKILL = "workspace";
 
 /**
  * Which places the asker may read kept material from here, the place asked from first. From a guild channel or thread: that place,
- * then every other channel folder of the guild the asker can view, leaving out a channel where an Availability rule turns the Workspace off.
- * Another channel is quotable only when it is a Public channel. From a DM or web chat: only the place itself.
+ * then every other channel folder of the guild the asker can view, leaving out a channel where an Availability rule turns the Workspace off,
+ * then the private threads of those channels the asker was added to. Another channel is quotable only when it is a Public channel; another
+ * channel's private thread never is. From a DM or web chat: only the place itself.
  */
 export async function readableSources(store: WorkspaceStore, ctx: Asker): Promise<Source[]> {
   const roots = visibleRoots(ctx);
@@ -66,7 +67,28 @@ export async function readableSources(store: WorkspaceStore, ctx: Asker): Promis
   const elsewhere = others.filter((c) => on.has(c.id)).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
     .map((c): Source => ({ root: `#${c.name}`, label: `#${c.name}`, folder: c.folder, folders: keptIn(c.folder), guildId, channelId: c.id, here: false, quotable: c.public }));
   const taken = (root: string) => elsewhere.filter((s) => s.root === root).length > 1 || here.some((s) => s.label === root);
-  return [...here, ...elsewhere.map((s) => (taken(s.root) ? { ...s, root: `${s.root} [${s.channelId}]` } : s))];
+  const threads = ctx.userId ? await addedThreads(store, ctx.tenantId, ctx.discord, elsewhere, ctx.userId) : [];
+  return [...here, ...elsewhere.map((s) => (taken(s.root) ? { ...s, root: `${s.root} [${s.channelId}]` } : s)), ...threads];
+}
+
+/**
+ * The private thread folders under these channels whose thread the asker was added to, never quotable from another channel. Their root
+ * holds a "/", so no path can name one: they are only counted in a search.
+ */
+async function addedThreads(store: WorkspaceStore, tenantId: string, discord: DiscordClientAdapter | undefined, channels: Source[], userId: string): Promise<Source[]> {
+  if (!discord) return [];
+  const found = await Promise.all(channels.map(async (c) => {
+    const ids = (await store.list(tenantId, `${c.folder}/threads`).catch(() => []))
+      .filter((e) => e.type === "dir").map((e) => e.path.split("/").pop()!).filter((id) => safeId(id) === id);
+    const views = await Promise.all(ids.map((id) => discord.channelView(id, userId).catch(() => null)));
+    return ids.flatMap((id, i): Source[] => {
+      const seen = views[i]?.canView ? views[i]!.channel : null, folder = threadFolder(c.guildId, c.channelId, id);
+      if (!folder || !seen || seen.guildId !== c.guildId) return [];
+      const root = `${c.label}/${seen.name}`;
+      return [{ root, label: root, folder, folders: keptIn(folder), guildId: c.guildId, channelId: c.channelId, threadId: id, here: false, quotable: false }];
+    });
+  }));
+  return found.flat();
 }
 
 /** Whether an agent path starts with a channel's name ("#marketing/...") or mention ("<#123>/..."), not one of the place's own roots. */

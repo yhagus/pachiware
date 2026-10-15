@@ -46,8 +46,15 @@ function writable(ctx: SkillContext, path: unknown) {
   return path;
 }
 
-/** The sources this turn may read and quote: in this ticket a source that may not be quoted here is not read at all. */
-const quotableSources = async (ctx: SkillContext) => (await readableSources(workspaceStore(), ctx)).filter((s) => s.quotable);
+/** The readable source a path names. Unless `counted`, one that may not be quoted here is refused before anything in it is read, so the refusal never says whether a file exists. */
+async function namedSource(ctx: SkillContext, input: string, allowRoot = false, counted = false) {
+  const named = sourcePath(ctx, await readableSources(workspaceStore(), ctx), input, allowRoot);
+  if (!counted && !named.source.quotable) throw new Error(textIn(ctx.language).notQuotableHere);
+  return named;
+}
+
+/** How many matches may not be shown here, and the place's suggestion to ask in a DM; nothing when every match may be shown. */
+const notShown = (ctx: SkillContext, count: number) => (count ? { notShownHere: count, suggestion: textIn(ctx.language).notShownHere(count) } : {});
 
 type Shown = { path: string; lines: LineHit[] };
 /** Matches newest first, at most MAX_MATCHES, with the total and how many were left out. */
@@ -98,7 +105,7 @@ export const workspaceSkill: SkillModule = {
     { name: "writeFile", description: "Creates or replaces a Markdown file in the Workspace. Missing folders are created. To replace an existing file, pass the version from readFile.", parameters: { type: "object", properties: { path: pathArg, content: { type: "string", description: "Full file content" }, version: { type: "string", description: "Version returned by readFile; required when the file exists" } }, required: ["path", "content"] } },
     { name: "moveFile", description: "Moves or renames a file or folder. Refuses to overwrite.", parameters: { type: "object", properties: { from: pathArg, to: pathArg }, required: ["from", "to"] } },
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
-    { name: "searchFiles", description: "Finds files that hold every word of the query somewhere in their name or text, in any order and case; the words need not share a line. Each match gives up to three of the file's lines, those holding the most query words, with their line numbers. The text of a PDF, DOCX or XLSX is searched in the .md beside it. Newest first by the date a file name starts with, at most 50 files; when more matched, total and leftOut say how many. Without a path, searches the minutes, decisions, notes and files of this place and of every other channel you may read from here, grouped by channel.", parameters: { type: "object", properties: { query: { type: "string", description: "Words to find, e.g. \"pricing decision\"" }, path: { type: "string", description: 'Folder to search, e.g. "channel/minutes" or "#marketing"; leave it out to search every channel you may read from here' } }, required: ["query"] } },
+    { name: "searchFiles", description: "Finds files that hold every word of the query somewhere in their name or text, in any order and case; the words need not share a line. Each match gives up to three of the file's lines, those holding the most query words, with their line numbers. The text of a PDF, DOCX or XLSX is searched in the .md beside it. Newest first by the date a file name starts with, at most 50 files; when more matched, total and leftOut say how many. Without a path, searches the minutes, decisions, notes and files of this place and of every other channel you may read from here, grouped by channel. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are.", parameters: { type: "object", properties: { query: { type: "string", description: "Words to find, e.g. \"pricing decision\"" }, path: { type: "string", description: 'Folder to search, e.g. "channel/minutes" or "#marketing"; leave it out to search every channel you may read from here' } }, required: ["query"] } },
     { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
     { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name; say nothing about it unless asked. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { level: levelArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["level", "text"] } },
     { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { level: levelArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["level", "match"] } },
@@ -112,7 +119,7 @@ export const workspaceSkill: SkillModule = {
   handlers: {
     listFiles: async (args, ctx) => {
       if (namesChannel(args.path)) {
-        const { source, path, shown } = sourcePath(ctx, await quotableSources(ctx), args.path, true);
+        const { source, path, shown } = await namedSource(ctx, args.path, true);
         const entries = (await workspaceStore().list(ctx.tenantId, path)).filter((e) => path !== source.folder || (e.type === "dir" && KEPT_FOLDERS.includes(e.path.split("/").pop()!)));
         return { entries: entries.filter((e) => !e.path.split("/").pop()!.startsWith(".")).map((e) => ({ ...e, path: shown(e.path) })) };
       }
@@ -123,7 +130,7 @@ export const workspaceSkill: SkillModule = {
       return { entries: entries.filter((e) => !e.path.split("/").pop()!.startsWith(".")).map((e) => ({ ...e, path: name + e.path.slice(prefix.length) })) };
     },
     readFile: async (args, ctx) => {
-      const path = namesChannel(args.path) ? sourcePath(ctx, await quotableSources(ctx), args.path).path : resolvePath(ctx, args.path);
+      const path = namesChannel(args.path) ? (await namedSource(ctx, args.path)).path : resolvePath(ctx, args.path);
       await threadAccess(ctx).check(path);
       const file = await workspaceStore().read(ctx.tenantId, path);
       if (!file) throw new Error(`File "${args.path}" not found.`);
@@ -205,16 +212,18 @@ export const workspaceSkill: SkillModule = {
       const wanted = typeof args.path === "string" ? args.path.trim() : "";
       if (!wanted) {
         // Every source: grouped by channel in the order their newest kept match comes.
-        const sources = await quotableSources(ctx);
-        const { kept, total, leftOut } = capped((await Promise.all(sources.map((s) => searchSource(ctx, s, s.folders, words)))).flat());
+        const sources = await readableSources(workspaceStore(), ctx);
+        const all = (await Promise.all(sources.map((s) => searchSource(ctx, s, s.folders, words)))).flat();
+        const { kept, total, leftOut } = capped(all.filter((m) => m.source.quotable));
         const groups = sources.map((s) => ({ s, matches: kept.filter((m) => m.source === s) })).filter((g) => g.matches.length)
           .sort((a, b) => kept.indexOf(a.matches[0]!) - kept.indexOf(b.matches[0]!));
-        return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut };
+        return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, ...notShown(ctx, all.length - total) };
       }
       let found: (FileMatch & { shown: string })[];
       if (namesChannel(wanted)) {
-        const { source, path } = sourcePath(ctx, await quotableSources(ctx), wanted, true);
+        const { source, path } = await namedSource(ctx, wanted, true, true);
         found = await searchSource(ctx, source, path === source.folder ? source.folders : [path], words);
+        if (!source.quotable) return { matches: [], ...notShown(ctx, found.length) };
       } else {
         const root = resolvePath(ctx, wanted, true), access = threadAccess(ctx);
         await access.check(root);

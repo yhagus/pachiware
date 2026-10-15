@@ -44,12 +44,15 @@ discordScenario("a channel the asker cannot view, or one Discord cannot resolve,
   ]);
 });
 
-discordScenario("a channel @everyone cannot view is no source from another channel, while inside it its own Minutes are read", async (s) => {
+discordScenario("a channel @everyone cannot view is not quoted in another channel, while inside it its own Minutes are read", async (s) => {
   await twoChannels(s);
   s.discord.hide("channel-2");
   await s.workspace.write(`${MARKETING}/minutes/2026-10-14-pricing.md`, "Pricing agreed\n");
   const calls = [{ tool: "searchFiles", args: { query: "pricing" } }, { tool: "readFile", args: { path: "#marketing/minutes/2026-10-14-pricing.md" } }];
-  expect(await ask(s, calls)).toEqual([{ groups: [], total: 0, leftOut: 0 }, "#marketing is not a channel whose files you can read from here."]);
+  expect(await ask(s, calls)).toEqual([
+    { groups: [], total: 0, leftOut: 0, notShownHere: 1, suggestion: "1 more matching file you can read cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead." },
+    "Files from there cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.",
+  ]);
   expect(await ask(s, [{ tool: "searchFiles", args: { query: "pricing" } }], { channel: "channel-2" })).toEqual([
     { groups: [{ channel: "#marketing", matches: [{ path: "channel/minutes/2026-10-14-pricing.md", lines: [{ line: 1, text: "Pricing agreed" }] }] }], total: 1, leftOut: 0 },
   ]);
