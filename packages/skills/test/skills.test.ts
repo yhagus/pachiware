@@ -20,21 +20,20 @@ describe("tenant-aware skill registry", () => {
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))});
       const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
-      const { db } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       const { repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       const { skillRegistry } = await import(${JSON.stringify(join(workspace, "packages/skills/src/registry.ts"))});
       await runMigrations(); await runSeed();
       const alpha = await repositories().tenants.create({ name: "Alpha", slug: "alpha" }); const beta = await repositories().tenants.create({ name: "Beta", slug: "beta" });
-      const context = { db, tenantId: alpha.id };
+      const context = { tenantId: alpha.id };
       const created = await skillRegistry.executeTool({ id: "create", name: "createTask", arguments: { title: "Alpha only" } }, context);
       assert(created.success, "createTask failed"); const taskId = created.data.task.id;
-      const cross = await skillRegistry.executeTool({ id: "cross", name: "updateTaskStatus", arguments: { taskId, status: "completed" } }, { db, tenantId: beta.id, confirmed: true });
+      const cross = await skillRegistry.executeTool({ id: "cross", name: "updateTaskStatus", arguments: { taskId, status: "completed" } }, { tenantId: beta.id, confirmed: true });
       assert(!cross.success && cross.error.includes("not found"), "cross-tenant mutation accepted");
       for (const { skill } of await repositories().skills.listForTenant(alpha.id)) await repositories().skills.setEnabled(alpha.id, skill.id, false);
       const active = await skillRegistry.getActiveTools(alpha.id);
       const disabled = await skillRegistry.executeTool({ id: "disabled", name: "createTask", arguments: { title: "nope" } }, context);
       assert(active.length === 0 && !disabled.success && disabled.error.includes("disabled"), "disabled tenant tool available");
-      const missingTenant = await skillRegistry.executeTool({ id: "missing", name: "createTask", arguments: { title: "x" } }, { db });
+      const missingTenant = await skillRegistry.executeTool({ id: "missing", name: "createTask", arguments: { title: "x" } }, {});
       assert(!missingTenant.success && missingTenant.error.includes("Tenant context required"), "missing tenant accepted");
       console.log(JSON.stringify({ ok: true, taskId }));
     `);
@@ -48,10 +47,10 @@ describe("tenant-aware skill registry", () => {
     const { directory, result } = runScenario(`
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))}); const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
-      const { db, repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))}); const { skillRegistry } = await import(${JSON.stringify(join(workspace, "packages/skills/src/registry.ts"))});
+      const { repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))}); const { skillRegistry } = await import(${JSON.stringify(join(workspace, "packages/skills/src/registry.ts"))});
       await runMigrations(); await runSeed(); const tenant = await repositories().tenants.create({ name: "Discord", slug: "discord" });
       const adapter = { createChannel: async (args) => ({ id: "channel-1", name: args.channelName }), archiveChannel: async () => ({ id: "channel-1", message: "archived" }), listChannels: async () => [], setChannelTopic: async () => ({ id: "channel-1", topic: "topic" }) };
-      const result = await skillRegistry.executeTool({ id: "discord", name: "createChannel", arguments: { channelName: "ops" } }, { db, tenantId: tenant.id, discord: adapter, confirmed: true, userId: "u", guildId: "g", channelId: "c", auth: { tenantId: tenant.id, userId: "u", guildId: "g", channelId: "c", roleIds: [], permissions: ["Administrator"] } });
+      const result = await skillRegistry.executeTool({ id: "discord", name: "createChannel", arguments: { channelName: "ops" } }, { tenantId: tenant.id, discord: adapter, confirmed: true, userId: "u", guildId: "g", channelId: "c", auth: { tenantId: tenant.id, userId: "u", guildId: "g", channelId: "c", roleIds: [], permissions: ["Administrator"] } });
       assert(result.success && result.data.channel.id === "channel-1" && !result.data.simulated, "adapter result was not used"); console.log(JSON.stringify({ ok: true }));
     `);
     try {

@@ -61,7 +61,7 @@ describe("SQLite tenancy migration", () => {
     try {
       const script = `
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-        import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
         await runMigrations();
         await runMigrations();
         const columns = queryClient.query("PRAGMA table_info(schedules)").all().map((c) => c.name);
@@ -87,7 +87,7 @@ describe("SQLite tenancy migration", () => {
       expect(fixture.exitCode, stderr(fixture)).toBe(0);
       const migrate = run(database, `
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-        import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
+        import { queryClient, repositories } from ${JSON.stringify(join(source, "internal.ts"))};
         import { decryptSecret } from ${JSON.stringify(join(source, "crypto.ts"))};
         await runMigrations();
         const tenant = queryClient.query("SELECT id, slug, platform_metadata FROM tenants").get();
@@ -153,7 +153,7 @@ describe("SQLite tenancy migration", () => {
     try {
       const result = run(database, `
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-        import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
         await runMigrations();
         queryClient.exec("ALTER TABLE profiles DROP COLUMN accepts_images");
         queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
@@ -175,7 +175,7 @@ describe("SQLite tenancy migration", () => {
     try {
       const result = run(database, `
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-        import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
         await runMigrations();
         // Rebuild the pre-global shape: keys carried tenant_id and tenants had no owner column.
         queryClient.exec("PRAGMA foreign_keys = OFF");
@@ -203,7 +203,7 @@ describe("SQLite tenancy migration", () => {
     try {
       const result = run(database, `
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-        import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
         await runMigrations();
         for (const column of ["timezone", "language"]) { queryClient.exec("ALTER TABLE agents_config DROP COLUMN " + column); queryClient.exec("ALTER TABLE guild_configs DROP COLUMN " + column); }
         queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
