@@ -972,3 +972,14 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
     - A thread follows its parent: a Workspace-off rule on the parent drops it; only threads under viewable channel folders; an unresolvable thread is read by nobody.
     - Known limits: private-thread folders are sources only from a DM (a no-path search from the parent skips them); each DM read looks up every channel and thread folder of every shared guild, no per-turn cache; the guild path keeps its own copy of the ` [id]` logic; DM refusals use the tenant's language.
     - Verification: `bun run typecheck` exits 0; `bun test` 670 pass, 0 fail across 123 files.
+  - [x] #153 merged into `spec/146-across-channels`: hits that can't be quoted here are counted, never named, with a DM suggestion.
+    - Tools read every readable source (`quotableSources()` filter removed); a no-path search searches all.
+    - Hits from non-quotable sources add `notShownHere: n` and a catalogue `suggestion` (`notShownHere(n)`, en and id) telling the model to suggest a DM without naming anything; `total`/`leftOut` count only shown hits.
+    - A path search on such a source returns `{ matches: [], notShownHere, suggestion }`.
+    - `readFile`/`listFiles` on a non-quotable source throw `notQuotableHere` (en and id) before reading, so existing and missing files get the same refusal; an unviewable channel still gets `notASource`.
+    - From a guild channel, `readableSources` also returns private threads under other channels the asker was added to, always `quotable: false` (counted only); root `#parent/thread-name` (no path can name it); `<#threadId>` resolves via `sourceNamed` and is refused.
+    - Unchanged: the asking channel's own private threads are reached only through `channel/threads/<tid>/…` with #147's check; a no-path search in the parent doesn't search them.
+    - The #151 hidden-channel scenario now expects a count and a refusal.
+    - Known limits: a PDF/DOCX/XLSX and its `.md` count as two hidden hits; each search looks up every thread folder of every other kept channel, no per-turn cache; an Availability rule on a thread's own id isn't checked (its parent's is).
+    - The `searchFiles` description explains `notShownHere`; persona left for #154.
+    - Verification: `bun run typecheck` exits 0; `bun test` 675 pass, 0 fail across 124 files.
