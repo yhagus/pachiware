@@ -161,3 +161,22 @@ discordScenario("keepAsNote refuses a message from another channel, more than 20
   }
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/notes")).toEqual([]);
 });
+
+discordScenario("a PDF with no record of where its text went is kept from <stem>.md only while no numbered sibling could hold its text instead", async (s) => {
+  await s.guildSettings({ language: "en" });
+  const files = "guilds/guild-1/channels/channel-1/files";
+  await s.workspace.write(`${files}/report.pdf`, "%PDF-1.4");
+  await s.workspace.write(`${files}/report.md`, "Text of the report\n");
+  s.model.script({ tool: "keepAsNote", args: { document: "channel/files/report.pdf", path: "channel/notes/report.md" } }, kept);
+  await s.discord.send(`${s.discord.mention} keep the report as a note`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Kept as channel/notes/report.md");
+
+  // minutes.md was a Document of its own; the PDF's text went to minutes-2.md, and nothing recorded that.
+  await s.workspace.write(`${files}/minutes.md`, "Someone's own minutes\n");
+  await s.workspace.write(`${files}/minutes.pdf`, "%PDF-1.4");
+  await s.workspace.write(`${files}/minutes-2.md`, "Text of the minutes PDF\n");
+  s.model.script({ tool: "keepAsNote", args: { document: "channel/files/minutes.pdf", path: "channel/notes/minutes.md" } }, kept);
+  await s.discord.send(`${s.discord.mention} keep the minutes PDF as a note`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("refused: channel/files/minutes.pdf has no text to keep.");
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/notes")).toEqual(["guilds/guild-1/channels/channel-1/notes/report.md"]);
+});

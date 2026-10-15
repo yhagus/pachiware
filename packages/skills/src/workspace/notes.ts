@@ -1,7 +1,7 @@
 import { resolvePath } from "./paths.js";
 import { WorkspaceConflict, workspaceStore } from "./store.js";
-import { extensionOf, isBinaryDocument } from "./extract.js";
-import { filesRoot, provenanceOf } from "./files.js";
+import { extensionOf, extractsText } from "./extract.js";
+import { filesRoot, provenanceOf, unrecordedTextPath } from "./files.js";
 import { DEFAULT_TIMEZONE, isoInZone } from "../clock.js";
 import { textIn } from "../language.js";
 import { jumpLink } from "../playbooks.js";
@@ -19,16 +19,20 @@ function under(ctx: SkillContext, path: unknown, top: string) {
   return typeof path === "string" && path.startsWith(`${root}/${top}/`) && path.length > root.length + top.length + 2 ? path : null;
 }
 
-/** The text of the Document at `path`, as filed: an MD, TXT or CSV as it is, a PDF's, DOCX's or XLSX's extracted Markdown. */
+/** The text of the Document at `path`, as filed: an MD, TXT or CSV as it is, the extracted Markdown of a PDF, DOCX, XLSX or CSV too large to read. */
 export async function keptDocument(ctx: SkillContext, path: unknown): Promise<KeptText> {
   const t = textIn(ctx.language), store = workspaceStore();
   const document = under(ctx, path, "files");
   if (!document) throw new Error(t.keepNotDocument(filesRoot(ctx)!));
-  const full = resolvePath(ctx, document);
-  if (!(await store.list(ctx.tenantId, full.slice(0, full.lastIndexOf("/")))).some((e) => e.path === full && e.type === "file")) throw new Error(t.keepNoDocument(document));
+  const full = resolvePath(ctx, document), folder = full.slice(0, full.lastIndexOf("/"));
+  const entries = await store.list(ctx.tenantId, folder);
+  const entry = entries.find((e) => e.path === full && e.type === "file");
+  if (!entry) throw new Error(t.keepNoDocument(document));
   const given = await provenanceOf(ctx.tenantId, ctx, document);
-  const textPath = isBinaryDocument(document) ? given?.text ?? document.replace(/\.[^.]+$/, ".md") : TEXT_TYPES.includes(extensionOf(document)) ? document : null;
-  const file = textPath ? await store.read(ctx.tenantId, resolvePath(ctx, textPath)) : null;
+  const siblings = entries.map((e) => e.path.slice(folder.length + 1));
+  const textPath = !extractsText(document, entry.size ?? 0) ? (TEXT_TYPES.includes(extensionOf(document)) ? document : null)
+    : given ? given.text ?? null : unrecordedTextPath(document, siblings);
+  const file = textPath ? await store.read(ctx.tenantId, resolvePath(ctx, textPath)).catch(() => null) : null;
   if (!file) throw new Error(t.keepNoText(document));
   return { text: file.content, source: document, ...(given && { author: given.name }) };
 }

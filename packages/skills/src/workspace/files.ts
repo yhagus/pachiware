@@ -52,6 +52,18 @@ export function freeName(name: string, taken: Set<string>) {
   }
 }
 
+/** The name a Document's extracted text is filed under before `freeName` numbers it: `report.pdf` → `report.md`. */
+const textName = (name: string) => name.replace(/\.[^.]+$/, ".md");
+
+/**
+ * Where the extracted text of the Document `path` went, read from the names beside it, for a Document filed without a record of it:
+ * `<stem>.md`, unless a `<stem>-N.md` sibling means `freeName` may have numbered the text away from it; then null.
+ */
+export function unrecordedTextPath(path: string, siblings: string[]) {
+  const text = textName(path), stem = text.slice(text.lastIndexOf("/") + 1, -".md".length);
+  return siblings.some((name) => name.startsWith(`${stem}-`) && /^\d+\.md$/.test(name.slice(stem.length + 1))) ? null : text;
+}
+
 /**
  * Fetches one allowed document and writes it into `files/` under the turn's folder, never over an existing file.
  * The text of a PDF, DOCX, XLSX or large CSV then goes to a sibling `<name>.md` for `readFile` and `searchFiles`; `saveAttachment` calls this for a named message.
@@ -105,7 +117,7 @@ export async function provenanceOf(tenantId: string, where: Where, path: string)
 async function extractInto(tenantId: string, where: Where, root: string, name: string, bytes: Uint8Array, names: Set<string>): Promise<Extracted> {
   const text = await documentText(name, bytes);
   if (!text) return { failed: true };
-  const path = `${root}/files/${freeName(name.replace(/\.[^.]+$/, ".md"), names)}`;
+  const path = `${root}/files/${freeName(textName(name), names)}`;
   try { await workspaceStore().write(tenantId, resolvePath(where, path), text); } catch { return { failed: true }; }
   return { path };
 }
