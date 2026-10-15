@@ -880,6 +880,7 @@ Four issues filed from a review of the assistant harness. Triaged on 2026-10-15;
     - `clipRows` no longer clips at exactly `MAX_TEXT_BYTES`.
     - `executeCall` replaces the nested ternary in `react.ts`.
   - [x] `bun run typecheck` exits 0. `bun test` passes 610, fails 0.
+- [x] Landed on main at aac8386 (fast-forward, pushed 2026-10-15); #136–#139 closed with their commits. The live eval (`EVAL_LIVE=1 bun run eval:assistant`) has not been run for `bulk-cancel` yet.
 - Known limits, accepted by the decisions:
   - A 5-call turn still takes about 12 of the 30 history rows.
   - A model making one task write per response gets three through before the fourth is refused.
