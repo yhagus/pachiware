@@ -1,40 +1,8 @@
 import { resolve, isAbsolute, dirname } from "path";
 import { mkdirSync, existsSync } from "fs";
 
+/** The SQL engines Drizzle serves. Which one a URL names is decided by `detectEngine` in engine.ts. */
 export type DbDialect = "sqlite" | "postgres";
-
-/**
- * Detect the database dialect from a connection URL / path.
- *
- * Accepted formats:
- *   - sqlite:./data/pachiware.db        → sqlite relative path
- *   - sqlite:/abs/path/to/pachiware.db  → sqlite absolute path
- *   - sqlite://./data/pachiware.db      → sqlite URL style
- *   - file:./data/pachiware.db          → sqlite (libsql-compatible)
- *   - ./something.db / /abs/foo.sqlite  → sqlite (by extension)
- *   - postgresql://... / postgres://... → postgres
- */
-export function detectDialect(url: string): DbDialect {
-  if (!url) return "sqlite";
-  const normalized = url.trim().toLowerCase();
-
-  if (normalized.startsWith("postgres://") || normalized.startsWith("postgresql://")) {
-    return "postgres";
-  }
-  if (
-    normalized.startsWith("sqlite:") ||
-    normalized.startsWith("sqlite3:") ||
-    normalized.startsWith("file:")
-  ) {
-    return "sqlite";
-  }
-  if (/\.(db|sqlite|sqlite3)$/.test(normalized)) {
-    return "sqlite";
-  }
-
-  // Default fallback — treat anything else as sqlite because that's the new default
-  return "sqlite";
-}
 
 /**
  * Resolve a sqlite connection string into an absolute filesystem path and

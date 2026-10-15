@@ -1,16 +1,15 @@
 import * as schema from "./schema/index.js";
-import { activeDialect, switchSchema } from "./schema/index.js";
+import { activeDialect } from "./schema/index.js";
 import { getInfraConfig } from "./runtime-store.js";
-import { detectDialect, resolveSqlitePath } from "./dialect.js";
+import { resolveSqlitePath, type DbDialect } from "./dialect.js";
+import { assertDatabaseEngine } from "./engine.js";
 
-// Lazy / dialect-switched database driver initialization.
+// Database driver initialization, once per process: the engine never changes
+// at runtime (ADR 0010).
 //
 // We export two bindings:
 //   - `db`         Drizzle instance (postgres-js or bun-sqlite flavour)
 //   - `queryClient` Low-level driver client used by health probes
-//
-// `reconnectDatabase()` re-initializes both bindings when the user changes the
-// database URL via the Web GUI (runtime-config.json).
 
 type AnyDrizzle = any;
 type AnyClient = any;
@@ -18,9 +17,7 @@ type AnyClient = any;
 export let db: AnyDrizzle;
 export let queryClient: AnyClient;
 
-function initDriver(connectionString: string): { db: AnyDrizzle; client: AnyClient } {
-  const dialect = detectDialect(connectionString);
-
+function initDriver(dialect: DbDialect, connectionString: string): { db: AnyDrizzle; client: AnyClient } {
   if (dialect === "sqlite") {
     // Use Bun's native sqlite driver (zero npm deps, zero-config).
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -56,31 +53,13 @@ function initDriver(connectionString: string): { db: AnyDrizzle; client: AnyClie
   return { db: drizzleInstance, client: pgClient };
 }
 
-// Initial boot
+// Initial boot: the engine lock is checked before any connection opens.
 {
   const { databaseUrl } = getInfraConfig();
-  const { db: initialDb, client: initialClient } = initDriver(databaseUrl);
+  assertDatabaseEngine(databaseUrl);
+  const { db: initialDb, client: initialClient } = initDriver(activeDialect, databaseUrl);
   db = initialDb;
   queryClient = initialClient;
-}
-
-export function reconnectDatabase(newConnectionString?: string) {
-  const conn = newConnectionString || getInfraConfig().databaseUrl;
-
-  // Tear down the previous client politely (postgres-js has .end, bun:sqlite has .close)
-  try {
-    if (queryClient?.end) {
-      queryClient.end({ timeout: 2 }).catch(() => {});
-    } else if (queryClient?.close) {
-      queryClient.close();
-    }
-  } catch {}
-
-  switchSchema(detectDialect(conn));
-  const { db: nextDb, client: nextClient } = initDriver(conn);
-  db = nextDb;
-  queryClient = nextClient;
-  return { queryClient, db };
 }
 
 /**
@@ -105,6 +84,7 @@ export * from "./migrate.js";
 export * from "./seed.js";
 export * from "./runtime-store.js";
 export * from "./dialect.js";
+export * from "./engine.js";
 export * from "./crypto.js";
 export * from "./tenancy.js";
 export * from "./persona.js";

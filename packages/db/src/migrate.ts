@@ -3,6 +3,7 @@ import { queryClient } from "./index.js";
 import { activeDialect } from "./schema/index.js";
 import { encryptSecret, generateApiKey, hashApiKey } from "./crypto.js";
 import { DEFAULT_SYSTEM_PROMPT, OLD_DEFAULT_PROMPTS } from "./persona.js";
+import { recordDatabaseEngine } from "./runtime-store.js";
 
 const tables = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "availability_rules", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events", "schedules"] as const;
 
@@ -226,6 +227,7 @@ export async function runMigrations(): Promise<void> {
       queryClient.exec("PRAGMA foreign_keys = ON");
     }
   }
+  recordDatabaseEngine(activeDialect);
   if (key) console.log(`Bootstrap API key (shown once): ${key}`);
   console.log(`Database schema migrated successfully (${activeDialect}).`);
 }

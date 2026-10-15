@@ -14,8 +14,8 @@ async function main() {
   try {
     await runMigrations();
     await runSeed();
-  } catch (_err: any) {
-    console.log("ℹ Database not yet initialized. Agent started in Setup Mode (Configure via Web GUI).");
+  } catch (err: any) {
+    console.log(`ℹ Database not ready (${err?.message ?? err}). Agent started in setup mode; check DATABASE_URL on the server, then restart.`);
   }
 
   // 2. Connect Redis (Optional - falls back to native in-memory store)

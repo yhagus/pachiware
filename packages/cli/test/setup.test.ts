@@ -82,6 +82,7 @@ describe("pachiware init", () => {
       expect(lstatSync(join(target, "operator-access.json")).mode & 0o777).toBe(0o600);
       expect(existsSync(join(target, "data/pachiware.db"))).toBe(true);
       expect(existsSync(join(unrelatedWorkspace, "data/pachiware.db"))).toBe(false);
+      expect(JSON.parse(readFileSync(join(target, "runtime-config.json"), "utf8"))).toEqual({ databaseEngine: "sqlite" });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
