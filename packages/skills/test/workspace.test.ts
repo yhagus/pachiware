@@ -101,7 +101,7 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
       // search finds by content and by name, within the visible folders only
       await call(alpha, "writeFile", { path: "channel/notes/ideas/launch.md", content: "Ship the Beta\\nthen celebrate" });
       const hit = await call(alpha, "searchFiles", { query: "beta", path: "channel/" });
-      assert(hit.success && hit.data.matches.some((m) => m.path === "channel/notes/ideas/launch.md" && m.line === 1), "content search missed");
+      assert(hit.success && hit.data.matches.some((m) => m.path === "channel/notes/ideas/launch.md" && m.lines[0]?.line === 1), "content search missed");
       const byName = await call(alpha, "searchFiles", { query: "launch", path: "channel/" });
       assert(byName.data.matches.some((m) => m.path === "channel/notes/ideas/launch.md"), "name search missed");
       assert(!(await call(alpha, "searchFiles", { query: "beta", path: "other/" })).success, "search left the visible folders");

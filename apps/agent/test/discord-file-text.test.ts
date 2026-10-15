@@ -10,7 +10,7 @@ const turnOf = (s: any, call = 0) => s.model.calls[call]!.at(-2)!.content as str
 
 discordScenario("a filed PDF yields report.md beside it and searchFiles finds a word from it", async (s) => {
   const report = attachment(s, "report.pdf", pdf(["Quarterly report", "The Q3 budget is 12 million."]), { contentType: "application/pdf" });
-  s.model.script("Filed.", { tool: "searchFiles", args: { query: "budget", path: "channel/files" } }, (turn) => turn.toolResults[0].matches.map((m: any) => `${m.path}:${m.line} ${m.text}`).join("; "));
+  s.model.script("Filed.", { tool: "searchFiles", args: { query: "budget", path: "channel/files" } }, (turn) => turn.toolResults[0].matches.map((m: any) => `${m.path}:${m.lines[0].line} ${m.lines[0].text}`).join("; "));
   await s.discord.send(`${s.discord.mention} here is the report`, { attachments: [report] });
   expect(turnOf(s)).toBe("Alice: here is the report [file: report.pdf saved as channel/files/report.pdf; text in channel/files/report.md]");
   expect(await s.workspace.list(FILES)).toEqual([`${FILES}/report.md`, `${FILES}/report.pdf`]);
@@ -64,7 +64,7 @@ discordScenario("a filed XLSX yields laporan.md with one table per sheet, formul
     Staff: [["Name", "Days", "Since"], ["Ani", 5, { date: "2026-10-15" }]],
   });
   const laporan = attachment(s, "laporan.xlsx", book, { contentType: XLSX });
-  s.model.script("Filed.", { tool: "searchFiles", args: { query: "total", path: "channel/files" } }, (turn) => turn.toolResults[0].matches.map((m: any) => `${m.path}:${m.line} ${m.text}`).join("; "));
+  s.model.script("Filed.", { tool: "searchFiles", args: { query: "total", path: "channel/files" } }, (turn) => turn.toolResults[0].matches.map((m: any) => `${m.path}:${m.lines[0].line} ${m.lines[0].text}`).join("; "));
   await s.discord.send(`${s.discord.mention} laporan bulan ini`, { attachments: [laporan] });
   expect(turnOf(s)).toBe("Alice: laporan bulan ini [file: laporan.xlsx saved as channel/files/laporan.xlsx; text in channel/files/laporan.md]");
   expect(await s.workspace.list(FILES)).toEqual([`${FILES}/laporan.md`, `${FILES}/laporan.xlsx`]);
@@ -80,7 +80,7 @@ discordScenario("a filed CSV up to 256 KB is read and searched as it is", async 
   const data = attachment(s, "absen.csv", new TextEncoder().encode("name,days\nAni,5\nBudi,3\n"), { contentType: "text/csv" });
   s.model.script(
     { tool: "readFile", args: { path: "channel/files/absen.csv" } }, (turn) => turn.toolResults[0].content.trim(),
-    { tool: "searchFiles", args: { query: "budi", path: "channel/files" } }, (turn) => turn.toolResults[0].matches.map((m: any) => `${m.path}:${m.line} ${m.text}`).join("; "),
+    { tool: "searchFiles", args: { query: "budi", path: "channel/files" } }, (turn) => turn.toolResults[0].matches.map((m: any) => `${m.path}:${m.lines[0].line} ${m.lines[0].text}`).join("; "),
   );
   await s.discord.send(`${s.discord.mention} attendance`, { attachments: [data] });
   expect(s.discord.botMessages.at(-1)?.content).toBe("name,days\nAni,5\nBudi,3");
@@ -96,7 +96,7 @@ discordScenario("a CSV over 256 KB yields a sibling Markdown file that readFile 
   s.model.script(
     // The result passes the turn's tool result cap, so it arrives as clipped JSON text.
     { tool: "readFile", args: { path: "channel/files/sales.md" } }, (turn) => String(turn.toolResults[0]).includes(String.raw`"content":"invoice,customer,amount\nINV-00001,PT Sumber Makmur,1000\n`) ? "read the head" : String(turn.toolResults[0]).slice(0, 200),
-    { tool: "searchFiles", args: { query: "inv-00042", path: "channel/files" } }, (turn) => turn.toolResults[0].matches.map((m: any) => `${m.path}:${m.line} ${m.text}`).join("; "),
+    { tool: "searchFiles", args: { query: "inv-00042", path: "channel/files" } }, (turn) => turn.toolResults[0].matches.map((m: any) => `${m.path}:${m.lines[0].line} ${m.lines[0].text}`).join("; "),
   );
   await s.discord.send(`${s.discord.mention} sales export`, { attachments: [sales] });
   expect(turnOf(s)).toBe("Alice: sales export [file: sales.csv saved as channel/files/sales.csv; text in channel/files/sales.md]");
