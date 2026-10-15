@@ -133,16 +133,17 @@ describe("tenant persistence helpers", () => {
   test("rejects cross-tenant bot and conversation links at the database boundary", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
+      import { repositories } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
       const first = await repositories().tenants.create({ name: "First", slug: "first" });
       const second = await repositories().tenants.create({ name: "Second", slug: "second" });
       const bot = await repositories().bots.create({ tenantId: first.id, token: "secret" });
-      queryClient.query("INSERT INTO conversations (id, tenant_id, bot_id, platform) VALUES (?, ?, ?, ?)").run("conversation-1", first.id, bot.id, "discord");
+      const { conversations } = repositories();
+      const conversation = await conversations.create({ tenantId: first.id, botId: bot.id, platform: "discord" });
       let botRejected = false;
       let messageRejected = false;
-      try { queryClient.query("INSERT INTO conversations (id, tenant_id, bot_id, platform) VALUES (?, ?, ?, ?)").run("bad-bot", second.id, bot.id, "discord"); } catch { botRejected = true; }
-      try { queryClient.query("INSERT INTO messages (id, tenant_id, conversation_id, role) VALUES (?, ?, ?, ?)").run("bad-message", second.id, "conversation-1", "user"); } catch { messageRejected = true; }
+      try { await conversations.create({ tenantId: second.id, botId: bot.id, platform: "discord" }); } catch { botRejected = true; }
+      try { await conversations.addMessage({ tenantId: second.id, conversationId: conversation.id, role: "user" }); } catch { messageRejected = true; }
       console.log(JSON.stringify({ botRejected, messageRejected }));
     `);
     try {

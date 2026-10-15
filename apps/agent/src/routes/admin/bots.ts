@@ -1,6 +1,5 @@
 import { Hono } from "hono";
-import { repositories, db, conversations, messages, setBotGitAccounts, listBotGitAccounts, listGitScopes, replaceGitScopes, eq, type GuildConfigInput } from "@pachiware/db";
-import { and, or, desc, sql } from "drizzle-orm";
+import { repositories, setBotGitAccounts, listBotGitAccounts, listGitScopes, replaceGitScopes, type GuildConfigInput } from "@pachiware/db";
 import { discordBotManager } from "../../discord/client.js";
 import { loadGuildSettings, saveGuildSettings } from "../../loop/prompt.js";
 import { object, string, stringArray, placeSettings, digestChannels } from "../validation.js";
@@ -93,20 +92,14 @@ botReminderRoutes(botAdminRoutes, "/bots/:botId", "botId");
 botAdminRoutes.get("/bots/:botId/conversations", async (c) => {
   const channelId = c.req.query("channelId");
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit")) || 50));
-  const where = and(eq(conversations.botId, c.req.param("botId")!), channelId ? or(eq(conversations.channelId, channelId), sql`${conversations.metadata}->>'parentChannelId' = ${channelId}`) : undefined);
-  const rows = await db.select({
-    id: conversations.id, channelId: conversations.channelId, userId: conversations.userId, createdAt: conversations.createdAt,
-    messageCount: sql<number>`(select count(*) from ${messages} where ${messages.conversationId} = ${conversations.id})`,
-    lastMessageAt: sql<number | string | null>`(select max(${messages.createdAt}) from ${messages} where ${messages.conversationId} = ${conversations.id})`,
-  }).from(conversations).where(where).orderBy(desc(conversations.createdAt)).limit(limit);
-  return c.json({ success: true, conversations: rows.map((r: any) => ({ ...r, messageCount: Number(r.messageCount) })) });
+  return c.json({ success: true, conversations: await repositories().conversations.listForBot(c.req.param("botId")!, { channelId, limit }) });
 });
 botAdminRoutes.get("/bots/:botId/conversations/:id/messages", async (c) => {
-  const [owned] = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, c.req.param("id")!), eq(conversations.botId, c.req.param("botId")!))).limit(1);
+  const { conversations } = repositories();
+  const owned = await conversations.getForBot(c.req.param("botId")!, c.req.param("id")!);
   if (!owned) return c.json({ error: "Conversation not found" }, 404);
-  const rows = await db.select({ id: messages.id, role: messages.role, content: messages.content, createdAt: messages.createdAt }).from(messages)
-    .where(and(eq(messages.conversationId, owned.id), sql`${messages.role} in ('user','assistant')`, sql`${messages.content} is not null`)).orderBy(desc(messages.createdAt)).limit(200);
-  return c.json({ success: true, messages: rows.reverse() });
+  const rows = await conversations.latestMessages(owned.tenantId, owned.id, { limit: 200, chatOnly: true });
+  return c.json({ success: true, messages: rows.map(({ id, role, content, createdAt }) => ({ id, role, content, createdAt })) });
 });
 botAdminRoutes.patch("/bots/:botId", async (c) => {
   const fields = botFields(object(await c.req.json(), "body"));

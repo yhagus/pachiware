@@ -40,8 +40,8 @@ discordScenario("after 40 stored messages the next model call carries the summar
   expect(s.model.tools[20]).toEqual([]);
   for (let i = 0; i < 20; i++) expect(summaryOf(s.model.calls[i]!)).toEqual([]);
 
-  const { conversations } = await import(process.cwd() + "/packages/db/src/index.ts") as any;
-  const stored = (await s.db.select().from(conversations)).find((c: any) => c.channelId === first.thread!.id);
+  const { conversations } = (await import(process.cwd() + "/packages/db/src/index.ts")).repositories();
+  const stored: any = await conversations.latestInChannel(s.tenant.id, s.bot.id, first.thread!.id);
   expect(stored.metadata.summary).toEqual({ text: "Agreed: the export goes out Friday. Open: who reviews it.", coversMessages: 10, updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
 
   for (let i = 21; i <= 25; i++) await s.discord.send(`turn ${i}`, { channel: first.thread });
@@ -79,24 +79,24 @@ discordScenario("a failed summary call keeps the previous summary until the wind
 });
 
 discordScenario("writing the summary keeps a metadata change made while the summary call was in flight", async (s) => {
-  const { conversations, eq } = await import(process.cwd() + "/packages/db/src/index.ts") as any;
+  const { conversations } = (await import(process.cwd() + "/packages/db/src/index.ts")).repositories();
   const cancel = (n: number) => ({ tool: "updateTaskStatus", args: { taskId: String(n).repeat(8), status: "cancelled" } });
   s.model.script(
     ...replies(1, 19),
     [1, 2, 3, 4].map(cancel), "These four would be cancelled. Go ahead?",
     // The next turn clears the remembered bulk while this summary is still being written.
     async () => {
-      const [held] = (await s.db.select().from(conversations)).filter((c: any) => c.metadata?.bulkApproval);
+      const [held] = (await conversations.listForTenant(s.tenant.id)).filter((c: any) => c.metadata?.bulkApproval);
       expect(held).toBeDefined();
-      const { bulkApproval: _cleared, ...rest } = held.metadata;
-      await s.db.update(conversations).set({ metadata: rest }).where(eq(conversations.id, held.id));
+      const { bulkApproval: _cleared, ...rest } = held!.metadata;
+      await conversations.setMetadata(s.tenant.id, held!.id, rest);
       return "Agreed: four tasks wait for a yes.";
     },
   );
   const first = await talk(s, 20);
   expect(s.model.calls).toHaveLength(22);
 
-  const stored = (await s.db.select().from(conversations)).find((c: any) => c.channelId === first.thread!.id);
+  const stored: any = await conversations.latestInChannel(s.tenant.id, s.bot.id, first.thread!.id);
   expect(stored.metadata.summary.text).toBe("Agreed: four tasks wait for a yes.");
   expect(stored.metadata.bulkApproval).toBeUndefined();
 });

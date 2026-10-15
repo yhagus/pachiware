@@ -87,15 +87,16 @@ describe("SQLite tenancy migration", () => {
       expect(fixture.exitCode, stderr(fixture)).toBe(0);
       const migrate = run(database, `
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-        import { queryClient } from ${JSON.stringify(join(source, "index.ts"))};
+        import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
         import { decryptSecret } from ${JSON.stringify(join(source, "crypto.ts"))};
         await runMigrations();
         const tenant = queryClient.query("SELECT id, slug, platform_metadata FROM tenants").get();
         const config = queryClient.query("SELECT name, system_prompt, openai_api_key_encrypted, settings FROM agents_config").get();
         const bot = queryClient.query("SELECT id, tenant_id, token_encrypted, client_id, guild_ids FROM bots").get();
         const task = queryClient.query("SELECT tenant_id, title, discord_guild_id FROM tasks WHERE id = 'task-1'").get();
-        const conversation = queryClient.query("SELECT tenant_id, bot_id FROM conversations WHERE id = 'conversation-1'").get();
-        const message = queryClient.query("SELECT tenant_id, content FROM messages WHERE id = 'message-1'").get();
+        const stored = await repositories().conversations.get(tenant.id, "conversation-1");
+        const conversation = stored && { tenant_id: stored.tenantId, bot_id: stored.botId };
+        const message = (await repositories().conversations.listMessages(tenant.id, "conversation-1", { offset: 0, limit: 10 })).filter((m) => m.id === "message-1").map((m) => ({ tenant_id: m.tenantId, content: m.content }))[0];
         const skill = queryClient.query("SELECT default_enabled, config FROM skills WHERE id = 'legacy-skill'").get();
         const tenantSkill = queryClient.query("SELECT is_enabled FROM tenant_skills WHERE skill_id = 'legacy-skill'").get();
         const keyCount = queryClient.query("SELECT COUNT(*) AS count FROM api_keys").get().count;

@@ -11,6 +11,8 @@ import { createSqlSkillRepository } from "./skills/sql.js";
 import type { SkillRepository } from "./skills/types.js";
 import { createSqlAvailabilityRuleRepository } from "./availability/sql.js";
 import type { AvailabilityRuleRepository } from "./availability/types.js";
+import { createSqlConversationRepository } from "./conversations/sql.js";
+import type { ConversationRepository } from "./conversations/types.js";
 
 // One folder per kind of record: `types.ts` holds its domain types and interface, `sql.ts` serves SQLite
 // and PostgreSQL, and a MongoDB file will sit beside them. Its contract suite lives in
@@ -21,6 +23,7 @@ export type * from "./task-rows/types.js";
 export type * from "./bots/types.js";
 export type * from "./skills/types.js";
 export type * from "./availability/types.js";
+export type * from "./conversations/types.js";
 
 /** Every repository, one per kind of record. Code outside the database package reads and writes records only through these. */
 export type Repositories = {
@@ -30,6 +33,7 @@ export type Repositories = {
   bots: BotRepository;
   skills: SkillRepository;
   availability: AvailabilityRuleRepository;
+  conversations: ConversationRepository;
 };
 
 /** The repositories of one open database, implemented for its engine. */
@@ -44,6 +48,7 @@ export function createRepositories(connection: Connection): Repositories {
         bots: createSqlBotRepository(connection),
         skills: createSqlSkillRepository(connection),
         availability: createSqlAvailabilityRuleRepository(connection),
+        conversations: createSqlConversationRepository(connection),
       };
   }
 }
