@@ -55,6 +55,20 @@ curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | 
 
 Other options are `PACHIWARE_DATABASE=docker`, or `PACHIWARE_DATABASE=postgres` with `PACHIWARE_POSTGRES_URL`. Without an interactive terminal or an explicit choice, new installations default to SQLite.
 
+The database engine cannot be changed after setup. The first successful migration records it as `databaseEngine` in `runtime-config.json`, and the application refuses to start when `DATABASE_URL` points at another engine. The error names both engines. A URL with an unknown scheme also stops the start; an empty `DATABASE_URL` uses the SQLite default.
+
+You can still change the address of the same engine, for example a new host or a rotated password. Edit `DATABASE_URL` in `.env` on the server, and `databaseUrl` in `runtime-config.json` if it is there, then restart. The dashboard shows the engine and host but cannot change them.
+
+### Start Over on Another Database Engine
+
+There is no command for this, and records are not moved between engines. To start over, for example after a trial on the wrong engine:
+
+1. Stop the application.
+2. Remove the `databaseEngine` line from `runtime-config.json`, and `databaseUrl` too if it is there.
+3. Run `pachiware init` and choose the new engine.
+
+The new database starts empty. The old one is not deleted: the SQLite file stays in `data/`, and a PostgreSQL database stays on its server until you remove it yourself.
+
 ## Start the Application and Open the Dashboard
 
 After the installer finishes:

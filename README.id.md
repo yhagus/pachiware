@@ -55,6 +55,20 @@ curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | 
 
 Pilihan lain adalah `PACHIWARE_DATABASE=docker`, atau `PACHIWARE_DATABASE=postgres` dengan `PACHIWARE_POSTGRES_URL`. Tanpa terminal interaktif dan tanpa pilihan eksplisit, instalasi baru menggunakan SQLite.
 
+Engine database tidak bisa diganti setelah setup. Migrasi pertama yang berhasil mencatatnya sebagai `databaseEngine` di `runtime-config.json`, dan aplikasi menolak berjalan jika `DATABASE_URL` mengarah ke engine lain. Pesan errornya menyebut kedua engine. URL dengan skema yang tidak dikenal juga menghentikan start; `DATABASE_URL` yang kosong memakai SQLite bawaan.
+
+Alamat engine yang sama tetap bisa diganti, misalnya host baru atau password yang dirotasi. Ubah `DATABASE_URL` di `.env` pada server, dan `databaseUrl` di `runtime-config.json` jika ada, lalu jalankan ulang. Dashboard menampilkan engine dan host, tetapi tidak bisa mengubahnya.
+
+### Mulai Ulang dengan Engine Database Lain
+
+Tidak ada perintah untuk ini, dan data tidak dipindahkan antar-engine. Untuk mulai ulang, misalnya setelah mencoba dengan engine yang salah:
+
+1. Hentikan aplikasi.
+2. Hapus baris `databaseEngine` dari `runtime-config.json`, juga `databaseUrl` jika ada.
+3. Jalankan `pachiware init` dan pilih engine baru.
+
+Database baru dimulai kosong. Database lama tidak dihapus: file SQLite tetap ada di `data/`, dan database PostgreSQL tetap ada di servernya sampai Anda menghapusnya sendiri.
+
 ## Jalankan dan Buka Dashboard
 
 Setelah installer selesai:
