@@ -39,7 +39,7 @@ describe("tenant persistence helpers", () => {
   test("global keys: issue, ownership lookup, revoke, list counts, soft-delete", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
+      import { queryClient, repositories } from ${JSON.stringify(join(source, "internal.ts"))};
       await runMigrations();
       const tenants = repositories().tenants;
       const issued = await tenants.issueApiKey("deploy"), other = await tenants.issueApiKey("other");
@@ -72,7 +72,7 @@ describe("tenant persistence helpers", () => {
   test("creates tenant defaults without creating sample tasks", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
+      import { repositories } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
       await repositories().skills.register({ id: "enabled", name: "Enabled", description: "enabled skill", defaultEnabled: true, toolDefinitions: [], handlerType: "builtin", config: { level: 1 } });
       await repositories().skills.register({ id: "disabled", name: "Disabled", description: "disabled skill", defaultEnabled: false, toolDefinitions: [], handlerType: "builtin", config: { level: 2 } });
@@ -97,7 +97,7 @@ describe("tenant persistence helpers", () => {
   test("encrypts bot tokens at rest and supports bot lifecycle helpers", () => {
     const { directory, result } = runIsolated(`
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
-      import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
+      import { queryClient, repositories } from ${JSON.stringify(join(source, "internal.ts"))};
       await runMigrations();
       const { bots } = repositories();
       const tenant = await repositories().tenants.create({ name: "Bots", slug: "bots" });

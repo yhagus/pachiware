@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { db } from "@pachiware/db";
 import { GuardrailService, audit, isEnforced } from "@pachiware/skills";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { agentReActLoop } from "../../loop/react.js";
@@ -13,7 +12,7 @@ chatRoutes.post("/", async (c) => {
   const length = GuardrailService.limitLength(message);
   if (!length.allow) {
     const enforced = isEnforced(length.kind);
-    await audit({ db, tenantId: c.get("tenantId") }, "guardrail_denied", { kind: length.kind, source: "user_message", platform: "web", ...(enforced ? {} : { observed: true }) });
+    await audit({ tenantId: c.get("tenantId") }, "guardrail_denied", { kind: length.kind, source: "user_message", platform: "web", ...(enforced ? {} : { observed: true }) });
     if (enforced) return c.json({ success: true, reply: length.message, conversationId: conversationId ?? null, iterations: 0, toolsExecuted: [], steps: [] });
   }
   const steps: any[] = [];

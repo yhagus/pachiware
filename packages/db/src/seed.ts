@@ -3,7 +3,7 @@ import { createRepositories, type SkillDefinition } from "./repositories/index.j
 
 /** Registers the built-in skills and tenant defaults in the configured database. */
 export async function runSeed() {
-  const { connection } = await import("./index.js");
+  const { connection } = await import("./internal.js");
   await seedDatabase(connection);
 }
 

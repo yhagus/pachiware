@@ -11,13 +11,13 @@ function scenario(body: string, dir = mkdtempSync(join(tmpdir(), "pachiware-ws-"
     const assert = (c, m) => { if (!c) throw new Error(m); };
     const imp = (p) => import(${JSON.stringify(root + "/")} + p);
     const { runMigrations } = await imp("packages/db/src/migrate.ts"); const { runSeed } = await imp("packages/db/src/seed.ts");
-    const { db, repositories } = await imp("packages/db/src/index.ts");
+    const { repositories } = await imp("packages/db/src/index.ts");
     const { skillRegistry } = await imp("packages/skills/src/registry.ts");
     await runMigrations(); await runSeed();
     const alpha = await repositories().tenants.create({ name: "Alpha", slug: "alpha" }), beta = await repositories().tenants.create({ name: "Beta", slug: "beta" });
     let n = 0;
     const call = (tenant, name, args, ctx = {}) => skillRegistry.executeTool({ id: "t" + n++, name, arguments: args },
-      { db, tenantId: tenant.id, guildId: "g1", channelId: "c1", parentChannelId: "c1", userId: "u1", confirmed: true, ...ctx });
+      { tenantId: tenant.id, guildId: "g1", channelId: "c1", parentChannelId: "c1", userId: "u1", confirmed: true, ...ctx });
     ${body}
     console.log(JSON.stringify({ ok: true }));`;
   const result = Bun.spawnSync({ cmd: ["bun", "--eval", script], cwd: root, env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "t.db")}`, WORKSPACE_DIR: join(dir, "ws"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"), NODE_ENV: "test" } });
@@ -201,7 +201,7 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
       const listed = await call(alpha, "listTasks", { status: "all" });
       assert(listed.success && listed.data.tasks.length === 1, "broken task file was listed: " + JSON.stringify(listed.data));
       // from a context with no channel, tasks go to the tenant's shared folder (as the old tests do)
-      const bare = await skillRegistry.executeTool({ id: "x", name: "createTask", arguments: { title: "Tenant wide" } }, { db, tenantId: alpha.id });
+      const bare = await skillRegistry.executeTool({ id: "x", name: "createTask", arguments: { title: "Tenant wide" } }, { tenantId: alpha.id });
       assert(bare.success && fs.existsSync(ws + "/shared/tasks"), "tenant-wide task not filed in shared");
     `);
   });

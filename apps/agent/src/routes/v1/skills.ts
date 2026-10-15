@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { object } from "../validation.js";
-import { db, repositories } from "@pachiware/db";
+import { repositories } from "@pachiware/db";
 import { skillRegistry } from "@pachiware/skills";
 import { switchTenantSkill } from "../skillSwitch.js";
 import type { TenantEnv } from "../../middleware/tenant.js";
@@ -28,6 +28,6 @@ skillRoutes.put("/:id", async (c) => {
 skillRoutes.post("/test", async (c) => {
   const body = object(await c.req.json(), "body");
   if (typeof body.toolName !== "string") return c.json({ error: "toolName required" }, 400);
-  const result = await skillRegistry.executeTool({ id: `test-${Date.now()}`, name: body.toolName, arguments: body.arguments || {} }, { db, tenantId: c.get("tenantId") });
+  const result = await skillRegistry.executeTool({ id: `test-${Date.now()}`, name: body.toolName, arguments: body.arguments || {} }, { tenantId: c.get("tenantId") });
   return c.json({ success: true, result });
 });

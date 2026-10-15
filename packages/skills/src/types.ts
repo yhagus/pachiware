@@ -1,4 +1,3 @@
-import type { db } from "@pachiware/db";
 import type { Language } from "./language.js";
 
 export interface ToolPropertySchema {
@@ -160,7 +159,6 @@ export interface ToolPolicy {
 export interface SkillContext {
   tenantId: string;
   botId?: string;
-  db: typeof db;
   discord?: DiscordClientAdapter;
   guildId?: string;
   channelId?: string;

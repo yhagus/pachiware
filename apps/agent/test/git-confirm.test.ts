@@ -14,7 +14,7 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, encryptSecret } = await imp("packages/db/src/index.ts");
+        const { encryptSecret } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const { skillRegistry } = await imp("packages/skills/src/registry.ts");
@@ -28,7 +28,7 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
 
         const calls = [];
         globalThis.fetch = async (url, init) => { calls.push((init?.method ?? "GET") + " " + url); return Response.json({ html_url: "https://x/1", number: 5, merged: true }); };
-        const ctx = { db, tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1", userId: "alice" };
+        const ctx = { tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1", userId: "alice" };
         const run = (name, args, c = ctx) => skillRegistry.executeTool({ id: "x", name, arguments: args }, c);
         const click = async (verb, id, user) => {
           const log = { replies: [], updates: [] };
@@ -83,7 +83,7 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         const differentThread = await run("repoComment", { repo: "acme/api", number: 9, kind: "issue", body: "new thread" }, { ...ctx, channelId: "c2" });
         assert(pendingOf(differentThread.data), "grant leaked into another thread");
         // 9. Write tools without a Discord user cannot queue.
-        const noUser = await run("repoComment", { repo: "acme/api", number: 1, kind: "issue", body: "x" }, { db, tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1" });
+        const noUser = await run("repoComment", { repo: "acme/api", number: 1, kind: "issue", body: "x" }, { tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1" });
         assert(!noUser.success, "queued without a user");
         console.log("ok");
       `],
