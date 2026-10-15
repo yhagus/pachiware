@@ -52,6 +52,7 @@ export * from "./crypto.js";
 export * from "./tenancy.js";
 export { createRepositories } from "./repositories/index.js";
 export type { Repositories, Tenant, TenantStatus, NewTenant, TenantUpdate, ApiKey, ApiKeyListing, IssuedApiKey, TenantRepository } from "./repositories/index.js";
+export type { Conversation, NewConversation, ConversationListing, Message, NewMessage, ConversationRepository } from "./repositories/index.js";
 export { openConnection, type Connection } from "./connection.js";
 export * from "./persona.js";
 export { eq, desc, asc, sql, and, or } from "drizzle-orm";
