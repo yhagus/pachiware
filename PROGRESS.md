@@ -1004,3 +1004,16 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
     - Names: `ThreadKind` is `"private" | "public"`; `filesRoot` removed for `placeRoot`; `workspaceStore()` returns `SearchableWorkspaceStore`, with matching in `search.ts` and the index in `searchIndex.ts`. Glossary gains Kept material and Source.
     - Verification: `bun run typecheck` exits 0; `bun test` 690 pass, 0 fail across 124 files.
 - [x] Spec #146 landed on main: `spec/146-across-channels` merged with main (profile Playground work) and fast-forwarded; `bun run typecheck` exits 0, `bun test` 697 pass, 0 fail across 124 files. #146–#154 closed.
+
+## Phase 35 — MongoDB as a third database engine, chosen once at setup (spec #155)
+
+Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR 0010; glossary term **Database engine**. Integration branch `spec/155-mongodb`, merged into `main` when done (no PR).
+
+- [x] Glossary term and ADR 0010 committed on the integration branch.
+- [ ] Implement the open sub-issues of #155 (#157–#159 were closed and split into #160–#172).
+  - [ ] #156 lock the database engine at setup (starts immediately)
+  - [ ] #160 repository entry point and contract harness, with Tenants and API keys (starts immediately)
+  - [ ] #161–#166 move the remaining records to repositories (blocked by #160)
+  - [ ] #167 the database package exports repositories only (blocked by #161–#166)
+  - [ ] #168 MongoDB foundation, with Tenants and API keys (blocked by #156, #160)
+  - [ ] #169–#172 MongoDB repositories and setup (held until `TEST_MONGODB_URL` points at a live replica set, as the user asked)
