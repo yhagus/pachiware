@@ -71,7 +71,7 @@ discordScenario("keepAsNote refuses a target that exists and writes nothing", as
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/notes")).toEqual(["guilds/guild-1/channels/channel-1/notes/plan.md"]);
 });
 
-discordScenario("keepAsNote refuses a source outside the place's files/ and a target outside its notes/", async (s) => {
+discordScenario("keepAsNote refuses a source outside the place's files/, a target outside its notes/ and a target that is not Markdown", async (s) => {
   await s.guildSettings({ language: "en" });
   const notes = attachment(s, "notes.txt", new TextEncoder().encode("The plan\n"), { contentType: "text/plain" });
   s.model.script("Filed.");
@@ -83,6 +83,8 @@ discordScenario("keepAsNote refuses a source outside the place's files/ and a ta
     [{ document: "channel/files/../../channel-2/files/x.txt", path: "channel/notes/plan.md" }, 'refused: Invalid name ".."'],
     [{ document: "channel/files/notes.txt", path: "channel/decisions/plan.md" }, "refused: A Note is kept under channel/notes/."],
     [{ document: "channel/files/notes.txt", path: "guild/notes/plan.md" }, "refused: A Note is kept under channel/notes/."],
+    [{ document: "channel/files/notes.txt", path: "channel/notes/plan.txt" }, "refused: A Note is a Markdown file: end its name in .md."],
+    [{ document: "channel/files/notes.txt", path: "channel/notes/plan" }, "refused: A Note is a Markdown file: end its name in .md."],
     [{ document: "channel/files/missing.txt", path: "channel/notes/plan.md" }, "refused: There is no Document at channel/files/missing.txt."],
   ] as const;
   for (const [args, reply] of attempts) {
@@ -193,4 +195,21 @@ discordScenario("a PDF with no record of where its text went is kept from <stem>
   await s.discord.send(`${s.discord.mention} keep the minutes PDF as a note`);
   expect(s.discord.botMessages.at(-1)?.content).toBe("refused: channel/files/minutes.pdf has no text to keep.");
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/notes")).toEqual(["guilds/guild-1/channels/channel-1/notes/report.md"]);
+});
+
+discordScenario("keepAsNote refuses in Indonesian where the place speaks it", async (s) => {
+  await s.guildSettings({ language: "id" });
+  const notes = attachment(s, "notes.txt", new TextEncoder().encode("Rencananya\n"), { contentType: "text/plain" });
+  s.model.script("Sudah.");
+  await s.discord.send(`${s.discord.mention} rencananya`, { attachments: [notes] });
+
+  const attempts = [
+    [{ document: "channel/files/notes.txt", path: "channel/notes/rencana.txt" }, "refused: Catatan berupa file Markdown: akhiri namanya dengan .md."],
+  ] as const;
+  for (const [args, reply] of attempts) {
+    s.model.script({ tool: "keepAsNote", args }, kept);
+    await s.discord.send(`${s.discord.mention} simpan sebagai catatan`);
+    expect(s.discord.botMessages.at(-1)?.content).toBe(reply);
+  }
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/notes")).toEqual([]);
 });

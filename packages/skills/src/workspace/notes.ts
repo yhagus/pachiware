@@ -67,6 +67,7 @@ export async function keepNote(ctx: SkillContext, path: unknown, pieces: KeptTex
   const t = textIn(ctx.language), store = workspaceStore();
   const note = under(ctx, path, "notes");
   if (!note) throw new Error(t.keepNotNotes(filesRoot(ctx)!));
+  if (!note.endsWith(".md")) throw new Error(t.keepNotMarkdown);
   const full = resolvePath(ctx, note);
   if (await store.read(ctx.tenantId, full).catch(() => true)) throw new Error(t.keepTaken(note));
   // One source stays a scalar; several messages give parallel lists, one source and one author per message, in order.

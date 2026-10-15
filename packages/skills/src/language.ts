@@ -168,6 +168,7 @@ const en = {
   keepNoMessage: (id: string) => `I can't find message ${id} in this channel or thread.`,
   keepNoText: (path: string) => `${path} has no text to keep.`,
   keepNotNotes: (root: string) => `A Note is kept under ${root}/notes/.`,
+  keepNotMarkdown: "A Note is a Markdown file: end its name in .md.",
   keepTaken: (path: string) => `${path} already exists. Pick another name; I never replace a file this way.`,
   // Guardrail refusals: the first two reach the person, the rest the model as a tool error
   guardInjection: "I can't follow instructions that try to change my rules or reveal internal details.",
@@ -305,6 +306,7 @@ const id: typeof en = {
   keepNoMessage: (id) => `Pesan ${id} tidak ketemu di channel atau thread ini.`,
   keepNoText: (path) => `${path} tidak punya teks untuk disimpan.`,
   keepNotNotes: (root) => `Catatan disimpan di ${root}/notes/.`,
+  keepNotMarkdown: "Catatan berupa file Markdown: akhiri namanya dengan .md.",
   keepTaken: (path) => `${path} sudah ada. Pilih nama lain; cara ini tidak pernah menimpa file.`,
   guardInjection: "Saya tidak bisa mengikuti instruksi yang mencoba mengubah aturan saya atau membuka detail internal.",
   guardTooLong: (limit) => `Pesan itu terlalu panjang (batas ${limit.toLocaleString("id-ID")} karakter). Tolong persingkat.`,
