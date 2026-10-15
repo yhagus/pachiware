@@ -72,3 +72,27 @@ discordScenario("the marker convention sits in the cached prompt for addressed a
   expect(first).toContain("[[react:👍]]");
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Which service?"]);
 });
+
+discordScenario("a mention wears ⏳ while its answer is worked on, and loses it once answered", async (s) => {
+  let during: string[] = [];
+  s.model.script(() => { during = [...s.discord.channel("channel-1").messages[0].reactions]; return "Deploy is at 14:00."; });
+  const ask = await s.discord.send(`${s.discord.mention} when is the deploy?`);
+  expect(during).toEqual(["⏳"]);
+  expect(ask.reactions).toEqual([]);
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Deploy is at 14:00."]);
+});
+
+discordScenario("⏳ comes off even when the turn fails", async (s) => {
+  s.model.script({ error: "Provider request failed" });
+  const ask = await s.discord.send(`${s.discord.mention} when is the deploy?`);
+  expect(ask.reactions).toEqual([]);
+  expect(s.discord.botMessages).toHaveLength(1);
+});
+
+discordScenario("a message not meant for the bot gets no ⏳, since it may get no answer", async (s) => {
+  await s.guildSettings({ alwaysChannelIds: ["channel-1"] });
+  let during: string[] = ["unset"];
+  s.model.script(() => { during = [...s.discord.channel("channel-1").messages[0].reactions]; return "[[silent]]"; });
+  await s.discord.send("anyone got lunch plans?");
+  expect(during).toEqual([]);
+});

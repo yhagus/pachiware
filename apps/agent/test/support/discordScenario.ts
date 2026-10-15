@@ -247,7 +247,10 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       attachments: new Collection((extra.attachments ?? []).map((a, i) => [a.id ?? String(i), a])),
       createdTimestamp: extra.at ?? clockNow(),
       get url() { return `https://discord.com/channels/${channel.guildId ?? "@me"}/${channel.id}/${message.id}`; },
-      react: async (emoji: string) => { message.reactions.push(emoji); },
+      react: async (emoji: string) => {
+        message.reactions.push(emoji);
+        return { users: { remove: async () => { const at = message.reactions.lastIndexOf(emoji); if (at >= 0) message.reactions.splice(at, 1); } } };
+      },
       pin: async () => { message.pinned = true; },
       delete: async () => { for (const list of [channel.messages, postedBy.get(author.id)]) { const at = list?.indexOf(message) ?? -1; if (at >= 0) list!.splice(at, 1); } return message; },
       reply: async (p: string | Payload) => post(channel, BOT_USER, p, { reference: message.id }),

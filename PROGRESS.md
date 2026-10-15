@@ -194,6 +194,7 @@ pachiware-agent/
   - [x] `messageCreate`: mention detection, DM handling, thread participation
 - [x] Message to Agent ReAct pipeline:
   - [x] Channel typing indicator during agent execution
+  - [x] ⏳ reaction on the messages being answered, removed when the turn ends (answered or failed); unaddressed messages get none. The rate-limit refusal still reacts ⏳ and leaves it on. Verification: `bun run typecheck` exits 0; `bun test` 702 pass, 0 fail across 124 files.
   - [x] Long response chunking (Discord 2000 char limit)
   - [x] Embed generation for task updates and tool notifications
 - [x] Discord client adapter supporting both live Discord and simulation fallback modes

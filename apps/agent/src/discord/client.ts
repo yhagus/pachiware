@@ -478,6 +478,9 @@ export class DiscordBotManager {
     const typing = async () => { try { if ("sendTyping" in target) await target.sendTyping(); } catch {} };
     await typing();
     const interval = setInterval(() => { void typing(); }, 4000);
+    // ⏳ marks the messages being answered until the turn ends; one not meant for the bot gets none, since it may get no answer.
+    const botUserId = runtime.client.user?.id;
+    const working = await Promise.all(items.filter((i) => i.direct !== false && i.msg.author.id !== botUserId).map((i) => i.msg.react("⏳").catch(() => null)));
     const send = (content: string) => thread ? thread.send({ content, allowedMentions: { parse: [] } }) : msg.reply({ content, allowedMentions: { parse: [] } });
     const language = replyLanguage(...items.map((i) => i.text)), t = textIn(language);
     try {
@@ -520,7 +523,10 @@ export class DiscordBotManager {
       // Still inside this conversation's serialized job, so the next turn reads the rewritten summary.
       if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});
     } catch { await send(t.failed).catch(() => {}); }
-    finally { clearInterval(interval); }
+    finally {
+      clearInterval(interval);
+      await Promise.all(working.map((r) => r?.users.remove().catch(() => {})));
+    }
   }
   // Servers and channels come from the live gateway cache, so they are only available while the bot is connected.
   getGuilds(id: string) {
