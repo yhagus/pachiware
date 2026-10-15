@@ -17,8 +17,8 @@ export type Filed = { path: string; bytes: Uint8Array; text?: Extracted };
 export type NotFiled = { reason: NotFiledReason };
 /** The person who gave a Document to the bot; a Note kept from it names them as its author. */
 export type Giver = { name: string; id: string };
-/** What the place remembers about a filed Document: who gave it, and for a PDF or DOCX where its text went. */
-export type Provenance = Giver & { text?: string };
+/** What the place remembers about a filed Document: who gave it, and where its extracted text went when it has one. */
+export type Provenance = Giver & { textPath?: string };
 type Where = Pick<SkillContext, "guildId" | "channelId" | "parentChannelId" | "userId">;
 
 export const isDocument = (name: string) => (DOCUMENT_TYPES as readonly string[]).includes(extensionOf(name));
@@ -84,7 +84,7 @@ export async function fileDocument(tenantId: string, where: Where, doc: Document
   }
   const text = await extractInto(tenantId, where, root, name, bytes, names);
   if (givenBy) {
-    await recordProvenance(tenantId, where, path, { ...givenBy, ...("path" in text && { text: text.path }) });
+    await recordProvenance(tenantId, where, path, { ...givenBy, ...("path" in text && { textPath: text.path }) });
     if ("path" in text) await recordProvenance(tenantId, where, text.path, givenBy);
   }
   return { path, bytes, text };
@@ -110,7 +110,7 @@ export async function provenanceOf(tenantId: string, where: Where, path: string)
   const file = at ? await workspaceStore().read(tenantId, at).catch(() => null) : null;
   try {
     const record = file && JSON.parse(file.content);
-    return typeof record?.name === "string" && typeof record.id === "string" ? { name: record.name, id: record.id, ...(typeof record.text === "string" && { text: record.text }) } : null;
+    return typeof record?.name === "string" && typeof record.id === "string" ? { name: record.name, id: record.id, ...(typeof record.textPath === "string" && { textPath: record.textPath }) } : null;
   } catch { return null; }
 }
 

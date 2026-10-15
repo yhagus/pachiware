@@ -12,17 +12,18 @@ export type KeptText = { text: string; source: string; author?: string };
 
 const TEXT_TYPES = ["md", "txt", "csv"];
 
-/** The place's folder (`channel` or `dm`) and the path inside it, when `path` lies under that folder's `top/`. */
-function under(ctx: SkillContext, path: unknown, top: string) {
+/** `path` when it names something inside `<place>/<folder>/` (`channel/notes/...` or `dm/notes/...`), else null; refuses where the turn has no place. */
+function pathInPlaceFolder(ctx: SkillContext, path: unknown, folder: string) {
   const root = filesRoot(ctx);
   if (!root) throw new Error(textIn(ctx.language).keepNoPlace);
-  return typeof path === "string" && path.startsWith(`${root}/${top}/`) && path.length > root.length + top.length + 2 ? path : null;
+  const prefix = `${root}/${folder}/`;
+  return typeof path === "string" && path.startsWith(prefix) && path.length > prefix.length ? path : null;
 }
 
 /** The text of the Document at `path`, as filed: an MD, TXT or CSV as it is, the extracted Markdown of a PDF, DOCX, XLSX or CSV too large to read. */
 export async function keptDocument(ctx: SkillContext, path: unknown): Promise<KeptText> {
   const t = textIn(ctx.language), store = workspaceStore();
-  const document = under(ctx, path, "files");
+  const document = pathInPlaceFolder(ctx, path, "files");
   if (!document) throw new Error(t.keepNotDocument(filesRoot(ctx)!));
   const full = resolvePath(ctx, document), folder = full.slice(0, full.lastIndexOf("/"));
   const entries = await store.list(ctx.tenantId, folder);
@@ -31,7 +32,7 @@ export async function keptDocument(ctx: SkillContext, path: unknown): Promise<Ke
   const given = await provenanceOf(ctx.tenantId, ctx, document);
   const siblings = entries.map((e) => e.path.slice(folder.length + 1));
   const textPath = !extractsText(document, entry.size ?? 0) ? (TEXT_TYPES.includes(extensionOf(document)) ? document : null)
-    : given ? given.text ?? null : unrecordedTextPath(document, siblings);
+    : given ? given.textPath ?? null : unrecordedTextPath(document, siblings);
   const file = textPath ? await store.read(ctx.tenantId, resolvePath(ctx, textPath)).catch(() => null) : null;
   if (!file) throw new Error(t.keepNoText(document));
   return { text: file.content, source: document, ...(given && { author: given.name }) };
@@ -65,7 +66,7 @@ export async function keptMessages(ctx: SkillContext, messageIds: unknown): Prom
  */
 export async function keepNote(ctx: SkillContext, path: unknown, pieces: KeptText[]): Promise<{ path: string }> {
   const t = textIn(ctx.language), store = workspaceStore();
-  const note = under(ctx, path, "notes");
+  const note = pathInPlaceFolder(ctx, path, "notes");
   if (!note) throw new Error(t.keepNotNotes(filesRoot(ctx)!));
   if (!note.endsWith(".md")) throw new Error(t.keepNotMarkdown);
   const full = resolvePath(ctx, note);
