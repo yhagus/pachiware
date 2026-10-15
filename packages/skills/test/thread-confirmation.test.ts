@@ -35,7 +35,7 @@ test("reset clears all process-local grants", () => {
 
 test("generic guarded writes use the thread grant while retaining scope checks", () => {
   const skill: any = { id: "x", effect: "write", requiresConfirmation: true, tools: [], handlers: {} };
-  const context: any = { ...base, db: {}, auth: { ...base, roleIds: [], permissions: [] } };
+  const context: any = { ...base, auth: { ...base, roleIds: [], permissions: [] } };
   expect(GuardrailService.checkTool(skill, "writeThing", {}, context)).toMatchObject({ allow: false, kind: "confirmation_required" });
   grantThreadConfirmation(base);
   expect(GuardrailService.checkTool(skill, "writeThing", {}, context)).toEqual({ allow: true });

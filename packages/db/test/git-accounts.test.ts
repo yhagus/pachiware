@@ -8,7 +8,8 @@ test("bot holds many git accounts; cross-tenant rejected; legacy column backfill
   try {
     const r = Bun.spawnSync({
       cmd: ["bun", "--eval", `
-        import { runMigrations, queryClient, repositories, patternCovers } from ${JSON.stringify(join(process.cwd(), "packages/db/src/index.ts"))};
+        import { runMigrations, repositories, patternCovers } from ${JSON.stringify(join(process.cwd(), "packages/db/src/index.ts"))};
+        import { queryClient } from ${JSON.stringify(join(process.cwd(), "packages/db/src/internal.ts"))};
         const run = (s) => queryClient.exec(s);
         // Pre-existing install: bots.git_account_id set before the join table exists.
         await runMigrations();

@@ -51,7 +51,7 @@ describe("system prompt stays stable between turns", () => {
       const t = await db.repositories().tenants.create({ name: "T", slug: "t" });
       const base = { tenantId: t.id, platform: "discord", guildId: "g1", guildName: "Srv" };
       const a = await SystemPromptBuilder.build({ ...base, userName: "Ana", userId: "1", channelId: "c1" });
-      await skillRegistry.executeTool({ id: "s", name: "createTask", arguments: { title: "new task" } }, { db: db.db, tenantId: t.id, guildId: "g1", channelId: "c2", userId: "2" });
+      await skillRegistry.executeTool({ id: "s", name: "createTask", arguments: { title: "new task" } }, { tenantId: t.id, guildId: "g1", channelId: "c2", userId: "2" });
       const b = await SystemPromptBuilder.build({ ...base, userName: "Budi", userId: "2", channelId: "c2" });
       assert(a === b, "static prompt changed between users/tasks");
       assert(!a.includes("Ana") && !a.includes("new task") && !a.includes("c1"), "dynamic data leaked into static prompt");
