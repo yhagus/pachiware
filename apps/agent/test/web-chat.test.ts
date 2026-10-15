@@ -6,7 +6,6 @@ import { join } from "node:path";
 const w = process.cwd();
 const decode = (b: Uint8Array) => new TextDecoder().decode(b);
 
-// Web chat has no Workspace place to keep a long text as a Document, so it takes inline text up to 50,000 characters.
 test("web chat answers 50,000 characters and refuses 50,001 in the language they were written in", () => {
   const dir = mkdtempSync(join(tmpdir(), "pachiware-webchat-"));
   try {

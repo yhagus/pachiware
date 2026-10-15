@@ -38,7 +38,6 @@ export async function keptDocument(ctx: SkillContext, path: unknown): Promise<Ke
   return { text: file.content, source: document, ...(given && { author: given.name }) };
 }
 
-/** How many messages one Note may join. */
 export const MAX_KEPT_MESSAGES = 20;
 
 /** The texts of messages in this channel or thread, as written, in the order given, each with its author and its link as the source. */
