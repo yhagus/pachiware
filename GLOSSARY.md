@@ -84,6 +84,10 @@ _Avoid_: Vault, file store, database
 A Discord community a bot has joined. Discord's own name for what its interface calls a server.
 _Avoid_: Server, channel group
 
+**Public channel**:
+A channel every member of its guild can view. What the bot kept there may be quoted in any channel of that guild; what it kept in any other channel is quoted only in that channel or in a DM to someone who can view it.
+_Avoid_: Open channel
+
 **Project**:
 The work a channel exists for. A channel's tasks are its project's tasks, and a thread's tasks belong to its parent channel's project. There is no project apart from a channel.
 _Avoid_: Board, workstream, category (a Discord category only groups channels)
@@ -147,3 +151,5 @@ _Avoid_: Notes (notes are files a person asked for), context, history
 - **Memory** lives in the **Workspace** at the tenant, guild, and channel level; the channel level is read only in that channel.
 - A **Document** is kept in the Workspace folder of the channel or DM it was given in; a **Note** may be made from it, never the other way round.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.
+- **Minutes**, **Decisions**, **Notes** and **Documents** of a channel can be read from another channel of the same guild, or from a DM, by someone who can view that channel, unless an **Availability rule** turns the Workspace off there; only a **Public channel**'s may be quoted in a channel other than their own. **Memory** and **Tasks** are never read this way.
+- What the bot kept from a private thread belongs to that thread: only people added to it can have it read, in its parent channel too.

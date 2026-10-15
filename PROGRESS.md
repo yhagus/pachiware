@@ -891,3 +891,28 @@ Four issues filed from a review of the assistant harness. Triaged on 2026-10-15;
 - Known limits, accepted by the decisions:
   - A 5-call turn still takes about 12 of the 30 history rows.
   - A model making one task write per response gets three through before the fourth is refused.
+
+## Phase 34 — Ask about everything kept, across channels (spec #146)
+
+Started from a readiness review (2026-10-15) of the bot as a record keeper people can ask about all their minutes: 58/100, strong at keeping, weak at answering. A channel reads only its own folder, search matches one literal phrase, and a private thread's Minutes sit in the parent channel's folder where anyone in the parent can have them read. A grilling session the same day settled the model; the spec is issue [#146](https://github.com/yhagus/pachiware/issues/146).
+
+- [x] Glossary: new term Public channel; relationships for reading Minutes, Decisions, Notes and Documents across channels and for what a private thread kept.
+- [x] ADR 0009: a private thread keeps its own folder (`threads/<thread-id>/` under the parent); a frontmatter field was rejected because model-written files can leave it out.
+- [x] Decisions recorded in the spec:
+  - Readable elsewhere: Minutes, Decisions, Notes, Documents, read only. Never Memory or Tasks.
+  - Sources: the asker must view the channel (and be in a private thread). From a channel, that guild; from a DM, every shared guild. A channel with the Workspace turned off is no source. None from web chat.
+  - Quoting: a Public channel's anywhere in its guild; others only in their own channel or a DM. Hits that cannot be quoted are counted, never named, and the bot suggests a DM.
+  - Old private-thread Minutes and kept-message Notes move once; Documents, Decisions and other Notes stay (no recorded thread). An unresolvable thread counts as private.
+  - Search: every word, any order, up to three ranked lines per file, grouped by channel, newest first, capped at fifty with counts. In-process index, no database table.
+  - Answers name channel, date and link; nothing found is said plainly.
+- [x] Test seams: the Discord scenario harness (gains a non-public channel) and the daily-behaviour eval (five new briefs).
+- [x] Spec #146 cut into 8 tickets, all sub-issues of #146 with native blocking, ready-for-agent. Starting frontier: #147, #148.
+  - #147 a private thread keeps its own folder (starts immediately)
+  - #148 search matches every word, with ranked lines (starts immediately)
+  - #149 move old private-thread Minutes and kept-message Notes (blocked by #147)
+  - #150 search index (blocked by #148)
+  - #151 read Public channels from another channel of the guild (blocked by #147, #148)
+  - #152 read from a DM across shared guilds (blocked by #151)
+  - #153 hits that cannot be quoted here (blocked by #151)
+  - #154 persona and daily-behaviour eval (blocked by #152, #153)
+- [ ] Implement #147–#154.
