@@ -1,6 +1,5 @@
 import { Hono } from "hono";
-import { repositories, db, bots, createBot, updateBot, deleteBot, setBotGitAccounts, listBotGitAccounts, listGitScopes, replaceGitScopes, eq, type GuildConfigInput } from "@pachiware/db";
-import { ne, and, desc, sql } from "drizzle-orm";
+import { repositories, setBotGitAccounts, listBotGitAccounts, listGitScopes, replaceGitScopes, type GuildConfigInput } from "@pachiware/db";
 import { discordBotManager } from "../../discord/client.js";
 import { loadGuildSettings, saveGuildSettings } from "../../loop/prompt.js";
 import { object, string, stringArray, placeSettings, digestChannels } from "../validation.js";
@@ -14,7 +13,7 @@ botAdminRoutes.post("/tenants/:id/bots", async (c) => {
   await assertProfile(c.req.param("id"), fields.profileId);
   await assertGitAccounts(c.req.param("id"), fields.gitAccountIds);
   const { gitAccountIds, ...rest } = fields;
-  const bot = await createBot({ tenantId: c.req.param("id"), ...rest } as any);
+  const bot = await repositories().bots.create({ tenantId: c.req.param("id"), ...rest } as any);
   if (gitAccountIds) await setBotGitAccounts(c.req.param("id"), bot.id, gitAccountIds);
   if (bot.isEnabled) void discordBotManager.startBot(bot.id).catch(() => {});
   return c.json({ success: true, bot: (await botsOut([bot]))[0] }, 201);
@@ -24,25 +23,21 @@ botAdminRoutes.get("/tenants/:id/bots", async (c) => {
   if (!await repositories().tenants.get(tenantId)) return c.json({ error: "Tenant not found" }, 404);
   const pageSize = Math.min(48, Math.max(1, Number(c.req.query("pageSize")) || 12));
   const page = Math.max(1, Number(c.req.query("page")) || 1);
-  const q = c.req.query("q")?.trim().toLowerCase(), platform = c.req.query("platform");
-  const where = and(eq(bots.tenantId, tenantId), ne(bots.connectionStatus, "deleted"), platform ? eq(bots.platform, platform) : undefined,
-    q ? sql`lower(${bots.name}) like ${`%${q.replace(/[\\%_]/g, "\\$&")}%`} escape '\\'` : undefined);
-  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(bots).where(where);
-  const rows = await db.select().from(bots).where(where).orderBy(desc(bots.createdAt), bots.id).limit(pageSize).offset((page - 1) * pageSize);
-  return c.json({ success: true, bots: await botsOut(rows), total: Number(n), page, pageSize });
+  const { bots, total } = await repositories().bots.search(tenantId, { q: c.req.query("q"), platform: c.req.query("platform"), page, pageSize });
+  return c.json({ success: true, bots: await botsOut(bots), total, page, pageSize });
 });
 botAdminRoutes.use("/bots/:botId/*", async (c, next) => {
-  const [row] = await db.select().from(bots).where(and(eq(bots.id, c.req.param("botId")!), ne(bots.connectionStatus, "deleted"))).limit(1);
+  const row = await repositories().bots.get(c.req.param("botId")!);
   if (!row || !await repositories().tenants.get(row.tenantId)) return c.json({ error: "Bot not found" }, 404);
   await next();
 });
 botAdminRoutes.use("/bots/:botId", async (c, next) => {
-  const [row] = await db.select().from(bots).where(and(eq(bots.id, c.req.param("botId")!), ne(bots.connectionStatus, "deleted"))).limit(1);
+  const row = await repositories().bots.get(c.req.param("botId")!);
   if (!row || !await repositories().tenants.get(row.tenantId)) return c.json({ error: "Bot not found" }, 404);
   await next();
 });
 botAdminRoutes.get("/bots/:botId", async (c) => {
-  const [row] = await db.select().from(bots).where(eq(bots.id, c.req.param("botId")!)).limit(1);
+  const row = (await repositories().bots.get(c.req.param("botId")!))!;
   return c.json({ success: true, bot: (await botsOut([row]))[0] });
 });
 botAdminRoutes.get("/bots/:botId/guilds", (c) => {
@@ -51,11 +46,11 @@ botAdminRoutes.get("/bots/:botId/guilds", (c) => {
 });
 const guildSettingsOut = (s: Awaited<ReturnType<typeof loadGuildSettings>>) => ({ systemPrompt: s.systemPrompt ?? "", useThreads: s.useThreads, alwaysChannelIds: s.alwaysChannelIds, timezone: s.timezone, language: s.language, digestChannels: s.digestChannels });
 botAdminRoutes.get("/bots/:botId/guilds/:guildId/config", async (c) => {
-  const [bot] = await db.select().from(bots).where(eq(bots.id, c.req.param("botId")!)).limit(1);
+  const bot = (await repositories().bots.get(c.req.param("botId")!))!;
   return c.json({ success: true, config: guildSettingsOut(await loadGuildSettings(bot.tenantId, bot.id, c.req.param("guildId")!)) });
 });
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/config", async (c) => {
-  const [bot] = await db.select().from(bots).where(eq(bots.id, c.req.param("botId")!)).limit(1);
+  const bot = (await repositories().bots.get(c.req.param("botId")!))!;
   const body = object(await c.req.json(), "body"), guildId = c.req.param("guildId")!;
   const input: GuildConfigInput = {};
   if (body.systemPrompt !== undefined) {
@@ -80,7 +75,7 @@ botAdminRoutes.get("/bots/:botId/guilds/:guildId/git", async (c) => {
   return c.json({ success: true, accounts: await listBotGitAccounts(botId), server: scopesOut(rows, ""), channels });
 });
 async function putScope(c: any, channelId: string) {
-  const [bot] = await db.select().from(bots).where(eq(bots.id, c.req.param("botId")!)).limit(1);
+  const bot = (await repositories().bots.get(c.req.param("botId")!))!;
   const body = object(await c.req.json(), "body");
   if (!Array.isArray(body.rules)) return c.json({ error: "rules must be an array" }, 400);
   const rules = body.rules.map((r: any) => { const o = object(r, "rule"); return { gitAccountId: string(o.gitAccountId, "gitAccountId")!, repoPatterns: stringArray(o.repoPatterns, "repoPatterns") }; });
@@ -108,18 +103,18 @@ botAdminRoutes.get("/bots/:botId/conversations/:id/messages", async (c) => {
 });
 botAdminRoutes.patch("/bots/:botId", async (c) => {
   const fields = botFields(object(await c.req.json(), "body"));
-  const [owner] = await db.select({ tenantId: bots.tenantId }).from(bots).where(eq(bots.id, c.req.param("botId")!)).limit(1);
+  const owner = await repositories().bots.get(c.req.param("botId")!);
   await assertProfile(owner!.tenantId, fields.profileId);
   await assertGitAccounts(owner!.tenantId, fields.gitAccountIds);
   const { gitAccountIds, ...rest } = fields;
-  const bot = await updateBot(c.req.param("botId"), rest);
+  const bot = (await repositories().bots.update(c.req.param("botId"), rest))!;
   if (gitAccountIds) await setBotGitAccounts(owner!.tenantId, c.req.param("botId"), gitAccountIds);
-  if (bot?.isEnabled) void discordBotManager.restartBot(bot.id).catch(() => {});
+  if (bot.isEnabled) void discordBotManager.restartBot(bot.id).catch(() => {});
   else await discordBotManager.stopBot(c.req.param("botId"));
   return c.json({ success: true, bot: (await botsOut([bot]))[0] });
 });
 botAdminRoutes.post("/bots/:botId/restart", async (c) => c.json(await discordBotManager.restartBot(c.req.param("botId"))));
 botAdminRoutes.delete("/bots/:botId", async (c) => {
-  await discordBotManager.removeBot(c.req.param("botId")); await deleteBot(c.req.param("botId"));
+  await discordBotManager.removeBot(c.req.param("botId")); await repositories().bots.remove(c.req.param("botId"));
   return c.json({ success: true });
 });

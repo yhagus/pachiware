@@ -1,8 +1,14 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { contract } from "./engines.ts";
+
+// Bots keep their tokens encrypted, so adding one needs a platform key; the one a developer set is kept.
+const savedKey = process.env.PLATFORM_ENCRYPTION_KEY;
+beforeAll(() => { process.env.PLATFORM_ENCRYPTION_KEY ||= Buffer.alloc(32, 6).toString("base64"); });
+afterAll(() => { if (savedKey === undefined) delete process.env.PLATFORM_ENCRYPTION_KEY; else process.env.PLATFORM_ENCRYPTION_KEY = savedKey; });
 
 contract("Conversations and messages", (use) => {
   const tenant = (slug: string) => use().repos.tenants.create({ name: slug, slug });
+  const addBot = async (tenantId: string) => (await use().repos.bots.create({ tenantId, token: `token-${crypto.randomUUID()}` })).id;
 
   test("a conversation is created for a tenant and only that tenant reads it back", async () => {
     const { conversations } = use().repos;
@@ -64,7 +70,7 @@ contract("Conversations and messages", (use) => {
   test("a conversation names only a bot of its own tenant", async () => {
     const { conversations } = use().repos;
     const [acme, other] = [await tenant("acme"), await tenant("other")];
-    const bot = await use().addBot(acme.id);
+    const bot = await addBot(acme.id);
     expect((await conversations.create({ tenantId: acme.id, botId: bot, platform: "discord" })).botId).toBe(bot);
     await expect(conversations.create({ tenantId: other.id, botId: bot, platform: "discord" })).rejects.toThrow();
     expect(await conversations.listForTenant(other.id)).toEqual([]);
@@ -83,7 +89,7 @@ contract("Conversations and messages", (use) => {
   test("the newest conversation of a bot in a channel is the one a turn continues", async () => {
     const { conversations } = use().repos;
     const [acme, other] = [await tenant("acme"), await tenant("other")];
-    const [bot, sibling] = [await use().addBot(acme.id), await use().addBot(acme.id)];
+    const [bot, sibling] = [await addBot(acme.id), await addBot(acme.id)];
     await conversations.create({ tenantId: acme.id, botId: bot, platform: "discord", channelId: "c1" });
     await Bun.sleep(2);
     const newest = await conversations.create({ tenantId: acme.id, botId: bot, platform: "discord", channelId: "c1" });
@@ -98,7 +104,7 @@ contract("Conversations and messages", (use) => {
   test("a bot lists the conversations it handled, newest first, with message counts, and filters by channel or parent channel", async () => {
     const { conversations } = use().repos;
     const acme = await tenant("acme");
-    const [bot, sibling] = [await use().addBot(acme.id), await use().addBot(acme.id)];
+    const [bot, sibling] = [await addBot(acme.id), await addBot(acme.id)];
     const channel = await conversations.create({ tenantId: acme.id, botId: bot, platform: "discord", channelId: "c1", userId: "u1", metadata: { parentChannelId: "c1" } });
     await Bun.sleep(2);
     const thread = await conversations.create({ tenantId: acme.id, botId: bot, platform: "discord", channelId: "t1", metadata: { parentChannelId: "c1" } });
