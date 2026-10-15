@@ -329,7 +329,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { runMigrations } = await import("../../../../packages/db/src/migrate.ts");
   const { runSeed } = await import("../../../../packages/db/src/seed.ts");
   const dbModule = await import("../../../../packages/db/src/index.ts");
-  const { db, gitAccounts, encryptSecret, setBotGitAccounts, replaceGitScopes, and, eq } = dbModule as any;
+  const { db, encryptSecret } = dbModule as any;
   const { repositories } = await import("../../../../packages/db/src/index.ts");
   await runMigrations(); await runSeed();
   const { llmRouter } = await import("../../src/llm/router.ts");
@@ -421,9 +421,10 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     http: { on: (match, respond) => { routes.push({ match, respond }); }, passthrough: (match) => { routes.push({ match, respond: () => null, passthrough: true }); }, requests },
     git: async ({ provider = "github", repos = ["acme/*"] } = {}) => {
       await repositories().skills.setEnabled(tenant.id, "git_repositories", true);
-      const [account] = await db.insert(gitAccounts).values({ tenantId: tenant.id, name: provider, provider, username: "octo", tokenEncrypted: encryptSecret("git-token") }).returning();
-      await setBotGitAccounts(tenant.id, bot.id, [account.id]);
-      await replaceGitScopes(tenant.id, bot.id, GUILD.id, "", [{ gitAccountId: account.id, repoPatterns: repos }]);
+      const { git } = repositories();
+      const account = await git.createAccount({ tenantId: tenant.id, name: provider, provider, username: "octo", tokenEncrypted: encryptSecret("git-token") });
+      await git.setBotAccounts(tenant.id, bot.id, [account.id]);
+      await git.replaceScopes(tenant.id, bot.id, GUILD.id, "", [{ gitAccountId: account.id, repoPatterns: repos }]);
       return account;
     },
     guildSettings: async (input) => { await saveGuildSettings(tenant.id, bot.id, GUILD.id, input); },

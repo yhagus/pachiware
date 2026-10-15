@@ -1,4 +1,4 @@
-import { db, gitAccounts, botGitAccounts, listGitScopes, patternCovers, assertGitHostAllowed, eq, and } from "@pachiware/db";
+import { repositories, patternCovers, assertGitHostAllowed, type GitAccount } from "@pachiware/db";
 import type { SkillContext } from "./types.js";
 import { getGitToken } from "./gitOAuth.js";
 import type { GitConn } from "./git.js";
@@ -53,14 +53,14 @@ export function pickAccess(list: GitAccess[], name?: unknown): GitAccess {
 
 export async function loadGitAccess(ctx: SkillContext & { parentChannelId?: string }): Promise<GitAccess[]> {
   if (!ctx.botId || !ctx.guildId) throw new Error("Git tools only work in a Discord server channel where git access has been enabled");
-  const attached = await db.select({ acc: gitAccounts }).from(botGitAccounts).innerJoin(gitAccounts, eq(gitAccounts.id, botGitAccounts.gitAccountId))
-    .where(and(eq(botGitAccounts.botId, ctx.botId), eq(gitAccounts.tenantId, ctx.tenantId)));
-  const rules = (await listGitScopes(ctx.botId, ctx.guildId)).filter((r: any) => r.tenantId === ctx.tenantId);
-  return computeAccess(attached.map((r: any) => r.acc), rules, ctx.channelId, ctx.parentChannelId);
+  const { git } = repositories();
+  const attached = (await git.listBotAccounts(ctx.botId)).filter((a) => a.tenantId === ctx.tenantId);
+  const rules = (await git.listScopes(ctx.botId, ctx.guildId)).filter((r) => r.tenantId === ctx.tenantId);
+  return computeAccess(attached, rules, ctx.channelId, ctx.parentChannelId);
 }
 
 export async function connectionOf(access: GitAccess): Promise<GitConn> {
   const acc = access.account;
   assertGitHostAllowed(acc.baseUrl); // the allowlist may have changed since the account was saved
-  return { provider: acc.provider as GitConn["provider"], baseUrl: acc.baseUrl, token: await getGitToken(acc as any), oauth: acc.authType === "oauth" };
+  return { provider: acc.provider as GitConn["provider"], baseUrl: acc.baseUrl, token: await getGitToken(acc as GitAccount), oauth: acc.authType === "oauth" };
 }

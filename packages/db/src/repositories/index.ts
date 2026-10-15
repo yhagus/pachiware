@@ -22,6 +22,8 @@ import { createSqlAvailabilityRuleRepository } from "./availability/sql.js";
 import type { AvailabilityRuleRepository } from "./availability/types.js";
 import { createSqlConversationRepository } from "./conversations/sql.js";
 import type { ConversationRepository } from "./conversations/types.js";
+import { createSqlGitRepository } from "./git/sql.js";
+import type { GitRepository } from "./git/types.js";
 
 // One folder per kind of record: `types.ts` holds its domain types and interface, `sql.ts` serves SQLite
 // and PostgreSQL, and `mongo.ts` serves MongoDB. Its contract suite lives in
@@ -37,6 +39,7 @@ export type * from "./bots/types.js";
 export type * from "./skills/types.js";
 export type * from "./availability/types.js";
 export type * from "./conversations/types.js";
+export type * from "./git/types.js";
 
 /** Every repository, one per kind of record. Code outside the database package reads and writes records only through these. */
 export type Repositories = {
@@ -51,6 +54,7 @@ export type Repositories = {
   skills: SkillRepository;
   availability: AvailabilityRuleRepository;
   conversations: ConversationRepository;
+  git: GitRepository;
 };
 
 /** The repositories of one open database, implemented for its engine. */
@@ -70,6 +74,7 @@ export function createRepositories(connection: Connection): Repositories {
         skills: createSqlSkillRepository(connection),
         availability: createSqlAvailabilityRuleRepository(connection),
         conversations: createSqlConversationRepository(connection),
+        git: createSqlGitRepository(connection),
       };
     case "mongodb":
       return {
@@ -84,6 +89,7 @@ export function createRepositories(connection: Connection): Repositories {
         skills: notOnMongoYet("Skills"),
         availability: notOnMongoYet("Availability rules"),
         conversations: notOnMongoYet("Conversations"),
+        git: notOnMongoYet("Git"),
       };
   }
 }

@@ -31,7 +31,6 @@ export * from "./runtime-store.js";
 export * from "./dialect.js";
 export * from "./engine.js";
 export * from "./crypto.js";
-export * from "./tenancy.js";
 export { createRepositories } from "./repositories/index.js";
 export type { Repositories, Tenant, TenantStatus, NewTenant, TenantUpdate, ApiKey, ApiKeyListing, IssuedApiKey, TenantRepository } from "./repositories/index.js";
 export type { Schedule, NewSchedule, ScheduleUpdate, ScheduleFilter, ScheduleKind, ScheduleRecurrence, ScheduleStatus, ScheduleRepository, TaskRow, NewTaskRow, TaskRowRepository } from "./repositories/index.js";
@@ -40,6 +39,8 @@ export type { Bot, NewBot, BotUpdate, BotWithToken, BotSearch, GuildConfig, Guil
 export type { Skill, SkillDefinition, TenantSkill, TenantSkillListing, SkillRepository } from "./repositories/index.js";
 export type { RuleLevel, RuleTargetKind, RuleValue, RuleScope, RuleTarget, AvailabilityRuleRecord, AvailabilityRuleRepository } from "./repositories/index.js";
 export type { Conversation, NewConversation, ConversationListing, Message, NewMessage, ConversationRepository } from "./repositories/index.js";
+export type { GitRepository, GitAccount, NewGitAccount, GitAccountUpdate, BotRef, GitScope, GitScopeRule, GitOAuthApp, NewGitOAuthApp } from "./repositories/index.js";
+export { patternCovers } from "./repositories/git/rules.js";
 export { openConnection, type Connection } from "./connection.js";
 export { ReplicaSetRequiredError } from "./mongo/connection.js";
 export * from "./persona.js";

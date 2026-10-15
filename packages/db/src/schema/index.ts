@@ -54,11 +54,8 @@ export type Profile = typeof pgSchema.profiles.$inferSelect;
 export type NewProfile = typeof pgSchema.profiles.$inferInsert;
 
 export let gitAccounts = active.gitAccounts;
-export type GitAccount = typeof pgSchema.gitAccounts.$inferSelect;
-export type NewGitAccount = typeof pgSchema.gitAccounts.$inferInsert;
 
 export let gitOauthApps = active.gitOauthApps;
-export type GitOauthApp = typeof pgSchema.gitOauthApps.$inferSelect;
 
 export let bots = active.bots;
 export type Bot = typeof pgSchema.bots.$inferSelect;
@@ -69,10 +66,8 @@ export type GuildConfig = typeof pgSchema.guildConfigs.$inferSelect;
 export type { DigestChannel } from "./types.js";
 
 export let botGitAccounts = active.botGitAccounts;
-export type BotGitAccount = typeof pgSchema.botGitAccounts.$inferSelect;
 
 export let gitScopes = active.gitScopes;
-export type GitScope = typeof pgSchema.gitScopes.$inferSelect;
 
 export let availabilityRules = active.availabilityRules;
 export type AvailabilityRuleRow = typeof pgSchema.availabilityRules.$inferSelect;

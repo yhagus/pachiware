@@ -35,8 +35,8 @@ discordScenario("grill-with-docs runs with grilling and domain-modeling loaded a
 discordScenario("the playbooks that act on a repository are refused privately where git scope allows none, while grill-with-docs starts and keeps its glossary in the channel", async (s) => {
   await turnOn(s, "to-spec", "code-review", "pr", "grilling", "domain-modeling", "grill-with-docs");
   await s.git({ repos: ["acme/api"] });
-  const { setBotGitAccounts } = await import(process.cwd() + "/packages/db/src/tenancy.ts");
-  await setBotGitAccounts(s.tenant.id, s.bot.id, []);
+  const { repositories } = await import(process.cwd() + "/packages/db/src/index.ts");
+  await repositories().git.setBotAccounts(s.tenant.id, s.bot.id, []);
   s.discord.unlimited(s.discord.alice);
 
   for (const name of ["to-spec", "code-review", "pr"]) {

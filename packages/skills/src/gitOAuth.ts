@@ -1,14 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
-import { db, gitAccounts, gitOauthApps, encryptSecret, decryptSecret, eq, and } from "@pachiware/db";
+import { repositories, encryptSecret, decryptSecret, type GitAccount } from "@pachiware/db";
 import { fetchGitUsername, type GitProvider } from "./git.js";
 
 const SCOPES: Record<GitProvider, string> = { github: "repo", gitlab: "api" };
 const web = (provider: GitProvider, baseUrl: string | null) => baseUrl?.replace(/\/+$/, "") ?? (provider === "github" ? "https://github.com" : "https://gitlab.com");
 const tokenUrl = (provider: GitProvider, baseUrl: string | null) => web(provider, baseUrl) + (provider === "github" ? "/login/oauth/access_token" : "/oauth/token");
 
-export async function findOAuthApp(provider: GitProvider, baseUrl: string | null) {
-  const [app] = await db.select().from(gitOauthApps).where(and(eq(gitOauthApps.provider, provider), eq(gitOauthApps.baseUrl, baseUrl ?? ""))).limit(1);
-  return app ?? null;
+export function findOAuthApp(provider: GitProvider, baseUrl: string | null) {
+  return repositories().git.findOAuthApp(provider, baseUrl);
 }
 
 // ponytail: in-memory, single agent process; move to a table if the agent ever runs as several instances.
@@ -51,19 +50,20 @@ export async function completeOAuth(p: Pending, code: string, redirectUri: strin
   const values = { tenantId: p.tenantId, provider: p.provider, baseUrl: p.baseUrl, username, authType: "oauth", tokenEncrypted: encryptSecret(t.access), refreshTokenEncrypted: t.refresh ? encryptSecret(t.refresh) : null, tokenExpiresAt: t.expiresAt };
   for (let i = 0; i < 20; i++) {
     const name = i === 0 ? username : `${username}-${i + 1}`;
-    try { await db.insert(gitAccounts).values({ ...values, name }); return name; } catch { /* name taken in this tenant: try the next suffix */ }
+    try { await repositories().git.createAccount({ ...values, name }); return name; } catch { /* name taken in this tenant: try the next suffix */ }
   }
   throw new Error("Could not pick a unique account name");
 }
 
 /** Returns a usable access token, refreshing an expiring OAuth token first. */
-export async function getGitToken(acc: any): Promise<string> {
+export async function getGitToken(acc: GitAccount): Promise<string> {
   const token = decryptSecret(acc.tokenEncrypted);
   if (acc.authType !== "oauth" || !acc.tokenExpiresAt || new Date(acc.tokenExpiresAt).getTime() - Date.now() > 60_000) return token;
   if (!acc.refreshTokenEncrypted) throw new Error("Git login expired; reconnect the account");
-  const app = await findOAuthApp(acc.provider, acc.baseUrl);
+  const provider = acc.provider as GitProvider;
+  const app = await findOAuthApp(provider, acc.baseUrl);
   if (!app) throw new Error("OAuth app for this git host was removed; reconnect the account");
-  const t = await tokenRequest(acc.provider, acc.baseUrl, { client_id: app.clientId, client_secret: decryptSecret(app.clientSecretEncrypted), grant_type: "refresh_token", refresh_token: decryptSecret(acc.refreshTokenEncrypted) });
-  await db.update(gitAccounts).set({ tokenEncrypted: encryptSecret(t.access), refreshTokenEncrypted: t.refresh ? encryptSecret(t.refresh) : acc.refreshTokenEncrypted, tokenExpiresAt: t.expiresAt, updatedAt: new Date() }).where(eq(gitAccounts.id, acc.id));
+  const t = await tokenRequest(provider, acc.baseUrl, { client_id: app.clientId, client_secret: decryptSecret(app.clientSecretEncrypted), grant_type: "refresh_token", refresh_token: decryptSecret(acc.refreshTokenEncrypted) });
+  await repositories().git.updateAccount(acc.id, { tokenEncrypted: encryptSecret(t.access), refreshTokenEncrypted: t.refresh ? encryptSecret(t.refresh) : acc.refreshTokenEncrypted, tokenExpiresAt: t.expiresAt });
   return t.access;
 }

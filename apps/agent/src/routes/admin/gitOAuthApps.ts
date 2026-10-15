@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { db, gitOauthApps, encryptSecret, assertGitHostAllowed, eq } from "@pachiware/db";
-import { desc } from "drizzle-orm";
+import { repositories, encryptSecret, assertGitHostAllowed } from "@pachiware/db";
 import { object, string } from "../validation.js";
 import { GIT_PROVIDERS, isDefaultGitHost, type GitProvider } from "@pachiware/skills";
 
@@ -20,7 +19,7 @@ function host(value: unknown): string {
 }
 
 gitOAuthAppAdminRoutes.get("/git-oauth-apps", async (c) => {
-  const rows = await db.select().from(gitOauthApps).orderBy(desc(gitOauthApps.createdAt)).limit(200);
+  const rows = await repositories().git.listOAuthApps();
   return c.json({ success: true, redirectUri: redirectUri(), apps: rows.map(publicApp) });
 });
 gitOAuthAppAdminRoutes.post("/git-oauth-apps", async (c) => {
@@ -28,10 +27,9 @@ gitOAuthAppAdminRoutes.post("/git-oauth-apps", async (c) => {
   const provider = string(body.provider, "provider") as GitProvider;
   if (!GIT_PROVIDERS.includes(provider)) throw new HTTPException(400, { message: "provider must be github or gitlab" });
   const values = { provider, baseUrl: host(body.baseUrl), clientId: string(body.clientId, "clientId")!, clientSecretEncrypted: encryptSecret(string(body.clientSecret, "clientSecret")!) };
-  try { const [row] = await db.insert(gitOauthApps).values(values).returning(); return c.json({ success: true, app: publicApp(row) }, 201); }
+  try { return c.json({ success: true, app: publicApp(await repositories().git.createOAuthApp(values)) }, 201); }
   catch { return c.json({ error: "An OAuth app for this host already exists" }, 409); }
 });
 gitOAuthAppAdminRoutes.delete("/git-oauth-apps/:id", async (c) => {
-  const [row] = await db.delete(gitOauthApps).where(eq(gitOauthApps.id, c.req.param("id")!)).returning();
-  return row ? c.json({ success: true }) : c.json({ error: "OAuth app not found" }, 404);
+  return await repositories().git.deleteOAuthApp(c.req.param("id")!) ? c.json({ success: true }) : c.json({ error: "OAuth app not found" }, 404);
 });

@@ -44,8 +44,8 @@ discordScenario("Confirm on a git tool available here but no longer in the git s
   await s.discord.send(`${s.discord.mention} comment "Fixed in main" on acme/api#3`);
   const confirmation = s.discord.botMessages.at(-1)!;
 
-  const { replaceGitScopes } = await import("../../../packages/db/src/tenancy.ts");
-  await replaceGitScopes(s.tenant.id, s.bot.id, s.discord.guildId, "", [{ gitAccountId: account.id, repoPatterns: ["other/*"] }]);
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  await repositories().git.replaceScopes(s.tenant.id, s.bot.id, s.discord.guildId, "", [{ gitAccountId: account.id, repoPatterns: ["other/*"] }]);
   await s.discord.click(confirmation, "Confirm");
   expect(s.http.requests).toEqual([]);
   expect(confirmation.content).toContain("I couldn't complete that");
