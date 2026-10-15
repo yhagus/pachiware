@@ -115,7 +115,7 @@ describe("Phase 13 tenant API", () => {
     const { directory, result } = runApiScenario(`
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))}); const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
-      const { db, usageEvents, tenantSkills, bots, eq, repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
+      const { db, usageEvents, tenantSkills, eq, repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       await runMigrations(); await runSeed(); const first = await repositories().tenants.create({ name: "Chat one", slug: "chat-one" }); const second = await repositories().tenants.create({ name: "Chat two", slug: "chat-two" }); const firstKey = await repositories().tenants.issueApiKey("one"); const secondKey = await repositories().tenants.issueApiKey("two"); await repositories().tenants.linkApiKey(first.id, firstKey.keyId); await repositories().tenants.linkApiKey(second.id, secondKey.keyId);
       const { createServer } = await import(${JSON.stringify(join(workspace, "apps/agent/src/server.ts"))}); const app = createServer(); const auth = (key, tenant) => ({ Authorization: "Bearer " + key, "Content-Type": "application/json", "X-Tenant-Id": tenant.id });
       assert((await app.request("/api/v1/config", { method: "PUT", headers: auth(firstKey.raw, first), body: JSON.stringify({ openaiApiKeyEncrypted: "mock-openai-key" }) })).status === 200, "LLM config failed");
@@ -140,7 +140,7 @@ describe("Phase 13 tenant API", () => {
       const botRes = await app.request("/api/v1/bots", { method: "POST", headers: auth(firstKey.raw, first), body: JSON.stringify({ name: "p-bot", token: "t", isEnabled: false, profileId: profile.id }) });
       assert(botRes.status === 201 && (await botRes.json()).bot.profileId === profile.id, "bot profile not saved");
       assert((await app.request("/api/v1/bots", { method: "POST", headers: auth(firstKey.raw, first), body: JSON.stringify({ name: "bad", token: "t", isEnabled: false, profileId: foreign.id }) })).status === 400, "foreign profile accepted");
-      const [profiled] = await db.select().from(bots).where(eq(bots.name, "p-bot"));
+      const profiled = (await repositories().bots.listForTenant(first.id)).find((bot) => bot.name === "p-bot");
       let seen; globalThis.fetch = async (url, init) => { seen = { url: String(url), auth: init.headers.Authorization, model: JSON.parse(init.body).model }; return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { headers: { "Content-Type": "application/json" } }); };
       const { llmRouter } = await import(${JSON.stringify(join(workspace, "apps/agent/src/llm/router.ts"))});
       await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: first.id, botId: profiled.id });
@@ -148,7 +148,7 @@ describe("Phase 13 tenant API", () => {
       await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: first.id });
       assert(seen.url.startsWith("https://api.openai.com") && seen.model !== "my-model", "tenant default not used without bot");
       assert((await app.request("/api/admin/profiles/" + profile.id, { method: "DELETE", headers: admin })).status === 200, "profile delete failed");
-      const [after] = await db.select().from(bots).where(eq(bots.id, profiled.id)); assert(after.profileId === null, "bot not reset to default on profile delete");
+      const after = await repositories().bots.get(profiled.id); assert(after.profileId === null, "bot not reset to default on profile delete");
       // Model discovery: GET <baseUrl>/models with the key, server-side; blank key reuses the saved profile's key.
       const modelsPost = (body) => app.request("/api/admin/profiles/models", { method: "POST", headers: admin, body: JSON.stringify(body) });
       let modelsAuth; globalThis.fetch = async (url, init) => { modelsAuth = { url: String(url), auth: init.headers.Authorization }; return String(url).includes("bad.example") ? new Response("no", { status: 401 }) : new Response(JSON.stringify({ data: [{ id: "zeta" }, { id: "alpha" }, { id: "alpha" }] }), { headers: { "Content-Type": "application/json" } }); };

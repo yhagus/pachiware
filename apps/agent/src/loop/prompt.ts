@@ -1,4 +1,4 @@
-import { db, agentsConfig, getGuildConfig, upsertGuildConfig, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type GuildConfigInput } from "@pachiware/db";
+import { db, repositories, agentsConfig, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type GuildConfigInput } from "@pachiware/db";
 import { eq } from "drizzle-orm";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, loadMemory, loadTasks, readInFull, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, isOpen, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
@@ -13,7 +13,7 @@ export async function loadGuildSettings(tenantId: string, botId: string, guildId
   const key = guildCacheKey(tenantId, botId, guildId);
   const cached = await CacheService.get<GuildSettings>(key);
   if (cached) return cached;
-  const row = await getGuildConfig(botId, guildId);
+  const row = await repositories().bots.getGuildConfig(botId, guildId);
   const settings = row ? { systemPrompt: row.systemPrompt, useThreads: row.useThreads, alwaysChannelIds: row.alwaysChannelIds, timezone: row.timezone ?? null, language: row.language ?? null, digestChannels: row.digestChannels ?? [] } : guildDefaults;
   await CacheService.set(key, settings, 120);
   return settings;
@@ -21,7 +21,7 @@ export async function loadGuildSettings(tenantId: string, botId: string, guildId
 
 /** The one way to change a guild's settings: writes the row, drops the cache, and keeps the Digest schedule rows in step with `digestChannels` and the zone. */
 export async function saveGuildSettings(tenantId: string, botId: string, guildId: string, input: GuildConfigInput): Promise<GuildSettings> {
-  await upsertGuildConfig(tenantId, botId, guildId, input);
+  await repositories().bots.saveGuildConfig(tenantId, botId, guildId, input);
   await CacheService.del(guildCacheKey(tenantId, botId, guildId));
   const settings = await loadGuildSettings(tenantId, botId, guildId);
   const [agent] = await db.select({ timezone: agentsConfig.timezone }).from(agentsConfig).where(eq(agentsConfig.tenantId, tenantId)).limit(1);

@@ -1,8 +1,7 @@
 import type { Context, Hono } from "hono";
 import { skillRegistry, listAvailabilityRules, inheritedAvailability, setAvailabilityRule, clearAvailabilityRule, listPlaybooks, AvailabilityError, type LevelKey } from "@pachiware/skills";
 import { guildSlashStatus } from "../discord/commands.js";
-import { db, bots } from "@pachiware/db";
-import { and, eq, ne } from "drizzle-orm";
+import { repositories } from "@pachiware/db";
 import { object } from "./validation.js";
 
 /**
@@ -38,7 +37,7 @@ export function availabilityRoutes(app: Hono<any>, path: string, level: (c: Cont
 export function botAvailabilityRoutes(app: Hono<any>, botPath: string, param: string, tenantOf?: (c: Context<any>) => string) {
   const level = async (c: Context<any>): Promise<LevelKey | null> => {
     const botId = c.req.param(param)!, tenantId = tenantOf?.(c);
-    const [bot] = await db.select({ tenantId: bots.tenantId }).from(bots).where(and(eq(bots.id, botId), ne(bots.connectionStatus, "deleted"), tenantId ? eq(bots.tenantId, tenantId) : undefined)).limit(1);
+    const bot = await repositories().bots.get(botId, tenantId);
     if (!bot) return null;
     const guildId = c.req.param("guildId"), channelId = c.req.param("channelId");
     return { tenantId: bot.tenantId, botId, guildId, channelId, level: channelId ? "channel" : guildId ? "guild" : "bot" };
