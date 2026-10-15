@@ -17,6 +17,7 @@ import type {
   SkillContext,
   ToolHandler,
   CatalogueSkill,
+  Effect,
 } from "./types.js";
 
 export class SkillRegistry {
@@ -60,6 +61,12 @@ export class SkillRegistry {
    */
   public getSkill(skillId: string): SkillModule | undefined {
     return this.skills.get(skillId);
+  }
+
+  /** What calling this tool can do; an unknown tool counts as a read. */
+  public effectOf(tool: string): Effect {
+    const skill = this.skills.get(this.toolToSkillMap.get(tool) ?? "");
+    return skill ? policyOf(skill, tool).effect : "read";
   }
 
   /**
