@@ -1,5 +1,6 @@
 import { cachedTokensOf } from "./usage.js";
 import { providerRequest } from "./retry.js";
+import { readAnswer } from "./answer.js";
 import { db, agentsConfig, bots, profiles, usageEvents, decryptSecret, eq, and } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, textIn, configuredLanguage } from "@pachiware/skills";
@@ -188,7 +189,7 @@ export class LLMRouter {
 
       if (!response.ok) return this.rejected(response.status, messages, options);
 
-      const data = await response.json();
+      const data = await readAnswer("chat_completions", response);
       const choice = data.choices[0];
       const toolCalls: ToolCall[] = [];
 
@@ -306,7 +307,7 @@ export class LLMRouter {
 
       if (!response.ok) return this.rejected(response.status, messages, options);
 
-      const data = await response.json();
+      const data = await readAnswer("messages", response);
       const toolCalls: ToolCall[] = [];
       let textContent = "";
 
@@ -413,7 +414,7 @@ export class LLMRouter {
 
       if (!response.ok) return this.rejected(response.status, messages, options);
 
-      const data = await response.json();
+      const data = await readAnswer("chat_completions", response);
       const choice = data.choices[0];
       const toolCalls: ToolCall[] = [];
 
@@ -483,7 +484,7 @@ export class LLMRouter {
       });
       if (!response.ok) return this.rejected(response.status, messages, options);
 
-      const data = await response.json();
+      const data = await readAnswer("responses", response);
       const toolCalls: ToolCall[] = [];
       let text = "";
       for (const item of data.output || []) {

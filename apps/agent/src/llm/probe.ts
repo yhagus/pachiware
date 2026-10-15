@@ -2,6 +2,7 @@
 // Requests carry the same parameters the router sends, so a passing Test means the bot's own requests are accepted too.
 import type { ContentPart } from "./types.js";
 import { API_FORMAT_NAMES, API_FORMAT_PATHS, formatHeaders, type ApiFormat } from "./providers.js";
+import { answerOf } from "./answer.js";
 import { anthropicBlocks, openAIContent, responsesContent, DEFAULT_TEMPERATURE } from "./router.js";
 
 export type ProfileConnection = { provider: string; format: ApiFormat; baseUrl: string; key: string | null; model: string };
@@ -83,8 +84,7 @@ export async function sendToProfile(c: ProfileConnection, content: string | Cont
   } catch (err) {
     return { ok: false, error: timedOut(err) ? `no answer within ${opts.timeoutMs / 1000} seconds` : "the provider could not be reached", ms: ms() };
   }
-  let data: any = null;
-  try { data = JSON.parse(raw); } catch {}
+  const data = answerOf(c.format, raw, res.headers.get("content-type"));
   if (!res.ok) {
     const reason = reasonOf(data);
     return { ok: false, status: res.status, error: `${res.status}${reason ? `: ${reason}` : ""}`, ms: ms() };

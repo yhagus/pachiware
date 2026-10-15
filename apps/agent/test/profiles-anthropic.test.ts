@@ -291,6 +291,65 @@ describe("Anthropic profiles and image input", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("a server that streams even when asked not to is read by assembling its events: text, tool calls, and usage, in every format", () => {
+    const { code, stderr } = scenario(`
+      const sse = (events) => new Response(events.map(([name, data]) => (name ? "event: " + name + "\\n" : "") + "data: " + (typeof data === "string" ? data : JSON.stringify(data)) + "\\n\\n").join(""), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      const streams = {
+        chat_completions: () => sse([
+          [null, { choices: [{ index: 0, delta: { role: "assistant", content: "O" } }] }],
+          [null, { choices: [{ index: 0, delta: { content: "K" } }] }],
+          [null, { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c1", type: "function", function: { name: "listFiles", arguments: '{"pa' } }] } }] }],
+          [null, { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: 'th":"channel"}' } }] } }] }],
+          [null, { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } }],
+          [null, "[DONE]"],
+        ]),
+        // The completed event leaves out the output, as some proxies do, so the items are taken from their own events.
+        responses: () => sse([
+          ["response.created", { type: "response.created", response: { id: "r", status: "in_progress", output: [] } }],
+          ["response.output_text.delta", { type: "response.output_text.delta", delta: "O" }],
+          ["response.output_text.delta", { type: "response.output_text.delta", delta: "K" }],
+          ["response.output_item.done", { type: "response.output_item.done", item: { type: "message", content: [{ type: "output_text", text: "OK" }] } }],
+          ["response.output_item.done", { type: "response.output_item.done", item: { type: "function_call", call_id: "c1", name: "listFiles", arguments: '{"path":"channel"}' } }],
+          ["response.completed", { type: "response.completed", response: { id: "r", status: "completed", output: [], usage: { input_tokens: 3, output_tokens: 2 } } }],
+        ]),
+        messages: () => sse([
+          ["message_start", { type: "message_start", message: { id: "m", role: "assistant", content: [], usage: { input_tokens: 3, output_tokens: 1 } } }],
+          ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
+          ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "O" } }],
+          ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "K" } }],
+          ["content_block_stop", { type: "content_block_stop", index: 0 }],
+          ["content_block_start", { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "c1", name: "listFiles", input: {} } }],
+          ["content_block_delta", { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"pa' } }],
+          ["content_block_delta", { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: 'th":"channel"}' } }],
+          ["content_block_stop", { type: "content_block_stop", index: 1 }],
+          ["message_delta", { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 2 } }],
+          ["message_stop", { type: "message_stop" }],
+        ]),
+      };
+      const formatOf = (url) => url.endsWith("/responses") ? "responses" : url.endsWith("/messages") ? "messages" : "chat_completions";
+      reply = (call) => call.method === "GET" ? json({ data: [{ id: "m" }] }) : streams[formatOf(call.url)]();
+      const tools = [{ name: "listFiles", description: "List files", parameters: { type: "object", properties: { path: { type: "string" } } } }];
+      const check = (answer, label) => {
+        assert(answer.content === "OK", label + " text not assembled: " + JSON.stringify(answer));
+        assert(JSON.stringify(answer.toolCalls) === JSON.stringify([{ id: "c1", name: "listFiles", arguments: { path: "channel" } }]), label + " tool call not assembled: " + JSON.stringify(answer.toolCalls));
+        assert(answer.usage?.promptTokens === 3 && answer.usage?.completionTokens === 2, label + " usage not read: " + JSON.stringify(answer.usage));
+      };
+      for (const apiFormat of ["chat_completions", "responses", "messages"]) {
+        const byok = { provider: "custom", apiFormat, model: "m", baseUrl: "http://localhost:20128/v1", apiKey: "k" };
+        const tried = await (await post("/profiles/playground", { ...byok, prompt: "hi" })).json();
+        assert(tried.success && tried.reply === "OK" && tried.usage.input === 3 && tried.usage.output === 2, apiFormat + " playground not assembled: " + JSON.stringify(tried));
+        const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Streams " + apiFormat, ...byok })).json()).profile;
+        const bot = await createBot({ tenantId: tenant.id, token: "t-" + apiFormat, isEnabled: false, profileId: profile.id });
+        check(await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id, tools }), apiFormat);
+      }
+      const openai = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "GPT", provider: "openai", model: "gpt-4o", apiKey: "sk" })).json()).profile;
+      check(await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: (await createBot({ tenantId: tenant.id, token: "t-openai", isEnabled: false, profileId: openai.id })).id, tools }), "openai");
+      const claude = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Claude", provider: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-ant" })).json()).profile;
+      check(await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: (await createBot({ tenantId: tenant.id, token: "t-claude", isEnabled: false, profileId: claude.id })).id, tools }), "anthropic");
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("image capability follows the bot's profile flag, and an Anthropic tenant default asks the models endpoint", () => {
     const { code, stderr } = scenario(`
       const { encryptSecret } = await import(${src("packages/db/src/index.ts")});
