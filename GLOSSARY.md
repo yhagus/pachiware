@@ -49,7 +49,7 @@ One batch of numbered questions the agent asks the author of a brief, each with 
 _Avoid_: Q&A, interview, questionnaire
 
 **Minutes**:
-The record of a discussion: what was decided, what is still open, and who does what next. Its action items can become issue drafts.
+The record of a discussion the bot wrote from a channel's or thread's messages: what was decided, what is still open, and who does what next. Its action items can become issue drafts. Minutes someone wrote elsewhere and pasted in are a document, not minutes.
 _Avoid_: Notulen (in English text), summary, recap
 
 **Allowed git hosts**:
@@ -124,6 +124,10 @@ _Avoid_: Resolution, agreement, ADR (reserved for this repository's own records)
 Text a person asked the bot to keep that is neither a task, a decision, nor minutes. It says what the person said, not what the bot concluded.
 _Avoid_: Memo, doc, memory
 
+**Document**:
+A file or a long text a person gave the bot in a conversation, kept as it was in the Workspace folder of that place so the bot can read it when it needs to. Nobody asked to keep it; asking turns its content into a note.
+_Avoid_: Attachment (Discord's word for any file on a message), upload, Note
+
 **Memory**:
 What the bot keeps about a place to answer better later: the team's decisions, how people like to be addressed and to work, and the conventions of the place. One memory per tenant, per guild, and per channel; a channel's memory is not read in another channel. Conversation itself and private details are never memory.
 _Avoid_: Notes (notes are files a person asked for), context, history
@@ -141,4 +145,5 @@ _Avoid_: Notes (notes are files a person asked for), context, history
 - A **Reminder** belongs to the person who asked for it and to the channel or DM it will post in; it is not part of any task.
 - A **Digest** is per channel and reads that channel's tasks and their **Due dates**; it never reads another channel.
 - **Memory** lives in the **Workspace** at the tenant, guild, and channel level; the channel level is read only in that channel.
+- A **Document** is kept in the Workspace folder of the channel or DM it was given in; a **Note** may be made from it, never the other way round.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.

@@ -839,3 +839,19 @@ Started from a review of the harness as a management assistant (2026-10-14): tas
   - [x] Code-review pass on the integration branch: `mine`/`delegated` without a status list open tasks only; `delegated` leaves out Personal tasks; tenant `shared/tasks` and the guild's (from a DM, every shared guild's) `shared/tasks` join both scopes as a "Shared tasks" group; Reminders with tasks cap at twenty and end with a localized "…and N more" line; `moveTask` refuses tenant-wide shared tasks and keeps a guild's shared task inside its guild; a name-only Assignee typed in a DM no longer claims no member matched. `tasks.ts` split into `taskFile.ts`, `progressNotes.ts`, `taskAccess.ts` (`personalOwnerOf` renamed `personalTasksOf`, `linkHeld`) and `taskScopes.ts` (`TaskSource.kind`, `readGroups`), exports unchanged via `index.ts`; client.ts builds adapters through one `adapterFor`, adapter.ts checks membership through `memberOf`/`inThread`. 6 new scenarios, 2 extended; full suite 586 pass, 0 fail.
 - [x] Landed on main at 10aa318 (fast-forward, pushed 2026-10-14); #120–#132 closed with their commits. Live daily-behaviour eval (`EVAL_LIVE=1 bun run eval:assistant`) not run yet for the six new briefs.
 - [x] Retro of the build: `bun run typecheck` now exits 0 (root tsconfig excludes apps/web and .claude; apps/web checked with its own config), tracked git hooks in `.githooks/` (pre-commit typecheck, pre-push typecheck + suite; `prepare` wires `core.hooksPath`), `AGENTS.md` stale stack/layout caches replaced and dead antislop paths pointed at the global skills, task code map kept in `docs/agents/tasks.md`. Follow-ups filed: #133 (tool-count tests), #134 (stale tool copy in seed.ts), #135 (flaky eval dry run).
+
+## Phase 32 — Long text is read, not refused (spec #140)
+
+Started from a report that messages over 4000 characters are refused in English (`guardrails.ts:93`) and that bursts can cross the limit. A grilling session on 2026-10-15 settled the model; the spec is issue [#140](https://github.com/yhagus/pachiware/issues/140).
+
+- [x] Glossary: new term Document (a file or long text given in a conversation, kept as it was; not a Note); Minutes narrowed to what the bot wrote, pasted minutes are a Document; a Note may be made from a Document.
+- [x] Decisions recorded in the spec:
+  - The length check leaves `GuardrailService.classify` and the playbook waiver goes; Discord turns are never refused for length (a message over 4000 characters already arrives as `message.txt`, a Document). Web chat, with no Workspace place, refuses above 50,000 characters.
+  - Every user-facing `GuardrailService` message goes through `textIn`.
+  - New tool `keepAsNote` copies a Document or up to 20 message ids of this place into a Note verbatim, server side, with author, asker, date, and source links; no confirmation; the Document stays; refuses to overwrite. Turns show a message id only for text over 2000 characters.
+  - No ADR: easy to reverse, reasons kept in the spec.
+- [x] Spec #140 cut into 3 tickets, all sub-issues of #140 with native blocking, ready-for-agent; no prefactor needed (`classify` takes a language, tool-level messages use the context's language):
+  - #141 long turns answered, web chat capped at 50,000, every guardrail refusal localized (starts immediately)
+  - #142 `keepAsNote` from a Document (starts immediately)
+  - #143 message ids for text over 2000 characters, `keepAsNote` from messages, persona and migration (blocked by #142)
+- [ ] Implement #141–#143.
