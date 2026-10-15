@@ -1011,7 +1011,14 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
 
 - [x] Glossary term and ADR 0010 committed on the integration branch.
 - [ ] Implement the open sub-issues of #155 (#157–#159 were closed and split into #160–#172).
-  - [ ] #156 lock the database engine at setup (starts immediately)
+  - [x] #156 merged into `spec/155-mongodb` (17ec3cd): the database engine is locked at setup.
+    - `detectEngine()` / `assertDatabaseEngine()` in `packages/db/src/engine.ts` use a table of URL prefixes. An unknown scheme is an error and creates no file; an empty URL means SQLite. `mongodb://` and `mongodb+srv://` fail as "not supported yet" until #168.
+    - The lock runs in the `packages/db/src/index.ts` boot block before the driver opens. `runMigrations()` records `databaseEngine` through `recordDatabaseEngine()` in `runtime-store.ts` after a successful migration, only if no engine is recorded yet.
+    - `detectDialect`, `reconnectDatabase` and `switchSchema` are gone. The admin infrastructure API returns `databaseEngine` and `databaseHost`, rejects `databaseUrl` with 400, and `/test-db` is removed. The wizard has no database field, and the overview shows engine and host only.
+    - `runtime-config.json` honours `PACHIWARE_RUNTIME_CONFIG`; a root `bunfig.toml` preloads `packages/db/test/preload.ts` so tests never touch the developer's file. Saving git hosts or Redis now merges into the file instead of overwriting it.
+    - Start-up tests in `apps/agent/test/database-engine.test.ts` start the real agent with async `Bun.spawn`. The MongoDB standalone case waits for #168.
+    - Known limit for #172: re-running `pachiware init` with another engine edits `.env` before the lock refuses the start.
+    - Verification: `bun run typecheck` exits 0; `bun test` 711 pass, 0 fail across 125 files.
   - [ ] #160 repository entry point and contract harness, with Tenants and API keys (starts immediately)
   - [ ] #161–#166 move the remaining records to repositories (blocked by #160)
   - [ ] #167 the database package exports repositories only (blocked by #161–#166)
