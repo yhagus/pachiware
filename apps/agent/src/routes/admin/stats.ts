@@ -1,9 +1,8 @@
 import { Hono } from "hono";
 import os from "node:os";
-import { statfs, readFile, stat } from "node:fs/promises";
-import { db, activeDialect, getInfraConfig, resolveSqlitePath, repositories } from "@pachiware/db";
+import { statfs, readFile } from "node:fs/promises";
+import { repositories } from "@pachiware/db";
 import { redis, isRedisConnected, memoryCache } from "../../cache/redis.js";
-import { sql } from "drizzle-orm";
 export const statsAdminRoutes = new Hono();
 
 // CPU and disk I/O are rates, so a single background sampler computes them; requests just read the latest sample.
@@ -40,19 +39,6 @@ setInterval(async () => {
   ioRate = await diskIo();
 }, 2000).unref();
 
-async function dbSize(): Promise<number | null> {
-  try {
-    if (activeDialect === "postgres") {
-      const r: any = await db.execute(sql`select pg_database_size(current_database()) as n`);
-      return Number((r.rows ?? r)[0]?.n ?? 0);
-    }
-    const path = resolveSqlitePath(getInfraConfig().databaseUrl);
-    if (path === ":memory:") return null;
-    let total = 0;
-    for (const f of [path, `${path}-wal`, `${path}-shm`]) total += await stat(f).then((x) => x.size, () => 0);
-    return total;
-  } catch { return null; }
-}
 async function cacheSize(): Promise<number | null> {
   if (!isRedisConnected()) return memoryCache.size();
   try {
@@ -68,7 +54,7 @@ statsAdminRoutes.get("/stats", async (c) => {
     success: true,
     tenants: await repositories().tenants.count(),
     bots: await repositories().bots.count(),
-    storage: { dbBytes: await dbSize(), cacheBytes: await cacheSize() },
+    storage: { dbBytes: await repositories().stats.databaseBytes(), cacheBytes: await cacheSize() },
     system: {
       cpu: { percent: Math.round(cpuPercent * 10) / 10, cores: os.cpus().length },
       memory: { used: os.totalmem() - os.freemem(), total: os.totalmem() },

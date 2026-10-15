@@ -14,7 +14,7 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, agentsConfig, eq } = await import(${src("packages/db/src/index.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
+        const { repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
         const tenant = await repositories().tenants.create({ name: "Images", slug: "images" });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
@@ -57,7 +57,7 @@ describe("Anthropic profiles and image input", () => {
     const { code, stderr } = scenario(`
       const { encryptSecret } = await import(${src("packages/db/src/index.ts")});
       const { LLMRouter } = await import(${src("apps/agent/src/llm/router.ts")});
-      await db.update(agentsConfig).set({ defaultProvider: "anthropic", defaultModel: "", anthropicModel: null, anthropicApiKeyEncrypted: encryptSecret("sk-ant-default") }).where(eq(agentsConfig.tenantId, tenant.id));
+      await repositories().agentConfig.update(tenant.id, { defaultProvider: "anthropic", defaultModel: "", anthropicModel: null, anthropicApiKeyEncrypted: encryptSecret("sk-ant-default") });
       reply = () => json({ content: [{ type: "text", text: "hi" }] });
       await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id });
       assert(calls[0].body.model === "claude-sonnet-5-5", "default model wrong: " + calls[0].body.model);
@@ -361,12 +361,12 @@ describe("Anthropic profiles and image input", () => {
       assert(await llmRouter.acceptsImages(tenant.id, plain.id) === false && calls.length === 0, "an OpenAI tenant default has no declared image input");
 
       const other = await repositories().tenants.create({ name: "Default", slug: "default-anthropic" });
-      await db.update(agentsConfig).set({ defaultProvider: "anthropic", defaultModel: "claude-text-only", anthropicApiKeyEncrypted: encryptSecret("sk-ant-other") }).where(eq(agentsConfig.tenantId, other.id));
+      await repositories().agentConfig.update(other.id, { defaultProvider: "anthropic", defaultModel: "claude-text-only", anthropicApiKeyEncrypted: encryptSecret("sk-ant-other") });
       reply = (call) => json({ id: call.url.split("/").pop(), capabilities: { image_input: { supported: call.url.endsWith("claude-opus-5-5") } } });
       assert(await llmRouter.acceptsImages(other.id) === false, "unsupported image input reported as accepted");
       calls.length = 0;
       const fresh = await repositories().tenants.create({ name: "Fresh", slug: "fresh-anthropic" });
-      await db.update(agentsConfig).set({ defaultProvider: "anthropic", defaultModel: "claude-opus-5-5", anthropicApiKeyEncrypted: encryptSecret("sk-ant-fresh") }).where(eq(agentsConfig.tenantId, fresh.id));
+      await repositories().agentConfig.update(fresh.id, { defaultProvider: "anthropic", defaultModel: "claude-opus-5-5", anthropicApiKeyEncrypted: encryptSecret("sk-ant-fresh") });
       assert(await llmRouter.acceptsImages(fresh.id) === true, "models endpoint capability not used");
       const [call] = calls;
       assert(call.method === "GET" && call.url === "https://api.anthropic.com/v1/models/claude-opus-5-5" && call.headers["x-api-key"] === "sk-ant-fresh" && call.headers["anthropic-version"], "wrong models request: " + JSON.stringify(call));
@@ -377,7 +377,7 @@ describe("Anthropic profiles and image input", () => {
       assert(calls[1].url === "https://api.anthropic.com/v1/messages" && calls[1].body.model === "claude-opus-5-5", "chat and capability lookup disagree on the model: " + JSON.stringify(calls[1]));
       reply = () => json({ error: { message: "nope" } }, 500);
       const broken = await repositories().tenants.create({ name: "Broken", slug: "broken-anthropic" });
-      await db.update(agentsConfig).set({ defaultProvider: "anthropic", defaultModel: "claude-opus-5-5", anthropicApiKeyEncrypted: encryptSecret("sk-ant-broken") }).where(eq(agentsConfig.tenantId, broken.id));
+      await repositories().agentConfig.update(broken.id, { defaultProvider: "anthropic", defaultModel: "claude-opus-5-5", anthropicApiKeyEncrypted: encryptSecret("sk-ant-broken") });
       assert(await llmRouter.acceptsImages(broken.id) === false, "a failed lookup must not claim image input");
     `);
     expect(code, stderr).toBe(0);

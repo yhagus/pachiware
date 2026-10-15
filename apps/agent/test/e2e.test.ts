@@ -37,7 +37,7 @@ describe("Phase 13 tenant API", () => {
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))});
       const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
-      const { db, agentsConfig, eq } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
+      const { repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       await runMigrations(); await runSeed();
       const { createServer } = await import(${JSON.stringify(join(workspace, "apps/agent/src/server.ts"))});
       const { discordBotManager } = await import(${JSON.stringify(join(workspace, "apps/agent/src/discord/client.ts"))});
@@ -89,7 +89,7 @@ describe("Phase 13 tenant API", () => {
       assert(configPut.status === 200, "config update failed");
       const config = await body(await request("/api/v1/config", { headers: auth(secondKey.raw, secondOwned) }));
       assert(config.config.openaiApiKeyEncrypted === "••••••••", "config secret exposed");
-      const [stored] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, secondOwned.id));
+      const stored = await repositories().agentConfig.get(secondOwned.id);
       assert(stored.openaiApiKeyEncrypted !== "tenant-secret" && stored.openaiApiKeyEncrypted.startsWith("v1:"), "config secret not encrypted");
       const botRes = await request("/api/v1/bots", { method: "POST", headers: auth(secondKey.raw, secondOwned), body: JSON.stringify({ name: "test bot", token: "bot-secret", isEnabled: false }) });
       assert(botRes.status === 201, "bot creation failed"); const bot = (await body(botRes)).bot;
@@ -115,7 +115,7 @@ describe("Phase 13 tenant API", () => {
     const { directory, result } = runApiScenario(`
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))}); const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
-      const { db, usageEvents, eq, repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
+      const { repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       await runMigrations(); await runSeed(); const first = await repositories().tenants.create({ name: "Chat one", slug: "chat-one" }); const second = await repositories().tenants.create({ name: "Chat two", slug: "chat-two" }); const firstKey = await repositories().tenants.issueApiKey("one"); const secondKey = await repositories().tenants.issueApiKey("two"); await repositories().tenants.linkApiKey(first.id, firstKey.keyId); await repositories().tenants.linkApiKey(second.id, secondKey.keyId);
       const { createServer } = await import(${JSON.stringify(join(workspace, "apps/agent/src/server.ts"))}); const app = createServer(); const auth = (key, tenant) => ({ Authorization: "Bearer " + key, "Content-Type": "application/json", "X-Tenant-Id": tenant.id });
       assert((await app.request("/api/v1/config", { method: "PUT", headers: auth(firstKey.raw, first), body: JSON.stringify({ openaiApiKeyEncrypted: "mock-openai-key" }) })).status === 200, "LLM config failed");
@@ -125,7 +125,7 @@ describe("Phase 13 tenant API", () => {
       assert(chat.status === 200, "ReAct chat failed"); const payload = await chat.json(); assert(payload.reply === "created" && payload.toolsExecuted.length === 1 && payload.toolsExecuted[0].result.success, "ReAct tool cycle failed: " + JSON.stringify(payload));
       assert((await app.request("/api/v1/conversations/" + payload.conversationId + "/messages", { headers: auth(secondKey.raw, second) })).status === 404, "foreign conversation visible");
       assert((await app.request("/api/v1/chat", { method: "POST", headers: auth(secondKey.raw, second), body: JSON.stringify({ message: "reuse", conversationId: payload.conversationId }) })).status === 404, "foreign conversation reuse accepted");
-      const usage = await db.select().from(usageEvents).where(eq(usageEvents.tenantId, first.id)); assert(usage.filter((row) => row.type === "llm_tokens").length === 2 && usage.some((row) => row.type === "tool_call"), "usage events absent");
+      const usage = await repositories().usage.list({ tenantId: first.id }); assert(usage.filter((row) => row.type === "llm_tokens").length === 2 && usage.some((row) => row.type === "tool_call"), "usage events absent");
       const aggregate = await (await app.request("/api/admin/tenants/" + first.id + "/usage", { headers: { "X-Platform-Key": "phase13-admin-key" } })).json(); assert(aggregate.usage.some((row) => row.type === "llm_tokens" && row.events === 2), "usage aggregate incorrect");
       for (const { skill } of await repositories().skills.listForTenant(second.id)) await repositories().skills.setEnabled(second.id, skill.id, false); const skills = await (await app.request("/api/v1/skills", { headers: auth(secondKey.raw, second) })).json(); assert(skills.skills.every((skill) => !skill.isEnabled), "all skills not disabled");
       const disabled = await (await app.request("/api/v1/skills/test", { method: "POST", headers: auth(secondKey.raw, second), body: JSON.stringify({ toolName: "createTask", arguments: { title: "blocked" } }) })).json(); assert(!disabled.result.success && disabled.result.error.includes("disabled"), "disabled tool executed");

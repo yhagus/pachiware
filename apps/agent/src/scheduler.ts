@@ -1,4 +1,4 @@
-import { db, agentsConfig, eq, repositories, type Schedule } from "@pachiware/db";
+import { repositories, type Schedule } from "@pachiware/db";
 import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, readGroups, MAX_SCOPED, workspaceStore, taskLine, isOpen, scopeSources, tasksIn, inScope, groupTasks, type DiscordClientAdapter, type TaskSource, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines } from "./digest.js";
@@ -39,7 +39,7 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
 async function post(client: any, discord: DiscordClientAdapter | null, row: Schedule, at: number, late: boolean) {
   const channel: any = await client.channels.fetch(row.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) throw new Error("The channel is gone or cannot be posted in.");
-  const [agent] = await db.select({ language: agentsConfig.language }).from(agentsConfig).where(eq(agentsConfig.tenantId, row.tenantId)).limit(1);
+  const agent = await repositories().agentConfig.get(row.tenantId);
   const guild = row.guildId ? await loadGuildSettings(row.tenantId, row.botId, row.guildId) : null;
   const strings = textIn(configuredLanguage(guild, agent));
   if (row.kind === "digest") {

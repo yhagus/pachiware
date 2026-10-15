@@ -1,6 +1,5 @@
 import { Hono } from "hono";
-import { db, agentsConfig, repositories } from "@pachiware/db";
-import { eq } from "drizzle-orm";
+import { repositories, type AgentConfigUpdate } from "@pachiware/db";
 import { discordBotManager } from "../../discord/client.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 import { syncTenantDigestSchedules } from "../../digest.js";
@@ -9,14 +8,14 @@ export const tenantAdminRoutes = new Hono();
 // The tenant's default time zone and language; a guild may override both on its own config.
 const settingsOut = (row: { timezone: string; language: string }) => ({ timezone: row.timezone, language: row.language });
 tenantAdminRoutes.get("/:id/settings", async (c) => {
-  const [row] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, c.req.param("id"))).limit(1);
+  const row = await repositories().agentConfig.get(c.req.param("id"));
   return row && await repositories().tenants.get(c.req.param("id")) ? c.json({ success: true, settings: settingsOut(row) }) : c.json({ error: "Tenant not found" }, 404);
 });
 tenantAdminRoutes.put("/:id/settings", async (c) => {
   const tenantId = c.req.param("id");
   if (!await repositories().tenants.get(tenantId)) return c.json({ error: "Tenant not found" }, 404);
   const values = placeSettings(object(await c.req.json(), "body"));
-  const [row] = await db.update(agentsConfig).set({ ...values, updatedAt: new Date() }).where(eq(agentsConfig.tenantId, tenantId)).returning();
+  const row = await repositories().agentConfig.update(tenantId, values as AgentConfigUpdate);
   await CacheService.del(tenantKey(tenantId, "agent:config"));
   if (row && values.timezone) await syncTenantDigestSchedules(tenantId, row.timezone);
   return row ? c.json({ success: true, settings: settingsOut(row) }) : c.json({ error: "Tenant not found" }, 404);

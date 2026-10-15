@@ -38,7 +38,6 @@ describe("DiscordBotManager tenant isolation", () => {
       mock.module("discord.js", () => ({ Client: FakeClient, GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4, DirectMessages: 8 }, Partials: { Channel: 1, Message: 2 }, Events: { ClientReady: "ready", Error: "error", MessageCreate: "message", InteractionCreate: "interaction" }, EmbedBuilder: FakeEmbed, ActionRowBuilder: FakeBuilder, ButtonBuilder: FakeBuilder, ButtonStyle: { Success: 3, Secondary: 2 }, ChannelType: { GuildText: 0, GuildVoice: 2, GuildAnnouncement: 5, GuildCategory: 4 }, PermissionFlagsBits: {} }));
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))});
       const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
-      const { db, usageEvents, eq } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       const { repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       await runMigrations(); await runSeed();
       const alpha = await repositories().tenants.create({ name: "Alpha", slug: "alpha-discord" }); const beta = await repositories().tenants.create({ name: "Beta", slug: "beta-discord" });
@@ -59,7 +58,7 @@ describe("DiscordBotManager tenant isolation", () => {
       const thread = makeMessage({ mentioned: false, thread: true }); await manager.handleMessage(alphaBot.id, thread); await new Promise((r) => setTimeout(r, 2800)); assert(runs.length === 2, "owned thread was not processed");
       const foreignGuild = makeMessage({ guildId: "foreign" }); await manager.handleMessage(alphaBot.id, foreignGuild); assert(runs.length === 2, "unconfigured guild was processed");
       const oldRate = CacheService.checkRateLimit; CacheService.checkRateLimit = async () => ({ allowed: false, remaining: 0, resetIn: 60 }); const limited = makeMessage(); await manager.handleMessage(alphaBot.id, limited); CacheService.checkRateLimit = oldRate; assert(limited.reacts[0] === "⏳" && limited.replies.length === 0 && runs.length === 2, "rate-limited message dispatched");
-      const usage = await db.select().from(usageEvents).where(eq(usageEvents.tenantId, alpha.id)); assert(usage.filter((row) => row.type === "discord_message").length === 2, "Discord usage was not tenant-scoped");
+      const usage = await repositories().usage.list({ tenantId: alpha.id }); assert(usage.filter((row) => row.type === "discord_message").length === 2, "Discord usage was not tenant-scoped");
       await Promise.all([manager.restartBot(alphaBot.id), manager.stopBot(alphaBot.id)]); assert(manager.getStatus(alphaBot.id) === null, "serialized lifecycle did not finish stopped");
       await manager.startBot(alphaBot.id); await manager.stopTenant(alpha.id); assert(manager.getStatus(alphaBot.id) === null, "stopTenant retained tenant runtime");
       await repositories().tenants.update(beta.id, { status: "suspended" }); await manager.stopTenant(beta.id); const suspended = await manager.startBot(betaBot.id); assert(!suspended.success, "suspended tenant bot started");

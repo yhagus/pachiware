@@ -27,9 +27,9 @@ export async function image(s: Scenario, name: string, width: number, height: nu
 
 /** Attaches a profile to the bot. Model calls then reach the provider over HTTP, unless `scripted` keeps the scripted model. */
 export async function useProfile(s: Scenario, profile: { provider: "openai" | "anthropic" | "custom"; model: string; acceptsImages: boolean; baseUrl?: string }, { scripted = false } = {}) {
-  const { profiles, encryptSecret, repositories } = await import("../../../../packages/db/src/index.ts") as any;
+  const { encryptSecret, repositories } = await import("../../../../packages/db/src/index.ts") as any;
   const { llmRouter } = await import("../../src/llm/router.ts");
-  const [row] = await s.db.insert(profiles).values({ tenantId: s.tenant.id, name: profile.model, provider: profile.provider, model: profile.model, baseUrl: profile.baseUrl ?? null, apiKeyEncrypted: encryptSecret("profile-key"), acceptsImages: profile.acceptsImages }).returning();
+  const row = await repositories().profiles.create(s.tenant.id, { name: profile.model, provider: profile.provider, model: profile.model, baseUrl: profile.baseUrl ?? null, apiKeyEncrypted: encryptSecret("profile-key"), acceptsImages: profile.acceptsImages });
   await repositories().bots.update(s.bot.id, { profileId: row.id });
   if (!scripted) delete (llmRouter as any).complete;
 }

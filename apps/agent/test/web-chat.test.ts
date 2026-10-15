@@ -15,7 +15,6 @@ test("web chat answers 50,000 characters and refuses 50,001 in the language they
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, usageEvents, and, eq } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const t = await repositories().tenants.create({ name: "Web", slug: "web" }); const key = await repositories().tenants.issueApiKey("web");
@@ -37,7 +36,7 @@ test("web chat answers 50,000 characters and refuses 50,001 in the language they
         assert(over.status === 200 && over.body.reply === "That message is too long (limit 50,000 characters). Please shorten it." && completions === 1, "50,001 English characters not refused: " + JSON.stringify(over.body).slice(0, 300));
         const overId = await chat(sized(indonesian, 50001));
         assert(overId.status === 200 && overId.body.reply === "Pesan itu terlalu panjang (batas 50.000 karakter). Tolong persingkat." && completions === 1, "50,001 Indonesian characters not refused in Indonesian: " + JSON.stringify(overId.body).slice(0, 300));
-        const denied = await db.select().from(usageEvents).where(and(eq(usageEvents.tenantId, t.id), eq(usageEvents.type, "guardrail_denied")));
+        const denied = await repositories().usage.list({ tenantId: t.id, type: "guardrail_denied" });
         assert(denied.length === 2 && denied.every((e) => e.metadata.kind === "limit" && e.metadata.platform === "web"), "refusals not audited: " + JSON.stringify(denied.map((e) => e.metadata)));
         console.log("ok");
       `],

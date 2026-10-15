@@ -6,6 +6,14 @@ import { createSqlScheduleRepository } from "./schedules/sql.js";
 import type { ScheduleRepository } from "./schedules/types.js";
 import { createSqlTaskRowRepository } from "./task-rows/sql.js";
 import type { TaskRowRepository } from "./task-rows/types.js";
+import { createSqlProfileRepository } from "./profiles/sql.js";
+import type { ProfileRepository } from "./profiles/types.js";
+import { createSqlAgentConfigRepository } from "./agent-config/sql.js";
+import type { AgentConfigRepository } from "./agent-config/types.js";
+import { createSqlUsageRepository } from "./usage/sql.js";
+import type { UsageRepository } from "./usage/types.js";
+import { createSqlStatsRepository } from "./stats/sql.js";
+import type { StatsRepository } from "./stats/types.js";
 import { createSqlBotRepository } from "./bots/sql.js";
 import type { BotRepository } from "./bots/types.js";
 import { createSqlSkillRepository } from "./skills/sql.js";
@@ -21,6 +29,10 @@ import type { ConversationRepository } from "./conversations/types.js";
 export type * from "./tenants/types.js";
 export type * from "./schedules/types.js";
 export type * from "./task-rows/types.js";
+export type * from "./profiles/types.js";
+export type * from "./agent-config/types.js";
+export type * from "./usage/types.js";
+export type * from "./stats/types.js";
 export type * from "./bots/types.js";
 export type * from "./skills/types.js";
 export type * from "./availability/types.js";
@@ -31,6 +43,10 @@ export type Repositories = {
   tenants: TenantRepository;
   schedules: ScheduleRepository;
   taskRows: TaskRowRepository;
+  profiles: ProfileRepository;
+  agentConfig: AgentConfigRepository;
+  usage: UsageRepository;
+  stats: StatsRepository;
   bots: BotRepository;
   skills: SkillRepository;
   availability: AvailabilityRuleRepository;
@@ -46,6 +62,10 @@ export function createRepositories(connection: Connection): Repositories {
         tenants: createSqlTenantRepository(connection),
         schedules: createSqlScheduleRepository(connection),
         taskRows: createSqlTaskRowRepository(connection),
+        profiles: createSqlProfileRepository(connection),
+        agentConfig: createSqlAgentConfigRepository(connection),
+        usage: createSqlUsageRepository(connection),
+        stats: createSqlStatsRepository(connection),
         bots: createSqlBotRepository(connection),
         skills: createSqlSkillRepository(connection),
         availability: createSqlAvailabilityRuleRepository(connection),
@@ -54,6 +74,10 @@ export function createRepositories(connection: Connection): Repositories {
     case "mongodb":
       return {
         tenants: createMongoTenantRepository(connection),
+        profiles: notOnMongoYet("Profiles"),
+        agentConfig: notOnMongoYet("Agent configuration"),
+        usage: notOnMongoYet("Usage"),
+        stats: notOnMongoYet("Stats"),
         schedules: notOnMongoYet("Schedules"),
         taskRows: notOnMongoYet("Task rows"),
         bots: notOnMongoYet("Bots"),

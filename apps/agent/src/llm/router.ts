@@ -1,7 +1,7 @@
 import { cachedTokensOf } from "./usage.js";
 import { providerRequest } from "./retry.js";
 import { readAnswer } from "./answer.js";
-import { db, agentsConfig, bots, profiles, usageEvents, decryptSecret, eq, and } from "@pachiware/db";
+import { repositories, decryptSecret } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, textIn, configuredLanguage } from "@pachiware/skills";
 import type { ChatMessage, ContentPart, LLMRequestOptions, LLMResponse } from "./types.js";
@@ -31,12 +31,7 @@ export class LLMRouter {
     try {
       let cached = await CacheService.get<any>(tenantKey(tenantId, "agent:config"));
       if (!cached) {
-        const rows = await db
-          .select()
-          .from(agentsConfig)
-          .where(eq(agentsConfig.tenantId, tenantId))
-          .limit(1);
-        cached = rows[0] || null;
+        cached = await repositories().agentConfig.get(tenantId);
         if (cached) {
           await CacheService.set(tenantKey(tenantId, "agent:config"), cached, 120);
         }
@@ -53,9 +48,7 @@ export class LLMRouter {
   // An integration may point at a profile (one provider + one model). It overrides the tenant default for that integration only.
   private async getBotProfile(tenantId: string, botId?: string) {
     if (!botId) return null;
-    const [row] = await db.select({ profile: profiles }).from(bots).innerJoin(profiles, eq(bots.profileId, profiles.id))
-      .where(and(eq(bots.id, botId), eq(bots.tenantId, tenantId), eq(profiles.tenantId, tenantId))).limit(1);
-    return row?.profile ?? null;
+    return repositories().profiles.getForBot(tenantId, botId);
   }
 
   // A profile declares image input. A tenant default has no flag, so only an Anthropic default can learn it, from the models endpoint.
@@ -113,7 +106,7 @@ export class LLMRouter {
       if (retry.finishReason !== "error") response = { ...retry, imagesRejected: true };
     }
     if (response.finishReason !== "error") {
-      await db.insert(usageEvents).values({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0, latencyMs: Math.round(performance.now() - started) } });
+      await repositories().usage.record({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0, latencyMs: Math.round(performance.now() - started) } });
     }
     return response;
   }

@@ -35,8 +35,8 @@ discordScenario("a provider failure with nothing done replies with the failure o
 });
 
 discordScenario("a provider failure on the call after the action budget runs out still tells what was done, in the place's language", async (s) => {
-  const { agentsConfig, eq } = await import(process.cwd() + "/packages/db/src/index.ts");
-  await s.db.update(agentsConfig).set({ settings: { maxReActIterations: 3 } }).where(eq(agentsConfig.tenantId, s.tenant.id));
+  const { repositories } = await import(process.cwd() + "/packages/db/src/index.ts");
+  await repositories().agentConfig.update(s.tenant.id, { settings: { maxReActIterations: 3 } });
   await s.guildSettings({ useThreads: false, language: "id" });
   s.model.script({ tool: "createTask", args: { title: "Pesan gedung" } }, { tool: "listTasks", args: {} }, { tool: "listTasks", args: { status: "all" } }, { error: "Penyedia modelnya tidak bisa saya hubungi saat ini." });
   await s.discord.send(`${s.discord.mention} buat tugas pesan gedung lalu cek semuanya`);

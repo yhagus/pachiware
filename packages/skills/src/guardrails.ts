@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { usageEvents } from "@pachiware/db";
+import { repositories } from "@pachiware/db";
 import type { SkillContext, SkillModule, SkillScope, ToolCall, ToolPolicy } from "./types.js";
 import { hasThreadConfirmation } from "./threadConfirmation.js";
 import { hasPermission } from "./permissions.js";
@@ -169,5 +169,5 @@ export function bulkTaskTurn(approved: BulkItem[] = []) {
 
 /** Structured, categorical audit row. It never holds message text, model reasoning or secrets. */
 export async function audit(ctx: Pick<SkillContext, "db" | "tenantId" | "botId">, event: AuditEvent, meta: Record<string, unknown>) {
-  try { if (ctx.tenantId) await ctx.db.insert(usageEvents).values({ tenantId: ctx.tenantId, botId: ctx.botId || null, type: event, metadata: { mode: guardrailMode(), ...meta } }); } catch {}
+  try { if (ctx.tenantId) await repositories().usage.record({ tenantId: ctx.tenantId, botId: ctx.botId || null, type: event, metadata: { mode: guardrailMode(), ...meta } }); } catch {}
 }

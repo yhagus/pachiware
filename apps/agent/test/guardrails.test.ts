@@ -88,7 +88,7 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, usageEvents, and, eq } = await imp("packages/db/src/index.ts");
+        const { db } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const sk = await imp("packages/skills/src/index.ts");
@@ -103,7 +103,7 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         const mk = (perms, id = "alice") => ({ db, tenantId: t.id, botId: bot.id, guildId: "g1", channelId: "c1", userId: id, discord, auth: member(perms, id) });
         const run = (name, args, c) => skillRegistry.executeTool({ id: "x", name, arguments: args }, c);
         const click = async (verb, id, user) => { const log = { replies: [], updates: [] }; const handled = await handleConfirmButton({ customId: "gitconfirm:" + verb + ":" + id, user: { id: user }, reply: async (o) => log.replies.push(o), update: async (o) => log.updates.push(o) }, bot.id, () => discord); return { handled, ...log }; };
-        const events = async (type) => (await db.select().from(usageEvents).where(and(eq(usageEvents.tenantId, t.id), eq(usageEvents.type, type)))).length;
+        const events = async (type) => (await repositories().usage.list({ tenantId: t.id, type })).length;
 
         // role: no ManageChannels -> denied, adapter untouched
         const noRole = await run("createChannel", { channelName: "ops" }, mk([]));
@@ -160,7 +160,7 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         let limited = 0; for (let i = 0; i < 14; i++) { const x = await run("createTask", { title: "t" + i }, mk([])); if (!x.success && x.error.includes("Too many")) limited++; }
         assert(limited > 0, "write rate limit not applied");
         // audit rows carry categories only
-        const rows = await db.select().from(usageEvents).where(eq(usageEvents.tenantId, t.id));
+        const rows = await repositories().usage.list({ tenantId: t.id });
         assert(rows.every((r) => !JSON.stringify(r.metadata).includes("secret")), "audit leaked");
         console.log("ok");
       `],
@@ -182,7 +182,7 @@ test("ReAct loop: refusals before the model, injected tool results stay data, se
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, usageEvents, and, eq } = await imp("packages/db/src/index.ts");
+        const { db } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const { agentReActLoop } = await imp("apps/agent/src/loop/react.ts");
@@ -195,7 +195,7 @@ test("ReAct loop: refusals before the model, injected tool results stay data, se
         let script = () => ({ content: "hello there", finishReason: "stop", toolCalls: [] });
         llmRouter.complete = async (m) => { modelCalls++; seen.push(m); return script(m); };
         const ask = (message, extra = {}) => agentReActLoop.run({ tenantId: t.id, message, context: ctx, ...extra });
-        const count = async (type) => (await db.select().from(usageEvents).where(and(eq(usageEvents.tenantId, t.id), eq(usageEvents.type, type)))).length;
+        const count = async (type) => (await repositories().usage.list({ tenantId: t.id, type })).length;
 
         // general conversation still gets a model answer, and the policy is in the system prompt
         const chat = await ask("how is the weather?");
