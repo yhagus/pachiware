@@ -933,3 +933,12 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
     - `searchFolder` takes an optional per-folder `readable` filter.
     - Known limits: default persona still lists `threads/` (left for #154); `channelView` doesn't say a thread is private, so the rule relies on only private threads getting a folder; in a private thread, keeping a parent channel Document as a Note redirects to `thread/files/` and fails if it isn't there; old files move in #149.
     - Verification: `bun run typecheck` exits 0; `bun test` 648 pass, 0 fail across 119 files.
+  - [x] #150 merged into `spec/146-across-channels`: search reads an in-process index.
+    - `workspaceStore()` returns an `IndexedWorkspaceStore` (`packages/skills/src/workspace/search.ts`) around the local store; per-tenant file texts in memory, no DB table.
+    - Writes, moves (files and folders) and removes through the store update the index at once. Each search lists the folder's files with versions and re-reads changed ones, so on-disk changes are picked up.
+    - Interface for #151: `workspaceStore().searchFolder(tenantId, folder, words, nameOf)` returns every match uncapped; the caller caps with exported `MAX_MATCHES` (50). Reuses `matchFile`, so results equal #148's. No access decisions stored.
+    - `WorkspaceStore.files(tenantId, path)`: every file under a folder with its version; skips "." names; no cap; stops at symlink loops and links outside the workspace.
+    - Search no longer stops at 500 files; `store.list` still refuses folders over 500 entries.
+    - #147's access filter runs at query time: `searchFiles` passes the index's matches through `threadAccess(ctx).filter`, then caps at 50, so unreadable thread folders and `threads/<tid>.md` bindings never return or use up the cap. #147's per-folder `readable` parameter is gone.
+    - Known limits: an on-disk change in the same ms to the same size isn't re-read (version = mtime+size). The index is per process: empty after a restart, it fills as searches run. A too-large or unreadable file is indexed with no text, so only its name matches.
+    - Verification: `bun run typecheck` exits 0; `bun test` 654 pass, 0 fail across 120 files.
