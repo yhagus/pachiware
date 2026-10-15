@@ -4,7 +4,7 @@ import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
-import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention } from "./routing.js";
+import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
@@ -443,7 +443,7 @@ export class DiscordBotManager {
       await o.ack?.(thread ? t.minutesOfThread : o.from === "menu" ? t.minutesFromHere : t.minutesRecent(RECENT_MS / 3600_000));
       if ("sendTyping" in at.channel) await at.channel.sendTyping().catch(() => {});
       const error = await writeMinutes({
-        tenantId: runtime.tenantId, botId, adapter, playbook, guildId: at.guildId!, channelId: at.channelId, parentId: thread ? at.channel.parentId : null, requesterId: o.actor.id,
+        tenantId: runtime.tenantId, botId, adapter, playbook, guildId: at.guildId!, channelId: at.channelId, parentId: thread ? at.channel.parentId : null, privateThread: placeOfChannel(at.channel).privateThread, requesterId: o.actor.id,
         startId: o.from === "menu" ? at.id : undefined, skipIds: o.from === "mention" ? [at.id] : undefined, post: (payload) => at.reply(payload),
       }).catch(() => t.minutesFailed);
       if (error) await o.fail(error);
@@ -485,7 +485,7 @@ export class DiscordBotManager {
       const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
       const shots = place && !brief?.outsider ? media.shots : [];
       if (shots.length) await recordBriefImages(runtime.tenantId, place!, shots).catch(() => null);
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined } } });
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       const briefed = briefTurn(output.toolCallsExecuted);

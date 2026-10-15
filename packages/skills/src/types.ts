@@ -163,6 +163,8 @@ export interface SkillContext {
   channelId?: string;
   /** Set when channelId is a thread: the channel it lives in, used for channel-level scope rules. */
   parentChannelId?: string;
+  /** Set by the host when channelId is a private thread: what is kept there goes to its own folder, the `thread` root (ADR 0009). */
+  privateThread?: boolean;
   userId?: string;
   /** Display names, used only to label Workspace folders for people. */
   guildName?: string;

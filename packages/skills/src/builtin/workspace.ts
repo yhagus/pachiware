@@ -1,5 +1,5 @@
 import type { SkillContext, SkillModule } from "../types.js";
-import { resolvePath, visibleRoots } from "../workspace/paths.js";
+import { KEPT_FOLDERS, keptPath, resolvePath, visibleRoots } from "../workspace/paths.js";
 import { workspaceStore, type WorkspaceStore } from "../workspace/store.js";
 import { readPlaybookFile } from "../playbooks.js";
 import { postBriefRound, postBriefRoundTool } from "../brief.js";
@@ -37,12 +37,14 @@ function writable(path: unknown) {
   return path;
 }
 
-const TOP_FOLDERS = ["tasks", "notes", "decisions", "files", "minutes", "threads"], TOP_FILES = ["MEMORY.md", "glossary.md"];
-/** A channel's or DM's top level is fixed so people find things in the console; deeper folders are free. */
-function creatable(ctx: SkillContext, path: unknown) {
-  writable(path);
+const TOP_FOLDERS = ["tasks", ...KEPT_FOLDERS], TOP_FILES = ["MEMORY.md", "glossary.md"];
+/** A channel's or DM's top level is fixed so people find things in the console; deeper folders are free. A private thread's own folder holds only what it keeps.
+ *  In a private thread, `channel/<kept folder>/...` becomes the thread's own (ADR 0009); the returned path is where the write goes. */
+function creatable(ctx: SkillContext, requested: unknown) {
+  const path = keptPath(ctx, writable(requested));
   if (typeof path !== "string") return path;
   const [root, top, ...rest] = path.replace(/\/$/, "").split("/");
+  if (root === "thread" && top !== undefined && !(rest.length && KEPT_FOLDERS.includes(top))) throw new Error(textIn(ctx.language).folderRefused(KEPT_FOLDERS));
   if ((root === "channel" || root === "dm") && top !== undefined && !(rest.length ? TOP_FOLDERS.includes(top) : TOP_FILES.includes(top))) throw new Error(textIn(ctx.language).folderRefused([...TOP_FOLDERS, ...TOP_FILES]));
   return path;
 }
@@ -84,14 +86,15 @@ export const workspaceSkill: SkillModule = {
     },
     writeFile: async (args, ctx) => {
       if (typeof args.content !== "string") throw new Error("content is required");
-      const path = resolvePath(ctx, creatable(ctx, args.path));
-      const { version } = await workspaceStore().write(ctx.tenantId, path, args.content, typeof args.version === "string" ? args.version : undefined);
-      await labelFolder(ctx, String(args.path).split("/")[0]!);
-      return { success: true, path: args.path, version };
+      const target = creatable(ctx, args.path);
+      const { version } = await workspaceStore().write(ctx.tenantId, resolvePath(ctx, target), args.content, typeof args.version === "string" ? args.version : undefined);
+      await labelFolder(ctx, String(target).split("/")[0]!);
+      return { success: true, path: target, version };
     },
     moveFile: async (args, ctx) => {
-      await workspaceStore().move(ctx.tenantId, resolvePath(ctx, writable(args.from)), resolvePath(ctx, creatable(ctx, args.to)));
-      return { success: true, from: args.from, to: args.to };
+      const to = creatable(ctx, args.to);
+      await workspaceStore().move(ctx.tenantId, resolvePath(ctx, writable(args.from)), resolvePath(ctx, to));
+      return { success: true, from: args.from, to };
     },
     deleteFile: async (args, ctx) => {
       await workspaceStore().remove(ctx.tenantId, resolvePath(ctx, writable(args.path)));
@@ -142,7 +145,7 @@ export const workspaceSkill: SkillModule = {
       if (hasDocument && hasMessages) throw new Error(t.keepOneSource);
       if (!hasDocument && !hasMessages) throw new Error(t.keepNoSource);
       const pieces = hasDocument ? [await keptDocument(ctx, document)] : await keptMessages(ctx, args.messageIds);
-      const kept = await keepNote(ctx, args.path, pieces);
+      const kept = await keepNote(ctx, keptPath(ctx, args.path), pieces);
       await labelFolder(ctx, filesRoot(ctx)!);
       return { success: true, path: kept.path, source: document || pieces.map((p) => p.source) };
     },

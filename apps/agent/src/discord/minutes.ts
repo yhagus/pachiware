@@ -1,8 +1,8 @@
 import type { Message } from "discord.js";
-import { workspaceStore, renderFrontmatter, parseFrontmatter, safeId, asUntrusted, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, permissionName, type Language, type Playbook } from "@pachiware/skills";
+import { workspaceStore, renderFrontmatter, parseFrontmatter, placeRoot, visibleRoots, asUntrusted, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, permissionName, type Language, type Playbook } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { replyQuietly } from "./replyStyle.js";
-import { speakerName } from "./routing.js";
+import { placeOfChannel, speakerName } from "./routing.js";
 import { HISTORY_PAGE, HISTORY_PAGES, HISTORY_SPAN_MS, stamp, transcript, type DiscordJSAdapter, type HistoryAccess, type HistoryCut } from "./adapter.js";
 
 /** The built-in playbook this module runs; a tenant playbook of the same name changes its steps and triggers, not where minutes go. */
@@ -42,6 +42,8 @@ export interface MinutesRun {
   guildId: string;
   /** Where the minutes were asked for; with `parentId` it is a thread and the whole thread is read. */
   channelId: string; parentId: string | null;
+  /** Set when `channelId` is a private thread: its minutes go to its own folder (ADR 0009). */
+  privateThread?: boolean;
   requesterId: string;
   /** The message a "Write minutes" command ran on; without it a channel's last 3 hours are read. */
   startId?: string;
@@ -65,7 +67,7 @@ export async function writeMinutes(run: MinutesRun, now = clockNow()): Promise<s
   const minutes = response && response.finishReason !== "error" ? parseMinutes(response.content, links, corpus) : null;
   if (!minutes) return t.minutesFailed;
   const header: Header = { from: messages[0]!.at, to: messages.at(-1)!.at, count: messages.length, participants: [...new Set(messages.filter((m) => !m.own).map((m) => m.speaker))], cut, language };
-  const folder = minutesFolder(run.guildId, run.parentId ?? run.channelId);
+  const folder = minutesFolder({ guildId: run.guildId, channelId: run.channelId, parentChannelId: run.parentId ?? undefined, privateThread: run.privateThread });
   const file = await freeName(run.tenantId, folder, `${new Date(now).toISOString().slice(0, 10)}-${slug(minutes.title)}`);
   const payload = payloadOf(minutes, header, file);
   const posted = await run.post(payload).catch(() => null);
@@ -116,8 +118,7 @@ export async function correctMinutes(c: MinutesReply, now = clockNow()) {
 }
 
 const recordPath = (guildId: string, message: Message) => {
-  const channel = message.channel;
-  return `${minutesFolder(guildId, (channel.isThread() ? channel.parentId : channel.id) ?? channel.id)}/${minutesFileOf(message)}`;
+  return `${minutesFolder({ guildId, ...placeOfChannel(message.channel) })}/${minutesFileOf(message)}`;
 };
 
 /** Every number in "points 2 and 3" or "items 2-4"; mentions are skipped. */
@@ -218,10 +219,11 @@ function payloadOf(m: Minutes, h: Header, file: string): MinutesPayload {
   return { embeds: [embed], files: long ? [{ attachment: Buffer.from(render(m, h, false)), name: FILE_NAME }] : [], allowedMentions: { parse: [] } };
 }
 
-const minutesFolder = (guildId: string, channelId: string) => {
-  const g = safeId(guildId), c = safeId(channelId);
-  if (!g || !c) throw new Error("Invalid minutes location");
-  return `guilds/${g}/channels/${c}/minutes`;
+/** The place's `minutes/`: the channel's (a public thread's parent's), or a private thread's own folder. */
+const minutesFolder = (where: { guildId: string; channelId: string; parentChannelId?: string; privateThread?: boolean }) => {
+  const root = placeRoot(where), folder = root === "channel" || root === "thread" ? visibleRoots(where)[root] : undefined;
+  if (!folder) throw new Error("Invalid minutes location");
+  return `${folder}/minutes`;
 };
 const slug = (title: string) => title.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+/, "").slice(0, 48).replace(/-+$/, "") || "minutes";
 async function freeName(tenantId: string, folder: string, base: string) {

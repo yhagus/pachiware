@@ -1,5 +1,5 @@
 import { MAX_BLOB_BYTES, workspaceStore } from "./store.js";
-import { resolvePath, visibleRoots } from "./paths.js";
+import { placeRoot, resolvePath, visibleRoots } from "./paths.js";
 import { documentText, extensionOf, extractsText } from "./extract.js";
 import type { SkillContext } from "../types.js";
 
@@ -19,7 +19,7 @@ export type NotFiled = { reason: NotFiledReason };
 export type Giver = { name: string; id: string };
 /** What the place remembers about a filed Document: who gave it, and where its extracted text went when it has one. */
 export type Provenance = Giver & { textPath?: string };
-type Where = Pick<SkillContext, "guildId" | "channelId" | "parentChannelId" | "userId">;
+type Where = Pick<SkillContext, "guildId" | "channelId" | "parentChannelId" | "userId" | "privateThread">;
 
 export const isDocument = (name: string) => (DOCUMENT_TYPES as readonly string[]).includes(extensionOf(name));
 
@@ -30,11 +30,8 @@ export function documentReason(doc: Pick<Document, "name" | "size">): NotFiledRe
   return null;
 }
 
-/** The folder documents are filed in: the channel's (a thread uses its parent's), or the DM's. Null outside both. */
-export function filesRoot(where: Where) {
-  const roots = visibleRoots(where);
-  return roots.channel ? "channel" : roots.dm ? "dm" : null;
-}
+/** The folder documents are filed in: a private thread's own, the channel's (a public thread uses its parent's), or the DM's. Null outside all. */
+export const filesRoot = (where: Where) => placeRoot(where);
 
 /** A Discord attachment name reduced to one safe path segment, extension kept. */
 export function safeName(name: string) {

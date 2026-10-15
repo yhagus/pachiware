@@ -1,7 +1,7 @@
 import type { Message } from "discord.js";
 import { textIn, jumpLink, fileDocument, takenNames, type Filed, type Language, type Strings } from "@pachiware/skills";
 import type { ImagePart } from "../llm/types.js";
-import { speakerName } from "./routing.js";
+import { placeOfChannel, speakerName } from "./routing.js";
 
 const MAX_IMAGES = 4;
 const MAX_EDGE = 2000;
@@ -43,8 +43,8 @@ export async function fileTurnDocuments(tenantId: string, items: { msg: Message;
   const taken = new Map<string, Set<string>>();
   for (const { msg, direct } of items) {
     if (direct === false) continue;
-    const where = { guildId: msg.guildId ?? undefined, channelId: msg.channelId, parentChannelId: msg.channel.isThread() ? msg.channel.parentId ?? undefined : undefined, userId: msg.author.id };
-    const key = `${where.guildId ?? "dm"}:${where.parentChannelId ?? where.channelId}:${where.userId}`;
+    const where = { guildId: msg.guildId ?? undefined, ...placeOfChannel(msg.channel), userId: msg.author.id };
+    const key = `${where.guildId ?? "dm"}:${where.privateThread ? where.channelId : where.parentChannelId ?? where.channelId}:${where.userId}`;
     for (const a of attachmentsOf(msg).filter((a) => !isImage(a))) {
       const names = taken.get(key) ?? (await takenNames(tenantId, where).catch(() => new Set<string>()));
       taken.set(key, names);

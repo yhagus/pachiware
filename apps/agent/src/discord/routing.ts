@@ -1,3 +1,5 @@
+import { ChannelType } from "discord.js";
+
 export type Trigger = {
   authorIsBot: boolean;
   guildId: string | null;
@@ -35,6 +37,12 @@ export function addressed(t: Pick<Trigger, "guildId" | "mentioned" | "repliedToB
 
 export function threadName(text: string) {
   return (text.replace(/\s+/g, " ").trim().slice(0, 60) || "Conversation");
+}
+
+/** Where a channel keeps things: a thread names its parent, and a private thread also keeps its own folder (ADR 0009). */
+export function placeOfChannel(channel: { id: string; type: number; parentId?: string | null; isThread(): boolean }) {
+  const thread = channel.isThread();
+  return { channelId: channel.id, parentChannelId: thread ? channel.parentId ?? undefined : undefined, privateThread: thread && channel.type === ChannelType.PrivateThread ? true : undefined };
 }
 
 /** The name someone goes by here: their server nickname, else their username. */

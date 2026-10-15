@@ -170,6 +170,7 @@ export class AgentReActLoop {
       channelName: input.context.channelName,
       userName: input.context.userName,
       parentChannelId: input.context.skillContext?.parentChannelId,
+      privateThread: input.context.skillContext?.privateThread,
       userId: input.context.userId,
       timezone: input.context.timezone,
       language: input.context.language,
