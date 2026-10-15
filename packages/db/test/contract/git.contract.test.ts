@@ -94,6 +94,18 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
     expect(await git.listBotAccounts(b1)).toEqual([]);
   });
 
+  test("linking an account switches the git skill on for the tenant, and only for that tenant", async () => {
+    const { git, skills } = use().repos;
+    const [a, b] = [await tenant("a"), await tenant("b")];
+    const main = await account(a.id, "main");
+    const bot = await newBot(a.id);
+    await git.setBotAccounts(a.id, bot, []);
+    expect((await skills.getForTenant(a.id, "git_repositories"))?.isEnabled).toBe(false);
+    await git.setBotAccounts(a.id, bot, [main.id]);
+    expect((await skills.getForTenant(a.id, "git_repositories"))?.isEnabled).toBe(true);
+    expect((await skills.getForTenant(b.id, "git_repositories"))?.isEnabled).toBe(false);
+  });
+
   test("a bot cannot link an account of another tenant, and a rejected set changes nothing", async () => {
     const { git } = use().repos;
     const [a, b] = [await tenant("a"), await tenant("b")];
