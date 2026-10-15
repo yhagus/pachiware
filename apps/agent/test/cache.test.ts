@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cachedTokensOf } from "../src/llm/usage";
-import { dropLeadingOrphans, historyOffset } from "../src/loop/history";
+import { dropLeadingOrphans, historyOffset, storedToolResult } from "../src/loop/history";
 
 describe("prompt cache helpers", () => {
   test("reads cached tokens from OpenAI, DeepSeek and Anthropic-style usage", () => {
@@ -27,6 +27,12 @@ describe("prompt cache helpers", () => {
     const rows = [{ role: "tool" }, { role: "tool" }, { role: "user" }, { role: "tool" }];
     expect(dropLeadingOrphans(rows).map((r) => r.role)).toEqual(["user", "tool"]);
     expect(dropLeadingOrphans([])).toEqual([]);
+  });
+  test("a stored tool result stays under 1000 characters whatever the tool returned", () => {
+    const huge = { items: Array.from({ length: 200 }, (_, i) => ({ id: `id-${i}`, title: "t".repeat(500), body: "b".repeat(5000) })) };
+    expect(storedToolResult({ success: true, data: huge }).length).toBeLessThan(1000);
+    expect(storedToolResult({ success: false, error: "e".repeat(20000) }).length).toBeLessThan(1000);
+    expect(storedToolResult({ success: true, data: "x".repeat(20000) }).length).toBeLessThan(1000);
   });
 });
 

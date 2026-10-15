@@ -1,6 +1,6 @@
 import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
 import { eq, and, sql } from "drizzle-orm";
-import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
+import { dropLeadingOrphans, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
@@ -228,11 +228,12 @@ export class AgentReActLoop {
           name: toolCall.name,
         });
 
+        // Later turns replay the stored row, so it keeps a short form; this turn has already seen the full result above.
         await db.insert(messagesTable).values({
           tenantId: input.tenantId,
-        conversationId: convId,
+          conversationId: convId,
           role: "tool",
-          content: toolResultContent,
+          content: asUntrusted(`tool:${toolCall.name} (short form)`, redact(storedToolResult(result))),
           toolCallId: toolCall.id,
         });
       }
