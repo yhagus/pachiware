@@ -35,9 +35,10 @@ discordScenario("a message near Discord's 4000-character cap with an attachment 
   const tool = attachment(s, "setup.exe", null, { contentType: "application/octet-stream", size: 500 });
   const minutes = ("Minutes from the planning call: the team agreed to ship the export on Friday and to review the Safari login bug next week. ").repeat(40).slice(0, 3990 - s.discord.mention.length).trim();
   s.model.script("Noted the plan for Friday.");
-  await s.discord.send(`${s.discord.mention} ${minutes}`, { attachments: [tool] });
+  const sent = await s.discord.send(`${s.discord.mention} ${minutes}`, { attachments: [tool] });
   const turn = s.model.calls[0]!.at(-2)!.content as string;
   expect(turn.length).toBeGreaterThan(4000);
-  expect(turn.startsWith(`Alice: ${minutes} [file: setup.exe`)).toBe(true);
+  // Text this long shows its message id, so it can be kept with keepAsNote (#143).
+  expect(turn.startsWith(`Alice (message ${sent.id}): ${minutes} [file: setup.exe`)).toBe(true);
   expect(s.discord.botMessages.at(-1)?.content).toBe("Noted the plan for Friday.");
 });
