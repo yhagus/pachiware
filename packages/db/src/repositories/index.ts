@@ -7,11 +7,13 @@ import type { ScheduleRepository } from "./schedules/types.js";
 import { createSqlTaskRowRepository } from "./task-rows/sql.js";
 import type { TaskRowRepository } from "./task-rows/types.js";
 import { createSqlProfileRepository } from "./profiles/sql.js";
+import { createMongoProfileRepository } from "./profiles/mongo.js";
 import type { ProfileRepository } from "./profiles/types.js";
 import { createSqlAgentConfigRepository } from "./agent-config/sql.js";
 import { createMongoAgentConfigRepository } from "./agent-config/mongo.js";
 import type { AgentConfigRepository } from "./agent-config/types.js";
 import { createSqlUsageRepository } from "./usage/sql.js";
+import { createMongoUsageRepository } from "./usage/mongo.js";
 import type { UsageRepository } from "./usage/types.js";
 import { createSqlStatsRepository } from "./stats/sql.js";
 import { createMongoStatsRepository } from "./stats/mongo.js";
@@ -82,9 +84,9 @@ export function createRepositories(connection: Connection): Repositories {
     case "mongodb":
       return {
         tenants: createMongoTenantRepository(connection),
-        profiles: notOnMongoYet("Profiles"),
+        profiles: createMongoProfileRepository(connection),
         agentConfig: createMongoAgentConfigRepository(connection),
-        usage: notOnMongoYet("Usage"),
+        usage: createMongoUsageRepository(connection),
         stats: createMongoStatsRepository(connection),
         schedules: notOnMongoYet("Schedules"),
         taskRows: notOnMongoYet("Task rows"),
