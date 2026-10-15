@@ -125,7 +125,7 @@ export const workspaceSkill: SkillModule = {
       }
       const dir = resolvePath(ctx, args.path, true), access = threadAccess(ctx);
       await access.check(dir);
-      const entries = await access.filter(await workspaceStore().list(ctx.tenantId, dir));
+      const entries = (await access.sort(await workspaceStore().list(ctx.tenantId, dir))).shown;
       const name = String(args.path).split("/")[0]!, prefix = visibleRoots(ctx)[name]!;
       return { entries: entries.filter((e) => !e.path.split("/").pop()!.startsWith(".")).map((e) => ({ ...e, path: name + e.path.slice(prefix.length) })) };
     },
@@ -197,7 +197,8 @@ export const workspaceSkill: SkillModule = {
       if (hasDocument && hasMessages) throw new Error(t.keepOneSource);
       if (!hasDocument && !hasMessages) throw new Error(t.keepNoSource);
       writable(ctx, args.path);
-      const pieces = hasDocument ? [await keptDocument(ctx, keptPath(ctx, document))] : await keptMessages(ctx, args.messageIds);
+      // Only the Note is redirected into a private thread's folder: a parent channel Document stays readable where it is.
+      const pieces = hasDocument ? [await keptDocument(ctx, document)] : await keptMessages(ctx, args.messageIds);
       const kept = await keepNote(ctx, keptPath(ctx, args.path), pieces);
       await labelFolder(ctx, filesRoot(ctx)!);
       return { success: true, path: kept.path, source: document || pieces.map((p) => p.source) };
@@ -219,7 +220,7 @@ export const workspaceSkill: SkillModule = {
           .sort((a, b) => kept.indexOf(a.matches[0]!) - kept.indexOf(b.matches[0]!));
         return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, ...notShown(ctx, all.length - total) };
       }
-      let found: (FileMatch & { shown: string })[];
+      let found: (FileMatch & { shown: string })[], counted = 0;
       if (namesChannel(wanted)) {
         const { source, path } = await namedSource(ctx, wanted, true, true);
         found = await searchSource(ctx, source, path === source.folder ? source.folders : [path], words);
@@ -228,10 +229,12 @@ export const workspaceSkill: SkillModule = {
         const root = resolvePath(ctx, wanted, true), access = threadAccess(ctx);
         await access.check(root);
         const name = wanted.split("/")[0]!, prefix = visibleRoots(ctx)[name]!;
-        found = (await access.filter(await workspaceStore().searchFolder(ctx.tenantId, root, words, (p) => p.slice(prefix.length + 1)))).map((m) => ({ ...m, shown: name + m.path.slice(prefix.length) }));
+        const sorted = await access.sort(await workspaceStore().searchFolder(ctx.tenantId, root, words, (p) => p.slice(prefix.length + 1)));
+        found = sorted.shown.map((m) => ({ ...m, shown: name + m.path.slice(prefix.length) }));
+        counted = sorted.counted;
       }
       const { kept, total, leftOut } = capped(found);
-      return { matches: kept.map(shownMatch), ...(leftOut ? { total, leftOut } : {}) };
+      return { matches: kept.map(shownMatch), ...(leftOut ? { total, leftOut } : {}), ...notShown(ctx, counted) };
     },
   },
 };

@@ -12,18 +12,24 @@ export type KeptText = { text: string; source: string; author?: string };
 
 const TEXT_TYPES = ["md", "txt", "csv"];
 
-/** `path` when it names something inside `<place>/<folder>/` (`channel/notes/...` or `dm/notes/...`), else null; refuses where the turn has no place. */
-function pathInPlaceFolder(ctx: SkillContext, path: unknown, folder: string) {
+/**
+ * `path` when it names something inside `<place>/<folder>/` (`channel/notes/...`, `thread/notes/...` or `dm/notes/...`), else null;
+ * refuses where the turn has no place. With `parentToo`, a private thread's parent channel folder counts as well.
+ */
+function pathInPlaceFolder(ctx: SkillContext, path: unknown, folder: string, parentToo = false) {
   const root = filesRoot(ctx);
   if (!root) throw new Error(textIn(ctx.language).keepNoPlace);
-  const prefix = `${root}/${folder}/`;
-  return typeof path === "string" && path.startsWith(prefix) && path.length > prefix.length ? path : null;
+  const roots = parentToo && root === "thread" ? [root, "channel"] : [root];
+  return typeof path === "string" && roots.some((r) => path.startsWith(`${r}/${folder}/`) && path.length > `${r}/${folder}/`.length) ? path : null;
 }
 
-/** The text of the Document at `path`, as filed: an MD, TXT or CSV as it is, the extracted Markdown of a PDF, DOCX, XLSX or CSV too large to read. */
+/**
+ * The text of the Document at `path`, as filed: an MD, TXT or CSV as it is, the extracted Markdown of a PDF, DOCX, XLSX or CSV too large to read.
+ * In a private thread the parent channel's Documents can be kept too.
+ */
 export async function keptDocument(ctx: SkillContext, path: unknown): Promise<KeptText> {
   const t = textIn(ctx.language), store = workspaceStore();
-  const document = pathInPlaceFolder(ctx, path, "files");
+  const document = pathInPlaceFolder(ctx, path, "files", true);
   if (!document) throw new Error(t.keepNotDocument(filesRoot(ctx)!));
   const full = resolvePath(ctx, document), folder = full.slice(0, full.lastIndexOf("/"));
   const entries = await store.list(ctx.tenantId, folder);

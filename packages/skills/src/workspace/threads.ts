@@ -1,6 +1,6 @@
-import { safeId, visibleRoots } from "./paths.js";
+import { safeId, threadFolder, visibleRoots } from "./paths.js";
 import { textIn } from "../language.js";
-import type { SkillContext } from "../types.js";
+import type { DiscordClientAdapter, SkillContext } from "../types.js";
 
 /** A private thread whose own folder (ADR 0009) holds a path. */
 export type ThreadPlace = { guildId: string; channelId: string; threadId: string };
@@ -21,42 +21,49 @@ export function threadsPath(path: string): ThreadsPath {
   return safeId(name) === name ? { kind: "thread", guildId: guildId!, channelId: channelId!, threadId: name } : { kind: "loose" };
 }
 
+/** The channel or thread `id` as Discord shows it to a person, when they can view it and it is in `guildId`; else null. */
+export async function viewedIn(discord: DiscordClientAdapter, id: string, userId: string, guildId: string) {
+  const view = await discord.channelView(id, userId).catch(() => null);
+  return view?.canView && view.channel?.guildId === guildId ? view.channel : null;
+}
+
 type Asker = Pick<SkillContext, "guildId" | "channelId" | "parentChannelId" | "privateThread" | "userId" | "discord" | "language">;
+/** How a path may be read here: shown, only counted (the asker may read it, but not here), or not at all. */
+type Reading = "shown" | "counted" | "refused";
 
 /**
  * Who may have private thread folders read, for one asker, with each thread looked up once: the private thread they ask from,
- * or one the Discord adapter says they can view, which for a private thread means they were added to it. A thread that cannot
- * be looked up (deleted, or in a guild the bot left) is read by nobody. Loose files under `threads/` are never kept material.
+ * or one the Discord adapter says they can view, which for a private thread means they were added to it. Inside a private thread
+ * only that thread and its parent are shown; a sibling private thread the asker was added to is only counted. A thread that
+ * cannot be looked up (deleted, or in a guild the bot left) is read by nobody. Loose files under `threads/` are never kept material.
  */
 export function threadAccess(ctx: Asker) {
   const known = new Map<string, Promise<boolean>>();
   const own = ctx.privateThread ? visibleRoots(ctx).thread : undefined;
-  const view = async ({ guildId, threadId }: ThreadPlace) => {
-    if (!ctx.discord || !ctx.userId) return false;
-    const seen = await ctx.discord.channelView(threadId, ctx.userId).catch(() => null);
-    return !!seen?.canView && seen.channel?.guildId === guildId;
-  };
-  const threadReadable = (at: ThreadPlace) => {
-    if (own === `guilds/${at.guildId}/channels/${at.channelId}/threads/${at.threadId}`) return Promise.resolve(true);
-    const key = `${at.guildId}/${at.threadId}`;
-    if (!known.has(key)) known.set(key, view(at));
+  const added = ({ guildId, threadId }: ThreadPlace) => {
+    const key = `${guildId}/${threadId}`;
+    if (!known.has(key)) known.set(key, ctx.discord && ctx.userId ? viewedIn(ctx.discord, threadId, ctx.userId, guildId).then(Boolean) : Promise.resolve(false));
     return known.get(key)!;
   };
-  const readable = async (path: string) => {
+  const reading = async (path: string): Promise<Reading> => {
     const at = threadsPath(path);
-    return !at || at.kind === "threads" || (at.kind === "thread" && await threadReadable(at));
+    if (!at || at.kind === "threads") return "shown";
+    if (at.kind === "loose") return "refused";
+    if (own === threadFolder(at.guildId, at.channelId, at.threadId)) return "shown";
+    if (!(await added(at))) return "refused";
+    return own ? "counted" : "shown";
   };
   return {
-    threadReadable,
-    readable,
-    /** Throws the place's refusal unless `path` may be read here. */
+    /** Throws the place's refusal unless `path` may be read and shown here. */
     async check(path: string) {
-      if (!(await readable(path))) throw new Error(textIn(ctx.language).threadFolderRefused);
+      const read = await reading(path);
+      if (read === "refused") throw new Error(textIn(ctx.language).threadFolderRefused);
+      if (read === "counted") throw new Error(textIn(ctx.language).notQuotableHere);
     },
-    /** A folder listing without what may not be read here. */
-    async filter<T extends { path: string }>(entries: T[]): Promise<T[]> {
-      const keep = await Promise.all(entries.map((e) => readable(e.path)));
-      return entries.filter((_, i) => keep[i]);
+    /** The entries that may be shown here, and how many more the asker may read but not here. */
+    async sort<T extends { path: string }>(entries: T[]): Promise<{ shown: T[]; counted: number }> {
+      const read = await Promise.all(entries.map((e) => reading(e.path)));
+      return { shown: entries.filter((_, i) => read[i] === "shown"), counted: read.filter((r) => r === "counted").length };
     },
   };
 }

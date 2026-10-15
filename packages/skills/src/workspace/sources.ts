@@ -104,6 +104,11 @@ export async function readableSources(store: WorkspaceStore, ctx: Asker): Promis
   if (roots.thread) here.push({ root: "thread", label: `#${threadName ?? ctx.channelId}`, folder: roots.thread, folders: keptIn(roots.thread), guildId, channelId, threadId: ctx.channelId, here: true, quotable: true });
   const own = channels.find((c) => c.id === channelId);
   here.push({ root: "channel", label: `#${own?.name ?? (ctx.parentChannelId ? undefined : ctx.channelName) ?? channelId}`, folder: roots.channel, folders: keptIn(roots.channel), guildId, channelId, here: true, quotable: true });
+  // This channel's private threads the asker was added to, read by the path the channel gives them: shown in the channel and its
+  // public threads, only counted inside another private thread of it.
+  const userId = ctx.userId;
+  const ownThreads = own && userId && ctx.discord ? (await addedThreads(store, ctx, own, userId)).filter((t) => t.folder !== roots.thread)
+    .map((t): Source => ({ root: `channel/threads/${t.id}`, label: `#${t.name}`, folder: t.folder, folders: keptIn(t.folder), guildId, channelId, threadId: t.id, here: false, quotable: !roots.thread })) : [];
 
   const others = channels.filter((c) => c.id !== channelId);
   const on = await channelsWithSkill({ tenantId: ctx.tenantId, botId: ctx.botId, guildId }, WORKSPACE_SKILL, others.map((c) => c.id));
@@ -111,9 +116,9 @@ export async function readableSources(store: WorkspaceStore, ctx: Asker): Promis
   const elsewhere = kept.map((c): Source => ({ root: `#${c.name}`, label: `#${c.name}`, folder: c.folder, folders: keptIn(c.folder), guildId, channelId: c.id, here: false, quotable: c.public }));
   const taken = (root: string) => elsewhere.filter((s) => s.root === root).length > 1 || here.some((s) => s.label === root);
   // Another channel's private thread is only counted here: its root holds a "/", so no path names it by name.
-  const userId = ctx.userId, threads = userId && ctx.discord ? (await Promise.all(kept.map(async (c) => (await addedThreads(store, ctx, c, userId))
+  const threads = userId && ctx.discord ? (await Promise.all(kept.map(async (c) => (await addedThreads(store, ctx, c, userId))
     .map((t): Source => ({ root: `#${c.name}/${t.name}`, label: `#${c.name}/${t.name}`, folder: t.folder, folders: keptIn(t.folder), guildId, channelId: c.id, threadId: t.id, here: false, quotable: false }))))).flat() : [];
-  return [...here, ...elsewhere.map((s) => (taken(s.root) ? { ...s, root: `${s.root} [${s.channelId}]` } : s)), ...threads];
+  return [...here, ...ownThreads, ...elsewhere.map((s) => (taken(s.root) ? { ...s, root: `${s.root} [${s.channelId}]` } : s)), ...threads];
 }
 
 /** Whether an agent path starts with a channel's name ("#marketing/...") or mention ("<#123>/..."), not one of the place's own roots. */

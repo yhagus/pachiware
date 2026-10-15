@@ -165,3 +165,66 @@ discordScenario("a file of the private thread deleted from inside it goes once i
   await s.discord.click(confirm, "Confirm");
   expect(await s.workspace.read(`${THREAD}/notes/old.md`)).toBeNull();
 });
+
+discordScenario("asking in the parent channel or its public thread with no path, a member added to a private thread has its files searched and quoted; nobody else sees them", async (s) => {
+  await s.guildSettings({ language: "en", useThreads: false });
+  const { alice, bob } = s.discord;
+  s.discord.channel("channel-1").name = "general";
+  s.discord.channel("thread-p", { thread: true, private: true, parentId: "channel-1", members: [alice.id] }).name = "salaries";
+  const open = s.discord.channel("thread-pub", { thread: true, parentId: "channel-1" });
+  await s.workspace.write(`${THREAD}/minutes/2026-10-14-salaries.md`, "Salary bands agreed\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/notes/lunch.md", "Salary day lunch\n");
+  const ask = async (user: typeof alice, channel?: typeof open) => {
+    s.model.script({ tool: "searchFiles", args: { query: "salary" } }, (turn) => JSON.stringify(turn.toolResults[0]));
+    await s.discord.send(`${s.discord.mention} what do we have on salaries?`, { author: user, ...(channel && { channel }) });
+    return JSON.parse(s.discord.botMessages.at(-1)!.content);
+  };
+  const lunch = { channel: "#general", matches: [{ path: "channel/notes/lunch.md", lines: [{ line: 1, text: "Salary day lunch" }] }] };
+  const salaries = { channel: "#salaries", matches: [{ path: "channel/threads/thread-p/minutes/2026-10-14-salaries.md", lines: [{ line: 1, text: "Salary bands agreed" }] }] };
+  expect(await ask(alice)).toEqual({ groups: [salaries, lunch], total: 2, leftOut: 0 });
+  expect(await ask(alice, open)).toEqual({ groups: [salaries, lunch], total: 2, leftOut: 0 });
+  expect(await ask(bob)).toEqual({ groups: [lunch], total: 1, leftOut: 0 });
+});
+
+discordScenario("inside a private thread a parent channel Document is kept as a Note in the thread's own folder", async (s) => {
+  s.clock.set("2026-10-15T03:00:00Z");
+  const { alice } = s.discord;
+  const thread = s.discord.channel("thread-p", { thread: true, private: true, parentId: "channel-1", members: [alice.id] });
+  await s.workspace.write("guilds/guild-1/channels/channel-1/files/brief.txt", "Hiring brief\n");
+  s.model.script({ tool: "keepAsNote", args: { document: "channel/files/brief.txt", path: "channel/notes/brief.md" } }, (turn) => turn.toolResults[0].error ?? turn.toolResults[0].path);
+  await s.discord.send(`${s.discord.mention} keep the brief as a note`, { channel: thread });
+  expect(s.discord.botMessages.at(-1)!.content).toBe("thread/notes/brief.md");
+  expect(await s.workspace.read(`${THREAD}/notes/brief.md`)).toBe(`---\nsource: "channel/files/brief.txt"\naskedBy: "Alice"\ndate: "2026-10-15"\n---\nHiring brief\n`);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/notes")).toEqual([]);
+});
+
+discordScenario("inside a private thread a sibling private thread's files are only counted, even for someone added to both", async (s) => {
+  await s.guildSettings({ language: "en" });
+  const { alice } = s.discord;
+  const thread = s.discord.channel("thread-p", { thread: true, private: true, parentId: "channel-1", members: [alice.id] });
+  s.discord.channel("thread-q", { thread: true, private: true, parentId: "channel-1", members: [alice.id] }).name = "bonuses";
+  const SIBLING = "guilds/guild-1/channels/channel-1/threads/thread-q";
+  await s.workspace.write(`${SIBLING}/minutes/2026-10-13-bonus.md`, "Salary bonus pool\n");
+  await s.workspace.write(`${THREAD}/notes/bands.md`, "Salary bands\n");
+  s.model.script([
+    { tool: "readFile", args: { path: "channel/threads/thread-q/minutes/2026-10-13-bonus.md" } },
+    { tool: "readFile", args: { path: "channel/threads/thread-q/minutes/2026-10-12-nothing.md" } },
+    { tool: "listFiles", args: { path: "channel/threads/thread-q/minutes" } },
+    { tool: "readFile", args: { path: "<#thread-q>/minutes/2026-10-13-bonus.md" } },
+    { tool: "listFiles", args: { path: "channel/threads" } },
+    { tool: "searchFiles", args: { query: "salary", path: "channel" } },
+    { tool: "searchFiles", args: { query: "salary" } },
+  ], (turn) => JSON.stringify(turn.toolResults.map((r: any) => r.error ?? r)));
+  await s.discord.send(`${s.discord.mention} what do we have on salaries?`, { channel: thread });
+  const said = s.discord.botMessages.at(-1)!.content;
+  expect(said).not.toMatch(/bonus|thread-q/i);
+  const refused = "Files from there cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.";
+  const suggestion = "1 more matching file you can read cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.";
+  const bands = { path: "thread/notes/bands.md", lines: [{ line: 1, text: "Salary bands" }] };
+  expect(JSON.parse(said)).toEqual([
+    refused, refused, refused, refused,
+    { entries: [{ path: "channel/threads/thread-p", type: "dir" }] },
+    { matches: [{ ...bands, path: "channel/threads/thread-p/notes/bands.md" }], notShownHere: 1, suggestion },
+    { groups: [{ channel: "#thread-p", matches: [bands] }], total: 1, leftOut: 0, notShownHere: 1, suggestion },
+  ]);
+});
