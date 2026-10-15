@@ -916,3 +916,11 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
   - #153 hits that cannot be quoted here (blocked by #151)
   - #154 persona and daily-behaviour eval (blocked by #152, #153)
 - [ ] Implement #147–#154.
+  - [x] #148 merged into `spec/146-across-channels`: search matches every word, with ranked lines.
+    - New `packages/skills/src/workspace/search.ts`: `matchFile(words, name, text)`, `queryWords(query)`, `searchFolder(...)`. Result shape is now `{ matches: [{ path, lines: [{ line, text }] }] }`.
+    - Words are substrings, split on whitespace with edge punctuation stripped; a repeated word counts once; no stemming.
+    - A file's name is its path below its place root, so folder names count as words; a name-only match can return `lines: []`.
+    - Lines ranked by distinct query words held, ties to the earlier line, at most 3, clipped to 200 chars.
+    - PDF/DOCX/XLSX match by name; their text is searched through the sibling `.md`, so both may be returned. Hidden files are skipped.
+    - The walk still stops at 50 matches / 500 files scanned; #150 replaces the walk, #151 adds grouping, order and totals.
+    - Verification: `bun run typecheck` exits 0; `bun test` 638 pass, 0 fail across 118 files.
