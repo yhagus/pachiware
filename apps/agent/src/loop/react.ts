@@ -1,5 +1,4 @@
-import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
-import { eq, and, sql } from "drizzle-orm";
+import { db, repositories, type Message } from "@pachiware/db";
 import { dropLeadingOrphans, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
@@ -74,8 +73,9 @@ export class AgentReActLoop {
     let convId = input.conversationId;
     let summary: ConversationSummary | null = null;
     let approvedBulk: BulkItem[] = [];
+    const { conversations } = repositories();
     if (convId) {
-      const [owned] = await db.select().from(conversations).where(and(eq(conversations.id, convId), eq(conversations.tenantId, input.tenantId))).limit(1);
+      const owned = await conversations.get(input.tenantId, convId);
       if (!owned) throw new Error("Conversation not found");
       summary = summaryOf(owned.metadata);
       // A refused bulk unlocks only the asker's next turn; any next turn clears it, whoever speaks.
@@ -83,17 +83,14 @@ export class AgentReActLoop {
       if ((owned.metadata as { bulkApproval?: unknown } | null)?.bulkApproval) await patchConversationMetadata(input.tenantId, convId, { bulkApproval: undefined }, owned.metadata);
     }
     if (!convId) {
-      const [newConv] = await db
-        .insert(conversations)
-        .values({
-          tenantId: input.tenantId,
-          botId: input.botId || null,
-          platform: input.context.platform,
-          channelId: input.context.channelId || null,
-          userId: input.context.userId || null,
-          metadata: { parentChannelId: input.context.skillContext?.parentChannelId ?? null },
-        })
-        .returning();
+      const newConv = await conversations.create({
+        tenantId: input.tenantId,
+        botId: input.botId || null,
+        platform: input.context.platform,
+        channelId: input.context.channelId || null,
+        userId: input.context.userId || null,
+        metadata: { parentChannelId: input.context.skillContext?.parentChannelId ?? null },
+      });
       convId = newConv.id;
     }
 
@@ -114,16 +111,8 @@ export class AgentReActLoop {
     const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId, botId: input.botId, off: available.off });
 
     // 3. Load previous messages from DB (windowed in steps so the prompt prefix stays cacheable)
-    const scope = and(eq(messagesTable.conversationId, convId), eq(messagesTable.tenantId, input.tenantId));
-    const [{ n: total }] = await db.select({ n: sql<number>`count(*)` }).from(messagesTable).where(scope);
-    const windowOffset = historyOffset(Number(total));
-    const existingDbMessages = dropLeadingOrphans<Message>(await db
-      .select()
-      .from(messagesTable)
-      .where(scope)
-      .orderBy(messagesTable.createdAt)
-      .offset(windowOffset)
-      .limit(HISTORY_SIZE + HISTORY_STEP) as Message[]);
+    const windowOffset = historyOffset(await conversations.countMessages(input.tenantId, convId));
+    const existingDbMessages = dropLeadingOrphans<Message>(await conversations.listMessages(input.tenantId, convId, { offset: windowOffset, limit: HISTORY_SIZE + HISTORY_STEP }));
 
     const messageHistory: ChatMessage[] = [
       { role: "system", content: systemPrompt },
@@ -146,7 +135,7 @@ export class AgentReActLoop {
     // Per-turn context is a separate trailing message that is never stored, so the stored history re-reads identically next turn and the cached prefix survives.
     messageHistory.push({ role: "user", content: `[Context for this turn, not written by the user]\n${await SystemPromptBuilder.buildDynamic({ ...input.context, tenantId: input.tenantId, botId: input.botId })}` });
 
-    await db.insert(messagesTable).values({
+    await conversations.addMessage({
       tenantId: input.tenantId,
       conversationId: convId,
       role: "user",
@@ -223,7 +212,7 @@ export class AgentReActLoop {
         toolCalls: response.toolCalls.length > 0 ? response.toolCalls : undefined,
       });
 
-      await db.insert(messagesTable).values({
+      await conversations.addMessage({
         tenantId: input.tenantId,
         conversationId: convId,
         role: "assistant",
@@ -272,7 +261,7 @@ export class AgentReActLoop {
           name: toolCall.name,
         });
 
-        await db.insert(messagesTable).values({
+        await conversations.addMessage({
           tenantId: input.tenantId,
           conversationId: convId,
           role: "tool",

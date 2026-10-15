@@ -1,5 +1,4 @@
-import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
-import { eq, and, sql } from "drizzle-orm";
+import { repositories, type Message } from "@pachiware/db";
 import { redact } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { historyOffset } from "./history.js";
@@ -26,15 +25,14 @@ const line = (m: Message) => {
  * A failed call keeps the previous summary until the next step: retrying earlier would change the prompt prefix mid-step.
  */
 export async function rollSummary(o: { tenantId: string; botId?: string; conversationId: string; windowOffset: number }) {
-  const scope = and(eq(messagesTable.conversationId, o.conversationId), eq(messagesTable.tenantId, o.tenantId));
-  const [{ n: total }] = await db.select({ n: sql<number>`count(*)` }).from(messagesTable).where(scope);
-  const offset = historyOffset(Number(total));
+  const { conversations } = repositories();
+  const offset = historyOffset(await conversations.countMessages(o.tenantId, o.conversationId));
   if (offset <= o.windowOffset) return;
-  const [conversation] = await db.select().from(conversations).where(and(eq(conversations.id, o.conversationId), eq(conversations.tenantId, o.tenantId))).limit(1);
+  const conversation = await conversations.get(o.tenantId, o.conversationId);
   if (!conversation) return;
   const previous = summaryOf(conversation.metadata);
   const from = previous?.coversMessages ?? 0;
-  const left = await db.select().from(messagesTable).where(scope).orderBy(messagesTable.createdAt).offset(from).limit(offset - from) as Message[];
+  const left = await conversations.listMessages(o.tenantId, o.conversationId, { offset: from, limit: offset - from });
   const request: ChatMessage[] = [
     { role: "system", content: SUMMARY_PROMPT },
     { role: "user", content: `Previous summary:\n${previous?.text ?? "(none yet)"}\n\nMessages since:\n${left.map(line).filter(Boolean).join("\n")}` },

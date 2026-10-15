@@ -1,6 +1,5 @@
 import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type SendableChannels, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
-import { repositories, db, bots, agentsConfig, conversations, usageEvents, getBotDecrypted, listAllActiveBots, updateBot, eq } from "@pachiware/db";
-import { and, desc } from "drizzle-orm";
+import { repositories, db, bots, agentsConfig, usageEvents, getBotDecrypted, listAllActiveBots, updateBot, eq } from "@pachiware/db";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
@@ -486,7 +485,7 @@ export class DiscordBotManager {
     try {
       const [agent] = await db.select().from(agentsConfig).where(eq(agentsConfig.tenantId, runtime.tenantId)).limit(1);
       const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
-      const [conversation] = await db.select().from(conversations).where(and(eq(conversations.tenantId, runtime.tenantId), eq(conversations.botId, botId), eq(conversations.channelId, channelId))).orderBy(desc(conversations.createdAt)).limit(1);
+      const conversation = await repositories().conversations.latestInChannel(runtime.tenantId, botId, channelId);
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const repository = opts.binding && threadRepositoryOf(opts.binding), documents = opts.binding && threadDocumentsOf(opts.binding);
       const chained = opts.playbook && withLoads(opts.playbook, await listPlaybooks(runtime.tenantId));
