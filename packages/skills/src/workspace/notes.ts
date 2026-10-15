@@ -4,7 +4,7 @@ import { extensionOf, extractsText } from "./extract.js";
 import { filesRoot, provenanceOf, unrecordedTextPath } from "./files.js";
 import { DEFAULT_TIMEZONE, isoInZone } from "../clock.js";
 import { textIn } from "../language.js";
-import { jumpLink } from "../playbooks.js";
+import { jumpLink, renderFrontmatter } from "../playbooks.js";
 import type { SkillContext } from "../types.js";
 
 /** One piece of text a person asked to keep, word for word, and where it came from; a Note joins its pieces in order. */
@@ -73,15 +73,10 @@ export async function keepNote(ctx: SkillContext, path: unknown, pieces: KeptTex
   // One source stays a scalar; several messages give parallel lists, one source and one author per message, in order.
   const [single] = pieces;
   const origin = pieces.length === 1
-    ? { source: single!.source, ...(single!.author && { author: single!.author }) }
+    ? { source: single!.source, author: single!.author }
     : { source: pieces.map((p) => p.source), author: pieces.map((p) => p.author || "unknown") };
-  const head = {
-    ...origin,
-    askedBy: ctx.userName || ctx.userId || "unknown",
-    date: isoInZone(ctx.timezone || DEFAULT_TIMEZONE).slice(0, 10),
-  };
-  // Same frontmatter shape as task files: one `key: JSON value` per line, which is also valid YAML.
-  const content = `---\n${Object.entries(head).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")}\n---\n${pieces.map((p) => p.text).join("\n\n")}`;
+  const head = { ...origin, askedBy: ctx.userName || ctx.userId || "unknown", date: isoInZone(ctx.timezone || DEFAULT_TIMEZONE).slice(0, 10) };
+  const content = renderFrontmatter(head, pieces.map((p) => p.text).join("\n\n"));
   try { await store.write(ctx.tenantId, full, content); } catch (e) { throw e instanceof WorkspaceConflict ? new Error(t.keepTaken(note)) : e; }
   return { path: note };
 }
