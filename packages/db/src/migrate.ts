@@ -204,7 +204,7 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
 
 /** Brings the schema of the configured database up to date, then records its engine if none is yet. */
 export async function runMigrations(): Promise<void> {
-  const { connection } = await import("./index.js");
+  const { connection } = await import("./internal.js");
   await migrateDatabase(connection);
   recordDatabaseEngine(connection.engine);
 }

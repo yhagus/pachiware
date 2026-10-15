@@ -1,5 +1,4 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
-import { db } from "@pachiware/db";
 import { skillRegistry, peekAction, dropAction, takeExpired, payloadIntact, audit, redact, grantThreadConfirmation, isGitWriteConfirmationOwner, availabilityPlace, textIn, replyLanguage, type SkillContext, type ToolResult } from "@pachiware/skills";
 
 const PREFIX = "gitconfirm";
@@ -36,7 +35,7 @@ type ActionContextOptions = { userId?: string; discord?: SkillContext["discord"]
 
 /** Build the execution context once so audit and confirmed runs share identical scope. */
 const actionContext = (action: QueuedAction, options: ActionContextOptions = {}) => ({
-  db, tenantId: action.tenantId, botId: action.botId, guildId: action.guildId, channelId: action.channelId,
+  tenantId: action.tenantId, botId: action.botId, guildId: action.guildId, channelId: action.channelId,
   parentChannelId: action.parentChannelId, privateThread: action.privateThread, userId: options.userId ?? action.userId, auth: action.auth,
   ...(options.discord === undefined ? {} : { discord: options.discord }),
   ...(options.confirmed === undefined ? {} : { confirmed: options.confirmed }),
@@ -80,7 +79,7 @@ export async function handleConfirmButton(i: ButtonLike, botId: string, discordF
   if (i.user.id !== action.userId) { await i.reply({ content: "Only the person who asked for this can confirm or cancel it.", ephemeral: true }); return true; }
   if (verb === "ok" && await refusedAsOff(i, action)) return true;
   dropAction(id); // single use: a double click cannot run it twice
-  const base = { db, tenantId: action.tenantId, botId: action.botId };
+  const base = { tenantId: action.tenantId, botId: action.botId };
   if (!payloadIntact(action)) { await audit(base, "tool_denied", { tool: action.tool, reason: "payload_changed" }); await i.update({ content: "I couldn't run that because the request changed after it was queued. Ask again.", components: [] }); return true; }
   if (verb !== "ok") { await i.update({ content: `Cancelled: ${action.summary.slice(0, 1800)}`, components: [] }); return true; }
   await audit(base, "confirmation_accepted", { tool: action.tool, confirmationId: id });

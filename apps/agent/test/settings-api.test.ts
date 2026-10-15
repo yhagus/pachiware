@@ -14,7 +14,7 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, eq, repositories } = await import(${src("packages/db/src/index.ts")});
+        const { repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
         const tenant = await repositories().tenants.create({ name: "Acme", slug: "acme" });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();

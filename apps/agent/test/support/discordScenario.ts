@@ -64,7 +64,6 @@ export interface FakeBot { id: string; botUserId: string; mention: string; messa
 export interface Scenario {
   tenant: { id: string };
   bot: { id: string };
-  db: any;
   /** `live()` hands every later model call to the real router instead of the script. */
   model: { script(...steps: ModelStep[]): void; calls: ChatMessage[][]; /** Tool names offered on each call. */ tools: string[][]; live(): void };
   /** `passthrough` sends matching requests to the network. */
@@ -329,7 +328,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { runMigrations } = await import("../../../../packages/db/src/migrate.ts");
   const { runSeed } = await import("../../../../packages/db/src/seed.ts");
   const dbModule = await import("../../../../packages/db/src/index.ts");
-  const { db, encryptSecret } = dbModule as any;
+  const { encryptSecret } = dbModule as any;
   const { repositories } = await import("../../../../packages/db/src/index.ts");
   await runMigrations(); await runSeed();
   const { llmRouter } = await import("../../src/llm/router.ts");
@@ -416,7 +415,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const channelOf = (c: FakeChannel | string | undefined) => (typeof c === "string" ? makeChannel(c) : c ? channels.get(c.id) : channels.get("channel-1"));
 
   return {
-    tenant, bot, db,
+    tenant, bot,
     model: { script: (...more) => { steps.push(...more); }, calls, tools: offered, live: () => { (llmRouter as any).complete = realComplete; } },
     http: { on: (match, respond) => { routes.push({ match, respond }); }, passthrough: (match) => { routes.push({ match, respond: () => null, passthrough: true }); }, requests },
     git: async ({ provider = "github", repos = ["acme/*"] } = {}) => {

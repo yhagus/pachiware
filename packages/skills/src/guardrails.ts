@@ -168,6 +168,6 @@ export function bulkTaskTurn(approved: BulkItem[] = []) {
 }
 
 /** Structured, categorical audit row. It never holds message text, model reasoning or secrets. */
-export async function audit(ctx: Pick<SkillContext, "db" | "tenantId" | "botId">, event: AuditEvent, meta: Record<string, unknown>) {
+export async function audit(ctx: Pick<SkillContext, "tenantId" | "botId">, event: AuditEvent, meta: Record<string, unknown>) {
   try { if (ctx.tenantId) await repositories().usage.record({ tenantId: ctx.tenantId, botId: ctx.botId || null, type: event, metadata: { mode: guardrailMode(), ...meta } }); } catch {}
 }
