@@ -330,7 +330,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { runSeed } = await import("../../../../packages/db/src/seed.ts");
   const dbModule = await import("../../../../packages/db/src/index.ts");
   const { db, gitAccounts, tenantSkills, encryptSecret, setBotGitAccounts, replaceGitScopes, and, eq } = dbModule as any;
-  const { createBot, updateBot } = await import("../../../../packages/db/src/tenancy.ts"); const { repositories } = await import("../../../../packages/db/src/index.ts");
+  const { repositories } = await import("../../../../packages/db/src/index.ts");
   await runMigrations(); await runSeed();
   const { llmRouter } = await import("../../src/llm/router.ts");
   const { retryPolicy } = await import("../../src/llm/retry.ts");
@@ -344,7 +344,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { schedulerTick } = await import("../../src/scheduler.ts");
 
   const tenant = await repositories().tenants.create({ name: "Acme", slug: "acme" });
-  const bot = await createBot({ tenantId: tenant.id, token: "scenario-token", guildIds: [GUILD.id] });
+  const bot = await repositories().bots.create({ tenantId: tenant.id, token: "scenario-token", guildIds: [GUILD.id] });
 
   const steps: ModelStep[] = [];
   const calls: ChatMessage[][] = [], offered: string[][] = [];
@@ -453,7 +453,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
           // Stands in for the admin adding the guild, without the restart that would resend every guild's commands.
           const runtime = (manager as any).clients.get(bot.id);
           runtime.guildIds = [...runtime.guildIds, id];
-          await updateBot(bot.id, { guildIds: runtime.guildIds });
+          await repositories().bots.update(bot.id, { guildIds: runtime.guildIds });
         }
         const guild = makeGuild(id, name, members);
         client.guilds.cache.set(id, guild);
@@ -535,7 +535,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         const user = { id: `bot-user-${n}`, name, bot: true };
         botUsers.set(token, user);
         postedBy.set(user.id, []);
-        const added = await createBot({ tenantId: tenant.id, name, token, guildIds: [GUILD.id] });
+        const added = await repositories().bots.create({ tenantId: tenant.id, name, token, guildIds: [GUILD.id] });
         const result = await manager.startBot(added.id);
         if (!result.success) throw new Error(`bot did not start: ${result.message}`);
         extraBots.push(added.id);

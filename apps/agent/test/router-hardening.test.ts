@@ -15,7 +15,7 @@ function scenario(body: string) {
       cmd: ["bun", "--eval", `
         const assert = (condition, message) => { if (!condition) throw new Error(message); };
         const { runMigrations } = await import(${src("packages/db/src/migrate.ts")}); const { runSeed } = await import(${src("packages/db/src/seed.ts")});
-        const { db, agentsConfig, usageEvents, encryptSecret, eq } = await import(${src("packages/db/src/index.ts")}); const { createBot } = await import(${src("packages/db/src/tenancy.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
+        const { db, agentsConfig, usageEvents, encryptSecret, eq } = await import(${src("packages/db/src/index.ts")}); const { repositories } = await import(${src("packages/db/src/index.ts")});
         await runMigrations(); await runSeed();
         const tenant = await repositories().tenants.create({ name: "Router", slug: "router" });
         const { createServer } = await import(${src("apps/agent/src/server.ts")}); const app = createServer();
@@ -101,7 +101,7 @@ describe("Router hardening", () => {
     const { code, stderr } = scenario(`
       const created = await post("/tenants/" + tenant.id + "/profiles", { name: "Claude", provider: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-ant-profile" });
       const { profile } = await created.json();
-      const bot = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
+      const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
       reply = () => json({ content: [{ type: "text", text: "hello" }], usage: { input_tokens: 40, output_tokens: 3, cache_read_input_tokens: 30, cache_creation_input_tokens: 10 } });
       const tools = [{ name: "listTasks", description: "Lists tasks.", parameters: { type: "object", properties: {} } }, { name: "createTask", description: "Creates a task.", parameters: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } }];
       const answer = await llmRouter.complete([{ role: "system", content: "Be brief." }, { role: "system", content: "Be kind." }, { role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id, tools });

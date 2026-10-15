@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import os from "node:os";
 import { statfs, readFile, stat } from "node:fs/promises";
-import { db, bots, activeDialect, getInfraConfig, resolveSqlitePath, repositories } from "@pachiware/db";
+import { db, activeDialect, getInfraConfig, resolveSqlitePath, repositories } from "@pachiware/db";
 import { redis, isRedisConnected, memoryCache } from "../../cache/redis.js";
-import { ne, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 export const statsAdminRoutes = new Hono();
 
 // CPU and disk I/O are rates, so a single background sampler computes them; requests just read the latest sample.
@@ -64,11 +64,10 @@ async function cacheSize(): Promise<number | null> {
 statsAdminRoutes.get("/stats", async (c) => {
   const disk = await statfs(process.cwd());
   const diskTotal = disk.blocks * disk.bsize;
-  const count = async (table: any, col: any) => Number((await db.select({ n: sql<number>`count(*)` }).from(table).where(ne(col, "deleted")))[0]?.n ?? 0);
   return c.json({
     success: true,
     tenants: await repositories().tenants.count(),
-    bots: await count(bots, bots.connectionStatus),
+    bots: await repositories().bots.count(),
     storage: { dbBytes: await dbSize(), cacheBytes: await cacheSize() },
     system: {
       cpu: { percent: Math.round(cpuPercent * 10) / 10, cores: os.cpus().length },
