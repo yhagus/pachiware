@@ -329,7 +329,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { runMigrations } = await import("../../../../packages/db/src/migrate.ts");
   const { runSeed } = await import("../../../../packages/db/src/seed.ts");
   const dbModule = await import("../../../../packages/db/src/index.ts");
-  const { db, gitAccounts, tenantSkills, encryptSecret, setBotGitAccounts, replaceGitScopes, and, eq } = dbModule as any;
+  const { db, gitAccounts, encryptSecret, setBotGitAccounts, replaceGitScopes, and, eq } = dbModule as any;
   const { repositories } = await import("../../../../packages/db/src/index.ts");
   await runMigrations(); await runSeed();
   const { llmRouter } = await import("../../src/llm/router.ts");
@@ -420,7 +420,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     model: { script: (...more) => { steps.push(...more); }, calls, tools: offered, live: () => { (llmRouter as any).complete = realComplete; } },
     http: { on: (match, respond) => { routes.push({ match, respond }); }, passthrough: (match) => { routes.push({ match, respond: () => null, passthrough: true }); }, requests },
     git: async ({ provider = "github", repos = ["acme/*"] } = {}) => {
-      await db.update(tenantSkills).set({ isEnabled: true }).where(and(eq(tenantSkills.tenantId, tenant.id), eq(tenantSkills.skillId, "git_repositories")));
+      await repositories().skills.setEnabled(tenant.id, "git_repositories", true);
       const [account] = await db.insert(gitAccounts).values({ tenantId: tenant.id, name: provider, provider, username: "octo", tokenEncrypted: encryptSecret("git-token") }).returning();
       await setBotGitAccounts(tenant.id, bot.id, [account.id]);
       await replaceGitScopes(tenant.id, bot.id, GUILD.id, "", [{ gitAccountId: account.id, repoPatterns: repos }]);

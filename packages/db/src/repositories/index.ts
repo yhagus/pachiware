@@ -3,17 +3,25 @@ import { createSqlTenantRepository } from "./tenants/sql.js";
 import type { TenantRepository } from "./tenants/types.js";
 import { createSqlBotRepository } from "./bots/sql.js";
 import type { BotRepository } from "./bots/types.js";
+import { createSqlSkillRepository } from "./skills/sql.js";
+import type { SkillRepository } from "./skills/types.js";
+import { createSqlAvailabilityRuleRepository } from "./availability/sql.js";
+import type { AvailabilityRuleRepository } from "./availability/types.js";
 
 // One folder per kind of record: `types.ts` holds its domain types and interface, `sql.ts` serves SQLite
 // and PostgreSQL, and a MongoDB file will sit beside them. Its contract suite lives in
 // packages/db/test/contract/<name>.contract.test.ts and runs on every engine through `contract()`.
 export type * from "./tenants/types.js";
 export type * from "./bots/types.js";
+export type * from "./skills/types.js";
+export type * from "./availability/types.js";
 
 /** Every repository, one per kind of record. Code outside the database package reads and writes records only through these. */
 export type Repositories = {
   tenants: TenantRepository;
   bots: BotRepository;
+  skills: SkillRepository;
+  availability: AvailabilityRuleRepository;
 };
 
 /** The repositories of one open database, implemented for its engine. */
@@ -24,6 +32,8 @@ export function createRepositories(connection: Connection): Repositories {
       return {
         tenants: createSqlTenantRepository(connection),
         bots: createSqlBotRepository(connection),
+        skills: createSqlSkillRepository(connection),
+        availability: createSqlAvailabilityRuleRepository(connection),
       };
   }
 }

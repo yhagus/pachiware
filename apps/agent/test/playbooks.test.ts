@@ -50,8 +50,8 @@ discordScenario("a tenant playbook with a built-in's name replaces it, and a new
 });
 
 discordScenario("a playbook refuses to start and names the missing skill when a skill it requires is off", async (s) => {
-  const { tenantSkills, and, eq } = await import(process.cwd() + "/packages/db/src/index.ts") as any;
-  await s.db.update(tenantSkills).set({ isEnabled: false }).where(and(eq(tenantSkills.tenantId, s.tenant.id), eq(tenantSkills.skillId, "workspace")));
+  const { repositories } = await import(process.cwd() + "/packages/db/src/index.ts") as any;
+  await repositories().skills.setEnabled(s.tenant.id, "workspace", false);
   const brief = await s.discord.send("- login loops on Safari");
   const run = await s.discord.contextMenu("Draft issues", brief);
   expect(run.responses).toEqual([{ kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) }, { kind: "editReply", payload: expect.objectContaining({ content: expect.stringContaining("Workspace skill") }) }]);

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openConnection, type SqlConnection } from "../../src/connection.ts";
 import { migrateDatabase, SQL_TABLES } from "../../src/migrate.ts";
-import { seedDatabase } from "../../src/seed.ts";
+import { builtInSkills, seedDatabase } from "../../src/seed.ts";
 import { createRepositories, type Repositories } from "../../src/repositories/index.ts";
 
 /** What a contract test sees of one engine: its repositories, plus a probe no repository offers yet. */
@@ -63,18 +63,18 @@ afterAll(() => { if (sqliteDir) rmSync(sqliteDir, { recursive: true, force: true
 async function openSql(url: string): Promise<Fixture> {
   const connection = openConnection(url);
   const run = (sql: string, values: unknown[] = []) => query(connection, sql, values);
-  // Skills are platform definitions the seed writes; everything else starts empty.
-  const cleared = [...SQL_TABLES].reverse().filter((table) => table !== "skills");
+  const cleared = [...SQL_TABLES].reverse();
   if (connection.engine === "postgres") await run(`DROP TABLE IF EXISTS ${SQL_TABLES.join(", ")} CASCADE`);
   await migrateDatabase(connection);
   await seedDatabase(connection);
   const owners = connection.engine === "postgres"
     ? (await run("SELECT table_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND column_name = 'tenant_id'")).map((r) => r.name as string)
     : SQL_TABLES.filter((table) => connection.client.query(`PRAGMA table_info(${table})`).all().some((c: any) => c.name === "tenant_id"));
+  const repos = createRepositories(connection);
   return {
     subject: {
       engine: connection.engine,
-      repos: createRepositories(connection),
+      repos,
       async ownedRecords(tenantId) {
         let total = 0;
         for (const table of owners) total += Number((await run(`SELECT COUNT(*) AS n FROM ${table} WHERE tenant_id = ${connection.engine === "postgres" ? "$1" : "?"}`, [tenantId]))[0].n);
@@ -84,6 +84,8 @@ async function openSql(url: string): Promise<Fixture> {
     async reset() {
       if (connection.engine === "postgres") await run(`TRUNCATE ${cleared.join(", ")} CASCADE`);
       else for (const table of cleared) await run(`DELETE FROM ${table}`);
+      // Skills are platform definitions the seed writes; every test starts with the built-in ones only.
+      for (const skill of builtInSkills()) await repos.skills.register(skill);
     },
     close: () => connection.close(),
   };

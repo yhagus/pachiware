@@ -13,7 +13,7 @@ test("git accounts: verified, write-only token, shared across bots, tenant-bound
         const assert = (c, m) => { if (!c) throw new Error(m); };
         const { runMigrations } = await import(${JSON.stringify(join(w, "packages/db/src/migrate.ts"))});
         const { runSeed } = await import(${JSON.stringify(join(w, "packages/db/src/seed.ts"))});
-        const { db, gitAccounts, tenantSkills, eq, and } = await import(${JSON.stringify(join(w, "packages/db/src/index.ts"))});
+        const { db, gitAccounts, eq, and, repositories } = await import(${JSON.stringify(join(w, "packages/db/src/index.ts"))});
         await runMigrations(); await runSeed();
         const { createServer } = await import(${JSON.stringify(join(w, "apps/agent/src/server.ts"))});
         const app = createServer();
@@ -42,7 +42,7 @@ test("git accounts: verified, write-only token, shared across bots, tenant-bound
         const b1 = await j(await mkBot(a, { name: "b1", gitAccountIds: [acc.id, acc2.id] }));
         const b2 = await j(await mkBot(a, { name: "b2", gitAccountIds: [acc.id] }));
         assert(b1.bot.gitAccountIds.length === 2 && b2.bot.gitAccountIds[0] === acc.id, "many/shared binding failed");
-        const gitSkill = async (t) => (await db.select().from(tenantSkills).where(and(eq(tenantSkills.tenantId, t.id), eq(tenantSkills.skillId, "git_repositories"))))[0]?.isEnabled;
+        const gitSkill = async (t) => (await repositories().skills.getForTenant(t.id, "git_repositories"))?.isEnabled;
         assert(await gitSkill(a) === true, "attaching an account did not turn the git skill on");
         assert(await gitSkill(b) === false, "another tenant's git skill was turned on");
         assert((await mkBot(a, { name: "b3", gitAccountIds: [other.id] })).status === 400, "cross-tenant account accepted");

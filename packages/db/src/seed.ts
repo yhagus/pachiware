@@ -1,13 +1,5 @@
-import { eq } from "drizzle-orm";
 import type { Connection } from "./connection.js";
-import { createRepositories } from "./repositories/index.js";
-import { insertTenantDefaults } from "./repositories/tenants/sql.js";
-
-/** Gives one tenant of the configured database the defaults it lacks. */
-export async function seedTenant(tenantId: string) {
-  const { connection } = await import("./index.js");
-  await insertTenantDefaults(connection.db, connection.tables, tenantId);
-}
+import { createRepositories, type SkillDefinition } from "./repositories/index.js";
 
 /** Registers the built-in skills and tenant defaults in the configured database. */
 export async function runSeed() {
@@ -17,7 +9,14 @@ export async function runSeed() {
 
 /** Registers the built-in skills in one open database, then gives every tenant the defaults it lacks. */
 export async function seedDatabase(connection: Connection) {
-  const { db, tables: { skills } } = connection;
+  const repos = createRepositories(connection);
+  for (const skill of builtInSkills()) console.log(`  ${await repos.skills.register(skill) ? "[+] Registered" : "[*] Updated"} skill: ${skill.name}`);
+  await repos.tenants.seedDefaults();
+  console.log("Platform skills and tenant defaults seeded.");
+}
+
+/** The skills the platform ships with, as the seed registers them. */
+export function builtInSkills(): SkillDefinition[] {
   // 2. Seed Built-in Skills
   const taskManagementSkill = {
     id: "task_management",
@@ -193,27 +192,7 @@ export async function seedDatabase(connection: Connection) {
     config: {},
   };
 
-  for (const skill of [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill]) {
-    const existing = await db.select().from(skills).where(eq(skills.id, skill.id)).limit(1);
-    if (existing.length === 0) {
-      await db.insert(skills).values(skill);
-      console.log(`  [+] Registered skill: ${skill.name}`);
-    } else {
-      await db
-        .update(skills)
-        .set({
-          name: skill.name,
-          description: skill.description,
-          toolDefinitions: skill.toolDefinitions,
-          updatedAt: new Date(),
-        })
-        .where(eq(skills.id, skill.id));
-      console.log(`  [*] Updated skill: ${skill.name}`);
-    }
-  }
-
-  await createRepositories(connection).tenants.seedDefaults();
-  console.log("Platform skills and tenant defaults seeded.");
+  return [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill];
 }
 
 if (import.meta.main) runSeed().then(() => process.exit(0)).catch(() => { console.error("Seed failed."); process.exit(1); });

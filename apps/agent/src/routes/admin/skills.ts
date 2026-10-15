@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { repositories, db, skills, tenantSkills, seedTenant, eq } from "@pachiware/db";
+import { repositories } from "@pachiware/db";
 import { skillRegistry, listPlaybooks, playbookChain } from "@pachiware/skills";
 import { switchTenantSkill } from "../skillSwitch.js";
 import { availabilityRoutes } from "../availability.js";
@@ -9,11 +9,11 @@ export const skillAdminRoutes = new Hono();
 skillAdminRoutes.get("/tenants/:id/skills", async (c) => {
   const id = c.req.param("id");
   if (!await repositories().tenants.get(id)) return c.json({ error: "Tenant not found" }, 404);
-  await seedTenant(id);
-  const rows = await db.select({ s: skills, state: tenantSkills }).from(tenantSkills).innerJoin(skills, eq(tenantSkills.skillId, skills.id)).where(eq(tenantSkills.tenantId, id));
+  await repositories().skills.seedTenant(id);
+  const rows = await repositories().skills.listForTenant(id);
   // Tools, groups and effects come from the code registry; the seeded tool_definitions column is not kept in sync with it.
   const code = new Map(skillRegistry.catalogue().map((s) => [s.id, s]));
-  return c.json({ success: true, skills: rows.map(({ s, state }: any) => {
+  return c.json({ success: true, skills: rows.map(({ skill: s, state }) => {
     const { groups = [], tools = [] } = code.get(s.id) ?? {};
     return { id: s.id, name: s.name, description: s.description, groups, tools, toolCount: tools.length, isEnabled: state.isEnabled };
   }).sort((a: any, b: any) => a.name.localeCompare(b.name)),

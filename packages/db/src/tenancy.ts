@@ -1,5 +1,5 @@
 import { eq, and, ne, inArray } from "drizzle-orm";
-import { db, bots, gitAccounts, botGitAccounts, gitScopes, skills, tenantSkills } from "./index.js";
+import { db, repositories, bots, gitAccounts, botGitAccounts, gitScopes } from "./index.js";
 
 /** Git accounts attached to a bot (many). Replaces the set; scopes of removed accounts cascade away. */
 export async function listBotGitAccounts(botId: string) {
@@ -27,12 +27,7 @@ export async function setBotGitAccounts(tenantId: string, botId: string, ids: st
 }
 /** The git skill ships off; attaching an account is the moment someone wants it. Git stays closed anywhere without a server rule, so this opens nothing by itself. */
 async function enableGitSkill(tenantId: string) {
-  const [skill] = await db.select({ id: skills.id }).from(skills).where(eq(skills.id, "git_repositories")).limit(1);
-  if (!skill) return;
-  const where = and(eq(tenantSkills.tenantId, tenantId), eq(tenantSkills.skillId, skill.id));
-  const [row] = await db.select().from(tenantSkills).where(where).limit(1);
-  if (!row) await db.insert(tenantSkills).values({ tenantId, skillId: skill.id, isEnabled: true });
-  else if (!row.isEnabled) await db.update(tenantSkills).set({ isEnabled: true, updatedAt: new Date() }).where(where);
+  await repositories().skills.enable(tenantId, "git_repositories");
 }
 export async function botsUsingGitAccount(tenantId: string, accountId: string) {
   return db.select({ id: bots.id, name: bots.name }).from(botGitAccounts).innerJoin(bots, eq(bots.id, botGitAccounts.botId))
