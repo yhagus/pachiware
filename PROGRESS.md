@@ -964,3 +964,11 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
     - Refusals `notASource` (never says whether the channel exists), `sourceFolderRefused`, `sourceReadOnly` in en and id; deleteFile refuses another channel before Confirm.
     - Known limits: a no-path search covers kept folders only and skips private-thread folders (left for #152); each source read looks up every channel folder of the guild on Discord, no per-turn cache; the current channel's label falls back to its id when it has no folder; web chat refusals are English.
     - Verification: `bun run typecheck` exits 0; `bun test` 666 pass, 0 fail across 122 files.
+  - [x] #152 merged into `spec/146-across-channels`: read kept files from a DM across every shared guild.
+    - From a DM, `readableSources` returns the DM first, then every shared guild (`sharedGuildSources`): each viewable channel folder where the Workspace is on, plus private-thread folders under them that `channelView` says the asker can view.
+    - Everything is quotable in a DM; web chat still gets only its own place.
+    - Labels and roots always carry the guild ("#ops (Beta)"), even with one shared guild; a private thread is "#thread-name (Guild)". Sorted by label after the DM; `uniqueRoots` adds ` [id]` on clashes.
+    - `<#id>` can name a private thread: `sourceNamed` matches thread id, then channel id.
+    - A thread follows its parent: a Workspace-off rule on the parent drops it; only threads under viewable channel folders; an unresolvable thread is read by nobody.
+    - Known limits: private-thread folders are sources only from a DM (a no-path search from the parent skips them); each DM read looks up every channel and thread folder of every shared guild, no per-turn cache; the guild path keeps its own copy of the ` [id]` logic; DM refusals use the tenant's language.
+    - Verification: `bun run typecheck` exits 0; `bun test` 670 pass, 0 fail across 123 files.
