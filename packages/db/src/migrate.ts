@@ -19,7 +19,7 @@ function definitions(pg: boolean): Record<string, string> {
   return {
     tenants: `id ${id}, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL, status TEXT NOT NULL DEFAULT 'active', platform_metadata ${json} NOT NULL DEFAULT '{}', ${dates}`,
     api_keys: `id ${id}, key_prefix TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT 'API Key', scopes ${json} NOT NULL DEFAULT '[]', last_used_at ${time}, revoked_at ${time}, created_at ${time} NOT NULL DEFAULT ${now}`,
-    profiles: `id ${id}, ${tenant}, name TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, base_url TEXT, api_key_encrypted TEXT, accepts_images ${bool} NOT NULL DEFAULT ${no}, ${dates}`,
+    profiles: `id ${id}, ${tenant}, name TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, base_url TEXT, api_key_encrypted TEXT, accepts_images ${bool} NOT NULL DEFAULT ${no}, api_format TEXT NOT NULL DEFAULT 'chat_completions', ${dates}`,
     git_accounts: `id ${id}, ${tenant}, name TEXT NOT NULL, provider TEXT NOT NULL, base_url TEXT, username TEXT NOT NULL, token_encrypted TEXT NOT NULL, auth_type TEXT NOT NULL DEFAULT 'token', refresh_token_encrypted TEXT, token_expires_at ${time}, ${dates}, UNIQUE(tenant_id,name), UNIQUE(tenant_id,id)`,
     git_oauth_apps: `id ${id}, provider TEXT NOT NULL, base_url TEXT NOT NULL DEFAULT '', client_id TEXT NOT NULL, client_secret_encrypted TEXT NOT NULL, ${dates}, UNIQUE(provider,base_url)`,
     bots: `id ${id}, ${tenant}, name TEXT NOT NULL DEFAULT 'Discord Bot', platform TEXT NOT NULL DEFAULT 'discord', token_encrypted TEXT NOT NULL, client_id TEXT, guild_ids ${json} NOT NULL DEFAULT '[]', is_enabled ${bool} NOT NULL DEFAULT ${yes}, connection_status TEXT NOT NULL DEFAULT 'disconnected', profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL, git_account_id TEXT, last_connected_at ${time}, last_error TEXT, ${dates}, UNIQUE(tenant_id,id), FOREIGN KEY(tenant_id,git_account_id) REFERENCES git_accounts(tenant_id,id)`,
@@ -81,6 +81,7 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   }
   const profileCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='profiles'" : "PRAGMA table_info(profiles)");
   if (!profileCols.some((c) => c.name === "accepts_images")) await exec(`ALTER TABLE profiles ADD COLUMN accepts_images ${pg ? "BOOLEAN NOT NULL DEFAULT false" : "INTEGER NOT NULL DEFAULT 0"}`);
+  if (!profileCols.some((c) => c.name === "api_format")) await exec("ALTER TABLE profiles ADD COLUMN api_format TEXT NOT NULL DEFAULT 'chat_completions'");
   // Existing tenants get the seeded zone and language; a guild's stay null until an admin overrides them.
   const agentCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='agents_config'" : "PRAGMA table_info(agents_config)");
   if (!agentCols.some((c) => c.name === "timezone")) {

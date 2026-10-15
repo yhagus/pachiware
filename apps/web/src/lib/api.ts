@@ -80,9 +80,15 @@ export interface GitRule { gitAccountId: string; repoPatterns: string[]; }
 export interface GuildGit { accounts: { id: string; name: string; provider: "github" | "gitlab"; username: string }[]; server: GitRule[]; channels: Record<string, GitRule[]>; }
 export interface Conversation { id: string; channelId: string | null; userId: string | null; createdAt: string; lastMessageAt: string | null; messageCount: number; }
 export interface ChatMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; }
-export interface Profile { id: string; tenantId: string; name: string; provider: "openai" | "anthropic" | "custom"; model: string; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; createdAt: string; }
-export interface ProfileInput { name?: string; provider?: string; model?: string; baseUrl?: string | null; apiKey?: string | null; acceptsImages?: boolean; }
-export interface ProfileProbe { ok: boolean; message: string; }
+export interface Profile { id: string; tenantId: string; name: string; provider: "openai" | "anthropic" | "custom"; model: string; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; createdAt: string; }
+export type ApiFormat = "chat_completions" | "responses" | "messages";
+export interface ProfileInput { name?: string; provider?: string; model?: string; baseUrl?: string | null; apiKey?: string | null; acceptsImages?: boolean; apiFormat?: ApiFormat; }
+export type CheckStatus = "ok" | "warning" | "failed" | "skipped";
+export interface ProfileCheck { status: CheckStatus; message: string; reply?: string; }
+export interface ProfileChecks { url: ProfileCheck; key: ProfileCheck; model: ProfileCheck; text: ProfileCheck; image: ProfileCheck; }
+export type PlaygroundResult =
+  | { success: true; reply: string; finishReason: string | null; usage: { input: number; output: number } | null; ms: number }
+  | { success: false; status?: number; error: string; ms: number };
 export interface GitAccount { id: string; tenantId: string; name: string; provider: "github" | "gitlab"; baseUrl: string | null; username: string; authType: "token" | "oauth"; hasToken: boolean; bots: { id: string; name: string }[]; createdAt: string; }
 export interface GitRepoItem { repo: string; owner: string; private: boolean; archived: boolean; fork: boolean; description: string | null; updatedAt: string | null; url: string; defaultBranch: string | null; }
 export interface GitPage<T> { items: T[]; hasMore: boolean; contributorsOnly?: boolean; }
@@ -148,8 +154,9 @@ export const api = {
   createBot: (tenantId: string, data: BotInput) => fetchJSON<{ bot: Bot }>(`/api/admin/tenants/${tenantId}/bots`, json("POST", data)),
   listProfiles: (tenantId: string) => fetchJSON<{ profiles: Profile[] }>(`/api/admin/tenants/${tenantId}/profiles`),
   createProfile: (tenantId: string, data: ProfileInput) => fetchJSON<{ profile: Profile }>(`/api/admin/tenants/${tenantId}/profiles`, json("POST", data)),
-  listProfileModels: (data: { provider: string; baseUrl?: string; apiKey?: string; profileId?: string }) => fetchJSON<{ models: string[] }>("/api/admin/profiles/models", json("POST", data)),
-  testProfile: (data: { provider: string; model: string; baseUrl?: string; apiKey?: string; profileId?: string }) => fetchJSON<{ text: ProfileProbe; image: ProfileProbe }>("/api/admin/profiles/test", json("POST", data)),
+  listProfileModels: (data: { provider: string; apiFormat?: ApiFormat; baseUrl?: string; apiKey?: string; profileId?: string }) => fetchJSON<{ models: string[] }>("/api/admin/profiles/models", json("POST", data)),
+  testProfile: (data: { provider: string; apiFormat?: ApiFormat; model: string; baseUrl?: string; apiKey?: string; profileId?: string }) => fetchJSON<{ success: boolean; checks: ProfileChecks }>("/api/admin/profiles/test", json("POST", data)),
+  tryProfile: (data: { provider: string; apiFormat?: ApiFormat; model: string; baseUrl?: string; profileId: string; system?: string; prompt: string }) => fetchJSON<PlaygroundResult>("/api/admin/profiles/playground", json("POST", data)),
   updateProfile: (id: string, data: ProfileInput) => fetchJSON<{ profile: Profile }>(`/api/admin/profiles/${id}`, json("PATCH", data)),
   workspaceTree: (tenantId: string, path = "") => fetchJSON<{ entries: WorkspaceEntry[] }>(`/api/admin/tenants/${tenantId}/workspace/tree?path=${encodeURIComponent(path)}`),
   workspaceRead: (tenantId: string, path: string) => fetchJSON<{ content: string; version: string; readOnly?: boolean }>(`/api/admin/tenants/${tenantId}/workspace/file?path=${encodeURIComponent(path)}`),

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router";
-import { Brain, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Brain, FlaskConical, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,14 +13,23 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { api, type Profile, type ProfileProbe, type Tenant } from "@/lib/api";
+import { api, type ApiFormat, type Profile, type ProfileChecks, type Tenant } from "@/lib/api";
+import { ProfileChecklist, ProfilePlayground } from "./ProfilePlayground";
 
 // Mirrors PROVIDERS, DEFAULT_BASE_URLS and DEFAULT_MODELS in apps/agent/src/llm/providers.ts.
-export const PROVIDERS = [{ id: "openai", name: "OpenAI (ChatGPT)" }, { id: "anthropic", name: "Anthropic (Claude)" }, { id: "custom", name: "Custom provider" }] as const;
+export const PROVIDERS = [{ id: "openai", name: "OpenAI (ChatGPT)" }, { id: "anthropic", name: "Anthropic (Claude)" }, { id: "custom", name: "BYOK" }] as const;
 export const providerName = (id: string) => PROVIDERS.find((p) => p.id === id)?.name ?? id;
+// Mirrors API_FORMATS in apps/agent/src/llm/providers.ts. Only a BYOK profile picks one.
+export const API_FORMATS: { id: ApiFormat; name: string; path: string }[] = [
+  { id: "chat_completions", name: "Chat Completions", path: "/chat/completions" },
+  { id: "responses", name: "Responses", path: "/responses" },
+  { id: "messages", name: "Messages", path: "/messages" },
+];
+export const profileLabel = (p: Pick<Profile, "provider" | "apiFormat">) =>
+  p.provider === "custom" ? `${providerName(p.provider)} · ${API_FORMATS.find((f) => f.id === p.apiFormat)?.name ?? p.apiFormat}` : providerName(p.provider);
 const DEFAULT_URL: Record<string, string> = { openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1" };
 const MODEL_HINT: Record<string, string> = { openai: "gpt-4o", anthropic: "claude-sonnet-5-5", custom: "Model name from your provider" };
-const EMPTY = { name: "", provider: "openai", model: "", baseUrl: "", apiKey: "", acceptsImages: false };
+const EMPTY = { name: "", provider: "openai", apiFormat: "chat_completions" as ApiFormat, model: "", baseUrl: "", apiKey: "", acceptsImages: false };
 
 export function TenantProfiles() {
   const tenant = useOutletContext<Tenant>();
@@ -29,14 +38,15 @@ export function TenantProfiles() {
   const [form, setForm] = useState(EMPTY);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
-  const [probe, setProbe] = useState<{ text: ProfileProbe; image: ProfileProbe } | null>(null);
+  const [probe, setProbe] = useState<ProfileChecks | null>(null);
+  const [trying, setTrying] = useState<Profile | null>(null);
   const [testing, setTesting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const load = useCallback(() => api.listProfiles(tenant.id).then((r) => { setProfiles(r.profiles); setLoadError(null); }).catch((e) => setLoadError(e.message)), [tenant.id]);
   useEffect(() => { void load(); }, [load]);
 
   const open = (p: Profile | "new") => {
-    setForm(p === "new" ? EMPTY : { name: p.name, provider: p.provider, model: p.model, baseUrl: p.baseUrl ?? "", apiKey: "", acceptsImages: p.acceptsImages });
+    setForm(p === "new" ? EMPTY : { name: p.name, provider: p.provider, apiFormat: p.apiFormat, model: p.model, baseUrl: p.baseUrl ?? "", apiKey: "", acceptsImages: p.acceptsImages });
     setModels([]); setProbe(null); setEditing(p);
   };
   // A Test result describes the connection it ran with, so changing that connection clears it.
@@ -44,19 +54,19 @@ export function TenantProfiles() {
   const runTest = async () => {
     setTesting(true);
     try {
-      setProbe(await api.testProfile({ provider: form.provider, model: form.model.trim(), baseUrl: form.baseUrl.trim() || undefined, apiKey: form.apiKey || undefined, profileId: editing !== "new" ? editing?.id : undefined }));
+      setProbe((await api.testProfile({ provider: form.provider, apiFormat: form.apiFormat, model: form.model.trim(), baseUrl: form.baseUrl.trim() || undefined, apiKey: form.apiKey || undefined, profileId: editing !== "new" ? editing?.id : undefined })).checks);
     } catch (e: any) { toast.error(e.message); } finally { setTesting(false); }
   };
   const fetchModels = async () => {
     setLoadingModels(true);
     try {
-      const r = await api.listProfileModels({ provider: form.provider, baseUrl: form.baseUrl.trim() || undefined, apiKey: form.apiKey || undefined, profileId: editing !== "new" ? editing?.id : undefined });
+      const r = await api.listProfileModels({ provider: form.provider, apiFormat: form.apiFormat, baseUrl: form.baseUrl.trim() || undefined, apiKey: form.apiKey || undefined, profileId: editing !== "new" ? editing?.id : undefined });
       setModels(r.models); toast.success(`${r.models.length} models found`);
     } catch (e: any) { toast.error(e.message); } finally { setLoadingModels(false); }
   };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    const body = { name: form.name.trim(), provider: form.provider, model: form.model.trim(), baseUrl: form.baseUrl.trim() || null, acceptsImages: form.acceptsImages, ...(form.apiKey ? { apiKey: form.apiKey.trim() } : {}) };
+    const body = { name: form.name.trim(), provider: form.provider, apiFormat: form.apiFormat, model: form.model.trim(), baseUrl: form.baseUrl.trim() || null, acceptsImages: form.acceptsImages, ...(form.apiKey ? { apiKey: form.apiKey.trim() } : {}) };
     try {
       if (editing === "new") await api.createProfile(tenant.id, body); else await api.updateProfile((editing as Profile).id, body);
       toast.success(editing === "new" ? "Profile created" : "Profile updated"); setEditing(null); await load();
@@ -84,11 +94,12 @@ export function TenantProfiles() {
                 <Card key={p.id} className="py-5"><CardContent className="flex h-full flex-col gap-3">
                   <div className="flex items-start gap-3">
                     <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted"><Brain className="size-5" /></div>
-                    <div className="min-w-0 flex-1"><div className="truncate font-medium">{p.name}</div><div className="text-xs text-muted-foreground">{providerName(p.provider)}{p.acceptsImages ? " · accepts images" : ""}</div></div>
+                    <div className="min-w-0 flex-1"><div className="truncate font-medium">{p.name}</div><div className="text-xs text-muted-foreground">{profileLabel(p)}{p.acceptsImages ? " · accepts images" : ""}</div></div>
                     {!p.hasApiKey && <Badge variant="outline">No key</Badge>}
                   </div>
                   <code className="truncate font-mono text-xs">{p.model}</code>
                   <div className="mt-auto flex justify-end border-t pt-3">
+                    <IconButton label="Playground" onClick={() => setTrying(p)}><FlaskConical /></IconButton>
                     <IconButton label="Edit" onClick={() => open(p)}><Pencil /></IconButton>
                     <ConfirmAction trigger={<IconButton label="Delete" className="text-destructive hover:text-destructive"><Trash2 /></IconButton>}
                       title={`Delete ${p.name}?`} description="Integrations using this profile go back to the tenant default model." confirmLabel="Delete" danger onConfirm={() => remove(p)} />
@@ -97,8 +108,9 @@ export function TenantProfiles() {
               ))}
             </div>}
 
+      <ProfilePlayground profile={trying} onClose={() => setTrying(null)} />
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <form onSubmit={save} className="space-y-5">
             <DialogHeader><DialogTitle>{editing === "new" ? "New profile" : "Edit profile"}</DialogTitle><DialogDescription className="sr-only">Model profile settings</DialogDescription></DialogHeader>
             <div className="space-y-2"><Label htmlFor="pn">Name</Label><Input id="pn" required placeholder="e.g. Support bot" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
@@ -108,6 +120,12 @@ export function TenantProfiles() {
                 <SelectContent>{PROVIDERS.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
               </Select></div>
             <div className="space-y-2"><Label htmlFor="pb">Base URL{custom ? "" : " (optional)"}</Label><Input id="pb" type="url" required={custom} placeholder={DEFAULT_URL[form.provider] ?? "https://your-provider.example/v1"} value={form.baseUrl} onChange={(e) => edit({ baseUrl: e.target.value })} /></div>
+            {custom && <div className="space-y-2"><Label htmlFor="pf">API format</Label>
+              <Select value={form.apiFormat} onValueChange={(v) => edit({ apiFormat: v as ApiFormat })}>
+                <SelectTrigger id="pf" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{API_FORMATS.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} <span className="font-mono text-xs text-muted-foreground">{f.path}</span></SelectItem>)}</SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">The request shape your server expects. Most OpenAI-compatible servers take Chat Completions; Test tells you when the answer looks like another one.</p></div>}
             <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" placeholder={editing !== "new" && editing?.hasApiKey ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => edit({ apiKey: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pm">Model</Label>
               <div className="flex gap-2">
@@ -123,12 +141,7 @@ export function TenantProfiles() {
               </div>
               <Switch id="pi" checked={form.acceptsImages} onCheckedChange={(v) => setForm({ ...form, acceptsImages: v })} />
             </div>
-            {probe && (
-              <dl role="status" className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-sm">
-                <dt className="font-medium">Text</dt><dd className={probe.text.ok ? "" : "text-destructive"}>{probe.text.message}</dd>
-                <dt className="font-medium">Image</dt><dd className={probe.image.ok ? "" : "text-destructive"}>{probe.image.message}</dd>
-              </dl>
-            )}
+            {probe && <ProfileChecklist checks={probe} />}
             <DialogFooter>
               <Button type="button" variant="outline" disabled={testing || !form.model.trim() || (custom && !form.baseUrl.trim())} onClick={runTest}>{testing ? "Testing…" : "Test"}</Button>
               <Button>Save</Button>
