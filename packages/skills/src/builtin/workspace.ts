@@ -9,7 +9,7 @@ import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 import { forget, memoryLevel, remember } from "../workspace/memory.js";
 import { fileDocument, filesRoot, isDocument } from "../workspace/files.js";
 import { keepNote, keptDocument, keptMessages, MAX_KEPT_MESSAGES } from "../workspace/notes.js";
-import { queryWords, searchFolder } from "../workspace/search.js";
+import { MAX_MATCHES, queryWords } from "../workspace/search.js";
 import { textIn } from "../language.js";
 import { hasPermission } from "../permissions.js";
 
@@ -155,8 +155,8 @@ export const workspaceSkill: SkillModule = {
       if (!words.length) throw new Error("query is required");
       const root = resolvePath(ctx, args.path, true);
       const name = String(args.path).split("/")[0]!, prefix = visibleRoots(ctx)[name]!;
-      const matches = await searchFolder(workspaceStore(), ctx.tenantId, root, words, (p) => p.slice(prefix.length + 1));
-      return { matches: matches.map((m) => ({ path: name + m.path.slice(prefix.length), lines: m.lines })) };
+      const matches = await workspaceStore().searchFolder(ctx.tenantId, root, words, (p) => p.slice(prefix.length + 1));
+      return { matches: matches.slice(0, MAX_MATCHES).map((m) => ({ path: name + m.path.slice(prefix.length), lines: m.lines })) };
     },
   },
 };
