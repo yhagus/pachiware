@@ -4,7 +4,7 @@ import type { SqlConnection } from "../../connection.js";
 import type { Conversation, ConversationRepository, Message } from "./types.js";
 
 /** Conversations and their messages on SQLite and PostgreSQL. */
-export function createSqlConversationRepository({ db, tables: t }: SqlConnection): ConversationRepository {
+export function createSqlConversationRepository({ engine, db, tables: t }: SqlConnection): ConversationRepository {
   const c = t.conversations, m = t.messages;
   const inConversation = (tenantId: string, conversationId: string) => and(eq(m.conversationId, conversationId), eq(m.tenantId, tenantId));
   const one = async (where: any) => {
@@ -44,6 +44,21 @@ export function createSqlConversationRepository({ db, tables: t }: SqlConnection
     },
     async setMetadata(tenantId, id, metadata) {
       await db.update(c).set({ metadata }).where(and(eq(c.id, id), eq(c.tenantId, tenantId)));
+    },
+    async remove(tenantId, id) {
+      // Messages go first and explicitly: an old SQLite file may lack the cascading foreign key.
+      const conversation = and(eq(c.id, id), eq(c.tenantId, tenantId));
+      if (engine === "sqlite") {
+        // Bun SQLite transactions must stay synchronous to keep their rollback.
+        return db.transaction((tx: any) => {
+          tx.delete(m).where(inConversation(tenantId, id)).run();
+          return tx.delete(c).where(conversation).returning({ id: c.id }).all().length > 0;
+        });
+      }
+      return db.transaction(async (tx: any) => {
+        await tx.delete(m).where(inConversation(tenantId, id));
+        return (await tx.delete(c).where(conversation).returning({ id: c.id })).length > 0;
+      });
     },
 
     async addMessage(input) {
