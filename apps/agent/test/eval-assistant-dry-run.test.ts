@@ -174,6 +174,74 @@ discordScenario("dry run: plate-across-channels lists Alice's tasks in this chan
   expect(output.turns[1].replies).toEqual(["#launch\npending | due 2026-10-15 | Bob | 00000003 | Record the demo video"]);
 });
 
+discordScenario("dry run: decision-other-channel finds the pricing Decision kept in #marketing and names its channel and date", async (s) => {
+  s.model.script(
+    { tool: "searchFiles", args: { query: "pricing tiers" } },
+    (turn) => {
+      const { groups } = turn.toolResults[0], [match] = groups[0].matches;
+      return `${groups[0].channel}, Decision of ${match.path.split("/").pop().slice(0, 10)}: ${match.lines.map((l: any) => l.text).find((t: string) => t.startsWith("Settled"))}`;
+    },
+  );
+  const output = await dryRun(s, "decision-other-channel");
+  expect(output.turns[0].replies).toEqual(["#marketing, Decision of 2026-10-08: Settled: three pricing tiers, Starter at 9 dollars, Team at 29 and Business at 79 a month."]);
+});
+
+discordScenario("dry run: action-items-across-meetings lists Bob's items from Minutes in two channels, each with channel, date and link", async (s) => {
+  s.model.script(
+    { tool: "searchFiles", args: { query: "Bob" } },
+    (turn) => turn.toolResults[0].groups.flatMap((g: any) => g.matches.map((m: any) => ({ tool: "readFile", args: { path: m.path } }))),
+    (turn) => {
+      const [search, ...reads] = turn.toolResults;
+      const matches = search.groups.flatMap((g: any) => g.matches.map((m: any) => ({ channel: g.channel, path: m.path })));
+      return ["Bob's action items:", ...matches.map((m: any, i: number) => {
+        const text: string = reads[i].content, field = (key: string) => JSON.parse(text.match(new RegExp(`^${key}: (.*)$`, "m"))![1]!);
+        const items = text.split("\n").filter((l) => l.includes("**Bob**:")).map((l) => l.replace(/^\d+\. \*\*Bob\*\*: /, "").replace(/ \[↗\].*$/, ""));
+        return `- ${m.channel}, ${m.path.split("/").pop().slice(0, 10)}: ${items.join("; ")} (https://discord.com/channels/${field("guildId")}/${field("postedIn")}/${field("messageId")})`;
+      })].join("\n");
+    },
+  );
+  const output = await dryRun(s, "action-items-across-meetings");
+  expect(output.turns[0].replies).toEqual([[
+    "Bob's action items:",
+    "- #channel-1, 2026-10-12: Update the onboarding checklist (due 16 October) (https://discord.com/channels/guild-1/channel-1/4200)",
+    "- #launch, 2026-10-07: Send the press kit to the agency (due Friday) (https://discord.com/channels/guild-1/launch/4100)",
+  ].join("\n")]);
+});
+
+discordScenario("dry run: nothing-found searches twice, finds nothing anywhere, and says so", async (s) => {
+  s.model.script(
+    { tool: "searchFiles", args: { query: "office move" } },
+    { tool: "searchFiles", args: { query: "office" } },
+    (turn) => (turn.toolResults.every((r: any) => r.total === 0 && !r.notShownHere) ? "I found nothing kept about the office move: no Minutes, Decision, Note or Document mentions it." : `found: ${JSON.stringify(turn.toolResults)}`),
+  );
+  const output = await dryRun(s, "nothing-found");
+  expect(output.turns[0].replies).toEqual(["I found nothing kept about the office move: no Minutes, Decision, Note or Document mentions it."]);
+});
+
+discordScenario("dry run: private-channel-dm counts the hidden channel's Minutes, shows nothing of them, and suggests a DM", async (s) => {
+  s.model.script(
+    { tool: "searchFiles", args: { query: "bonus budget" } },
+    (turn) => {
+      const result = turn.toolResults[0];
+      return result.notShownHere && !result.groups.length ? "Something you can read may answer that, but I cannot show it in this channel. Ask me in a DM and I will look there." : `shown here: ${JSON.stringify(result)}`;
+    },
+  );
+  const output = await dryRun(s, "private-channel-dm");
+  expect(output.turns[0].replies).toEqual(["Something you can read may answer that, but I cannot show it in this channel. Ask me in a DM and I will look there."]);
+});
+
+discordScenario("dry run: minutes-as-document finds the vendor call's minutes kept as a Document under files/", async (s) => {
+  s.model.script(
+    { tool: "searchFiles", args: { query: "brochures deliver" } },
+    (turn) => {
+      const { groups } = turn.toolResults[0], [match] = groups[0].matches;
+      return `${groups[0].channel}, ${match.path.split("/").pop()} (the Sinar Printing call of 6 October 2026): ${match.lines[0].text.replace(/^- /, "")}`;
+    },
+  );
+  const output = await dryRun(s, "minutes-as-document");
+  expect(output.turns[0].replies).toEqual(["#channel-1, sinar-printing-call-minutes.md (the Sinar Printing call of 6 October 2026): Sinar Printing delivers the 2,000 brochures on 23 October, to the Jakarta office."]);
+});
+
 discordScenario("dry run: a judge over HTTP grades a daily-behaviour trial, and the report reads per turn", async (s) => {
   const { runAssistantTrial } = await import(`${EVAL()}/assistantRun.ts`);
   const { loadAssistantFixtures } = await import(`${EVAL()}/assistantFixtures.ts`);

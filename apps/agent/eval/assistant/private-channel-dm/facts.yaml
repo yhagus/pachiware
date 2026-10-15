@@ -1,0 +1,36 @@
+# Asked in a Public channel, the answer sits in Minutes of a channel @everyone cannot view (Alice can): the bot suggests a DM and names nothing. Spec #146, stories 22, 23, 24.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  hidden: [direksi]
+  files:
+    - channel: direksi
+      path: minutes/2026-10-10-board-meeting.md
+      content: |
+        ---
+        title: "Board meeting"
+        guildId: "guild-1"
+        channelId: "direksi"
+        postedIn: "direksi"
+        messageId: "4300"
+        requesterId: "user-alice"
+        ---
+        # Board meeting
+
+        2026-10-10 07:00 – 2026-10-10 08:10 UTC · 22 messages
+        Participants: Alice, Pak Hendra
+
+        ## Decided
+        1. The year-end bonus budget is 40 million, paid with December salaries [↗](https://discord.com/channels/guild-1/direksi/4301)
+
+        ## Open
+        *None*
+
+        ## Action items
+        2. **Pak Hendra**: Tell finance the bonus budget [↗](https://discord.com/channels/guild-1/direksi/4302)
+mustCover:
+  - Something Alice can read may answer the question, but it cannot be shown in this channel
+  - Alice can ask the bot in a DM to get the answer
+turns:
+  - replyContains: [DM]
+    replyLacks: [direksi, board, "40", December, Hendra, "2026-10-10", minutes/]

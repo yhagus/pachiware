@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "private-channel-dm",
+  "turns": [
+    {
+      "n": 1,
+      "message": "what was decided about the year-end bonus budget?",
+      "replies": [
+        "Something you can read may answer that, but I cannot show it in this channel. Ask me in a DM and I will look there."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

@@ -1,0 +1,19 @@
+# Minutes someone wrote elsewhere and gave the bot are a Document under files/; search finds them, and the answer names the Document and its date. Spec #146, stories 9, 11.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  files:
+    - path: files/sinar-printing-call-minutes.md
+      content: |
+        Call with Sinar Printing, 6 October 2026
+        Present: Alice, Bob, Rina (Sinar Printing)
+
+        - Sinar Printing delivers the 2,000 brochures on 23 October, to the Jakarta office.
+        - Payment: half up front, half on delivery.
+        - Bob sends the final artwork by 16 October.
+mustCover:
+  - Sinar Printing delivers the brochures on 23 October, to the Jakarta office
+  - This comes from the minutes of the call with Sinar Printing on 6 October 2026, kept as a Document in this channel
+turns:
+  - files: [files/sinar-printing-call-minutes.md]
+    replyContains: ["23 October", sinar-printing-call-minutes]

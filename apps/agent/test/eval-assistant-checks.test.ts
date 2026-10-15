@@ -131,7 +131,8 @@ describe("fixtures and recorded runs", () => {
   test("the briefs cover every daily behaviour named in the spec, in both languages", () => {
     const names = fixtures.map((f) => f.name);
     for (const name of ["task-casual-indonesian", "task-casual-english", "due-dates-relative", "status-by-title", "remember-forget", "file-search", "reminder-weekly",
-      "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels", "bulk-cancel"]) expect(names).toContain(name);
+      "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels", "bulk-cancel",
+      "decision-other-channel", "action-items-across-meetings", "nothing-found", "private-channel-dm", "minutes-as-document"]) expect(names).toContain(name);
     expect(new Set(fixtures.map((f) => f.facts.language))).toEqual(new Set(["en", "id"]));
     for (const f of fixtures) {
       expect(f.facts.mustCover.length).toBeGreaterThan(0);
@@ -151,6 +152,21 @@ describe("fixtures and recorded runs", () => {
     expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: clock is not a time");
     writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}, {}, {}]\n");
     expect(loadAssistantFixtures(tmp)[0]!.messages).toEqual(["note this", "and that", "and this"]);
+  });
+
+  test("a seed file must sit below its channel's folder, and hidden channels are a list of names", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "what did we decide?");
+    const facts = (seed: string) => writeFileSync(join(tmp, "x", "facts.yaml"), `language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\nseed: ${seed}\n`);
+    facts("{ files: [{ channel: ops, path: ../../shared/MEMORY.md, content: x }] }");
+    expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: each seed file needs a path below its channel's folder and a content");
+    facts("{ files: [{ path: notes/a.md }] }");
+    expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: each seed file needs a path below its channel's folder and a content");
+    facts("{ hidden: direksi }");
+    expect(() => loadAssistantFixtures(tmp)).toThrow("x seed.hidden must be a list of strings");
+    facts("{ hidden: [direksi], files: [{ channel: direksi, path: minutes/2026-10-10-board.md, content: x }] }");
+    expect(loadAssistantFixtures(tmp)[0]!.facts.seed).toEqual({ hidden: ["direksi"], files: [{ channel: "direksi", path: "minutes/2026-10-10-board.md", content: "x" }] });
   });
 
   test("every brief has a recorded dry run", () => {

@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "nothing-found",
+  "turns": [
+    {
+      "n": 1,
+      "message": "what did we decide about the office move?",
+      "replies": [
+        "I found nothing kept about the office move: no Minutes, Decision, Note or Document mentions it."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

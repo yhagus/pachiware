@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "decision-other-channel",
+  "turns": [
+    {
+      "n": 1,
+      "message": "what did we decide about the pricing tiers?",
+      "replies": [
+        "#marketing, Decision of 2026-10-08: Settled: three pricing tiers, Starter at 9 dollars, Team at 29 and Business at 79 a month."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

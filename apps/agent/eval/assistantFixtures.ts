@@ -35,6 +35,11 @@ export interface SeedTask {
   title: string; status?: string; dueAt?: string | null; assignedTo?: string | null;
   /** Another channel of the guild to file it in, by name (it is created); the brief's channel when left out. */ channel?: string;
 }
+export interface SeedFile {
+  /** Below the channel's folder, e.g. "minutes/2026-10-07-launch-sync.md". */ path: string;
+  content: string;
+  /** Another channel of the guild to keep it in, by name (it is created); the brief's channel when left out. */ channel?: string;
+}
 export interface AssistantFacts {
   language: Language;
   /** The instant the conversation starts at. */
@@ -44,7 +49,8 @@ export interface AssistantFacts {
   grants?: string[];
   /** Guild members besides Alice and Bob; `name` is the display name, `username` defaults to it. */
   members?: { id: string; name: string; username?: string }[];
-  seed?: { tasks?: SeedTask[] };
+  /** `hidden` names channels the guild's @everyone cannot view, so they are no Public channel; the author still can. */
+  seed?: { tasks?: SeedTask[]; files?: SeedFile[]; hidden?: string[] };
   /** Attached to the brief; `pdf` lines become a real one-page PDF. */
   attachments?: { name: string; pdf: string[] }[];
   mustCover: string[];
@@ -77,6 +83,8 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
     const mustCover = strings(raw.mustCover, `${name} mustCover`) ?? [];
     if (!mustCover.length) throw new Error(`Fixture ${name} names no must-cover fact`);
     for (const [i, t] of (raw.turns as any[]).entries()) { strings(t.replyContains, `${name} turn ${i + 1} replyContains`); strings(t.replyLacks, `${name} turn ${i + 1} replyLacks`); strings(t.files, `${name} turn ${i + 1} files`); }
+    strings(raw.seed?.hidden, `${name} seed.hidden`);
+    for (const f of raw.seed?.files ?? []) if (typeof f?.path !== "string" || typeof f.content !== "string" || f.path.startsWith("/") || f.path.split("/").includes("..")) throw new Error(`Fixture ${name}: each seed file needs a path below its channel's folder and a content`);
     if (raw.then && (typeof raw.then.clock !== "string" || Number.isNaN(Date.parse(raw.then.clock)) || !Array.isArray(raw.then.posts))) throw new Error(`Fixture ${name}: then needs a clock and a list of posts`);
     const facts: AssistantFacts = { language: raw.language, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), members: raw.members, seed: raw.seed, attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
     return { name, messages, facts };

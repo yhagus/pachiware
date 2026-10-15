@@ -44,6 +44,7 @@ discordScenario("the persona answers questions about past meetings from kept mat
   const section = persona.slice(persona.indexOf("Asking about kept material"));
   expect(section).toMatch(/search before/i);
   expect(section).toMatch(/channel and (the )?date/i);
+  expect(section).toMatch(/date the text gives/i);
   expect(section).toContain("postedIn");
   expect(section).toMatch(/found nothing/i);
   expect(section).toMatch(/without naming/i);

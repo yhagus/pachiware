@@ -1,13 +1,13 @@
 /**
- * Drives one daily-behaviour fixture at the Discord seam: the clock is pinned, settings, grants, members, seeded tasks
- * (in the brief's channel or another) and attachments are put in place, the brief is sent with a mention and the
+ * Drives one daily-behaviour fixture at the Discord seam: the clock is pinned, settings, grants, members, seeded tasks and files
+ * (in the brief's channel or another), hidden channels and attachments are put in place, the brief is sent with a mention and the
  * follow-ups in the thread it opened. After every turn the replies and the Workspace and schedule state are recorded,
  * so the checks and the judge read a plain output, live or from `recorded/assistant/`. Database modules load lazily,
  * inside the scenario's subprocess.
  */
 import type { Scenario } from "../test/support/discordScenario";
 import { checkAssistantOutput, type AssistantFailure } from "./assistantChecks";
-import type { AssistantFixture, SeedTask } from "./assistantFixtures";
+import type { AssistantFixture, SeedFile, SeedTask } from "./assistantFixtures";
 import { gradeAssistantWithJudge } from "./assistantJudge";
 import type { TrialResult } from "./compare";
 import type { Ask } from "./judge";
@@ -37,11 +37,19 @@ export interface AssistantResult extends AssistantOutput { failures: AssistantFa
 const GUILD = "guild-1", CHANNEL_ID = "channel-1", CHANNEL = `guilds/${GUILD}/channels/${CHANNEL_ID}`, GUILD_SHARED = `guilds/${GUILD}/shared`;
 const seedId = (i: number) => `${String(i + 1).padStart(8, "0")}-0000-4000-8000-000000000000`;
 
-/** The channels of the guild that tasks are seeded in besides the brief's, each created in the fake guild. */
-function seededChannels(s: Scenario, tasks: SeedTask[] = []) {
-  const ids = [...new Set(tasks.flatMap((t) => (t.channel ? [t.channel.replace(/^#/, "")] : [])))];
+const channelFolder = (channel?: string) => (channel ? `guilds/${GUILD}/channels/${channel.replace(/^#/, "")}` : CHANNEL);
+
+/** The channels of the guild that tasks or files are seeded in besides the brief's, each created in the fake guild; hidden ones lose @everyone's view. */
+function seededChannels(s: Scenario, seed: AssistantFixture["facts"]["seed"] = {}) {
+  const named = [...(seed.tasks ?? []), ...(seed.files ?? [])].flatMap((t) => (t.channel ? [t.channel.replace(/^#/, "")] : []));
+  const ids = [...new Set(named)];
   for (const id of ids) s.discord.channel(id);
+  for (const name of seed.hidden ?? []) s.discord.hide(name.replace(/^#/, ""));
   return ids;
+}
+
+async function seedFiles(s: Scenario, files: SeedFile[]) {
+  for (const f of files) await s.workspace.write(`${channelFolder(f.channel)}/${f.path}`, f.content);
 }
 
 async function seedTasks(s: Scenario, tasks: SeedTask[]) {
@@ -49,7 +57,7 @@ async function seedTasks(s: Scenario, tasks: SeedTask[]) {
   const { parseAssignee } = await import("../../../packages/skills/src/builtin/assignee.ts");
   const at = new Date(s.clock.now()).toISOString();
   for (const [i, t] of tasks.entries()) {
-    const id = seedId(i), folder = t.channel ? `guilds/${GUILD}/channels/${t.channel.replace(/^#/, "")}` : CHANNEL;
+    const id = seedId(i), folder = channelFolder(t.channel);
     await s.workspace.write(`${folder}/tasks/${slug(t.title)}-${id.slice(0, 8)}.md`, render({ id, title: t.title, description: null, status: (t.status ?? "pending") as any, priority: "medium", assignedTo: parseAssignee(t.assignedTo), dueAt: t.dueAt ?? null, createdBy: s.discord.alice.id, createdByName: s.discord.alice.name, createdAt: at, updatedAt: at }));
   }
 }
@@ -91,8 +99,9 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
   if (facts.grants?.length) s.discord.grant(s.discord.alice, facts.grants);
   // Someone who has posted in the guild is a member its search finds.
   if (facts.members?.length) s.discord.history(facts.members.map((author) => ({ content: "hello", author })), { channel: s.discord.channel("lobby") });
-  const channels = seededChannels(s, facts.seed?.tasks);
+  const channels = seededChannels(s, facts.seed);
   if (facts.seed?.tasks?.length) await seedTasks(s, facts.seed.tasks);
+  if (facts.seed?.files?.length) await seedFiles(s, facts.seed.files);
   s.discord.unlimited(s.discord.alice);
   const turns: AssistantTurn[] = [];
   let thread: Message["thread"], seen = s.discord.botMessages.length;

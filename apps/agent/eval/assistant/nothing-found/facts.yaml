@@ -1,0 +1,21 @@
+# A question nothing kept answers: the bot searches, then says it found nothing instead of guessing. Spec #146, story 13.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  files:
+    - channel: marketing
+      path: decisions/2026-10-08-pricing-tiers.md
+      content: |
+        # Pricing tiers
+
+        Settled: three pricing tiers, Starter at 9 dollars, Team at 29 and Business at 79 a month.
+        Context: the pricing review meeting in #marketing.
+        Reason: the single 19-dollar price lost small teams to cheaper tools.
+    - path: notes/2026-10-09-hiring.md
+      content: |
+        Alice said the second support hire starts on 2 November, after the trial week.
+mustCover:
+  - Nothing kept says anything about an office move, and the bot says it found nothing
+  - The bot gives no date, place or decision for an office move
+turns:
+  - replyContains: [nothing, office move]

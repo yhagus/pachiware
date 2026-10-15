@@ -1,0 +1,31 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "minutes-as-document",
+  "turns": [
+    {
+      "n": 1,
+      "message": "when is the printing vendor delivering the brochures?",
+      "replies": [
+        "#channel-1, sinar-printing-call-minutes.md (the Sinar Printing call of 6 October 2026): Sinar Printing delivers the 2,000 brochures on 23 October, to the Jakarta office."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [
+          "files/sinar-printing-call-minutes.md"
+        ],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}
