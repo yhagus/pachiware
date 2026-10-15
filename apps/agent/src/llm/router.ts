@@ -5,24 +5,23 @@ import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, textIn, configuredLanguage } from "@pachiware/skills";
 import type { ChatMessage, ContentPart, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
-import { providerBaseUrl, providerHeaders, isProvider, PROVIDERS, DEFAULT_MODELS, ANTHROPIC_TEST_MODEL } from "./providers.js";
+import { providerBaseUrl, providerHeaders, formatHeaders, apiFormatOf, isProvider, PROVIDERS, DEFAULT_MODELS, ANTHROPIC_TEST_MODEL } from "./providers.js";
 
-type ProbeResult = { ok: boolean; message: string };
-// An 8x8 solid PNG, small enough for every provider's image limits.
-const PROBE_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO44GCAFTEMLQkAaplQAWdwh5oAAAAASUVORK5CYII=";
 const textOf = (content: ChatMessage["content"]) => typeof content === "string" || content === null ? content || "" : content.filter((p) => p.type === "text").map((p) => p.text).join("\n");
 const hasImages = (messages: ChatMessage[]) => messages.some((m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image"));
 const withoutImages = (messages: ChatMessage[]) => messages.map((m) => (Array.isArray(m.content) ? { ...m, content: textOf(m.content) } : m));
-const openAIContent = (content: ChatMessage["content"]) => !Array.isArray(content) ? content || "" : content.map((p) =>
+export const openAIContent = (content: ChatMessage["content"]) => !Array.isArray(content) ? content || "" : content.map((p) =>
   p.type === "text" ? p : { type: "image_url", image_url: { url: `data:${p.mediaType};base64,${p.data}` } });
+export const responsesContent = (content: ChatMessage["content"]) => !Array.isArray(content) ? content || "" : content.map((p) =>
+  p.type === "text" ? { type: "input_text", text: p.text } : { type: "input_image", image_url: `data:${p.mediaType};base64,${p.data}` });
 // Claude reads images best when they come before the text.
-const anthropicBlocks = (content: ChatMessage["content"]): any[] => !Array.isArray(content) ? (content ? [{ type: "text", text: content }] : []) : [
+export const anthropicBlocks = (content: ChatMessage["content"]): any[] => !Array.isArray(content) ? (content ? [{ type: "text", text: content }] : []) : [
   ...content.filter((p) => p.type === "image").map((p) => ({ type: "image", source: { type: "base64", media_type: p.mediaType, data: p.data } })),
   ...content.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text"),
 ];
 const anthropicModelOf = (config: any): string => config?.anthropicModel || (config?.defaultProvider === "anthropic" && config?.defaultModel) || DEFAULT_MODELS.anthropic!;
 // Low enough that actions are repeatable; a tenant's own value wins.
-const DEFAULT_TEMPERATURE = 0.2;
+export const DEFAULT_TEMPERATURE = 0.2;
 const CACHED = { cache_control: { type: "ephemeral" } };
 const markLast = (blocks: any[]) => blocks.map((b, i) => (i === blocks.length - 1 ? { ...b, ...CACHED } : b));
 
@@ -86,6 +85,7 @@ export class LLMRouter {
   ): Promise<LLMResponse> {
     let dbConfig = await this.getActiveTenantConfig(options.tenantId);
     const profile = options.provider ? null : await this.getBotProfile(options.tenantId, options.botId);
+    const format = profile ? apiFormatOf(profile.provider, profile.apiFormat) : "chat_completions";
     if (profile) {
       if (!isProvider(profile.provider)) throw new Error("Unsupported profile provider");
       const key = profile.apiKeyEncrypted ? decryptSecret(profile.apiKeyEncrypted) : null;
@@ -96,7 +96,10 @@ export class LLMRouter {
     const call = (list: ChatMessage[]) => {
       switch (provider) {
         case "anthropic": return this.callAnthropic(list, resolved, dbConfig);
-        case "custom": return this.callCustomOpenAI(list, resolved, dbConfig);
+        case "custom":
+          if (format === "messages") return this.callAnthropic(list, resolved, { ...dbConfig, anthropicApiKey: dbConfig.customApiKey, anthropicBaseUrl: dbConfig.customBaseUrl, anthropicModel: dbConfig.customModel }, "custom");
+          if (format === "responses") return this.callResponses(list, resolved, dbConfig);
+          return this.callCustomOpenAI(list, resolved, dbConfig);
         case "openai": return this.callOpenAI(list, resolved, dbConfig);
         default: throw new Error("Unsupported tenant LLM provider");
       }
@@ -224,19 +227,20 @@ export class LLMRouter {
   }
 
   /**
-   * Calls Anthropic Messages API.
+   * Calls Anthropic Messages API, or a BYOK server that speaks it (`as` "custom").
    */
   private async callAnthropic(
     messages: ChatMessage[],
     options: LLMRequestOptions,
-    dbConfig?: any
+    dbConfig?: any,
+    as: "anthropic" | "custom" = "anthropic"
   ): Promise<LLMResponse> {
     const apiKey = dbConfig?.anthropicApiKey;
     const baseUrl = providerBaseUrl("anthropic", dbConfig?.anthropicBaseUrl);
     const model = options.model || anthropicModelOf(dbConfig);
 
     if (!apiKey) {
-      return this.handleMissingApiKey("anthropic", messages, options);
+      return this.handleMissingApiKey(as, messages, options);
     }
 
     const systemBlocks: any[] = [];
@@ -294,11 +298,7 @@ export class LLMRouter {
     try {
       const response = await providerRequest(`${baseUrl}/messages`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
+        headers: { "Content-Type": "application/json", ...formatHeaders(as, "messages", apiKey) },
         body: JSON.stringify(body),
       });
 
@@ -449,6 +449,62 @@ export class LLMRouter {
     }
   }
 
+  /**
+   * Calls a BYOK server that speaks the OpenAI Responses API. Stateless: each turn resends the conversation and asks the server not to store it.
+   */
+  private async callResponses(messages: ChatMessage[], options: LLMRequestOptions, dbConfig?: any): Promise<LLMResponse> {
+    const apiKey = dbConfig?.customApiKey;
+    const baseUrl = providerBaseUrl("custom", dbConfig?.customBaseUrl);
+    const model = options.model || dbConfig?.customModel || "gpt-4o";
+    if (!apiKey) return this.handleMissingApiKey("custom", messages, options);
+    if (!baseUrl) return { content: textIn(options.language).providerNoBaseUrl, toolCalls: [], finishReason: "error" };
+
+    const input: any[] = [];
+    for (const m of messages) {
+      if (m.role === "tool") input.push({ type: "function_call_output", call_id: m.toolCallId, output: textOf(m.content) });
+      else if (m.role === "assistant") {
+        const text = textOf(m.content);
+        if (text) input.push({ role: "assistant", content: text });
+        for (const tc of m.toolCalls ?? []) input.push({ type: "function_call", call_id: tc.id, name: tc.name, arguments: JSON.stringify(tc.arguments) });
+      } else input.push({ role: m.role, content: responsesContent(m.content) });
+    }
+    const body: any = { model, input, temperature: options.temperature ?? DEFAULT_TEMPERATURE, max_output_tokens: options.maxTokens ?? 4096, store: false };
+    // Responses function tools are flat, and strict by default; the skill schemas are not written for strict mode.
+    if (options.tools && options.tools.length > 0) body.tools = skillRegistry.toOpenAITools(options.tools).map((t: any) => ({ type: "function", ...t.function, strict: false }));
+
+    try {
+      const response = await providerRequest(`${baseUrl}/responses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...providerHeaders("custom", apiKey) },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) return this.rejected(response.status, messages, options);
+
+      const data = await response.json();
+      const toolCalls: ToolCall[] = [];
+      let text = "";
+      for (const item of data.output || []) {
+        if (item.type === "message") text += (item.content || []).filter((c: any) => c.type === "output_text").map((c: any) => c.text).join("");
+        else if (item.type === "function_call") {
+          let args = {};
+          try { args = JSON.parse(item.arguments); } catch { args = { raw: item.arguments }; }
+          toolCalls.push({ id: item.call_id, name: item.name, arguments: args });
+        }
+      }
+      return {
+        content: text || null,
+        toolCalls,
+        finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        usage: data.usage
+          ? { promptTokens: data.usage.input_tokens, completionTokens: data.usage.output_tokens, totalTokens: data.usage.total_tokens ?? data.usage.input_tokens + data.usage.output_tokens, cachedTokens: cachedTokensOf(data.usage) }
+          : undefined,
+      };
+    } catch {
+      console.warn("LLM provider request failed.");
+      return this.handleFallback("Provider request failed", messages, options);
+    }
+  }
+
   // The answers below are what the person reads when no model could answer, so they come in the place's configured language.
   private handleMissingApiKey(
     providerName: string,
@@ -469,28 +525,6 @@ export class LLMRouter {
     options: LLMRequestOptions
   ): LLMResponse {
     return { content: textIn(options.language).providerFailed, toolCalls: [], finishReason: "error" };
-  }
-
-  // The profile Test action: a text request, then a tiny PNG in the provider's own image shape.
-  static async probeProfile(provider: string, model: string, apiKey: string | null, baseUrl?: string | null): Promise<{ text: ProbeResult; image: ProbeResult }> {
-    const anthropic = provider === "anthropic";
-    const send = async (image: boolean): Promise<string | null> => {
-      const parts: ContentPart[] = [{ type: "text", text: "What colour is this image? One word." }, { type: "image", mediaType: "image/png", data: PROBE_PNG }];
-      const content = !image ? "Reply with the single word OK." : anthropic ? anthropicBlocks(parts) : openAIContent(parts);
-      try {
-        const res = await fetch(`${providerBaseUrl(provider, baseUrl)}/${anthropic ? "messages" : "chat/completions"}`, {
-          method: "POST", headers: { "Content-Type": "application/json", ...providerHeaders(provider, apiKey) },
-          body: JSON.stringify({ model, max_tokens: 64, messages: [{ role: "user", content }] }), signal: AbortSignal.timeout(30000),
-        });
-        if (res.ok) return null;
-        const reason = await res.json().then((d: any) => d?.error?.message, () => null);
-        return `${res.status}${typeof reason === "string" && reason ? `: ${reason.slice(0, 200)}` : ""}`;
-      } catch { return "the provider could not be reached"; }
-    };
-    const textError = await send(false);
-    if (textError) return { text: { ok: false, message: `Failed (${textError}). Check the model, base URL, and API key.` }, image: { ok: false, message: "Not tried, because text failed." } };
-    const imageError = await send(true);
-    return { text: { ok: true, message: "Works." }, image: imageError ? { ok: false, message: `Rejected (${imageError}).` } : { ok: true, message: "Accepted." } };
   }
 
   static async testOpenAI(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string; modelCount?: number }> {

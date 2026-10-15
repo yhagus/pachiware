@@ -3,8 +3,8 @@ import { HTTPException } from "hono/http-exception";
 import { db, profiles, getTenantById, encryptSecret, decryptSecret, eq } from "@pachiware/db";
 import { desc } from "drizzle-orm";
 import { object, string } from "../validation.js";
-import { LLMRouter } from "../../llm/router.js";
-import { isProvider, providerBaseUrl, providerHeaders, PROVIDER_ERROR } from "../../llm/providers.js";
+import { checkProfile, modelIds, sendToProfile } from "../../llm/probe.js";
+import { apiFormatOf, formatHeaders, isApiFormat, isProvider, providerBaseUrl, API_FORMAT_ERROR, PROVIDER_ERROR } from "../../llm/providers.js";
 
 export const profileAdminRoutes = new Hono();
 
@@ -20,6 +20,10 @@ function fields(body: Record<string, any>, creating: boolean) {
   if (body.baseUrl !== undefined) {
     out.baseUrl = body.baseUrl === null || body.baseUrl === "" ? null : string(body.baseUrl, "baseUrl");
     if (out.baseUrl && !/^https?:\/\//i.test(out.baseUrl)) throw new HTTPException(400, { message: "baseUrl must start with http:// or https://" });
+  }
+  if (body.apiFormat !== undefined) {
+    if (!isApiFormat(body.apiFormat)) throw new HTTPException(400, { message: API_FORMAT_ERROR });
+    out.apiFormat = body.apiFormat;
   }
   if (body.acceptsImages !== undefined) {
     if (typeof body.acceptsImages !== "boolean") throw new HTTPException(400, { message: "acceptsImages must be true or false" });
@@ -60,23 +64,33 @@ async function connection(body: Record<string, any>) {
   if (!isProvider(provider)) throw new HTTPException(400, { message: PROVIDER_ERROR });
   const baseUrl = providerBaseUrl(provider, typeof body.baseUrl === "string" ? body.baseUrl : null);
   if (!/^https?:\/\//i.test(baseUrl)) throw new HTTPException(400, { message: "A base URL is required" });
-  if (typeof body.apiKey === "string" && body.apiKey && !body.apiKey.includes("••••")) return { provider, baseUrl, key: body.apiKey.trim() };
+  if (body.apiFormat !== undefined && !isApiFormat(body.apiFormat)) throw new HTTPException(400, { message: API_FORMAT_ERROR });
+  const format = apiFormatOf(provider, body.apiFormat);
+  if (typeof body.apiKey === "string" && body.apiKey && !body.apiKey.includes("••••")) return { provider, format, baseUrl, key: body.apiKey.trim() };
   const [row] = typeof body.profileId === "string" ? await db.select().from(profiles).where(eq(profiles.id, body.profileId)).limit(1) : [];
-  return { provider, baseUrl, key: row?.apiKeyEncrypted ? decryptSecret(row.apiKeyEncrypted) : null };
+  return { provider, format, baseUrl, key: row?.apiKeyEncrypted ? decryptSecret(row.apiKeyEncrypted) : null };
 }
 profileAdminRoutes.post("/profiles/models", async (c) => {
-  const { provider, baseUrl, key } = await connection(object(await c.req.json(), "body"));
+  const { provider, format, baseUrl, key } = await connection(object(await c.req.json(), "body"));
   try {
-    const res = await fetch(`${baseUrl}/models${provider === "anthropic" ? "?limit=1000" : ""}`, { headers: providerHeaders(provider, key), signal: AbortSignal.timeout(10000) });
+    const res = await fetch(`${baseUrl}/models${format === "messages" ? "?limit=1000" : ""}`, { headers: formatHeaders(provider, format, key), signal: AbortSignal.timeout(10000) });
     if (!res.ok) return c.json({ success: false, error: `Provider returned ${res.status}. Check the base URL and API key.` }, 502);
-    const data: any = await res.json();
-    const models = (Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : []).map((m: any) => (typeof m === "string" ? m : m?.id)).filter((m: unknown): m is string => typeof m === "string" && !!m);
+    const models = modelIds(await res.json()) ?? [];
     return c.json({ success: true, models: [...new Set(models)].sort() });
   } catch { return c.json({ success: false, error: "Could not reach the provider." }, 502); }
 });
 profileAdminRoutes.post("/profiles/test", async (c) => {
   const body = object(await c.req.json(), "body");
-  const { provider, baseUrl, key } = await connection(body);
-  const result = await LLMRouter.probeProfile(provider, string(body.model, "model")!, key, baseUrl);
-  return c.json({ success: result.text.ok, ...result });
+  const checks = await checkProfile({ ...await connection(body), model: string(body.model, "model")! });
+  return c.json({ success: checks.text.status === "ok" || checks.text.status === "warning", checks });
+});
+const MAX_PLAYGROUND_PROMPT = 20_000;
+profileAdminRoutes.post("/profiles/playground", async (c) => {
+  const body = object(await c.req.json(), "body");
+  const prompt = string(body.prompt, "prompt")!;
+  const system = typeof body.system === "string" && body.system.trim() ? body.system.trim() : undefined;
+  if (prompt.length + (system?.length ?? 0) > MAX_PLAYGROUND_PROMPT) throw new HTTPException(400, { message: `prompt and system together must be at most ${MAX_PLAYGROUND_PROMPT} characters` });
+  const sent = await sendToProfile({ ...await connection(body), model: string(body.model, "model")! }, prompt, { system, maxTokens: 1024, timeoutMs: 60_000 });
+  const { ok, ...result } = sent;
+  return c.json({ success: ok, ...result });
 });

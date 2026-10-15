@@ -93,35 +93,172 @@ describe("Anthropic profiles and image input", () => {
     expect(code, stderr).toBe(0);
   });
 
-  test("the Test action sends text and then a tiny image in each provider's shape and reports both", () => {
+  test("the Test checklist lists models, then sends text and a tiny image in each provider's shape, and reports every step", () => {
     const { code, stderr } = scenario(`
       const run = async (body) => (await post("/profiles/test", body)).json();
-      reply = (call) => call.url.endsWith("/messages") ? json({ content: [{ type: "text", text: "ok" }] }) : json({ choices: [{ message: { content: "ok" } }] });
+      const said = (call, text) => call.url.endsWith("/messages") ? json({ content: [{ type: "text", text }] }) : json({ choices: [{ message: { content: text } }] });
+      reply = (call) => call.method === "GET" ? json({ data: [{ id: "claude-opus-5-5" }, { id: "vision-x" }] }) : said(call, Array.isArray(call.body.messages[0].content) ? "Red." : "OK");
       const claude = await run({ provider: "anthropic", model: "claude-opus-5-5", apiKey: "sk-ant-typed" });
-      assert(claude.text.ok && claude.image.ok, "anthropic probe not reported as working: " + JSON.stringify(claude));
-      const [text, image] = calls;
+      assert(claude.success && Object.values(claude.checks).every((c) => c.status === "ok"), "anthropic checklist not all ok: " + JSON.stringify(claude));
+      assert(claude.checks.text.reply === "OK" && claude.checks.image.reply === "Red.", "replies not shown: " + JSON.stringify(claude.checks));
+      const [models, text, image] = calls;
+      assert(models.method === "GET" && models.url.startsWith("https://api.anthropic.com/v1/models") && models.headers["x-api-key"] === "sk-ant-typed", "models request wrong: " + JSON.stringify(models));
       assert(text.url === "https://api.anthropic.com/v1/messages" && text.headers["x-api-key"] === "sk-ant-typed" && text.body.model === "claude-opus-5-5" && typeof text.body.messages[0].content === "string", "anthropic text probe wrong: " + JSON.stringify(text));
       const [block, prompt] = image.body.messages[0].content;
       assert(image.body.messages[0].role === "user" && block.type === "image" && block.source.type === "base64" && block.source.media_type === "image/png" && !block.source.data.startsWith("data:") && prompt.type === "text", "anthropic image block wrong: " + JSON.stringify(image.body));
       calls.length = 0;
       const gpt = await run({ provider: "custom", model: "vision-x", baseUrl: "https://llm.example/v1", apiKey: "proxy-key" });
-      assert(gpt.text.ok && gpt.image.ok, "custom probe not reported as working: " + JSON.stringify(gpt));
-      const part = calls[1].body.messages[0].content.find((p) => p.type === "image_url");
-      assert(calls[1].url === "https://llm.example/v1/chat/completions" && calls[1].headers.Authorization === "Bearer proxy-key" && part.image_url.url.startsWith("data:image/png;base64,"), "openai-shaped image part wrong: " + JSON.stringify(calls[1]));
+      assert(gpt.success && gpt.checks.image.status === "ok", "custom checklist not ok: " + JSON.stringify(gpt));
+      const part = calls[2].body.messages[0].content.find((p) => p.type === "image_url");
+      assert(calls[2].url === "https://llm.example/v1/chat/completions" && calls[2].headers.Authorization === "Bearer proxy-key" && part.image_url.url.startsWith("data:image/png;base64,"), "openai-shaped image part wrong: " + JSON.stringify(calls[2]));
     `);
     expect(code, stderr).toBe(0);
   });
 
-  test("the Test action reports text working and the image rejected separately, reusing the saved key", () => {
+  test("the Test checklist reports the image rejected separately, reuses the saved key, and stops at a refused key", () => {
     const { code, stderr } = scenario(`
       const saved = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Text only", provider: "openai", model: "gpt-text", apiKey: "saved-key" })).json()).profile;
-      reply = (call) => Array.isArray(call.body.messages[0].content) ? json({ error: { message: "image_url is only supported by certain models" } }, 400) : json({ choices: [{ message: { content: "ok" } }] });
+      reply = (call) => call.method === "GET" ? json({ data: [{ id: "gpt-text" }] }) : Array.isArray(call.body.messages[0].content) ? json({ error: { message: "image_url is only supported by certain models" } }, 400) : json({ choices: [{ message: { content: "OK" } }] });
       const result = await (await post("/profiles/test", { provider: "openai", model: "gpt-text", profileId: saved.id })).json();
-      assert(result.text.ok === true && result.image.ok === false && result.image.message, "rejection not reported separately: " + JSON.stringify(result));
-      assert(calls.every((c) => c.headers.Authorization === "Bearer saved-key" && c.url === "https://api.openai.com/v1/chat/completions"), "saved key not reused");
-      calls.length = 0; reply = () => json({ error: { message: "bad key" } }, 401);
+      assert(result.success && result.checks.text.status === "ok" && result.checks.image.status === "failed" && result.checks.image.message.includes("image_url is only supported"), "rejection not reported separately: " + JSON.stringify(result));
+      assert(calls.every((c) => c.headers.Authorization === "Bearer saved-key" && c.url.startsWith("https://api.openai.com/v1/")), "saved key not reused");
+      calls.length = 0; reply = () => json({ error: { message: "Incorrect API key provided" } }, 401);
       const denied = await (await post("/profiles/test", { provider: "openai", model: "gpt-text", apiKey: "wrong" })).json();
-      assert(denied.text.ok === false && denied.image.ok === false && calls.length === 1, "image tried after text failed: " + JSON.stringify(denied));
+      const { url, key, model, text, image } = denied.checks;
+      assert(!denied.success && url.status === "ok" && key.status === "failed" && key.message.includes("Incorrect API key"), "refused key not reported on the key step: " + JSON.stringify(denied));
+      assert([model, text, image].every((c) => c.status === "skipped") && calls.length === 1, "steps after a refused key were tried: " + JSON.stringify(denied));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
+  test("the Test checklist tells an unreachable host apart from a server that answers in the wrong format", () => {
+    const { code, stderr } = scenario(`
+      globalThis.fetch = async (url) => { calls.push(String(url)); throw new TypeError("fetch failed"); };
+      const down = await (await post("/profiles/test", { provider: "custom", model: "m", baseUrl: "http://127.0.0.1:9/v1" })).json();
+      assert(!down.success && down.checks.url.status === "failed" && down.checks.url.message.includes("127.0.0.1:9") && calls.length === 1, "unreachable host not reported on the URL step: " + JSON.stringify(down));
+      assert(["key", "model", "text", "image"].every((k) => down.checks[k].status === "skipped"), "steps after an unreachable host were not skipped");
+      calls.length = 0;
+      globalThis.fetch = async (url) => { calls.push(String(url)); return new Response("<html>Welcome</html>", { status: 200, headers: { "Content-Type": "text/html" } }); };
+      const website = await (await post("/profiles/test", { provider: "custom", model: "m", baseUrl: "https://example.com" })).json();
+      const { url, key, text, image } = website.checks;
+      assert(!website.success && url.status === "ok" && key.status === "skipped" && text.status === "failed" && text.message.includes("format"), "a 200 HTML page passed as a model: " + JSON.stringify(website));
+      assert(image.status === "skipped" && calls.length === 2, "image tried after text failed");
+      globalThis.fetch = async () => new Response("Not Found", { status: 404 });
+      const wrongPath = await (await post("/profiles/test", { provider: "custom", model: "m", baseUrl: "https://llm.example" })).json();
+      assert(wrongPath.checks.text.status === "failed" && wrongPath.checks.text.message.includes("Failed (404).") && wrongPath.checks.text.message.includes("/v1"), "a 404 gives no hint: " + JSON.stringify(wrongPath.checks.text));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
+  test("the Test checklist flags an unlisted model, a reply that ignores the instruction, and a wrong image colour, and confirms the key by text when there is no model list", () => {
+    const { code, stderr } = scenario(`
+      reply = (call) => call.method === "GET" ? json({ data: [{ id: "gpt-a" }, { id: "gpt-b" }] }) : json({ choices: [{ message: { content: Array.isArray(call.body.messages[0].content) ? "Blue" : "Sure! How can I help?" } }] });
+      const odd = await (await post("/profiles/test", { provider: "openai", model: "gpt-typo", apiKey: "k" })).json();
+      assert(odd.success && odd.checks.model.status === "warning" && odd.checks.model.message.includes("2 models"), "unlisted model not flagged: " + JSON.stringify(odd.checks.model));
+      assert(odd.checks.text.status === "warning" && odd.checks.text.reply === "Sure! How can I help?", "ignored instruction not flagged: " + JSON.stringify(odd.checks.text));
+      assert(odd.checks.image.status === "failed" && odd.checks.image.message.includes("Blue"), "wrong colour accepted: " + JSON.stringify(odd.checks.image));
+      reply = (call) => call.method === "GET" ? json({ error: { message: "not found" } }, 404) : json({ choices: [{ message: { content: "OK" } }] });
+      const bare = await (await post("/profiles/test", { provider: "custom", model: "local", baseUrl: "http://ollama.local/v1" })).json();
+      assert(bare.success && bare.checks.key.status === "ok" && bare.checks.model.status === "ok" && bare.checks.model.message.includes("text"), "key and model not confirmed by the text request: " + JSON.stringify(bare.checks));
+      reply = (call) => call.method === "GET" ? json({ data: [{ id: "o-think" }] }) : json({ choices: [{ message: { content: null }, finish_reason: "length" }] });
+      const empty = await (await post("/profiles/test", { provider: "openai", model: "o-think", apiKey: "k" })).json();
+      assert(!empty.success && empty.checks.text.status === "failed" && empty.checks.text.message.includes("length"), "empty reply passed: " + JSON.stringify(empty.checks.text));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
+  test("the Playground sends a prompt with an optional system prompt in each provider's shape and returns the reply, timing, and tokens", () => {
+    const { code, stderr } = scenario(`
+      const saved = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Claude", provider: "anthropic", model: "claude-haiku-5-5", apiKey: "sk-ant-saved" })).json()).profile;
+      reply = () => json({ content: [{ type: "text", text: "Halo!" }], stop_reason: "end_turn", usage: { input_tokens: 12, output_tokens: 3 } });
+      const claude = await (await post("/profiles/playground", { provider: "anthropic", model: "claude-haiku-5-5", profileId: saved.id, system: "Answer in Indonesian.", prompt: "Say hello" })).json();
+      assert(!("ok" in claude) && claude.success && claude.reply === "Halo!" && claude.finishReason === "end_turn" && claude.usage.input === 12 && claude.usage.output === 3 && typeof claude.ms === "number", "anthropic playground reply wrong: " + JSON.stringify(claude));
+      assert(calls[0].body.system === "Answer in Indonesian." && calls[0].body.messages.length === 1 && calls[0].headers["x-api-key"] === "sk-ant-saved", "anthropic system prompt or key wrong: " + JSON.stringify(calls[0]));
+      calls.length = 0;
+      reply = () => json({ choices: [{ message: { content: "hi" }, finish_reason: "stop" }], usage: { prompt_tokens: 9, completion_tokens: 1 } });
+      const gpt = await (await post("/profiles/playground", { provider: "openai", model: "gpt-x", apiKey: "k", system: "Be brief.", prompt: "Say hello" })).json();
+      assert(gpt.success && gpt.reply === "hi" && gpt.usage.output === 1, "openai playground reply wrong: " + JSON.stringify(gpt));
+      assert(JSON.stringify(calls[0].body.messages) === JSON.stringify([{ role: "system", content: "Be brief." }, { role: "user", content: "Say hello" }]), "openai system prompt wrong: " + JSON.stringify(calls[0].body));
+      reply = () => json({ error: { message: "model gpt-x does not exist" } }, 404);
+      const missing = await (await post("/profiles/playground", { provider: "openai", model: "gpt-x", apiKey: "k", prompt: "hi" })).json();
+      assert(missing.success === false && missing.error.includes("does not exist") && missing.status === 404, "provider error not passed through: " + JSON.stringify(missing));
+      assert((await post("/profiles/playground", { provider: "openai", model: "gpt-x", apiKey: "k", prompt: "  " })).status === 400, "blank prompt accepted");
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
+  test("a BYOK profile stores its API format, Chat Completions by default, and rejects an unknown one", () => {
+    const { code, stderr } = scenario(`
+      const plain = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Plain", provider: "custom", model: "m", baseUrl: "https://llm.example/v1" })).json()).profile;
+      assert(plain.apiFormat === "chat_completions", "default format wrong: " + JSON.stringify(plain));
+      const changed = (await (await patch("/profiles/" + plain.id, { apiFormat: "responses" })).json()).profile;
+      assert(changed.apiFormat === "responses" && changed.model === "m", "format not updated alone: " + JSON.stringify(changed));
+      assert((await patch("/profiles/" + plain.id, { apiFormat: "completions" })).status === 400, "unknown format accepted");
+      assert((await post("/profiles/test", { provider: "custom", apiFormat: "soap", model: "m", baseUrl: "https://llm.example/v1" })).status === 400, "unknown format accepted by Test");
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
+  test("a BYOK profile on the Responses format sends the conversation and flat tools to /responses and reads text, tool calls, and usage back", () => {
+    const { code, stderr } = scenario(`
+      const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Responses", provider: "custom", apiFormat: "responses", model: "gpt-r", baseUrl: "https://llm.example/v1", apiKey: "byok-key" })).json()).profile;
+      const bot = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
+      reply = () => json({ object: "response", status: "completed", output: [{ type: "reasoning", summary: [] }, { type: "message", role: "assistant", content: [{ type: "output_text", text: "Checking." }] }, { type: "function_call", call_id: "call_1", name: "lookup", arguments: '{"q":"x"}' }], usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25, input_tokens_details: { cached_tokens: 8 } } });
+      const tools = [{ name: "lookup", description: "Look up", parameters: { type: "object", properties: { q: { type: "string" } }, required: ["q"] } }];
+      const history = [
+        { role: "system", content: "Be brief." },
+        { role: "user", content: [{ type: "text", text: "what is this" }, { type: "image", mediaType: "image/png", data: "AAAA" }] },
+        { role: "assistant", content: "Let me look.", toolCalls: [{ id: "call_0", name: "lookup", arguments: { q: "y" } }] },
+        { role: "tool", toolCallId: "call_0", content: "found y" },
+      ];
+      const answer = await llmRouter.complete(history, { tenantId: tenant.id, botId: bot.id, tools });
+      const [call] = calls;
+      assert(call.url === "https://llm.example/v1/responses" && call.headers.Authorization === "Bearer byok-key", "wrong request: " + JSON.stringify(call));
+      assert(call.body.model === "gpt-r" && call.body.store === false && call.body.max_output_tokens > 0 && !("messages" in call.body), "wrong body: " + JSON.stringify(call.body));
+      const expected = [
+        { role: "system", content: "Be brief." },
+        { role: "user", content: [{ type: "input_text", text: "what is this" }, { type: "input_image", image_url: "data:image/png;base64,AAAA" }] },
+        { role: "assistant", content: "Let me look." },
+        { type: "function_call", call_id: "call_0", name: "lookup", arguments: '{"q":"y"}' },
+        { type: "function_call_output", call_id: "call_0", output: "found y" },
+      ];
+      assert(JSON.stringify(call.body.input) === JSON.stringify(expected), "wrong input: " + JSON.stringify(call.body.input));
+      assert(JSON.stringify(call.body.tools) === JSON.stringify([{ type: "function", name: "lookup", description: "Look up", parameters: tools[0].parameters, strict: false }]), "wrong tools: " + JSON.stringify(call.body.tools));
+      assert(answer.content === "Checking." && answer.finishReason === "tool_calls" && JSON.stringify(answer.toolCalls) === JSON.stringify([{ id: "call_1", name: "lookup", arguments: { q: "x" } }]), "answer not read: " + JSON.stringify(answer));
+      assert(answer.usage.promptTokens === 20 && answer.usage.completionTokens === 5 && answer.usage.cachedTokens === 8, "usage not read: " + JSON.stringify(answer.usage));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
+  test("a BYOK profile on the Messages format answers through <base URL>/messages with both key headers", () => {
+    const { code, stderr } = scenario(`
+      const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Proxy", provider: "custom", apiFormat: "messages", model: "claude-proxy", baseUrl: "https://proxy.example/v1", apiKey: "proxy-key" })).json()).profile;
+      const bot = await createBot({ tenantId: tenant.id, token: "t", isEnabled: false, profileId: profile.id });
+      reply = () => json({ content: [{ type: "text", text: "hello via proxy" }], usage: { input_tokens: 4, output_tokens: 3 } });
+      const answer = await llmRouter.complete([{ role: "system", content: "Be brief." }, { role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id });
+      const [call] = calls;
+      assert(answer.content === "hello via proxy", "answer not read: " + JSON.stringify(answer));
+      assert(call.url === "https://proxy.example/v1/messages" && call.headers["x-api-key"] === "proxy-key" && call.headers.Authorization === "Bearer proxy-key" && call.headers["anthropic-version"], "wrong request: " + JSON.stringify(call));
+      assert(call.body.model === "claude-proxy" && call.body.system[0].text === "Be brief.", "wrong body: " + JSON.stringify(call.body));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
+  test("Test and Playground follow the API format, and a reply in another format names the format to pick", () => {
+    const { code, stderr } = scenario(`
+      const responsesAnswer = (text) => json({ object: "response", status: "completed", output: [{ type: "message", content: [{ type: "output_text", text }] }], usage: { input_tokens: 3, output_tokens: 1 } });
+      reply = (call) => call.method === "GET" ? json({ data: [{ id: "gpt-r" }] }) : responsesAnswer(JSON.stringify(call.body).includes("image") ? "Red" : "OK");
+      const byok = { provider: "custom", apiFormat: "responses", model: "gpt-r", baseUrl: "https://llm.example/v1", apiKey: "k" };
+      const checked = await (await post("/profiles/test", byok)).json();
+      assert(checked.success && Object.values(checked.checks).every((c) => c.status === "ok"), "responses checklist not ok: " + JSON.stringify(checked));
+      assert(calls[1].url === "https://llm.example/v1/responses" && calls[1].body.store === false && calls[2].body.input[0].content.some((p) => p.type === "input_image"), "responses probe wrong: " + JSON.stringify(calls.slice(1)));
+      const tried = await (await post("/profiles/playground", { ...byok, system: "Be brief.", prompt: "hi" })).json();
+      assert(tried.success && tried.reply === "OK" && tried.usage.input === 3 && tried.finishReason === "completed", "responses playground wrong: " + JSON.stringify(tried));
+      const mismatched = await (await post("/profiles/test", { ...byok, apiFormat: "chat_completions" })).json();
+      assert(!mismatched.success && mismatched.checks.text.message.includes("looks like Responses, so pick that API format"), "format mismatch not named: " + JSON.stringify(mismatched.checks.text));
+      globalThis.fetch = async (url, init = {}) => (init.method || "GET") === "GET" ? json({ data: [{ id: "gpt-r" }] }) : new Response('data: {"choices":[]}', { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      const streamed = await (await post("/profiles/test", { ...byok, apiFormat: "chat_completions" })).json();
+      assert(streamed.checks.text.message.includes("text/event-stream") && streamed.checks.text.message.includes("data: "), "streamed answer not described: " + JSON.stringify(streamed.checks.text));
     `);
     expect(code, stderr).toBe(0);
   });

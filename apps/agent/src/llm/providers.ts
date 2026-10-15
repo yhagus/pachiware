@@ -10,6 +10,19 @@ export const DEFAULT_MODELS: Partial<Record<Provider, string>> = { openai: "gpt-
 /** The cheapest current Claude model, for the one-token credentials check. */
 export const ANTHROPIC_TEST_MODEL = "claude-haiku-5-5";
 
+/** The request shape a BYOK profile speaks. An OpenAI profile always uses Chat Completions and an Anthropic one Messages. */
+export const API_FORMATS = ["chat_completions", "responses", "messages"] as const;
+export type ApiFormat = (typeof API_FORMATS)[number];
+export const isApiFormat = (v: unknown): v is ApiFormat => API_FORMATS.includes(v as ApiFormat);
+export const API_FORMAT_ERROR = "apiFormat must be chat_completions, responses, or messages";
+export const API_FORMAT_NAMES: Record<ApiFormat, string> = { chat_completions: "Chat Completions", responses: "Responses", messages: "Messages" };
+export const API_FORMAT_PATHS: Record<ApiFormat, string> = { chat_completions: "chat/completions", responses: "responses", messages: "messages" };
+export const apiFormatOf = (provider: string, format?: string | null): ApiFormat =>
+  provider === "anthropic" ? "messages" : provider === "custom" && isApiFormat(format) ? format : "chat_completions";
+
 export const providerBaseUrl = (provider: string, baseUrl?: string | null) => (baseUrl?.trim() || DEFAULT_BASE_URLS[provider as Provider] || "").replace(/\/+$/, "");
 export const providerHeaders = (provider: string, key?: string | null): Record<string, string> =>
   !key ? {} : provider === "anthropic" ? { "x-api-key": key, "anthropic-version": "2023-06-01" } : { Authorization: `Bearer ${key}` };
+/** A BYOK Messages server gets both header styles, because Anthropic-compatible proxies differ on which one they read. */
+export const formatHeaders = (provider: string, format: ApiFormat, key?: string | null): Record<string, string> =>
+  provider === "custom" && format === "messages" ? { ...providerHeaders("anthropic", key), ...providerHeaders("custom", key) } : providerHeaders(provider, key);
