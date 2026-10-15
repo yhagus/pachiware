@@ -123,11 +123,24 @@ export async function clearAvailabilityRule(key: LevelKey, target: { kind: strin
 
 /** The rules on the way from the tenant down to this place, one map per level, top first. */
 async function rulesAt(place: Place): Promise<LevelRules[]> {
-  const rows = await db.select().from(availabilityRules).where(and(eq(availabilityRules.tenantId, place.tenantId), place.botId ? or(isNull(availabilityRules.botId), eq(availabilityRules.botId, place.botId)) : isNull(availabilityRules.botId)));
+  return levelsAt(await ruleRows(place), place);
+}
+
+/** Every rule of the tenant that can apply to this bot's places, at any level. */
+const ruleRows = (place: Place): Promise<any[]> =>
+  db.select().from(availabilityRules).where(and(eq(availabilityRules.tenantId, place.tenantId), place.botId ? or(isNull(availabilityRules.botId), eq(availabilityRules.botId, place.botId)) : isNull(availabilityRules.botId)));
+
+function levelsAt(rows: any[], place: Place): LevelRules[] {
   const applies = (r: any) => r.level === "tenant" || r.level === "bot"
     || (r.level === "guild" && !!place.guildId && r.guildId === place.guildId)
     || (r.level === "channel" && !!place.guildId && !!place.channelId && r.guildId === place.guildId && r.channelId === place.channelId);
   return AVAILABILITY_LEVELS.map((level) => new Map(rows.filter((r: any) => r.level === level && applies(r)).map(toRule).map((r: AvailabilityRule) => [targetKey(r), r])));
+}
+
+/** The channels of one guild where no rule turns a skill off, read with one query for all of them. The tenant's skill switch is not looked at. */
+export async function channelsWithSkill(place: Omit<Place, "channelId">, skillId: string, channelIds: string[]): Promise<Set<string>> {
+  const rows = await ruleRows(place);
+  return new Set(channelIds.filter((channelId) => allows(levelsAt(rows, { ...place, channelId }), "skill", skillId)));
 }
 
 /**

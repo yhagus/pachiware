@@ -121,8 +121,11 @@ export interface DiscordAttachmentInfo { id: string; name: string; url: string; 
 /** `authorName` is the name the author goes by in that place: their server nickname, else their username. `content` is as written, without the bot's own mention. */
 export interface DiscordMessageInfo { id: string; channelId: string; authorId: string; authorName: string; content: string; attachments: DiscordAttachmentInfo[] }
 
-/** A guild channel as the bot resolved it (null when it could not), and whether the user asked about can view it. */
-export interface ChannelView { channel: { id: string; name: string; guildId: string } | null; canView: boolean }
+/**
+ * A guild channel as the bot resolved it (null when it could not), and whether the user asked about can view it.
+ * `public`: the guild's @everyone role can view it, so it is a Public channel; a thread is its parent's, and a private thread never is.
+ */
+export interface ChannelView { channel: { id: string; name: string; guildId: string; public: boolean } | null; canView: boolean }
 /** A guild text channel found by name or mention, and whether the person who named it can view it. */
 export interface FoundChannel { id: string; name: string; guildId: string; guildName: string; canView: boolean }
 

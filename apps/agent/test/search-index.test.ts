@@ -62,13 +62,13 @@ discordScenario("a file changed, added or deleted directly on disk is searched a
   const onDisk = (path: string) => `${process.env.WORKSPACE_DIR}/${s.tenant.id}/${path}`;
   await s.workspace.write(`${MINUTES}/2026-10-01-weekly.md`, "Pricing stays flat.\n");
   await s.workspace.write(`${MINUTES}/2026-10-08-weekly.md`, "Pricing was not discussed.\n");
-  expect(await search(s, "pricing")).toEqual(["channel/minutes/2026-10-01-weekly.md", "channel/minutes/2026-10-08-weekly.md"]);
+  expect(await search(s, "pricing")).toEqual(["channel/minutes/2026-10-08-weekly.md", "channel/minutes/2026-10-01-weekly.md"]);
 
   writeFileSync(onDisk(`${MINUTES}/2026-10-01-weekly.md`), "Budget review moved to November.\n");
   rmSync(onDisk(`${MINUTES}/2026-10-08-weekly.md`));
   writeFileSync(onDisk(`${MINUTES}/2026-10-15-weekly.md`), "Budget approved.\n");
   expect(await search(s, "pricing")).toEqual([]);
-  expect(await search(s, "budget")).toEqual(["channel/minutes/2026-10-01-weekly.md", "channel/minutes/2026-10-15-weekly.md"]);
+  expect(await search(s, "budget")).toEqual(["channel/minutes/2026-10-15-weekly.md", "channel/minutes/2026-10-01-weekly.md"]);
 });
 
 discordScenario("search looks past the first 500 files of a channel", async (s) => {
@@ -78,10 +78,15 @@ discordScenario("search looks past the first 500 files of a channel", async (s) 
   expect(await search(s, "pricing")).toEqual(["channel/notes/zz-pricing.md"]);
 });
 
-discordScenario("the fifty-match cap still holds", async (s) => {
-  for (let i = 0; i < 60; i++) await s.workspace.write(`${MINUTES}/${String(i).padStart(3, "0")}.md`, "Pricing.\n");
-  expect(await search(s, "pricing")).toHaveLength(50);
-  expect((await search(s, "pricing"))[49]).toBe("channel/minutes/049.md");
+discordScenario("the fifty-match cap still holds, keeping the newest and saying how many were left out", async (s) => {
+  const day = (i: number) => new Date(Date.UTC(2026, 7, 1 + i)).toISOString().slice(0, 10);
+  for (let i = 0; i < 60; i++) await s.workspace.write(`${MINUTES}/${day(i)}-weekly.md`, "Pricing.\n");
+  s.model.script({ tool: "searchFiles", args: { query: "pricing", path: "channel" } }, (turn) => {
+    const r = turn.toolResults[0];
+    return `${r.matches.length} shown, ${r.matches[0].path} … ${r.matches.at(-1).path}; ${r.total} matched, ${r.leftOut} left out`;
+  });
+  await s.discord.send(`${s.discord.mention} find pricing`);
+  expect(s.discord.botMessages.at(-1)!.content).toBe("50 shown, channel/minutes/2026-09-29-weekly.md … channel/minutes/2026-08-11-weekly.md; 60 matched, 10 left out");
 });
 
 discordScenario("files in a private thread the asker was not added to never count toward the fifty-match cap or appear in results", async (s) => {

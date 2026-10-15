@@ -20,8 +20,8 @@ export interface WorkspaceStore {
   /** A new binary file; refuses to replace one. */
   writeBytes(tenantId: string, path: string, bytes: Uint8Array): Promise<{ version: string }>;
   list(tenantId: string, path: string): Promise<WorkspaceEntry[]>;
-  /** Every file below a folder, at any depth, with its version, in the order a walk of `list` gives. Names starting with "." and everything inside them are left out. No entry cap. */
-  files(tenantId: string, path: string): Promise<{ path: string; version: string }[]>;
+  /** Every file below a folder, at any depth, with its version and when it last changed (ms), in the order a walk of `list` gives. Names starting with "." and everything inside them are left out. No entry cap. */
+  files(tenantId: string, path: string): Promise<{ path: string; version: string; modified: number }[]>;
   /** Refuses to overwrite. */
   move(tenantId: string, from: string, to: string): Promise<void>;
   /** A file, or a folder only when empty. */
@@ -134,7 +134,7 @@ export class LocalWorkspaceStore implements WorkspaceStore {
 
   async files(tenantId: string, path: string) {
     const { base, target } = this.locate(tenantId, path);
-    const found: { path: string; version: string }[] = [], walked = new Set<string>();
+    const found: { path: string; version: string; modified: number }[] = [], walked = new Set<string>();
     const walk = (dir: string) => {
       let names: string[];
       try { names = readdirSync(dir); } catch { return; }
@@ -144,7 +144,7 @@ export class LocalWorkspaceStore implements WorkspaceStore {
         try {
           const stat = statSync(full), real = realpathSync(full);
           if (real !== base && !real.startsWith(base + sep)) continue;
-          if (stat.isFile()) found.push({ path: relative(base, full).split(sep).join("/"), version: versionOf(stat) });
+          if (stat.isFile()) found.push({ path: relative(base, full).split(sep).join("/"), version: versionOf(stat), modified: stat.mtimeMs });
           else if (stat.isDirectory() && !walked.has(real)) { walked.add(real); walk(full); }
         } catch {}
       }

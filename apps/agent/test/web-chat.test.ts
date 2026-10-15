@@ -48,3 +48,46 @@ test("web chat answers 50,000 characters and refuses 50,001 in the language they
     expect(decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("web chat cannot read or search another channel's Minutes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pachiware-webchat-"));
+  try {
+    const r = Bun.spawnSync({
+      cmd: ["bun", "--eval", `
+        const assert = (c, m) => { if (!c) throw new Error(m); };
+        const imp = (p) => import(${JSON.stringify(w + "/")} + p);
+        const { runMigrations } = await imp("packages/db/src/migrate.ts");
+        const { runSeed } = await imp("packages/db/src/seed.ts");
+        const { db, tenants, eq } = await imp("packages/db/src/index.ts");
+        const { createTenant, issueApiKey } = await imp("packages/db/src/tenancy.ts");
+        const { workspaceStore } = await imp("packages/skills/src/workspace/store.ts");
+        await runMigrations(); await runSeed();
+        const t = await createTenant({ name: "Web", slug: "web" }); const key = await issueApiKey("web");
+        await db.update(tenants).set({ apiKeyId: key.keyId }).where(eq(tenants.id, t.id));
+        await workspaceStore().write(t.id, "guilds/guild-1/channels/channel-2/minutes/2026-10-14-pricing.md", "Pricing agreed\\n");
+        const { createServer } = await imp("apps/agent/src/server.ts"); const app = createServer();
+        const headers = { Authorization: "Bearer " + key.raw, "Content-Type": "application/json", "X-Tenant-Id": t.id };
+        assert((await app.request("/api/v1/config", { method: "PUT", headers, body: JSON.stringify({ openaiApiKeyEncrypted: "mock-openai-key" }) })).status === 200, "LLM config failed");
+        const calls = [
+          { id: "c1", type: "function", function: { name: "readFile", arguments: JSON.stringify({ path: "#channel-2/minutes/2026-10-14-pricing.md" }) } },
+          { id: "c2", type: "function", function: { name: "searchFiles", arguments: JSON.stringify({ query: "pricing" }) } },
+        ];
+        let completions = 0;
+        globalThis.fetch = async (_url, init) => {
+          const sent = JSON.parse(init.body).messages;
+          const message = completions++ === 0 ? { content: null, tool_calls: calls } : { content: sent.filter((m) => m.role === "tool").map((m) => m.content).join("\\n") };
+          return new Response(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { headers: { "Content-Type": "application/json" } });
+        };
+        const res = await app.request("/api/v1/chat", { method: "POST", headers, body: JSON.stringify({ message: "what did #channel-2 decide about pricing?" }) });
+        const reply = (await res.json()).reply;
+        assert(reply.includes("#channel-2 is not a channel whose files you can read from here."), "another channel was read: " + reply);
+        assert(reply.includes('{"groups":[],"total":0,"leftOut":0}') && !reply.includes("Pricing agreed"), "search reached another channel: " + reply);
+        console.log("ok");
+      `],
+      cwd: w,
+      env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "w.db")}`, WORKSPACE_DIR: join(dir, "workspace"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
+    });
+    expect(decode(r.stderr).trim()).toBe("");
+    expect(decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

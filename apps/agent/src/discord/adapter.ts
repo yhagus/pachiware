@@ -249,10 +249,17 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     return m ? memberInfo(m, guild.id) : null;
   }
 
+  /** Whether the guild's @everyone role can view a channel (a thread answers for its parent); a private thread admits only its members, so never. */
+  private everyoneViews(channel: any): boolean {
+    if (channel.type === ChannelType.PrivateThread) return false;
+    const everyone = channel.guild.roles?.everyone;
+    return !!everyone && !!channel.permissionsFor(everyone)?.has("ViewChannel");
+  }
+
   async channelView(channelId: string, userId: string): Promise<ChannelView> {
     const channel: any = await this.client.channels.fetch(channelId).catch(() => null);
     if (!channel?.guild || channel.isDMBased?.()) return { channel: null, canView: false };
-    const found = { id: channel.id, name: channel.name ?? channel.id, guildId: channel.guild.id };
+    const found = { id: channel.id, name: channel.name ?? channel.id, guildId: channel.guild.id, public: this.everyoneViews(channel) };
     const member = await this.memberOf(channel.guild, userId);
     if (!member || !channel.permissionsFor(member)?.has("ViewChannel")) return { channel: found, canView: false };
     // Seeing a private thread's parent is not enough: the user must have been added to the thread.

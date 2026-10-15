@@ -82,7 +82,7 @@ discordScenario("in the parent channel only people added to a private thread can
     { entries: [{ path: salaries.path, type: "file", size: 20 }] },
     { content: "Salary bands agreed\n", version: expect.any(String) },
     { matches: [salaries] },
-    { matches: [lunch, salaries] },
+    { matches: [salaries, lunch] },
     { entries: [{ path: "channel/threads/thread-p", type: "dir" }] },
     refused,
     refused,
@@ -101,7 +101,7 @@ discordScenario("inside a private thread the parent channel's files are still re
   await s.discord.send(`${s.discord.mention} what do we know about salaries?`, { channel: thread });
   expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toEqual([
     "Salary day lunch\n",
-    ["channel/notes/lunch.md", "channel/threads/thread-p/notes/bands.md"],
+    ["channel/threads/thread-p/notes/bands.md", "channel/notes/lunch.md"],
     ["thread/notes/bands.md"],
   ]);
   expect(s.model.calls[0]!.map((m) => m.content).join("\n")).toContain("thread/ is this private thread's own folder");

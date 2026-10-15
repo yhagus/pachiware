@@ -12,6 +12,7 @@
  *     expect(await s.workspace.read("guilds/guild-1/channels/channel-1/notes.md")).toContain("...");
  *     const [first] = s.discord.history([{ content: "said an hour ago", at: Date.now() - 3600_000 }]);
  *     s.discord.deny("channel-1", s.discord.bob.id, ["ReadMessageHistory"]);
+ *     s.discord.hide("channel-2"); // @everyone cannot view it: not a Public channel
  *     s.discord.grant(s.discord.alice, ["ManageGuild"]);
  *     const helper = await s.discord.addBot(); // a second bot of the tenant in the same guild
  *   });
@@ -102,6 +103,8 @@ export interface Scenario {
     history(messages: PastMessage[], options?: { channel?: FakeChannel | string }): FakeMessage[];
     /** Takes permissions (names such as "ReadMessageHistory") from a user or the bot in a channel; a thread also inherits its parent's. */
     deny(channel: FakeChannel | string, userId: string, permissions: string[]): void;
+    /** Takes View Channel from the guild's @everyone role in a channel, so it is no Public channel; members keep seeing it unless denied too. */
+    hide(channel: FakeChannel | string): void;
     /** Gives a user guild permissions (discord.js names such as "ManageGuild", "ManageMessages", "Administrator"); every user starts with none. */
     grant(user: FakeUser | string, permissions: string[]): void;
     send(content: string, options?: { author?: FakeUser; channel?: FakeChannel | string; replyTo?: FakeMessage; attachments?: any[] }): Promise<FakeMessage>;
@@ -174,7 +177,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const membersOf = new Map<string, Map<string, FakeUser>>();
   const guilds = new Map<string, any>();
   const makeGuild = (id: string, name: string, list?: FakeUser[]) => {
-    const guild: any = { id, name }, known = new Map<string, FakeUser>((list ?? [alice, bob]).map((u) => [u.id, u]));
+    // Discord gives a guild's @everyone role the guild's own id.
+    const guild: any = { id, name, roles: { everyone: { id } } }, known = new Map<string, FakeUser>((list ?? [alice, bob]).map((u) => [u.id, u]));
     const member = (u: FakeUser) => ({ id: u.id, user: { id: u.id, username: u.username ?? u.name }, guild, displayName: u.name, roles: { cache: new Collection() } });
     guild.members = {
       fetch: async (userId: string) => { const u = known.get(userId); if (!u && list) throw new Error("Unknown Member"); return member(u ?? { id: userId, name: userId }); },
@@ -460,6 +464,10 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         const byUser = denied.get(id) ?? new Map<string, string[]>();
         denied.set(id, byUser);
         byUser.set(userId, [...(byUser.get(userId) ?? []), ...permissions]);
+      },
+      hide(channel) {
+        const found = channelOf(channel);
+        this.deny(found, found.guildId, ["ViewChannel"]);
       },
       grant: (user, permissions) => {
         const id = typeof user === "string" ? user : user.id;

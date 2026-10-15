@@ -1,6 +1,6 @@
 import type { SkillContext, DiscordClientAdapter, FoundChannel } from "../types.js";
-import { safeId } from "../workspace/paths.js";
 import type { WorkspaceStore } from "../workspace/store.js";
+import { viewableChannels } from "../workspace/sources.js";
 import { linkAssignee, type Assignee } from "./assignee.js";
 import type { TaskSource } from "./taskScopes.js";
 
@@ -13,16 +13,9 @@ export function taskChannelOf(path: string): { guildId: string; channelId: strin
 /** Whose Personal tasks a task file is, from its path: `dms/<user>/…`; null for project and shared folders. */
 export const personalTasksOf = (path: string): string | null => /^dms\/([\w-]+)\//.exec(path)?.[1] ?? null;
 
-/** The project channels of a guild a person can view: each channel folder of the guild in the Workspace that `channelView` says they see. A channel Discord cannot resolve, or one of another guild, is left out, as is every channel without `discord`. */
+/** The project channels of a guild a person can view, by the same check as the sources kept material is read from. */
 export async function viewableProjects(store: WorkspaceStore, tenantId: string, discord: DiscordClientAdapter | undefined, guildId: string, userId: string): Promise<TaskSource[]> {
-  if (!discord || !safeId(guildId) || !safeId(userId)) return [];
-  const folder = `guilds/${guildId}/channels`, ids = (await store.list(tenantId, folder).catch(() => []))
-    .filter((e) => e.type === "dir").map((e) => e.path.split("/").pop()!).filter((id) => !!safeId(id));
-  const views = await Promise.all(ids.map((id) => discord.channelView(id, userId).catch(() => null)));
-  return ids.flatMap((id, i) => {
-    const v = views[i];
-    return v?.canView && v.channel?.guildId === guildId ? [{ kind: "project" as const, label: `#${v.channel.name}`, folders: [`${folder}/${id}`], guildId, channelId: id }] : [];
-  });
+  return (await viewableChannels(store, tenantId, discord, guildId, userId)).map((c) => ({ kind: "project" as const, label: `#${c.name}`, folders: [c.folder], guildId, channelId: c.id }));
 }
 
 /**

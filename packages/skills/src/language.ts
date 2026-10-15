@@ -57,6 +57,10 @@ const en = {
   // Private thread folders (ADR 0009)
   threadFolderRefused: "Only people added to that private thread can have its files read.",
   threadFolderReadOnly: "A private thread's files can only be changed from inside that thread.",
+  // Reading other channels' kept material
+  notASource: (name: string) => `${name} is not a channel whose files you can read from here.`,
+  sourceFolderRefused: (folders: string[]) => `From another channel only ${folders.join(", ")} can be read.`,
+  sourceReadOnly: "Another channel's files can only be read from here; they are changed in that channel.",
   // Memory compaction, written into MEMORY.md as the bot
   memoryCompacted: (from: number, to: number) => `Memory compacted from ${plural(from, "line")} to ${to}; every line from the last 30 days kept.`,
   memoryCut: (dropped: number) => `Memory over its size; the ${plural(dropped, "oldest line")} dropped, every line from the last 30 days kept.`,
@@ -210,6 +214,9 @@ const id: typeof en = {
   folderRefused: (allowed: string[]) => `Di tingkat atas folder channel atau DM hanya boleh ada ${allowed.join(", ")}; letakkan di salah satunya.`,
   threadFolderRefused: "Hanya orang yang ditambahkan ke thread privat itu yang bisa meminta file-nya dibaca.",
   threadFolderReadOnly: "File thread privat hanya bisa diubah dari dalam thread itu sendiri.",
+  notASource: (name) => `${name} bukan channel yang file-nya bisa kamu baca dari sini.`,
+  sourceFolderRefused: (folders) => `Dari channel lain hanya ${folders.join(", ")} yang bisa dibaca.`,
+  sourceReadOnly: "File channel lain hanya bisa dibaca dari sini; mengubahnya dilakukan di channel itu.",
   memoryCompacted: (from, to) => `Memori dipadatkan dari ${from} baris menjadi ${to}; semua baris 30 hari terakhir dipertahankan.`,
   memoryCut: (dropped) => `Memori melebihi batas; ${dropped} baris tertua dihapus, semua baris 30 hari terakhir dipertahankan.`,
   breakdown: (n) => `**Rincian** · ${n} draf`,

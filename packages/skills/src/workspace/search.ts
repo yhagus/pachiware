@@ -3,7 +3,8 @@ import { isBinaryDocument } from "./extract.js";
 
 /** One line of a matched file, numbered from 1, clipped to MAX_LINE_CHARS. */
 export type LineHit = { line: number; text: string };
-export type FileMatch = { path: string; lines: LineHit[] };
+/** `modified` is when the file last changed (ms), for ordering. */
+export type FileMatch = { path: string; lines: LineHit[]; modified: number };
 
 const MAX_LINES = 3, MAX_LINE_CHARS = 200;
 
@@ -33,6 +34,12 @@ export function matchFile(words: string[], name: string, text: string): LineHit[
 
 /** The most files one search returns. */
 export const MAX_MATCHES = 50;
+
+/** The date a file's name starts with ("2026-10-14-pricing.md"), or "" when it starts with none. */
+const nameDate = (path: string) => /^\d{4}-\d{2}-\d{2}/.exec(path.split("/").pop()!)?.[0] ?? "";
+/** Newest first by the date each file name starts with, files without one after those with; then by when the file last changed. */
+export const newestFirst = <T extends Pick<FileMatch, "path" | "modified">>(matches: readonly T[]): T[] =>
+  [...matches].sort((a, b) => nameDate(b.path).localeCompare(nameDate(a.path)) || b.modified - a.modified);
 
 type Indexed = { version: string; text: string };
 const under = (path: string, folder: string) => !folder || path === folder || path.startsWith(folder + "/");
@@ -101,7 +108,7 @@ export class IndexedWorkspaceStore implements WorkspaceStore {
         index.set(file.path, entry);
       }
       const lines = matchFile(words, nameOf(file.path), entry.text);
-      if (lines) matches.push({ path: file.path, lines });
+      if (lines) matches.push({ path: file.path, lines, modified: file.modified });
     }
     const present = new Set(files.map((f) => f.path));
     for (const path of [...index.keys()]) if (under(path, folder) && !present.has(path)) index.delete(path);
