@@ -136,6 +136,14 @@ _Avoid_: Attachment (Discord's word for any file on a message), upload, Note
 What the bot keeps about a place to answer better later: the team's decisions, how people like to be addressed and to work, and the conventions of the place. One memory per tenant, per guild, and per channel; a channel's memory is not read in another channel. Conversation itself and private details are never memory.
 _Avoid_: Notes (notes are files a person asked for), context, history
 
+**Kept material**:
+The Minutes, Decisions, Notes and Documents the bot kept for a place, which people can ask about later. Memory and Tasks are not kept material.
+_Avoid_: Records, archive, files (a place's files also hold its tasks and memory)
+
+**Source**:
+A place whose kept material an asker may read from where they ask: the place itself, or another channel or private thread they can view. A source is quotable or not; what a source that is not quotable here holds is only counted, never named or shown.
+_Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thread or a DM)
+
 ## Relationships
 
 - A **Tenant** owns many **Bots**, **Profiles**, and **Git accounts**, and exactly one **Workspace**.
@@ -152,4 +160,4 @@ _Avoid_: Notes (notes are files a person asked for), context, history
 - A **Document** is kept in the Workspace folder of the channel or DM it was given in; a **Note** may be made from it, never the other way round.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.
 - **Minutes**, **Decisions**, **Notes** and **Documents** of a channel can be read from another channel of the same guild, or from a DM, by someone who can view that channel, unless an **Availability rule** turns the Workspace off there; only a **Public channel**'s may be quoted in a channel other than their own. **Memory** and **Tasks** are never read this way.
-- What the bot kept from a private thread belongs to that thread: only people added to it can have it read, in its parent channel too.
+- What the bot kept from a private thread belongs to that thread: only people added to it can have it read, in its parent channel too. Inside another private thread of the same channel it is a **Source** that is not quotable.

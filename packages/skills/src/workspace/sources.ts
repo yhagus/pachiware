@@ -30,7 +30,7 @@ export async function viewableChannels(store: WorkspaceStore, tenantId: string, 
 }
 
 /**
- * A place whose Kept material (Minutes, Decisions, Notes and Documents) the asker may read from where they ask.
+ * A place whose kept material (Minutes, Decisions, Notes and Documents) the asker may read from where they ask.
  * `root` is the name a path starts with: "channel", "thread" or "dm" for the place asked from (`here`), "channel/threads/<id>" for one
  * of its private threads, else "#name" (with " [id]" when two channels share a name). `label` is how results name it. `folder` is its
  * tenant-relative folder, `folders` the kept folders under it that are read. `quotable`: what it holds may be shown here; a source
@@ -121,7 +121,7 @@ async function guildSources(store: WorkspaceStore, ctx: Asker, roots: Record<str
 const perTurn = new WeakMap<WorkspaceStore, WeakMap<object, Promise<Source[]>>>();
 
 /**
- * Which places the asker may read Kept material from here, the place asked from first. From a guild channel or thread, see
+ * Which places the asker may read kept material from here, the place asked from first. From a guild channel or thread, see
  * `guildSources`. From a DM: the DM, then every guild shared with the bot (`sharedGuildSources`). From web chat, which has no Discord
  * identity: only the place itself. Looked up once per turn context.
  */
