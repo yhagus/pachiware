@@ -3,29 +3,30 @@ import mammoth from "mammoth";
 import ExcelJS from "exceljs";
 import { MAX_FILE_BYTES } from "./store.js";
 
-export const EXTRACTED_TYPES = ["pdf", "docx", "xlsx"] as const;
 export const MAX_TEXT_BYTES = 200 * 1024;
 // Caps the wait, not the parse: pdf.js keeps working on the main thread, but the turn moves on.
 const EXTRACT_TIMEOUT_MS = 20000;
-const TABLE_TYPES = ["xlsx", "csv"];
 const CLIPPED = `[Clipped at ${MAX_TEXT_BYTES / 1024} KB: the rows after this line are not in this text.]`;
 
 /** "pdf" from "Report.PDF"; empty without an extension. */
 export const extensionOf = (name: string) => name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
 /** PDF, DOCX and XLSX: bytes that are not text, read through their sibling Markdown file. */
-export const isBinaryDocument = (name: string) => (EXTRACTED_TYPES as readonly string[]).includes(extensionOf(name));
+export const isBinaryDocument = (name: string) => TYPES[extensionOf(name)]?.binary ?? false;
 /** Whether the file's text gets a sibling Markdown file: a binary document always, a CSV only when too large for `readFile`. */
-export const extractsText = (name: string, size: number) => isBinaryDocument(name) || (extensionOf(name) === "csv" && size > MAX_FILE_BYTES);
+export const extractsText = (name: string, size: number) => {
+  const type = TYPES[extensionOf(name)];
+  return !!type && (type.binary || size > MAX_FILE_BYTES);
+};
 
 /** The text of a PDF or DOCX, an XLSX's sheets as Markdown tables, or a CSV as it is, trimmed to MAX_TEXT_BYTES; null when the file is unreadable or has no text layer. */
 export async function documentText(name: string, bytes: Uint8Array): Promise<string | null> {
-  const read = READERS[extensionOf(name)];
-  if (!read) return null;
+  const type = TYPES[extensionOf(name)];
+  if (!type) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const text = await Promise.race([read(bytes), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("extraction timed out")), EXTRACT_TIMEOUT_MS); })]);
+    const text = await Promise.race([type.read(bytes), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("extraction timed out")), EXTRACT_TIMEOUT_MS); })]);
     const clean = text.replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-    return clean ? `${TABLE_TYPES.includes(extensionOf(name)) ? clipRows(clean) : clip(clean)}\n` : null;
+    return clean ? `${type.rows ? clipRows(clean) : clip(clean)}\n` : null;
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
@@ -59,7 +60,13 @@ async function fromXlsx(bytes: Uint8Array) {
 
 const fromCsv = async (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-const READERS: Record<string, (bytes: Uint8Array) => Promise<string>> = { pdf: fromPdf, docx: fromDocx, xlsx: fromXlsx, csv: fromCsv };
+/** Per extension: how its text is read, whether its bytes are not text, and whether the text is rows, clipped on a whole row. */
+const TYPES: Record<string, { read: (bytes: Uint8Array) => Promise<string>; binary: boolean; rows: boolean }> = {
+  pdf: { read: fromPdf, binary: true, rows: false },
+  docx: { read: fromDocx, binary: true, rows: false },
+  xlsx: { read: fromXlsx, binary: true, rows: true },
+  csv: { read: fromCsv, binary: false, rows: true },
+};
 
 /** What a cell shows: a formula's cached result, a date as ISO; pipes and line breaks escaped for the table. */
 function cellText(cell: ExcelJS.Cell) {
@@ -77,7 +84,7 @@ function clip(text: string, max = MAX_TEXT_BYTES) {
 
 /** A spreadsheet ends on a whole row and says so, so a total over a column is not taken as the whole sheet. */
 function clipRows(text: string) {
-  if (Buffer.byteLength(text) < MAX_TEXT_BYTES) return text;
+  if (Buffer.byteLength(text) <= MAX_TEXT_BYTES) return text;
   const head = clip(text, MAX_TEXT_BYTES - Buffer.byteLength(CLIPPED) - 2);
   return `${head.slice(0, head.lastIndexOf("\n"))}\n${CLIPPED}`;
 }

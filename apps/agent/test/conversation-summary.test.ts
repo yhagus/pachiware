@@ -78,6 +78,29 @@ discordScenario("a failed summary call keeps the previous summary until the wind
   expect(s.discord.botMessages.map((m) => m.content)).not.toContain("Provider request failed");
 });
 
+discordScenario("writing the summary keeps a metadata change made while the summary call was in flight", async (s) => {
+  const { conversations, eq } = await import(process.cwd() + "/packages/db/src/index.ts") as any;
+  const cancel = (n: number) => ({ tool: "updateTaskStatus", args: { taskId: String(n).repeat(8), status: "cancelled" } });
+  s.model.script(
+    ...replies(1, 19),
+    [1, 2, 3, 4].map(cancel), "These four would be cancelled. Go ahead?",
+    // The next turn clears the remembered bulk while this summary is still being written.
+    async () => {
+      const [held] = (await s.db.select().from(conversations)).filter((c: any) => c.metadata?.bulkApproval);
+      expect(held).toBeDefined();
+      const { bulkApproval: _cleared, ...rest } = held.metadata;
+      await s.db.update(conversations).set({ metadata: rest }).where(eq(conversations.id, held.id));
+      return "Agreed: four tasks wait for a yes.";
+    },
+  );
+  const first = await talk(s, 20);
+  expect(s.model.calls).toHaveLength(22);
+
+  const stored = (await s.db.select().from(conversations)).find((c: any) => c.channelId === first.thread!.id);
+  expect(stored.metadata.summary.text).toBe("Agreed: four tasks wait for a yes.");
+  expect(stored.metadata.bulkApproval).toBeUndefined();
+});
+
 discordScenario("a thread bound to a playbook never requests a summary", async (s) => {
   s.model.script(...replies(1, 21));
   const brief = await talk(s, 21, `${s.discord.mention} issue: export CSV is slow`);

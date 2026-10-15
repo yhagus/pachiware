@@ -16,21 +16,23 @@ export function dropLeadingOrphans<T extends { role: string }>(rows: T[]): T[] {
 
 // Stored tool rows are replayed on every later turn, so they keep only what names the outcome; the live turn reads the full result.
 export const STORED_TOOL_RESULT = 800;
-const KEPT_FIELD = /^(id|title|name|path|from|to|status|url|number|line|message|total|count|removed|pending|summary|version|level|error)$|Id$/;
-const KEPT_ITEMS = 10, KEPT_TEXT = 160, KEPT_DEPTH = 3;
+const KEPT_FIELD = /^(success|id|title|name|path|from|to|status|url|number|line|message|total|count|removed|pending|summary|version|level|error)$|Id$/;
+// An error or message can say what to do next (a refused bulk: make the same calls again after the yes), so it keeps more.
+const REASON_FIELD = /^(message|error)$/;
+const KEPT_ITEMS = 10, KEPT_TEXT = 160, KEPT_REASON = 600, KEPT_DEPTH = 3;
 
-function brief(value: unknown, depth: number): unknown {
-  if (typeof value === "string") return value.length > KEPT_TEXT ? `${value.slice(0, KEPT_TEXT)}…` : value;
+function shorten(value: unknown, depth: number, maxText = KEPT_TEXT): unknown {
+  if (typeof value === "string") return value.length > maxText ? `${value.slice(0, maxText)}…` : value;
   if (value === null || typeof value !== "object") return value;
   if (depth >= KEPT_DEPTH) return undefined;
   if (Array.isArray(value)) {
-    const items = value.slice(0, KEPT_ITEMS).map((item) => brief(item, depth + 1)).filter((item) => item !== undefined);
+    const items = value.slice(0, KEPT_ITEMS).map((item) => shorten(item, depth + 1)).filter((item) => item !== undefined);
     if (!items.length) return undefined;
     return value.length > KEPT_ITEMS ? [...items, `+${value.length - KEPT_ITEMS} more`] : items;
   }
   const kept: Record<string, unknown> = {}, omitted: string[] = [];
   for (const [key, field] of Object.entries(value)) {
-    const short = KEPT_FIELD.test(key) || (field !== null && typeof field === "object") ? brief(field, depth + 1) : undefined;
+    const short = KEPT_FIELD.test(key) || (field !== null && typeof field === "object") ? shorten(field, depth + 1, REASON_FIELD.test(key) ? KEPT_REASON : KEPT_TEXT) : undefined;
     if (short === undefined) omitted.push(key);
     else kept[key] = short;
   }
@@ -42,9 +44,11 @@ function brief(value: unknown, depth: number): unknown {
 
 /** Success or error plus the result's identifying fields (ids, titles, paths, status), as JSON of at most STORED_TOOL_RESULT characters. */
 export function storedToolResult(result: { success: boolean; data?: unknown; error?: string }): string {
-  const data = brief(result.data, 0);
-  const short = !result.success ? { success: false, error: brief(result.error ?? "failed", 0) }
-    : { success: true, ...(data !== null && typeof data === "object" && !Array.isArray(data) ? data : data === undefined ? {} : { data }) };
+  const data = shorten(result.data, 0);
+  const { success: _success, ...fields } = data !== null && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : data === undefined ? {} : { data };
+  // A tool that refused on its own (an ambiguous name, "Nothing was changed") still returns; its result says so.
+  const short = !result.success ? { success: false, error: shorten(result.error ?? "failed", 0, KEPT_REASON) }
+    : { success: (result.data as { success?: unknown } | undefined)?.success !== false, ...fields };
   const json = JSON.stringify(short);
   return json.length > STORED_TOOL_RESULT ? `${json.slice(0, STORED_TOOL_RESULT)}…[shortened; call the tool again for details]` : json;
 }

@@ -1,5 +1,14 @@
-import { expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
+import { storedToolResult } from "../src/loop/history";
+
+test("a result that reports nothing was changed is stored as not successful, with its message", () => {
+  const message = `"Ani" matches 2 members: Ani Rahma (ani.r), Ani Wijaya (aniw). Nothing was changed; ask which one is meant.`;
+  const stored = JSON.parse(storedToolResult({ success: true, data: { success: false, ambiguous: true, message, candidates: [{ id: "u1", name: "Ani Rahma" }, { id: "u2", name: "Ani Wijaya" }] } }));
+  expect(stored.success).toBe(false);
+  expect(stored.message).toBe(message);
+  expect(stored.omitted ?? []).not.toContain("success");
+});
 
 discordScenario("the turn that calls a tool sees its full result; later turns see a short form of it", async (s) => {
   const text = (m: { content: any }) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content));

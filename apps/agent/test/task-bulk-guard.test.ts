@@ -41,6 +41,37 @@ discordScenario("after the refusal, the asker's yes on the next turn lets the sa
   expect(s.discord.botMessages.at(-1)!.content).toStartWith("confirmation_required:");
 });
 
+discordScenario("on the yes turn the stored refusals still tell the model to make the same calls again", async (s) => {
+  await s.guildSettings({ useThreads: false });
+  const text = (m: { content: any }) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content));
+
+  s.model.script([1, 2, 3, 4].map(cancel), "These four would be cancelled. Go ahead?", "ok");
+  await s.discord.send(`${s.discord.mention} cancel all of Dewi's tasks`);
+  await s.discord.send(`${s.discord.mention} yes`);
+
+  const rows = s.model.calls.at(-1)!.filter((m) => m.role === "tool").map(text);
+  expect(rows).toHaveLength(4);
+  for (const row of rows) {
+    expect(row).toContain('"success":false');
+    expect(row).toContain("status | due | assignee | id | title");
+    expect(row).toContain("After the yes, make the same calls again.");
+  }
+});
+
+discordScenario("a yes to assigning four tasks to Bob does not let assigning them to Alice through", async (s) => {
+  await s.guildSettings({ useThreads: false });
+  for (const n of [1, 2, 3, 4]) await s.workspace.write(`${TASKS}/t${n}.md`, task(n));
+  const assign = (who: string) => [1, 2, 3, 4].map((n) => ({ tool: "assignTask", args: { taskId: String(n).repeat(8), assignedTo: who } }));
+
+  s.model.script(assign("Bob"), "These four would go to Bob. Go ahead?");
+  await s.discord.send(`${s.discord.mention} give Dewi's tasks to Bob`);
+  s.model.script(assign("Alice"), (turn) => turn.toolResults[0].error ?? "assigned");
+  await s.discord.send(`${s.discord.mention} yes`);
+
+  expect(s.discord.botMessages.at(-1)!.content).toStartWith("confirmation_required:");
+  for (const n of [1, 2, 3, 4]) expect(await s.workspace.read(`${TASKS}/t${n}.md`)).toContain('assignedTo: {"name":"Dewi"}');
+});
+
 discordScenario("the remembered bulk lasts one turn and belongs to the asker: another member's yes or a later turn does not unlock it", async (s) => {
   await s.guildSettings({ useThreads: false });
   for (const n of [1, 2, 3, 4]) await s.workspace.write(`${TASKS}/t${n}.md`, task(n));

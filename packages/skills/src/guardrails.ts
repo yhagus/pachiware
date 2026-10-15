@@ -121,20 +121,21 @@ export const GuardrailService = {
 /** Task writes that count toward a bulk change: more than BULK_TASK_LIMIT of them in one turn wait for the user's yes. */
 export const BULK_TASK_TOOLS = new Set(["updateTaskStatus", "assignTask", "setTaskDueDate", "editTask", "moveTask", "createTask"]);
 export const BULK_TASK_LIMIT = 3;
-/** A task write as the bulk guard remembers it: the task id's first eight characters (its short form), or the title for a new task. */
-export type BulkItem = { tool: string; target: string };
+/** A task write as the bulk guard remembers it: the task id's first eight characters (its short form), or the title for a new task, and the change it makes. */
+export type BulkItem = { tool: string; target: string; change: string };
 /** A refused bulk, kept on the conversation for the asker's next turn only. */
 export type BulkApproval = { userId: string; items: BulkItem[] };
 export type BulkDecision = { allow: true; approved: Set<string> } | { allow: false; kind: "confirmation_required"; message: string; batch: BulkItem[] };
 
+const normalized = (value: unknown) => typeof value === "string" ? value.trim().replace(/\s+/g, " ").toLowerCase() : value;
 const bulkItem = (call: ToolCall): BulkItem => {
-  const { taskId, title } = call.arguments ?? {};
-  return { tool: call.name, target: (taskId != null ? String(taskId).trim().slice(0, 8) : String(title ?? "").trim()).toLowerCase() };
+  const { taskId, ...rest } = call.arguments ?? {};
+  // Every other argument, so a yes to "assign to Bob" does not cover "assign to Alice"; a left-out argument and an empty one read the same.
+  // Hashed, so a long description is not copied into the conversation's metadata.
+  const change = Object.entries(rest).filter(([, v]) => v != null && v !== "").sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, normalized(v)]);
+  return { tool: call.name, target: String(normalized(taskId != null ? String(taskId).trim().slice(0, 8) : rest.title ?? "")), change: createHash("sha256").update(JSON.stringify(change)).digest("hex").slice(0, 16) };
 };
-export const bulkApprovalOf = (metadata: unknown, userId?: string): BulkItem[] => {
-  const approval = (metadata as { bulkApproval?: BulkApproval } | null)?.bulkApproval;
-  return approval && userId && approval.userId === userId && Array.isArray(approval.items) ? approval.items : [];
-};
+const sameItem = (a: BulkItem, b: BulkItem) => a.tool === b.tool && a.target === b.target && a.change === b.change;
 
 const bulkMessage = (n: number) => `confirmation_required: none of these ${n} task changes ran, nothing changed. More than ${BULK_TASK_LIMIT} task changes in one turn need the user's yes first. List every task you meant to change, one per line as status | due | assignee | id | title (for a new task: title, assignee and due date), say what would happen to them, and wait for a yes. After the yes, make the same calls again.`;
 
@@ -149,7 +150,7 @@ export function bulkTaskTurn(approved: BulkItem[] = []) {
       const writes = calls.filter((c) => BULK_TASK_TOOLS.has(c.name));
       const remaining = [...left], matched = new Set<string>();
       for (const call of writes) {
-        const item = bulkItem(call), i = remaining.findIndex((r) => r.tool === item.tool && r.target === item.target);
+        const item = bulkItem(call), i = remaining.findIndex((r) => sameItem(r, item));
         if (i >= 0) { remaining.splice(i, 1); matched.add(call.id); }
       }
       const counted = writes.length - matched.size;

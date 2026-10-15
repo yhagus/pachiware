@@ -1,11 +1,12 @@
 import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
 import { eq, and, sql } from "drizzle-orm";
 import { dropLeadingOrphans, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, bulkApprovalOf, BULK_TASK_TOOLS, type BulkApproval, type Language, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
-import { summaryOf, summaryMessage, type ConversationSummary } from "./summary.js";
+import { summaryMessage } from "./summary.js";
+import { bulkApprovalOf, patchConversationMetadata, summaryOf, type ConversationSummary } from "./conversationMetadata.js";
 
 export interface ReActInput {
   tenantId: string;
@@ -37,26 +38,25 @@ const MAX_TOOL_RESULT = 12000;
 /** A grounded brief round takes several tool steps per point, more than a tenant's usual cap. */
 export const PLAYBOOK_ITERATIONS = 20;
 
-/** A change as the person reads it: the tool and the thing it touched. */
-function changeLine({ call, result }: Executed) {
+/** A change as the person reads it, in the turn's language: what was done and the thing it touched. */
+function changeLine({ call, result }: Executed, t: Strings) {
   const data = result.data ?? {}, args = call.arguments ?? {};
   const subject = [data.task?.title, data.title, data.name, data.path, args.title, args.name, args.path, args.taskId].find((v) => typeof v === "string" && v.trim());
-  return subject ? `${call.name} "${subject.trim().slice(0, 80)}"` : call.name;
+  const label = t.taskChange[call.name] ?? call.name;
+  return subject ? `${label} "${subject.trim().slice(0, 80)}"` : label;
+}
+
+/** Runs one tool call, or answers the refusal (a tool closed here, a task write of a bulk waiting for a yes) without running it; an approved bulk's call skips the per-tool write limit. */
+function executeCall(call: ToolCall, ctx: SkillContext, o: { refusal?: string; approved: boolean }): Promise<ToolResult> {
+  if (o.refusal) return Promise.resolve({ toolCallId: call.id, name: call.name, success: false, error: o.refusal });
+  return skillRegistry.executeTool(call, o.approved ? { ...ctx, bulkApproved: true } : ctx);
 }
 
 /** The reply to a provider failure; when changes already landed this turn it names them first, so nobody asks for them twice. */
 function failureReply(failure: string, executed: Executed[], language?: Language) {
-  const done = executed.filter(({ call, result }) => result.success && result.data?.success !== false && !result.data?.pending && skillRegistry.effectOf(call.name) !== "read").map(changeLine);
   const t = textIn(language), said = failure || t.providerFailed;
+  const done = executed.filter(({ call, result }) => result.success && result.data?.success !== false && !result.data?.pending && skillRegistry.effectOf(call.name) !== "read").map((e) => changeLine(e, t));
   return redact(done.length ? `${t.doneBeforeFailure(done)}\n\n${said}` : said);
-}
-
-/** Writes or clears the refused bulk on the conversation, keeping the rest of its metadata. */
-async function setBulkApproval(tenantId: string, conversationId: string, approval: BulkApproval | null) {
-  const scope = and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId));
-  const [row] = await db.select().from(conversations).where(scope).limit(1);
-  const { bulkApproval: _previous, ...rest } = (row?.metadata as Record<string, unknown> | null) ?? {};
-  await db.update(conversations).set({ metadata: approval ? { ...rest, bulkApproval: approval } : rest }).where(scope);
 }
 
 export class AgentReActLoop {
@@ -71,14 +71,14 @@ export class AgentReActLoop {
     // 1. Ensure conversation exists in PostgreSQL
     let convId = input.conversationId;
     let summary: ConversationSummary | null = null;
-    let bulkApproved: ReturnType<typeof bulkApprovalOf> = [];
+    let approvedBulk: BulkItem[] = [];
     if (convId) {
       const [owned] = await db.select().from(conversations).where(and(eq(conversations.id, convId), eq(conversations.tenantId, input.tenantId))).limit(1);
       if (!owned) throw new Error("Conversation not found");
       summary = summaryOf(owned.metadata);
       // A refused bulk unlocks only the asker's next turn; any next turn clears it, whoever speaks.
-      bulkApproved = bulkApprovalOf(owned.metadata, input.context.userId);
-      if ((owned.metadata as { bulkApproval?: unknown } | null)?.bulkApproval) await setBulkApproval(input.tenantId, convId, null);
+      approvedBulk = bulkApprovalOf(owned.metadata, input.context.userId);
+      if ((owned.metadata as { bulkApproval?: unknown } | null)?.bulkApproval) await patchConversationMetadata(input.tenantId, convId, { bulkApproval: undefined }, owned.metadata);
     }
     if (!convId) {
       const [newConv] = await db
@@ -185,7 +185,7 @@ export class AgentReActLoop {
       },
     };
 
-    const bulk = bulkTaskTurn(bulkApproved);
+    const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;
     let finalReply = "";
     let imagesRejected = false;
@@ -242,18 +242,16 @@ export class AgentReActLoop {
       const bulkRefusal = !bulkDecision.allow && isEnforced(bulkDecision.kind) ? bulkDecision.message : null;
       if (!bulkDecision.allow) {
         await audit(skillContext, bulkRefusal ? "confirmation_requested" : "guardrail_denied", { kind: "bulk_task", count: bulkDecision.batch.length, ...(bulkRefusal ? {} : { observed: true }) });
-        if (bulkRefusal && input.context.userId) await setBulkApproval(input.tenantId, convId, { userId: input.context.userId, items: bulkDecision.batch });
+        if (bulkRefusal && input.context.userId) await patchConversationMetadata(input.tenantId, convId, { bulkApproval: { userId: input.context.userId, items: bulkDecision.batch } });
       }
 
       // Action Step: Execute each tool call
       for (const toolCall of response.toolCalls) {
         input.onStep?.({ type: "tool_call", payload: toolCall });
 
-        const result: ToolResult = closed.has(toolCall.name)
-          ? { toolCallId: toolCall.id, name: toolCall.name, success: false, error: closed.get(toolCall.name) }
-          : bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name)
-            ? { toolCallId: toolCall.id, name: toolCall.name, success: false, error: bulkRefusal }
-            : await skillRegistry.executeTool(toolCall, bulkDecision.allow && bulkDecision.approved.has(toolCall.id) ? { ...skillContext, bulkApproved: true } : skillContext);
+        const refusal = closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
+        const approved = bulkDecision.allow && bulkDecision.approved.has(toolCall.id);
+        const result = await executeCall(toolCall, skillContext, { refusal, approved });
         toolCallsExecuted.push({ call: toolCall, result });
 
         input.onStep?.({ type: "tool_result", payload: result });
@@ -273,7 +271,6 @@ export class AgentReActLoop {
           name: toolCall.name,
         });
 
-        // Later turns replay the stored row, so it keeps a short form; this turn has already seen the full result above.
         await db.insert(messagesTable).values({
           tenantId: input.tenantId,
           conversationId: convId,
