@@ -951,3 +951,16 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
     - Once per guild: hidden marker `guilds/<g>/.private-threads-moved.json` `{at, moved, notMoved}`, written only once `guilds/<g>/channels` has folders.
     - Known limits: taken names need an operator; the report is only in logs and the hidden marker; a failed lookup counts as private; a Note linking several threads stays; Documents, Decisions and other Notes stay (spec).
     - Verification: `bun run typecheck` exits 0; `bun test` 658 pass, 0 fail across 121 files.
+  - [x] #151 merged into `spec/146-across-channels`: read Public channels' kept files from another channel of the guild.
+    - `packages/skills/src/workspace/sources.ts`: `readableSources(store, ctx): Promise<Source[]>`, `Source = { root, label, folder, folders, guildId?, channelId?, threadId?, here, quotable }`; the place first, then other channels by name.
+    - `root` is `channel`/`thread`/`dm` for the place, else `#name` (with ` [id]` when two share a name).
+    - `viewableChannels(...)` returns `{id, name, guildId, folder, public}`; Task scopes' `viewableProjects` now uses it.
+    - `sourcePath(ctx, sources, input, allowRoot)` resolves `#name/...` or `<#id>/...`, limited to minutes/decisions/notes/files; `namesChannel(path)`.
+    - Tools read only quotable sources via `quotableSources()` in `builtin/workspace.ts`; non-public channels come back `quotable: false` (#153 changes that filter). DMs and web chat get only the place itself (#152 adds shared guilds).
+    - Discord adapter: `ChannelView.channel.public` (guild @everyone can view; a thread takes its parent's; a private thread is never public). Harness `s.discord.hide(channel)`; fake guilds have `roles.everyone`.
+    - Availability: `channelsWithSkill(place, "workspace", channelIds)` checks every channel in one rules query; only skill rules drop a source.
+    - `searchFiles` with no path → `{ groups: [{channel, matches}], total, leftOut }`; with a path → `{ matches }` plus `total`/`leftOut` when cut.
+    - All searches sort newest first by the file name's leading date, undated after, then by modification time. `WorkspaceStore.files()` and `FileMatch` carry `modified`.
+    - Refusals `notASource` (never says whether the channel exists), `sourceFolderRefused`, `sourceReadOnly` in en and id; deleteFile refuses another channel before Confirm.
+    - Known limits: a no-path search covers kept folders only and skips private-thread folders (left for #152); each source read looks up every channel folder of the guild on Discord, no per-turn cache; the current channel's label falls back to its id when it has no folder; web chat refusals are English.
+    - Verification: `bun run typecheck` exits 0; `bun test` 666 pass, 0 fail across 122 files.
