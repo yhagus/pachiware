@@ -21,6 +21,7 @@ import {
   permissionName,
   textIn,
 } from "@pachiware/skills";
+import { withoutMention } from "./routing.js";
 
 /** One message of a channel's history, as minutes need it. */
 export interface HistoryMessage {
@@ -309,7 +310,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     const message = await channel.messages.fetch(args.messageId).catch(() => null);
     if (!message) return null;
     return {
-      id: message.id, channelId: message.channelId ?? channel.id, authorId: message.author?.id ?? "", authorName: message.member?.displayName || message.author?.username || "", content: message.content ?? "",
+      id: message.id, channelId: message.channelId ?? channel.id, authorId: message.author?.id ?? "", authorName: message.member?.displayName || message.author?.username || "", content: withoutMention(message.content ?? "", this.client.user?.id),
       attachments: [...(message.attachments?.values() ?? [])].map((a: any) => ({ id: a.id, name: a.name ?? "attachment", url: a.url, size: a.size ?? 0, contentType: a.contentType ?? null })),
     };
   }

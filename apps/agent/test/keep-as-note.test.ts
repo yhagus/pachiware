@@ -135,8 +135,22 @@ discordScenario("long text that opened a thread is kept from inside that thread,
   await s.discord.send(`${s.discord.mention} keep that as a note`, { channel: asked.thread! });
   expect(s.discord.botMessages.at(-1)?.content).toBe("Kept as channel/notes/badges.md");
   expect(await s.workspace.read("guilds/guild-1/channels/channel-1/notes/badges.md")).toBe(
-    `---\nsource: "https://discord.com/channels/guild-1/channel-1/${asked.id}"\nauthor: "Alice"\naskedBy: "Alice"\ndate: "2026-10-15"\n---\n${s.discord.mention} ${email}`,
+    `---\nsource: "https://discord.com/channels/guild-1/channel-1/${asked.id}"\nauthor: "Alice"\naskedBy: "Alice"\ndate: "2026-10-15"\n---\n${email}`,
   );
+});
+
+discordScenario("a kept message loses only the bot's own mention, in either form; other mentions and the rest stay as written", async (s) => {
+  s.clock.set("2026-10-15T03:00:00Z");
+  await s.guildSettings({ useThreads: false });
+  const body = `Agenda for <@user-bob>:\n${"  - review the badge order  \n".repeat(80)}`;
+  s.model.script("Read it.");
+  const asked = await s.discord.send(`Hey <@!${s.discord.botUserId}> please read\n${body}`);
+
+  s.model.script({ tool: "keepAsNote", args: { messageIds: [asked.id], path: "channel/notes/agenda.md" } }, kept);
+  await s.discord.send(`${s.discord.mention} keep that as a note`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Kept as channel/notes/agenda.md");
+  const note = await s.workspace.read("guilds/guild-1/channels/channel-1/notes/agenda.md");
+  expect(note?.split("---\n")[2]).toBe(`Hey please read\n${body}`);
 });
 
 discordScenario("keepAsNote refuses a message from another channel, more than 20 messages, and a Document with messages, writing nothing", async (s) => {

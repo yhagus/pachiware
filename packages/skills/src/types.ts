@@ -118,7 +118,7 @@ export interface ChannelHistory {
 export interface DiscordMemberInfo { id: string; displayName: string; username?: string; roles: string[] }
 
 export interface DiscordAttachmentInfo { id: string; name: string; url: string; size: number; contentType: string | null }
-/** `authorName` is the name the author goes by in that place: their server nickname, else their username. */
+/** `authorName` is the name the author goes by in that place: their server nickname, else their username. `content` is as written, without the bot's own mention. */
 export interface DiscordMessageInfo { id: string; channelId: string; authorId: string; authorName: string; content: string; attachments: DiscordAttachmentInfo[] }
 
 /** A guild channel as the bot resolved it (null when it could not), and whether the user asked about can view it. */

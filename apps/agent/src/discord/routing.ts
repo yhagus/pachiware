@@ -40,6 +40,18 @@ export function threadName(text: string) {
 /** The name someone goes by here: their server nickname, else their username. */
 export const speakerName = (m: { member?: { displayName?: string } | null; author: { username: string } }) => m.member?.displayName || m.author.username;
 
+/**
+ * `text` without the bot's own mention (`<@id>` or `<@!id>`) and the spaces around it; a mention between words leaves one space.
+ * Everything else stays as written, so a message kept as a Note reads as the person wrote it.
+ */
+export function withoutMention(text: string, botUserId: string | undefined) {
+  if (!botUserId) return text;
+  return text.replace(new RegExp(`[ \\t]*<@!?${botUserId}>[ \\t]*`, "g"), (match, at: number) => {
+    const end = at + match.length;
+    return at === 0 || text[at - 1] === "\n" || end === text.length || text[end] === "\n" ? "" : " ";
+  });
+}
+
 /** Text longer than this is too long for the model to copy into a tool call, so its turn line names the message for keepAsNote. */
 export const LONG_TEXT = 2000;
 

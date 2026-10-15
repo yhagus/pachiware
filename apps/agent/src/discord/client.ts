@@ -4,7 +4,7 @@ import { and, desc } from "drizzle-orm";
 import { DiscordJSAdapter } from "./adapter.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
-import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId } from "./routing.js";
+import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
@@ -259,7 +259,7 @@ export class DiscordBotManager {
     const place = bound && bindingPlace(bound.binding);
     const outsider = !!bound && msg.author.id !== bound.binding.authorId;
     const keepInput = async () => {
-      const said = msg.content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
+      const said = withoutMention(msg.content, botUserId).trim();
       if (!place || isNoise(said, msg.attachments.size > 0)) return false;
       return !!await recordBriefInput(runtime.tenantId, place, { messageId: msg.id, userId: msg.author.id, name: speakerName(msg), text: said || "[attachment]" }).catch(() => null);
     };
@@ -277,7 +277,7 @@ export class DiscordBotManager {
     }
     if (!reason) return;
     const direct = addressed(trigger);
-    const text = msg.content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
+    const text = withoutMention(msg.content, botUserId).trim();
     if (isNoise(text, msg.attachments.size > 0)) { if (direct) await msg.react("👀").catch(() => {}); return; }
     const rate = await CacheService.checkRateLimit(tenantKey(runtime.tenantId, `ratelimit:discord:user:${msg.author.id}`), 10, 60);
     if (!rate.allowed) { await msg.react("⏳").catch(() => {}); return; }
