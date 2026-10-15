@@ -1,7 +1,7 @@
 import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
 import { eq, and, sql } from "drizzle-orm";
 import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, bulkTaskTurn, bulkApprovalOf, BULK_TASK_TOOLS, type BulkApproval, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
@@ -35,6 +35,14 @@ const MAX_TOOL_RESULT = 12000;
 /** A grounded brief round takes several tool steps per point, more than a tenant's usual cap. */
 export const PLAYBOOK_ITERATIONS = 20;
 
+/** Writes or clears the refused bulk on the conversation, keeping the rest of its metadata. */
+async function setBulkApproval(tenantId: string, conversationId: string, approval: BulkApproval | null) {
+  const scope = and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId));
+  const [row] = await db.select().from(conversations).where(scope).limit(1);
+  const { bulkApproval: _previous, ...rest } = (row?.metadata as Record<string, unknown> | null) ?? {};
+  await db.update(conversations).set({ metadata: approval ? { ...rest, bulkApproval: approval } : rest }).where(scope);
+}
+
 export class AgentReActLoop {
   /**
    * Executes the ReAct cycle (Thought -> Action -> Observation -> Answer).
@@ -47,10 +55,14 @@ export class AgentReActLoop {
     // 1. Ensure conversation exists in PostgreSQL
     let convId = input.conversationId;
     let summary: ConversationSummary | null = null;
+    let bulkApproved: ReturnType<typeof bulkApprovalOf> = [];
     if (convId) {
       const [owned] = await db.select().from(conversations).where(and(eq(conversations.id, convId), eq(conversations.tenantId, input.tenantId))).limit(1);
       if (!owned) throw new Error("Conversation not found");
       summary = summaryOf(owned.metadata);
+      // A refused bulk unlocks only the asker's next turn; any next turn clears it, whoever speaks.
+      bulkApproved = bulkApprovalOf(owned.metadata, input.context.userId);
+      if ((owned.metadata as { bulkApproval?: unknown } | null)?.bulkApproval) await setBulkApproval(input.tenantId, convId, null);
     }
     if (!convId) {
       const [newConv] = await db
@@ -157,6 +169,7 @@ export class AgentReActLoop {
       },
     };
 
+    const bulk = bulkTaskTurn(bulkApproved);
     let iterations = 0;
     let finalReply = "";
     let imagesRejected = false;
@@ -202,13 +215,23 @@ export class AgentReActLoop {
         break;
       }
 
+      // Guardrail on the whole response: too many task writes this turn and none of them run until the user says yes.
+      const bulkDecision = bulk.check(response.toolCalls);
+      const bulkRefusal = !bulkDecision.allow && isEnforced(bulkDecision.kind) ? bulkDecision.message : null;
+      if (!bulkDecision.allow) {
+        await audit(skillContext, bulkRefusal ? "confirmation_requested" : "guardrail_denied", { kind: "bulk_task", count: bulkDecision.batch.length, ...(bulkRefusal ? {} : { observed: true }) });
+        if (bulkRefusal && input.context.userId) await setBulkApproval(input.tenantId, convId, { userId: input.context.userId, items: bulkDecision.batch });
+      }
+
       // Action Step: Execute each tool call
       for (const toolCall of response.toolCalls) {
         input.onStep?.({ type: "tool_call", payload: toolCall });
 
         const result: ToolResult = closed.has(toolCall.name)
           ? { toolCallId: toolCall.id, name: toolCall.name, success: false, error: closed.get(toolCall.name) }
-          : await skillRegistry.executeTool(toolCall, skillContext);
+          : bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name)
+            ? { toolCallId: toolCall.id, name: toolCall.name, success: false, error: bulkRefusal }
+            : await skillRegistry.executeTool(toolCall, bulkDecision.allow && bulkDecision.approved.has(toolCall.id) ? { ...skillContext, bulkApproved: true } : skillContext);
         toolCallsExecuted.push({ call: toolCall, result });
 
         input.onStep?.({ type: "tool_result", payload: result });

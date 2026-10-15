@@ -169,6 +169,8 @@ export interface SkillContext {
   userName?: string;
   /** Set only by the host after a person pressed Confirm; never comes from model arguments. */
   confirmed?: boolean;
+  /** Set only by the host for a task write the user approved as part of a bulk change; it skips the per-tool write limit so the bulk does not half-apply. */
+  bulkApproved?: boolean;
   /** Set by the host; the registry refuses it when its ids disagree with this context. */
   auth?: AuthorizationContext;
   /** The place's configured zone and language (the guild's, else the tenant's), for dates and for text the tool writes on its own. */

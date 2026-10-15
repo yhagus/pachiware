@@ -139,6 +139,20 @@ discordScenario("dry run: cancel-with-reason cancels the venue with its reason a
   expect(output.turns[1].replies).toEqual(["Yang masih jalan:\npending | due 2026-10-19 | unassigned | 00000002 | Pesan katering"]);
 });
 
+discordScenario("dry run: bulk-cancel is refused whole, listed for a yes, then the yes cancels all four of Bob's tasks", async (s) => {
+  const cancels = [1, 2, 3, 4].map((n) => ({ tool: "updateTaskStatus", args: { taskId: `0000000${n}`, status: "cancelled" } }));
+  s.model.script(
+    cancels,
+    (turn) => `${turn.toolResults.every((r: any) => r.error?.startsWith("confirmation_required:")) ? "" : "RAN "}These four tasks of Bob's would be cancelled:\n${contextLines(turn, /^.*\| Bob \| .*$/gm).join("\n")}\nCancel all four?`,
+    cancels,
+    (turn) => `Cancelled ${turn.toolResults.filter((r: any) => r.message).length} of Bob's tasks: sponsor email, photographer, badges, banners.`,
+  );
+  const output = await dryRun(s, "bulk-cancel");
+  expect(output.turns[0].replies[0]).toStartWith("These four tasks of Bob's would be cancelled:\n");
+  expect(output.turns[0].replies[0].split("\n")).toHaveLength(6);
+  expect(output.turns[1].replies).toEqual(["Cancelled 4 of Bob's tasks: sponsor email, photographer, badges, banners."]);
+});
+
 discordScenario("dry run: task-reference-ambiguous lists both invoice tasks and asks once, then completes the Acme one", async (s) => {
   s.model.script(
     (turn) => `Two tasks are about an invoice:\n${contextLines(turn, /^.*\| Send the invoice to .*$/gm).join("\n")}\nWhich one is done?`,
