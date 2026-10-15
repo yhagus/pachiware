@@ -36,6 +36,20 @@ discordScenario("the persona keeps long text a person asks to keep with keepAsNo
   expect(noteLine).toContain("(message <id>)");
 });
 
+discordScenario("the persona answers questions about past meetings from kept material, in the glossary's terms, and never offers threads/ as a folder", async (s) => {
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const persona = systemPrompt(s.model.calls[0]!).split("### Policy")[0]!;
+  for (const term of ["Minutes", "Decisions", "Notes", "Documents", "Public channel", "searchFiles", "notShownHere", "DM"]) expect(persona).toContain(term);
+  const section = persona.slice(persona.indexOf("Asking about kept material"));
+  expect(section).toMatch(/search before/i);
+  expect(section).toMatch(/channel and (the )?date/i);
+  expect(section).toContain("postedIn");
+  expect(section).toMatch(/found nothing/i);
+  expect(section).toMatch(/without naming/i);
+  expect(persona).not.toContain("threads/");
+});
+
 discordScenario("a question about channels reaches the model when the Discord skill is off, instead of a regex refusal", async (s) => {
   const { tenantSkills, and, eq } = await import("../../../packages/db/src/index.ts");
   await s.db.update(tenantSkills).set({ isEnabled: false }).where(and(eq(tenantSkills.tenantId, s.tenant.id), eq(tenantSkills.skillId, "discord_management")));
