@@ -20,7 +20,7 @@ describe("tenant-aware skill registry", () => {
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const { runMigrations } = await import(${JSON.stringify(join(workspace, "packages/db/src/migrate.ts"))});
       const { runSeed } = await import(${JSON.stringify(join(workspace, "packages/db/src/seed.ts"))});
-      const { db, tenantSkills, eq } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
+      const { db } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       const { repositories } = await import(${JSON.stringify(join(workspace, "packages/db/src/index.ts"))});
       const { skillRegistry } = await import(${JSON.stringify(join(workspace, "packages/skills/src/registry.ts"))});
       await runMigrations(); await runSeed();
@@ -30,7 +30,7 @@ describe("tenant-aware skill registry", () => {
       assert(created.success, "createTask failed"); const taskId = created.data.task.id;
       const cross = await skillRegistry.executeTool({ id: "cross", name: "updateTaskStatus", arguments: { taskId, status: "completed" } }, { db, tenantId: beta.id, confirmed: true });
       assert(!cross.success && cross.error.includes("not found"), "cross-tenant mutation accepted");
-      await db.update(tenantSkills).set({ isEnabled: false }).where(eq(tenantSkills.tenantId, alpha.id));
+      for (const { skill } of await repositories().skills.listForTenant(alpha.id)) await repositories().skills.setEnabled(alpha.id, skill.id, false);
       const active = await skillRegistry.getActiveTools(alpha.id);
       const disabled = await skillRegistry.executeTool({ id: "disabled", name: "createTask", arguments: { title: "nope" } }, context);
       assert(active.length === 0 && !disabled.success && disabled.error.includes("disabled"), "disabled tenant tool available");

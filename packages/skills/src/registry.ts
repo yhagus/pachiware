@@ -1,5 +1,4 @@
-import { db, skills as skillsTable, tenantSkills, usageEvents } from "@pachiware/db";
-import { eq, and } from "drizzle-orm";
+import { repositories, usageEvents } from "@pachiware/db";
 import { taskManagementSkill } from "./builtin/tasks.js";
 import { discordManagementSkill } from "./builtin/discord.js";
 import { gitRepositorySkill } from "./builtin/git.js";
@@ -89,11 +88,9 @@ export class SkillRegistry {
    * filtering out disabled skills.
    */
   public async getActiveTools(tenantId: string): Promise<ToolDefinition[]> {
-    const rows = await db.select({ definition: skillsTable, state: tenantSkills }).from(tenantSkills)
-      .innerJoin(skillsTable, eq(tenantSkills.skillId, skillsTable.id))
-      .where(and(eq(tenantSkills.tenantId, tenantId), eq(tenantSkills.isEnabled, true)));
+    const enabled = await repositories().skills.listEnabled(tenantId);
     // Sorted so the tool list, which leads the provider's cached prefix, never depends on row order.
-    return rows.flatMap(({ definition }: any) => this.skills.get(definition.id)?.tools || definition.toolDefinitions).sort((a: ToolDefinition, b: ToolDefinition) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return enabled.flatMap((definition) => this.skills.get(definition.id)?.tools || definition.toolDefinitions).sort((a: ToolDefinition, b: ToolDefinition) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
   /** Skills enabled for the tenant, in registry terms (used to classify a request before the loop starts). */

@@ -1,5 +1,4 @@
-import { db, availabilityRules } from "@pachiware/db";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { repositories, type AvailabilityRuleRecord, type RuleScope } from "@pachiware/db";
 import { EFFECT_MEANING, type Effect, type SkillModule, type ToolDefinition } from "./types.js";
 import { policyOf } from "./guardrails.js";
 import { listPlaybooks, playbookChain, chainProblemText, type Playbook } from "./playbooks.js";
@@ -58,15 +57,11 @@ export function availabilityPlace(ctx: { tenantId: string; botId?: string; guild
   return { tenantId: ctx.tenantId, botId: ctx.botId, guildId: ctx.guildId, channelId: ctx.parentChannelId || ctx.channelId };
 }
 
-const keyColumns = (k: LevelKey) => ({ botId: k.level === "tenant" ? null : k.botId!, guildId: k.level === "guild" || k.level === "channel" ? k.guildId! : "", channelId: k.level === "channel" ? k.channelId! : "" });
-const whereKey = (k: LevelKey) => {
-  const c = keyColumns(k);
-  return and(eq(availabilityRules.tenantId, k.tenantId), eq(availabilityRules.level, k.level), c.botId === null ? isNull(availabilityRules.botId) : eq(availabilityRules.botId, c.botId), eq(availabilityRules.guildId, c.guildId), eq(availabilityRules.channelId, c.channelId));
-};
-const toRule = (r: any): AvailabilityRule => ({ kind: r.targetKind, name: r.targetName, value: r.value });
+const scopeOf = (k: LevelKey): RuleScope => ({ tenantId: k.tenantId, level: k.level, botId: k.level === "tenant" ? null : k.botId!, guildId: k.level === "guild" || k.level === "channel" ? k.guildId! : "", channelId: k.level === "channel" ? k.channelId! : "" });
+const toRule = (r: { kind: TargetKind; name: string; value: RuleValue }): AvailabilityRule => ({ kind: r.kind, name: r.name, value: r.value });
 
 export async function listAvailabilityRules(key: LevelKey): Promise<AvailabilityRule[]> {
-  return (await db.select().from(availabilityRules).where(whereKey(key))).map(toRule).sort((a: AvailabilityRule, b: AvailabilityRule) => targetKey(a).localeCompare(targetKey(b)));
+  return (await repositories().availability.list(scopeOf(key))).map(toRule).sort((a: AvailabilityRule, b: AvailabilityRule) => targetKey(a).localeCompare(targetKey(b)));
 }
 
 /** Why a rule cannot be written at this level, or null. `skills` is every registered skill. */
@@ -108,17 +103,14 @@ export async function setAvailabilityRule(key: LevelKey, rule: AvailabilityRule,
     }
     if (rule.value === "on" && !above.some((rules) => valueAt(rules, rule) === "opt_in")) throw new AvailabilityError(`on needs an opt_in above it; ${rule.name} is not opt-in at the bot or guild`);
   }
-  // Insert-or-update in one statement each, so two writes of one target never both insert; the unique key is an expression index, hence no conflict target.
-  const updatedAt = new Date();
-  const inserted = await db.insert(availabilityRules).values({ tenantId: key.tenantId, level: key.level, ...keyColumns(key), targetKind: rule.kind, targetName: rule.name, value: rule.value, updatedAt }).onConflictDoNothing().returning();
-  if (!inserted.length) await db.update(availabilityRules).set({ value: rule.value, updatedAt }).where(and(whereKey(key), eq(availabilityRules.targetKind, rule.kind), eq(availabilityRules.targetName, rule.name)));
+  await repositories().availability.set(scopeOf(key), { kind: rule.kind, name: rule.name }, rule.value);
   if (key.level !== "channel") availabilityChanged(key.tenantId);
 }
 
 export async function clearAvailabilityRule(key: LevelKey, target: { kind: string; name: string }): Promise<boolean> {
-  const gone = await db.delete(availabilityRules).where(and(whereKey(key), eq(availabilityRules.targetKind, target.kind), eq(availabilityRules.targetName, target.name))).returning();
-  if (gone.length && key.level !== "channel") availabilityChanged(key.tenantId);
-  return gone.length > 0;
+  const gone = await repositories().availability.clear(scopeOf(key), target as Target);
+  if (gone && key.level !== "channel") availabilityChanged(key.tenantId);
+  return gone;
 }
 
 /** The rules on the way from the tenant down to this place, one map per level, top first. */
@@ -127,14 +119,13 @@ async function rulesAt(place: Place): Promise<LevelRules[]> {
 }
 
 /** Every rule of the tenant that can apply to this bot's places, at any level. */
-const ruleRows = (place: Place): Promise<any[]> =>
-  db.select().from(availabilityRules).where(and(eq(availabilityRules.tenantId, place.tenantId), place.botId ? or(isNull(availabilityRules.botId), eq(availabilityRules.botId, place.botId)) : isNull(availabilityRules.botId)));
+const ruleRows = (place: Place): Promise<AvailabilityRuleRecord[]> => repositories().availability.listForBot(place.tenantId, place.botId);
 
-function levelsAt(rows: any[], place: Place): LevelRules[] {
-  const applies = (r: any) => r.level === "tenant" || r.level === "bot"
+function levelsAt(rows: AvailabilityRuleRecord[], place: Place): LevelRules[] {
+  const applies = (r: AvailabilityRuleRecord) => r.level === "tenant" || r.level === "bot"
     || (r.level === "guild" && !!place.guildId && r.guildId === place.guildId)
     || (r.level === "channel" && !!place.guildId && !!place.channelId && r.guildId === place.guildId && r.channelId === place.channelId);
-  return AVAILABILITY_LEVELS.map((level) => new Map(rows.filter((r: any) => r.level === level && applies(r)).map(toRule).map((r: AvailabilityRule) => [targetKey(r), r])));
+  return AVAILABILITY_LEVELS.map((level) => new Map(rows.filter((r) => r.level === level && applies(r)).map(toRule).map((r: AvailabilityRule) => [targetKey(r), r])));
 }
 
 /** The channels of one guild where no rule turns a skill off, read with one query for all of them. The tenant's skill switch is not looked at. */

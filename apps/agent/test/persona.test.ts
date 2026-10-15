@@ -52,8 +52,8 @@ discordScenario("the persona answers questions about past meetings from kept mat
 });
 
 discordScenario("a question about channels reaches the model when the Discord skill is off, instead of a regex refusal", async (s) => {
-  const { tenantSkills, and, eq } = await import("../../../packages/db/src/index.ts");
-  await s.db.update(tenantSkills).set({ isEnabled: false }).where(and(eq(tenantSkills.tenantId, s.tenant.id), eq(tenantSkills.skillId, "discord_management")));
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  await repositories().skills.setEnabled(s.tenant.id, "discord_management", false);
   s.model.script("Channel ini untuk koordinasi rilis.");
   await s.discord.send(`${s.discord.mention} channel ini buat apa?`);
   expect(s.model.calls.length).toBe(1);

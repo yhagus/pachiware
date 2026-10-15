@@ -52,6 +52,8 @@ export * from "./crypto.js";
 export * from "./tenancy.js";
 export { createRepositories } from "./repositories/index.js";
 export type { Repositories, Tenant, TenantStatus, NewTenant, TenantUpdate, ApiKey, ApiKeyListing, IssuedApiKey, TenantRepository } from "./repositories/index.js";
+export type { Skill, SkillDefinition, TenantSkill, TenantSkillListing, SkillRepository } from "./repositories/index.js";
+export type { RuleLevel, RuleTargetKind, RuleValue, RuleScope, RuleTarget, AvailabilityRuleRecord, AvailabilityRuleRepository } from "./repositories/index.js";
 export { openConnection, type Connection } from "./connection.js";
 export * from "./persona.js";
 export { eq, desc, asc, sql, and, or } from "drizzle-orm";

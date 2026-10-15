@@ -74,10 +74,10 @@ describe("tenant persistence helpers", () => {
       import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
       import { queryClient, repositories } from ${JSON.stringify(join(source, "index.ts"))};
       await runMigrations();
-      queryClient.query("INSERT INTO skills (id, name, description, default_enabled, config) VALUES (?, ?, ?, ?, ?)").run("enabled", "Enabled", "enabled skill", 1, JSON.stringify({ level: 1 }));
-      queryClient.query("INSERT INTO skills (id, name, description, default_enabled, config) VALUES (?, ?, ?, ?, ?)").run("disabled", "Disabled", "disabled skill", 0, JSON.stringify({ level: 2 }));
+      await repositories().skills.register({ id: "enabled", name: "Enabled", description: "enabled skill", defaultEnabled: true, toolDefinitions: [], handlerType: "builtin", config: { level: 1 } });
+      await repositories().skills.register({ id: "disabled", name: "Disabled", description: "disabled skill", defaultEnabled: false, toolDefinitions: [], handlerType: "builtin", config: { level: 2 } });
       const tenant = await repositories().tenants.create({ name: "New Tenant", slug: "new-tenant" });
-      const tenantSkillsRows = queryClient.query("SELECT skill_id AS skillId, is_enabled AS isEnabled, config FROM tenant_skills WHERE tenant_id = ?").all(tenant.id).map((row) => ({ ...row, isEnabled: Boolean(row.isEnabled), config: JSON.parse(row.config) }));
+      const tenantSkillsRows = (await repositories().skills.listForTenant(tenant.id)).map(({ state }) => state);
       const taskRows = queryClient.query("SELECT id FROM tasks WHERE tenant_id = ?").all(tenant.id);
       console.log(JSON.stringify({ tenantSkillsRows, taskCount: taskRows.length }));
     `);

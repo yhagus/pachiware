@@ -74,8 +74,8 @@ discordScenario("an addressed Indonesian message the model stays silent on still
 });
 
 discordScenario("a playbook refusal answers an Indonesian request in Indonesian", async (s) => {
-  const { tenantSkills, and, eq } = await import(process.cwd() + "/packages/db/src/index.ts") as any;
-  await s.db.update(tenantSkills).set({ isEnabled: false }).where(and(eq(tenantSkills.tenantId, s.tenant.id), eq(tenantSkills.skillId, "workspace")));
+  const { repositories } = await import(process.cwd() + "/packages/db/src/index.ts") as any;
+  await repositories().skills.setEnabled(s.tenant.id, "workspace", false);
   await s.discord.send(`${s.discord.mention} issue: ekspor CSV yang besar terlalu lambat untuk dipakai di halaman laporan`);
   expect(s.discord.botMessages.at(-1)!.content).toBe("Playbook issue-draft butuh skill Workspace, yang sedang mati di sini. Admin bisa menyalakannya di konsol.");
 });

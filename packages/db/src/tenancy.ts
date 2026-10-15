@@ -1,5 +1,5 @@
 import { eq, and, ne, inArray } from "drizzle-orm";
-import { db, repositories, tenants, bots, guildConfigs, gitAccounts, botGitAccounts, gitScopes, availabilityRules, skills, tenantSkills, type DigestChannel } from "./index.js";
+import { db, repositories, tenants, bots, guildConfigs, gitAccounts, botGitAccounts, gitScopes, type DigestChannel } from "./index.js";
 import { encryptSecret, decryptSecret } from "./crypto.js";
 
 export async function createBot(input: { tenantId: string; name?: string; platform?: string; token: string; clientId?: string; guildIds?: string[]; profileId?: string | null; isEnabled?: boolean }) {
@@ -35,7 +35,7 @@ export async function deleteBot(id: string) {
   // Keep historical usage/conversation linkage; disabled bots are retained as tombstones.
   await db.update(bots).set({ isEnabled: false, connectionStatus: "deleted", tokenEncrypted: "", updatedAt: new Date() }).where(eq(bots.id, id));
   // The tombstone keeps the row, so the foreign-key cascade never fires; its availability rules go here.
-  await db.delete(availabilityRules).where(eq(availabilityRules.botId, id));
+  await repositories().availability.removeForBot(id);
 }
 
 export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: DigestChannel[] };
@@ -75,12 +75,7 @@ export async function setBotGitAccounts(tenantId: string, botId: string, ids: st
 }
 /** The git skill ships off; attaching an account is the moment someone wants it. Git stays closed anywhere without a server rule, so this opens nothing by itself. */
 async function enableGitSkill(tenantId: string) {
-  const [skill] = await db.select({ id: skills.id }).from(skills).where(eq(skills.id, "git_repositories")).limit(1);
-  if (!skill) return;
-  const where = and(eq(tenantSkills.tenantId, tenantId), eq(tenantSkills.skillId, skill.id));
-  const [row] = await db.select().from(tenantSkills).where(where).limit(1);
-  if (!row) await db.insert(tenantSkills).values({ tenantId, skillId: skill.id, isEnabled: true });
-  else if (!row.isEnabled) await db.update(tenantSkills).set({ isEnabled: true, updatedAt: new Date() }).where(where);
+  await repositories().skills.enable(tenantId, "git_repositories");
 }
 export async function botsUsingGitAccount(tenantId: string, accountId: string) {
   return db.select({ id: bots.id, name: bots.name }).from(botGitAccounts).innerJoin(bots, eq(bots.id, botGitAccounts.botId))

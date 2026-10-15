@@ -88,14 +88,14 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, bots, tenantSkills, usageEvents, tasks, and, eq } = await imp("packages/db/src/index.ts");
+        const { db, bots, usageEvents, tasks, and, eq } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const sk = await imp("packages/skills/src/index.ts");
         const { skillRegistry, peekAction, resetGuardrailState } = sk;
         const { handleConfirmButton, pendingOf } = await imp("apps/agent/src/discord/gitConfirm.ts");
         const t = await repositories().tenants.create({ name: "T", slug: "t" });
-        await db.update(tenantSkills).set({ isEnabled: true }).where(eq(tenantSkills.tenantId, t.id));
+        for (const { skill } of await repositories().skills.listForTenant(t.id)) await repositories().skills.setEnabled(t.id, skill.id, true);
         const [bot] = await db.insert(bots).values({ tenantId: t.id, tokenEncrypted: "x", isEnabled: false }).returning();
         const adapterCalls = [];
         const discord = { createChannel: async (a) => { adapterCalls.push("create"); return { id: "n1", name: a.channelName, type: "text" }; }, archiveChannel: async () => { adapterCalls.push("archive"); return { id: "c1", archived: true, message: "ok" }; }, listChannels: async () => [], setChannelTopic: async () => ({ id: "c1", topic: "t", success: true }) };
@@ -145,7 +145,7 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         const q4 = pendingOf((await run("archiveChannel", { channelId: "c3" }, mk(["ManageChannels"]))).data);
         await click("no", q4.confirmationId, "alice"); assert(!adapterCalls.includes("archive"), "cancel ran");
         // disabled tool never runs and is audited
-        await db.update(tenantSkills).set({ isEnabled: false }).where(and(eq(tenantSkills.tenantId, t.id), eq(tenantSkills.skillId, "discord_management")));
+        await repositories().skills.setEnabled(t.id, "discord_management", false);
         const off = await run("listChannels", {}, mk(["Administrator"]));
         assert(!off.success && await events("tool_denied") >= 1, "disabled tool ran or not audited");
         // unknown tool
@@ -182,14 +182,14 @@ test("ReAct loop: refusals before the model, injected tool results stay data, se
         const imp = (p) => import(${JSON.stringify(w + "/")} + p);
         const { runMigrations } = await imp("packages/db/src/migrate.ts");
         const { runSeed } = await imp("packages/db/src/seed.ts");
-        const { db, tenantSkills, usageEvents, and, eq } = await imp("packages/db/src/index.ts");
+        const { db, usageEvents, and, eq } = await imp("packages/db/src/index.ts");
         const { repositories } = await imp("packages/db/src/index.ts");
         await runMigrations(); await runSeed();
         const { agentReActLoop } = await imp("apps/agent/src/loop/react.ts");
         const { llmRouter } = await imp("apps/agent/src/llm/router.ts");
         const { skillRegistry } = await imp("packages/skills/src/registry.ts");
         const t = await repositories().tenants.create({ name: "T", slug: "t" });
-        await db.update(tenantSkills).set({ isEnabled: false }).where(and(eq(tenantSkills.tenantId, t.id), eq(tenantSkills.skillId, "git_repositories")));
+        await repositories().skills.setEnabled(t.id, "git_repositories", false);
         const ctx = { tenantId: t.id, platform: "web" };
         let modelCalls = 0, seen = [];
         let script = () => ({ content: "hello there", finishReason: "stop", toolCalls: [] });
