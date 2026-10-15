@@ -2,8 +2,8 @@ import { parseFrontmatter } from "../playbooks.js";
 import { safeId, threadFolder } from "./paths.js";
 import { workspaceStore, type WorkspaceStore } from "./store.js";
 
-/** Whether a thread's kept material belongs to it: "private" for a private thread, or one that cannot be looked up. */
-export type ThreadKind = "private" | "keep";
+/** Whether a thread is "private" (a private thread, or one that cannot be looked up), whose kept material belongs in its own folder, or "public". */
+export type ThreadKind = "private" | "public";
 export interface ThreadMoveReport { moved: { from: string; to: string }[]; taken: { from: string; to: string }[] }
 
 /** Written once a guild's old files were moved, with what could not be; a later connect leaves the guild alone. */

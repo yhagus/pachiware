@@ -1,7 +1,7 @@
-import { resolvePath } from "./paths.js";
+import { placeRoot, resolvePath } from "./paths.js";
 import { WorkspaceConflict, workspaceStore } from "./store.js";
 import { extensionOf, extractsText } from "./extract.js";
-import { filesRoot, provenanceOf, unrecordedTextPath } from "./files.js";
+import { provenanceOf, unrecordedTextPath } from "./files.js";
 import { DEFAULT_TIMEZONE, isoInZone } from "../clock.js";
 import { textIn } from "../language.js";
 import { jumpLink, renderFrontmatter } from "../playbooks.js";
@@ -17,7 +17,7 @@ const TEXT_TYPES = ["md", "txt", "csv"];
  * refuses where the turn has no place. With `parentToo`, a private thread's parent channel folder counts as well.
  */
 function pathInPlaceFolder(ctx: SkillContext, path: unknown, folder: string, parentToo = false) {
-  const root = filesRoot(ctx);
+  const root = placeRoot(ctx);
   if (!root) throw new Error(textIn(ctx.language).keepNoPlace);
   const roots = parentToo && root === "thread" ? [root, "channel"] : [root];
   return typeof path === "string" && roots.some((r) => path.startsWith(`${r}/${folder}/`) && path.length > `${r}/${folder}/`.length) ? path : null;
@@ -30,7 +30,7 @@ function pathInPlaceFolder(ctx: SkillContext, path: unknown, folder: string, par
 export async function keptDocument(ctx: SkillContext, path: unknown): Promise<KeptText> {
   const t = textIn(ctx.language), store = workspaceStore();
   const document = pathInPlaceFolder(ctx, path, "files", true);
-  if (!document) throw new Error(t.keepNotDocument(filesRoot(ctx)!));
+  if (!document) throw new Error(t.keepNotDocument(placeRoot(ctx)!));
   const full = resolvePath(ctx, document), folder = full.slice(0, full.lastIndexOf("/"));
   const entries = await store.list(ctx.tenantId, folder);
   const entry = entries.find((e) => e.path === full && e.type === "file");
@@ -72,7 +72,7 @@ export async function keptMessages(ctx: SkillContext, messageIds: unknown): Prom
 export async function keepNote(ctx: SkillContext, path: unknown, pieces: KeptText[]): Promise<{ path: string }> {
   const t = textIn(ctx.language), store = workspaceStore();
   const note = pathInPlaceFolder(ctx, path, "notes");
-  if (!note) throw new Error(t.keepNotNotes(filesRoot(ctx)!));
+  if (!note) throw new Error(t.keepNotNotes(placeRoot(ctx)!));
   if (!note.endsWith(".md")) throw new Error(t.keepNotMarkdown);
   const full = resolvePath(ctx, note);
   if (await store.read(ctx.tenantId, full).catch(() => true)) throw new Error(t.keepTaken(note));

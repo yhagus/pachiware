@@ -1,6 +1,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { IndexedWorkspaceStore } from "./search.js";
+import { IndexedWorkspaceStore } from "./searchIndex.js";
+import type { FileMatch } from "./search.js";
 
 export const MAX_FILE_BYTES = 256 * 1024;
 /** Filed documents (PDF, DOCX, ...) are stored as bytes and never read back as text through `read`. */
@@ -26,6 +27,16 @@ export interface WorkspaceStore {
   move(tenantId: string, from: string, to: string): Promise<void>;
   /** A file, or a folder only when empty. */
   remove(tenantId: string, path: string): Promise<void>;
+}
+
+/** A store that can also search a folder's files for words, as `workspaceStore()` gives it. */
+export interface SearchableWorkspaceStore extends WorkspaceStore {
+  /**
+   * Every file under a folder (a tenant-relative store path) that matches the words, in the order a walk of the folder gives.
+   * Hidden files are skipped, and a binary Document matches by name only. `nameOf` gives the name a file is matched by,
+   * from its store path. Uncapped: the caller caps.
+   */
+  searchFolder(tenantId: string, folder: string, words: string[], nameOf: (path: string) => string): Promise<FileMatch[]>;
 }
 
 const versionOf = (stat: { mtimeMs: number; size: number }) => `${stat.mtimeMs}-${stat.size}`;
@@ -177,9 +188,9 @@ export class LocalWorkspaceStore implements WorkspaceStore {
   }
 }
 
-let store: IndexedWorkspaceStore | null = null;
+let store: SearchableWorkspaceStore | null = null;
 /** The configured driver, behind the search index. Local disk is the default; WORKSPACE_DRIVER=s3 is reserved for a later release. */
-export function workspaceStore(): IndexedWorkspaceStore {
+export function workspaceStore(): SearchableWorkspaceStore {
   if (store) return store;
   const driver = process.env.WORKSPACE_DRIVER || "local";
   if (driver !== "local") throw new Error(`Workspace driver "${driver}" is not available yet`);

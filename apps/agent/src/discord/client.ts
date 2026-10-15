@@ -187,7 +187,7 @@ export class DiscordBotManager {
   private async moveOldThreadFiles(runtime: BotRuntime) {
     const kindOf = async (threadId: string) => {
       const channel = await runtime.client.channels.fetch(threadId).catch(() => null);
-      return channel && channel.type !== ChannelType.PrivateThread ? "keep" as const : "private" as const;
+      return channel && channel.type !== ChannelType.PrivateThread ? "public" as const : "private" as const;
     };
     for (const guildId of runtime.guildIds.filter((g) => runtime.client.guilds.cache.has(g))) {
       const report = await moveOldThreadFiles(runtime.tenantId, guildId, kindOf).catch(() => null);

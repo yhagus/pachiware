@@ -30,9 +30,6 @@ export function documentReason(doc: Pick<Document, "name" | "size">): NotFiledRe
   return null;
 }
 
-/** The folder documents are filed in: a private thread's own, the channel's (a public thread uses its parent's), or the DM's. Null outside all. */
-export const filesRoot = (where: Where) => placeRoot(where);
-
 /** A Discord attachment name reduced to one safe path segment, extension kept. */
 export function safeName(name: string) {
   const ext = extensionOf(name), stem = ext ? name.slice(0, -ext.length - 1) : name;
@@ -68,7 +65,7 @@ export function unrecordedTextPath(path: string, siblings: string[]) {
 export async function fileDocument(tenantId: string, where: Where, doc: Document, { taken, givenBy }: { taken?: Set<string>; givenBy?: Giver } = {}): Promise<Filed | NotFiled> {
   const reason = documentReason(doc);
   if (reason) return { reason };
-  const root = filesRoot(where);
+  const root = placeRoot(where);
   if (!root) return { reason: "place" };
   const names = taken ?? await takenNames(tenantId, where);
   const bytes = await download(doc.url);
@@ -121,7 +118,7 @@ async function extractInto(tenantId: string, where: Where, root: string, name: s
 
 /** The names already in the turn's `files/` folder, so several documents of one turn number themselves consistently. */
 export async function takenNames(tenantId: string, where: Where) {
-  const root = filesRoot(where);
+  const root = placeRoot(where);
   if (!root) return new Set<string>();
   const folder = resolvePath(where, `${root}/files`, true);
   return new Set((await workspaceStore().list(tenantId, folder)).map((e) => e.path.slice(folder.length + 1)));

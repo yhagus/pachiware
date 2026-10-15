@@ -1,11 +1,24 @@
 import type { DiscordClientAdapter, SkillContext } from "../types.js";
 import { channelsWithSkill } from "../availability.js";
 import { textIn } from "../language.js";
-import { checkSegments, KEPT_FOLDERS, safeId, threadFolder, visibleRoots } from "./paths.js";
-import type { WorkspaceStore } from "./store.js";
+import { agentPaths, checkSegments, KEPT_FOLDERS, safeId, visibleRoots } from "./paths.js";
+import { capMatches, shownMatch, type FileMatch } from "./search.js";
+import type { SearchableWorkspaceStore, WorkspaceStore } from "./store.js";
+import { viewedIn } from "./threads.js";
 
-/** A channel of a guild one person can view, with its Workspace folder and whether it is a Public channel. */
+/** A channel or thread of a guild one person can view, with its Workspace folder and whether it is a Public channel. */
 export interface ViewableChannel { id: string; name: string; guildId: string; folder: string; public: boolean }
+
+/** The id-named folders under `folder` whose channel or thread Discord shows the person in `guildId`. One Discord cannot resolve is left out. */
+async function viewableFolders(store: WorkspaceStore, tenantId: string, discord: DiscordClientAdapter, folder: string, guildId: string, userId: string): Promise<ViewableChannel[]> {
+  const ids = (await store.list(tenantId, folder).catch(() => []))
+    .filter((e) => e.type === "dir").map((e) => e.path.split("/").pop()!).filter((id) => !!safeId(id));
+  const views = await Promise.all(ids.map((id) => viewedIn(discord, id, userId, guildId)));
+  return ids.flatMap((id, i) => {
+    const v = views[i];
+    return v ? [{ id, name: v.name, guildId, folder: `${folder}/${id}`, public: v.public }] : [];
+  });
+}
 
 /**
  * The channels of a guild a person can view: each channel folder of the guild in the Workspace that `channelView` says they see.
@@ -13,20 +26,15 @@ export interface ViewableChannel { id: string; name: string; guildId: string; fo
  */
 export async function viewableChannels(store: WorkspaceStore, tenantId: string, discord: DiscordClientAdapter | undefined, guildId: string, userId: string): Promise<ViewableChannel[]> {
   if (!discord || !safeId(guildId) || !safeId(userId)) return [];
-  const folder = `guilds/${guildId}/channels`, ids = (await store.list(tenantId, folder).catch(() => []))
-    .filter((e) => e.type === "dir").map((e) => e.path.split("/").pop()!).filter((id) => !!safeId(id));
-  const views = await Promise.all(ids.map((id) => discord.channelView(id, userId).catch(() => null)));
-  return ids.flatMap((id, i) => {
-    const v = views[i];
-    return v?.canView && v.channel?.guildId === guildId ? [{ id, name: v.channel.name, guildId, folder: `${folder}/${id}`, public: v.channel.public }] : [];
-  });
+  return viewableFolders(store, tenantId, discord, `guilds/${guildId}/channels`, guildId, userId);
 }
 
 /**
- * A place whose Minutes, Decisions, Notes and Documents the asker may read from where they ask.
- * `root` is the name a path starts with: "channel", "thread" or "dm" for the place asked from (`here`), else "#name" (with " [id]" when two
- * channels share a name). `label` is how results name it. `folder` is its tenant-relative folder, `folders` the kept folders under it that
- * are read. `quotable`: what it holds may be shown here; a source that is not is only counted, never named or shown.
+ * A place whose Kept material (Minutes, Decisions, Notes and Documents) the asker may read from where they ask.
+ * `root` is the name a path starts with: "channel", "thread" or "dm" for the place asked from (`here`), "channel/threads/<id>" for one
+ * of its private threads, else "#name" (with " [id]" when two channels share a name). `label` is how results name it. `folder` is its
+ * tenant-relative folder, `folders` the kept folders under it that are read. `quotable`: what it holds may be shown here; a source
+ * that is not is only counted, never named or shown.
  */
 export interface Source {
   root: string;
@@ -43,12 +51,25 @@ export interface Source {
 type Asker = Pick<SkillContext, "tenantId" | "botId" | "guildId" | "channelId" | "parentChannelId" | "privateThread" | "userId" | "channelName" | "discord">;
 
 const keptIn = (folder: string) => KEPT_FOLDERS.map((f) => `${folder}/${f}`);
+/** A source kept in `folder`, reading the kept folders under it; not the place asked from unless `here`. */
+const sourceAt = (folder: string, source: Omit<Source, "folder" | "folders" | "here"> & { here?: boolean }): Source =>
+  ({ ...source, folder, folders: keptIn(folder), here: source.here ?? false });
 const WORKSPACE_SKILL = "workspace";
 
 /** Gives each source a root no other source has: its label, with " [id]" added when two share one. */
 function uniqueRoots(sources: Source[], taken: (root: string) => boolean = () => false): Source[] {
   const shared = (root: string) => sources.filter((s) => s.root === root).length > 1 || taken(root);
   return sources.map((s) => (shared(s.root) ? { ...s, root: `${s.root} [${s.threadId ?? s.channelId}]` } : s));
+}
+
+/** The private thread folders under a channel's `threads/` whose thread Discord says the person can view, which means they were added to it. */
+const addedThreads = (store: WorkspaceStore, ctx: Asker, channel: ViewableChannel, userId: string) =>
+  viewableFolders(store, ctx.tenantId, ctx.discord!, `${channel.folder}/threads`, channel.guildId, userId);
+
+/** The viewable channels of a guild where no Availability rule turns the Workspace off, by name. */
+async function workspaceOn(ctx: Asker, guildId: string, channels: ViewableChannel[]) {
+  const on = await channelsWithSkill({ tenantId: ctx.tenantId, botId: ctx.botId, guildId }, WORKSPACE_SKILL, channels.map((c) => c.id));
+  return channels.filter((c) => on.has(c.id)).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
 /**
@@ -58,67 +79,69 @@ function uniqueRoots(sources: Source[], taken: (root: string) => boolean = () =>
 async function sharedGuildSources(store: WorkspaceStore, ctx: Asker, userId: string): Promise<Source[]> {
   const guilds = (await ctx.discord?.sharedGuilds(userId).catch(() => [])) ?? [];
   const perGuild = await Promise.all(guilds.filter((g) => safeId(g.id)).map(async (g) => {
-    const channels = await viewableChannels(store, ctx.tenantId, ctx.discord, g.id, userId);
-    const on = await channelsWithSkill({ tenantId: ctx.tenantId, botId: ctx.botId, guildId: g.id }, WORKSPACE_SKILL, channels.map((c) => c.id));
-    const kept = channels.filter((c) => on.has(c.id));
-    const threads = (await Promise.all(kept.map((c) => addedThreads(store, ctx, c, userId)))).flat();
-    const label = (name: string) => `#${name} (${g.name})`;
-    return [
-      ...kept.map((c): Source => ({ root: label(c.name), label: label(c.name), folder: c.folder, folders: keptIn(c.folder), guildId: g.id, channelId: c.id, here: false, quotable: true })),
-      ...threads.map((t): Source => ({ root: label(t.name), label: label(t.name), folder: t.folder, folders: keptIn(t.folder), guildId: g.id, channelId: t.channelId, threadId: t.id, here: false, quotable: true })),
-    ];
+    const channels = await workspaceOn(ctx, g.id, await viewableChannels(store, ctx.tenantId, ctx.discord, g.id, userId));
+    const named = (name: string) => ({ root: `#${name} (${g.name})`, label: `#${name} (${g.name})`, guildId: g.id, quotable: true });
+    const threads = await Promise.all(channels.map(async (c) => (await addedThreads(store, ctx, c, userId))
+      .map((t) => sourceAt(t.folder, { ...named(t.name), channelId: c.id, threadId: t.id }))));
+    return [...channels.map((c) => sourceAt(c.folder, { ...named(c.name), channelId: c.id })), ...threads.flat()];
   }));
   return perGuild.flat().sort((a, b) => a.label.localeCompare(b.label) || a.folder.localeCompare(b.folder));
 }
 
-/** The private thread folders under a channel's `threads/` whose thread Discord says the person can view, which means they were added to it. A thread Discord cannot resolve is left out. */
-async function addedThreads(store: WorkspaceStore, ctx: Asker, channel: ViewableChannel, userId: string) {
-  const ids = (await store.list(ctx.tenantId, `${channel.folder}/threads`).catch(() => []))
-    .filter((e) => e.type === "dir").map((e) => e.path.split("/").pop()!).filter((id) => !!safeId(id));
-  const views = await Promise.all(ids.map((id) => ctx.discord!.channelView(id, userId).catch(() => null)));
-  return ids.flatMap((id, i) => {
-    const v = views[i], folder = threadFolder(channel.guildId, channel.id, id);
-    return folder && v?.canView && v.channel?.guildId === channel.guildId ? [{ id, name: v.channel.name, channelId: channel.id, folder }] : [];
-  });
+/**
+ * From a guild channel or thread: that place; then the channel's private threads the asker was added to, shown in the channel and its
+ * public threads but only counted inside another private thread of it; then every other channel folder of the guild the asker can view,
+ * leaving out a channel where an Availability rule turns the Workspace off, quotable only when it is a Public channel; then the private
+ * threads under those channels the asker was added to, never quotable.
+ */
+async function guildSources(store: WorkspaceStore, ctx: Asker, roots: Record<string, string>, guildId: string): Promise<Source[]> {
+  const channelId = (ctx.parentChannelId ?? ctx.channelId)!, userId = ctx.userId;
+  const channels = userId ? await viewableChannels(store, ctx.tenantId, ctx.discord, guildId, userId) : [];
+  const own = channels.find((c) => c.id === channelId);
+  const here: Source[] = [];
+  if (roots.thread) {
+    const threadName = userId && ctx.discord ? (await viewedIn(ctx.discord, ctx.channelId!, userId, guildId))?.name : undefined;
+    here.push(sourceAt(roots.thread, { root: "thread", label: `#${threadName ?? ctx.channelId}`, guildId, channelId, threadId: ctx.channelId, here: true, quotable: true }));
+  }
+  here.push(sourceAt(roots.channel!, { root: "channel", label: `#${own?.name ?? (ctx.parentChannelId ? undefined : ctx.channelName) ?? channelId}`, guildId, channelId, here: true, quotable: true }));
+  if (!userId || !ctx.discord) return here;
+
+  // Read by the path the channel gives them, so `channel/threads/<id>/...` names each.
+  const ownThreads = own ? (await addedThreads(store, ctx, own, userId)).filter((t) => t.folder !== roots.thread)
+    .map((t) => sourceAt(t.folder, { root: `channel/threads/${t.id}`, label: `#${t.name}`, guildId, channelId, threadId: t.id, quotable: !roots.thread })) : [];
+  const others = await workspaceOn(ctx, guildId, channels.filter((c) => c.id !== channelId));
+  const elsewhere = others.map((c) => sourceAt(c.folder, { root: `#${c.name}`, label: `#${c.name}`, guildId, channelId: c.id, quotable: c.public }));
+  // Another channel's private thread is only counted here: its root holds a "/", so no path names it by name.
+  const threads = await Promise.all(others.map(async (c) => (await addedThreads(store, ctx, c, userId))
+    .map((t) => sourceAt(t.folder, { root: `#${c.name}/${t.name}`, label: `#${c.name}/${t.name}`, guildId, channelId: c.id, threadId: t.id, quotable: false }))));
+  return [...here, ...ownThreads, ...uniqueRoots(elsewhere, (root) => here.some((s) => s.label === root)), ...threads.flat()];
 }
 
-/**
- * Which places the asker may read kept material from here, the place asked from first. From a guild channel or thread: that place,
- * then every other channel folder of the guild the asker can view, leaving out a channel where an Availability rule turns the Workspace off,
- * then the private threads under those channels the asker was added to. Another channel is quotable only when it is a Public channel; another
- * channel's private thread never is. From a DM: the DM, then every guild shared with the bot (`sharedGuildSources`).
- * From web chat, which has no Discord identity: only the place itself.
- */
-export async function readableSources(store: WorkspaceStore, ctx: Asker): Promise<Source[]> {
-  const roots = visibleRoots(ctx);
-  if (!ctx.guildId || !roots.channel) {
-    if (!roots.dm) return [];
-    const dm: Source = { root: "dm", label: "DM", folder: roots.dm, folders: keptIn(roots.dm), here: true, quotable: true };
-    const user = safeId(ctx.userId);
-    return [dm, ...(user && ctx.discord ? uniqueRoots(await sharedGuildSources(store, ctx, user), (root) => root === dm.label) : [])];
-  }
-  const guildId = ctx.guildId, channelId = (ctx.parentChannelId ?? ctx.channelId)!;
-  const channels = ctx.userId ? await viewableChannels(store, ctx.tenantId, ctx.discord, guildId, ctx.userId) : [];
-  const here: Source[] = [];
-  const threadName = roots.thread && ctx.userId ? (await ctx.discord?.channelView(ctx.channelId!, ctx.userId).catch(() => null))?.channel?.name : undefined;
-  if (roots.thread) here.push({ root: "thread", label: `#${threadName ?? ctx.channelId}`, folder: roots.thread, folders: keptIn(roots.thread), guildId, channelId, threadId: ctx.channelId, here: true, quotable: true });
-  const own = channels.find((c) => c.id === channelId);
-  here.push({ root: "channel", label: `#${own?.name ?? (ctx.parentChannelId ? undefined : ctx.channelName) ?? channelId}`, folder: roots.channel, folders: keptIn(roots.channel), guildId, channelId, here: true, quotable: true });
-  // This channel's private threads the asker was added to, read by the path the channel gives them: shown in the channel and its
-  // public threads, only counted inside another private thread of it.
-  const userId = ctx.userId;
-  const ownThreads = own && userId && ctx.discord ? (await addedThreads(store, ctx, own, userId)).filter((t) => t.folder !== roots.thread)
-    .map((t): Source => ({ root: `channel/threads/${t.id}`, label: `#${t.name}`, folder: t.folder, folders: keptIn(t.folder), guildId, channelId, threadId: t.id, here: false, quotable: !roots.thread })) : [];
+/** Every source of one turn, looked up once: the host passes one context object to every tool call of a turn. */
+const perTurn = new WeakMap<WorkspaceStore, WeakMap<object, Promise<Source[]>>>();
 
-  const others = channels.filter((c) => c.id !== channelId);
-  const on = await channelsWithSkill({ tenantId: ctx.tenantId, botId: ctx.botId, guildId }, WORKSPACE_SKILL, others.map((c) => c.id));
-  const kept = others.filter((c) => on.has(c.id)).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  const elsewhere = kept.map((c): Source => ({ root: `#${c.name}`, label: `#${c.name}`, folder: c.folder, folders: keptIn(c.folder), guildId, channelId: c.id, here: false, quotable: c.public }));
-  const taken = (root: string) => elsewhere.filter((s) => s.root === root).length > 1 || here.some((s) => s.label === root);
-  // Another channel's private thread is only counted here: its root holds a "/", so no path names it by name.
-  const threads = userId && ctx.discord ? (await Promise.all(kept.map(async (c) => (await addedThreads(store, ctx, c, userId))
-    .map((t): Source => ({ root: `#${c.name}/${t.name}`, label: `#${c.name}/${t.name}`, folder: t.folder, folders: keptIn(t.folder), guildId, channelId: c.id, threadId: t.id, here: false, quotable: false }))))).flat() : [];
-  return [...here, ...ownThreads, ...elsewhere.map((s) => (taken(s.root) ? { ...s, root: `${s.root} [${s.channelId}]` } : s)), ...threads];
+/**
+ * Which places the asker may read Kept material from here, the place asked from first. From a guild channel or thread, see
+ * `guildSources`. From a DM: the DM, then every guild shared with the bot (`sharedGuildSources`). From web chat, which has no Discord
+ * identity: only the place itself. Looked up once per turn context.
+ */
+export function readableSources(store: WorkspaceStore, ctx: Asker): Promise<Source[]> {
+  const turns = perTurn.get(store) ?? perTurn.set(store, new WeakMap()).get(store)!;
+  const known = turns.get(ctx);
+  if (known) return known;
+  const found = lookUpSources(store, ctx);
+  turns.set(ctx, found);
+  found.catch(() => turns.delete(ctx));
+  return found;
+}
+
+async function lookUpSources(store: WorkspaceStore, ctx: Asker): Promise<Source[]> {
+  const roots = visibleRoots(ctx);
+  if (ctx.guildId && roots.channel) return guildSources(store, ctx, roots, ctx.guildId);
+  if (!roots.dm) return [];
+  const dm = sourceAt(roots.dm, { root: "dm", label: "DM", here: true, quotable: true });
+  const user = safeId(ctx.userId);
+  return [dm, ...(user && ctx.discord ? uniqueRoots(await sharedGuildSources(store, ctx, user), (root) => root === dm.label) : [])];
 }
 
 /** Whether an agent path starts with a channel's name ("#marketing/...") or mention ("<#123>/..."), not one of the place's own roots. */
@@ -144,5 +167,24 @@ export function sourcePath(ctx: Pick<SkillContext, "language">, sources: Source[
   if (!rest.length && !allowRoot) throw new Error("path must name a file");
   checkSegments(rest);
   if (rest.length && !KEPT_FOLDERS.includes(rest[0]!)) throw new Error(t.sourceFolderRefused(KEPT_FOLDERS));
-  return { source, path: [source.folder, ...rest].join("/"), shown: (path) => source.root + path.slice(source.folder.length) };
+  return { source, path: [source.folder, ...rest].join("/"), shown: agentPaths(source.root, source.folder) };
+}
+
+/** Every match of the words in a source's folders (its kept folders unless given), each with its source and the path the agent reads it by. */
+export async function searchSource(store: SearchableWorkspaceStore, tenantId: string, source: Source, words: string[], folders = source.folders) {
+  const shown = agentPaths(source.root, source.folder);
+  const found = await Promise.all(folders.map((folder) => store.searchFolder(tenantId, folder, words, (p) => p.slice(source.folder.length + 1))));
+  return found.flat().map((m): FileMatch & { source: Source; shown: string } => ({ ...m, source, shown: shown(m.path) }));
+}
+
+/**
+ * Searches the kept folders of every source. Matches that may be shown here come grouped by source label, groups in the order of their
+ * newest match, at most MAX_MATCHES in all; `total` and `leftOut` count only those. `notShown` counts the matches of non-quotable sources.
+ */
+export async function searchSources(store: SearchableWorkspaceStore, tenantId: string, sources: Source[], words: string[]) {
+  const all = (await Promise.all(sources.map((s) => searchSource(store, tenantId, s, words)))).flat();
+  const { matches, total, leftOut } = capMatches(all.filter((m) => m.source.quotable));
+  const groups = sources.map((s) => ({ s, matches: matches.filter((m) => m.source === s) })).filter((g) => g.matches.length)
+    .sort((a, b) => matches.indexOf(a.matches[0]!) - matches.indexOf(b.matches[0]!));
+  return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, notShown: all.length - total };
 }

@@ -1,5 +1,5 @@
 import type { SkillContext, SkillModule } from "../types.js";
-import { KEPT_FOLDERS, keptPath, resolvePath, visibleRoots } from "../workspace/paths.js";
+import { agentPaths, KEPT_FOLDERS, keptPath, placeRoot, resolvePath, visibleRoots } from "../workspace/paths.js";
 import { workspaceStore } from "../workspace/store.js";
 import { checkThreadWrite, threadAccess } from "../workspace/threads.js";
 import { readPlaybookFile } from "../playbooks.js";
@@ -8,10 +8,10 @@ import { recordBriefAnswers, recordBriefAnswersTool, writeIssueDraft, writeIssue
 import { describeBriefImages, describeBriefImagesTool } from "../briefImages.js";
 import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 import { forget, memoryLevel, remember } from "../workspace/memory.js";
-import { fileDocument, filesRoot, isDocument } from "../workspace/files.js";
+import { fileDocument, isDocument } from "../workspace/files.js";
 import { keepNote, keptDocument, keptMessages, MAX_KEPT_MESSAGES } from "../workspace/notes.js";
-import { MAX_MATCHES, newestFirst, queryWords, type FileMatch, type LineHit } from "../workspace/search.js";
-import { namesChannel, readableSources, sourcePath, type Source } from "../workspace/sources.js";
+import { capMatches, queryWords, shownMatch, type FileMatch } from "../workspace/search.js";
+import { namesChannel, readableSources, searchSource, searchSources, sourcePath } from "../workspace/sources.js";
 import { textIn } from "../language.js";
 import { hasPermission } from "../permissions.js";
 
@@ -55,21 +55,6 @@ async function namedSource(ctx: SkillContext, input: string, allowRoot = false, 
 
 /** How many matches may not be shown here, and the place's suggestion to ask in a DM; nothing when every match may be shown. */
 const notShown = (ctx: SkillContext, count: number) => (count ? { notShownHere: count, suggestion: textIn(ctx.language).notShownHere(count) } : {});
-
-type Shown = { path: string; lines: LineHit[] };
-/** Matches newest first, at most MAX_MATCHES, with the total and how many were left out. */
-function capped<T extends FileMatch & { shown: string }>(found: T[]) {
-  const kept = newestFirst(found).slice(0, MAX_MATCHES);
-  return { kept, total: found.length, leftOut: found.length - kept.length };
-}
-const shownMatch = (m: FileMatch & { shown: string }): Shown => ({ path: m.shown, lines: m.lines });
-
-/** Every match of the words in a source's kept folders, each with the path the agent reads it by. */
-async function searchSource(ctx: SkillContext, source: Source, folders: string[], words: string[]) {
-  const shown = (path: string) => source.root + path.slice(source.folder.length);
-  const found = await Promise.all(folders.map((folder) => workspaceStore().searchFolder(ctx.tenantId, folder, words, (p) => p.slice(source.folder.length + 1))));
-  return found.flat().map((m) => ({ ...m, source, shown: shown(m.path) }));
-}
 
 /** The tenant-relative path of a change, refused under a private thread's folder from outside that thread. */
 function changeable(ctx: SkillContext, path: unknown) {
@@ -126,8 +111,8 @@ export const workspaceSkill: SkillModule = {
       const dir = resolvePath(ctx, args.path, true), access = threadAccess(ctx);
       await access.check(dir);
       const entries = (await access.sort(await workspaceStore().list(ctx.tenantId, dir))).shown;
-      const name = String(args.path).split("/")[0]!, prefix = visibleRoots(ctx)[name]!;
-      return { entries: entries.filter((e) => !e.path.split("/").pop()!.startsWith(".")).map((e) => ({ ...e, path: name + e.path.slice(prefix.length) })) };
+      const name = String(args.path).split("/")[0]!, shown = agentPaths(name, visibleRoots(ctx)[name]!);
+      return { entries: entries.filter((e) => !e.path.split("/").pop()!.startsWith(".")).map((e) => ({ ...e, path: shown(e.path) })) };
     },
     readFile: async (args, ctx) => {
       const path = namesChannel(args.path) ? (await namedSource(ctx, args.path)).path : resolvePath(ctx, args.path);
@@ -186,8 +171,8 @@ export const workspaceSkill: SkillModule = {
       if (candidates.length > 1) throw new Error(t.saveWhich(candidates.map((a) => a.name)));
       const outcome = await fileDocument(ctx.tenantId, ctx, candidates[0]!, { givenBy: { name: message.authorName, id: message.authorId } });
       if ("reason" in outcome) throw new Error(t.notFiled[outcome.reason]);
-      await labelFolder(ctx, filesRoot(ctx)!);
-      const text = !outcome.text ? {} : "path" in outcome.text ? { text: outcome.text.path } : { note: t.textNotExtracted };
+      await labelFolder(ctx, placeRoot(ctx)!);
+      const text =!outcome.text ? {} : "path" in outcome.text ? { text: outcome.text.path } : { note: t.textNotExtracted };
       return { path: outcome.path, name: candidates[0]!.name, messageId: message.id, ...text };
     },
     keepAsNote: async (args, ctx) => {
@@ -199,9 +184,9 @@ export const workspaceSkill: SkillModule = {
       writable(ctx, args.path);
       // Only the Note is redirected into a private thread's folder: a parent channel Document stays readable where it is.
       const pieces = hasDocument ? [await keptDocument(ctx, document)] : await keptMessages(ctx, args.messageIds);
-      const kept = await keepNote(ctx, keptPath(ctx, args.path), pieces);
-      await labelFolder(ctx, filesRoot(ctx)!);
-      return { success: true, path: kept.path, source: document || pieces.map((p) => p.source) };
+      const note = await keepNote(ctx, keptPath(ctx, args.path), pieces);
+      await labelFolder(ctx, placeRoot(ctx)!);
+      return { success: true, path: note.path, source: document || pieces.map((p) => p.source) };
     },
     postBriefRound,
     recordBriefAnswers,
@@ -210,31 +195,26 @@ export const workspaceSkill: SkillModule = {
     searchFiles: async (args, ctx) => {
       const words = queryWords(typeof args.query === "string" ? args.query : "");
       if (!words.length) throw new Error("query is required");
-      const wanted = typeof args.path === "string" ? args.path.trim() : "";
+      const store = workspaceStore(), wanted = typeof args.path === "string" ? args.path.trim() : "";
       if (!wanted) {
-        // Every source: grouped by channel in the order their newest kept match comes.
-        const sources = await readableSources(workspaceStore(), ctx);
-        const all = (await Promise.all(sources.map((s) => searchSource(ctx, s, s.folders, words)))).flat();
-        const { kept, total, leftOut } = capped(all.filter((m) => m.source.quotable));
-        const groups = sources.map((s) => ({ s, matches: kept.filter((m) => m.source === s) })).filter((g) => g.matches.length)
-          .sort((a, b) => kept.indexOf(a.matches[0]!) - kept.indexOf(b.matches[0]!));
-        return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, ...notShown(ctx, all.length - total) };
+        const { notShown: hidden, ...found } = await searchSources(store, ctx.tenantId, await readableSources(store, ctx), words);
+        return { ...found, ...notShown(ctx, hidden) };
       }
-      let found: (FileMatch & { shown: string })[], counted = 0;
+      let found: (FileMatch & { shown: string })[], hidden = 0;
       if (namesChannel(wanted)) {
         const { source, path } = await namedSource(ctx, wanted, true, true);
-        found = await searchSource(ctx, source, path === source.folder ? source.folders : [path], words);
+        found = await searchSource(store, ctx.tenantId, source, words, path === source.folder ? source.folders : [path]);
         if (!source.quotable) return { matches: [], ...notShown(ctx, found.length) };
       } else {
         const root = resolvePath(ctx, wanted, true), access = threadAccess(ctx);
         await access.check(root);
-        const name = wanted.split("/")[0]!, prefix = visibleRoots(ctx)[name]!;
-        const sorted = await access.sort(await workspaceStore().searchFolder(ctx.tenantId, root, words, (p) => p.slice(prefix.length + 1)));
-        found = sorted.shown.map((m) => ({ ...m, shown: name + m.path.slice(prefix.length) }));
-        counted = sorted.counted;
+        const name = wanted.split("/")[0]!, prefix = visibleRoots(ctx)[name]!, shown = agentPaths(name, prefix);
+        const sorted = await access.sort(await store.searchFolder(ctx.tenantId, root, words, (p) => p.slice(prefix.length + 1)));
+        found = sorted.shown.map((m) => ({ ...m, shown: shown(m.path) }));
+        hidden = sorted.counted;
       }
-      const { kept, total, leftOut } = capped(found);
-      return { matches: kept.map(shownMatch), ...(leftOut ? { total, leftOut } : {}), ...notShown(ctx, counted) };
+      const { matches, total, leftOut } = capMatches(found);
+      return { matches: matches.map(shownMatch), ...(leftOut ? { total, leftOut } : {}), ...notShown(ctx, hidden) };
     },
   },
 };

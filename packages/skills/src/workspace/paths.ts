@@ -44,6 +44,9 @@ export function keptPath(ctx: Where, path: unknown) {
   return root === "channel" && KEPT_FOLDERS.includes(top!) && rest.length ? ["thread", top, ...rest].join("/") : path;
 }
 
+/** Turns store paths under `folder` into the paths the agent reads them by, under the name `root` ("channel", "#marketing", ...). */
+export const agentPaths = (root: string, folder: string) => (path: string) => root + path.slice(folder.length);
+
 /** Rejects any segment that is not a plain file or folder name. Shared by the agent's paths and the admin routes. */
 export function checkSegments(parts: string[]) {
   if (parts.length > MAX_DEPTH) throw new Error("Path is too deep");
