@@ -1,7 +1,7 @@
 import { db, conversations, messages as messagesTable, type Message } from "@pachiware/db";
 import { eq, and, sql } from "drizzle-orm";
-import { dropLeadingOrphans, historyOffset, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { dropLeadingOrphans, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, type Language, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
@@ -21,10 +21,12 @@ export interface ReActInput {
   onStep?: (step: { type: "thought" | "tool_call" | "tool_result"; payload: any }) => void;
 }
 
+type Executed = { call: ToolCall; result: ToolResult };
+
 export interface ReActOutput {
   conversationId: string;
   reply: string;
-  toolCallsExecuted: { call: ToolCall; result: ToolResult }[];
+  toolCallsExecuted: Executed[];
   iterations: number;
   imagesRejected?: boolean;
   /** Where the history window started on this turn; the caller compares it after storing the turn to see whether the window stepped. */
@@ -35,6 +37,20 @@ const MAX_TOOL_RESULT = 12000;
 /** A grounded brief round takes several tool steps per point, more than a tenant's usual cap. */
 export const PLAYBOOK_ITERATIONS = 20;
 
+/** A change as the person reads it: the tool and the thing it touched. */
+function changeLine({ call, result }: Executed) {
+  const data = result.data ?? {}, args = call.arguments ?? {};
+  const subject = [data.task?.title, data.title, data.name, data.path, args.title, args.name, args.path, args.taskId].find((v) => typeof v === "string" && v.trim());
+  return subject ? `${call.name} "${subject.trim().slice(0, 80)}"` : call.name;
+}
+
+/** The reply to a provider failure; when changes already landed this turn it names them first, so nobody asks for them twice. */
+function failureReply(failure: string, executed: Executed[], language?: Language) {
+  const done = executed.filter(({ call, result }) => result.success && result.data?.success !== false && !result.data?.pending && skillRegistry.effectOf(call.name) !== "read").map(changeLine);
+  const t = textIn(language), said = failure || t.providerFailed;
+  return redact(done.length ? `${t.doneBeforeFailure(done)}\n\n${said}` : said);
+}
+
 export class AgentReActLoop {
   /**
    * Executes the ReAct cycle (Thought -> Action -> Observation -> Answer).
@@ -42,7 +58,7 @@ export class AgentReActLoop {
   async run(input: ReActInput): Promise<ReActOutput> {
     const requestedIterations = Number(input.maxIterations) || 32;
     const maxIterations = Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, PLAYBOOK_ITERATIONS) : requestedIterations));
-    const toolCallsExecuted: { call: ToolCall; result: ToolResult }[] = [];
+    const toolCallsExecuted: Executed[] = [];
 
     // 1. Ensure conversation exists in PostgreSQL
     let convId = input.conversationId;
@@ -176,6 +192,12 @@ export class AgentReActLoop {
 
       if (response.imagesRejected) { imagesRejected = true; turn.content = input.message; }
 
+      // The failure text is the host's, not the model's: kept out of history so later turns never read it as something the bot said.
+      if (response.finishReason === "error") {
+        finalReply = failureReply(response.content ?? "", toolCallsExecuted, input.context.language);
+        break;
+      }
+
       if (response.content) {
         input.onStep?.({ type: "thought", payload: response.content });
       }
@@ -228,11 +250,12 @@ export class AgentReActLoop {
           name: toolCall.name,
         });
 
+        // Later turns replay the stored row, so it keeps a short form; this turn has already seen the full result above.
         await db.insert(messagesTable).values({
           tenantId: input.tenantId,
-        conversationId: convId,
+          conversationId: convId,
           role: "tool",
-          content: toolResultContent,
+          content: asUntrusted(`tool:${toolCall.name} (short form)`, redact(storedToolResult(result))),
           toolCallId: toolCall.id,
         });
       }
@@ -250,8 +273,11 @@ export class AgentReActLoop {
         botId: input.botId,
         cacheKey: convId,
         tools: [],
+        language: input.context.language,
       });
-      finalReply = redact(boundary.content || "I completed the available actions. Please continue this task in your next message.");
+      finalReply = boundary.finishReason === "error"
+        ? failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language)
+        : redact(boundary.content || "I completed the available actions. Please continue this task in your next message.");
       await audit(skillContext, "guardrail_denied", { kind: "limit", source: "iterations", synthesized: true });
     }
 
