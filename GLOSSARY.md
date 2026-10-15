@@ -8,6 +8,10 @@ A self-hosted AI assistant platform. An operator provisions tenants; each tenant
 The operator who runs the installation and provisions tenants and API keys.
 _Avoid_: Superuser, root
 
+**Database engine**:
+The kind of database an installation keeps its records in: SQLite, PostgreSQL, or MongoDB. The platform admin chooses it while setting up the installation; once records exist it never changes, though the address of the same engine may.
+_Avoid_: Driver (the code that talks to it), dialect, backend
+
 **Tenant**:
 An isolated owner of its bots, profiles, git accounts, skills, conversations, and one Workspace. Nothing is shared across tenants.
 _Avoid_: Organization, customer
