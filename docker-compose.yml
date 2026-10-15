@@ -31,8 +31,31 @@ services:
       timeout: 3s
       retries: 5
 
+  # Optional: `docker compose --profile mongo up -d mongo`. MongoDB needs a replica set for
+  # transactions, so this runs a single-node one. Connect with
+  # mongodb://localhost:27017/pachiware?replicaSet=rs0&directConnection=true
+  mongo:
+    image: mongo:8.0
+    container_name: pachiware-mongo
+    restart: unless-stopped
+    profiles: ["mongo"]
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      # Initiates the replica set on first start, then reports healthy once this node is primary.
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status() } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }) }; if (!db.hello().isWritablePrimary) quit(1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
 volumes:
   pgdata:
     driver: local
   redisdata:
+    driver: local
+  mongodata:
     driver: local

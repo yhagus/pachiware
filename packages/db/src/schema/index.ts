@@ -10,14 +10,13 @@
  * unchanged regardless of the active dialect.
  */
 import { getInfraConfig } from "../runtime-store.js";
-import { type DbDialect } from "../dialect.js";
-import { detectEngine } from "../engine.js";
+import { detectEngine, type DatabaseEngine } from "../engine.js";
 
 import * as pgSchema from "./pg/index.js";
 import * as sqliteSchema from "./sqlite/index.js";
 
 const { databaseUrl } = getInfraConfig();
-export let activeDialect: DbDialect = detectEngine(databaseUrl);
+export let activeDialect: DatabaseEngine = detectEngine(databaseUrl);
 
 const active = activeDialect === "postgres" ? pgSchema : sqliteSchema;
 

@@ -1,7 +1,7 @@
 import { getRecordedDatabaseEngine } from "./runtime-store.js";
 
 /** The Database engine an installation keeps its records in (ADR 0010). */
-export type DatabaseEngine = "sqlite" | "postgres";
+export type DatabaseEngine = "sqlite" | "postgres" | "mongodb";
 
 interface EngineUrls {
   name: string;
@@ -13,10 +13,8 @@ interface EngineUrls {
 const ENGINES: Record<DatabaseEngine, EngineUrls> = {
   sqlite: { name: "SQLite", prefixes: ["sqlite:", "sqlite3:", "file:"], extensions: /\.(db|sqlite|sqlite3)$/ },
   postgres: { name: "PostgreSQL", prefixes: ["postgres://", "postgresql://"] },
+  mongodb: { name: "MongoDB", prefixes: ["mongodb://", "mongodb+srv://"] },
 };
-
-/** Engines recognised by their URL but not available in this version. */
-const NOT_YET_SUPPORTED: EngineUrls[] = [{ name: "MongoDB", prefixes: ["mongodb://", "mongodb+srv://"] }];
 
 const matches = (url: string, engine: EngineUrls) =>
   engine.prefixes.some((prefix) => url.startsWith(prefix)) || Boolean(engine.extensions?.test(url));
@@ -32,8 +30,6 @@ export function detectEngine(url: string): DatabaseEngine {
   for (const [engine, urls] of Object.entries(ENGINES) as [DatabaseEngine, EngineUrls][]) {
     if (matches(normalized, urls)) return engine;
   }
-  const unsupported = NOT_YET_SUPPORTED.find((urls) => matches(normalized, urls));
-  if (unsupported) throw new Error(`${unsupported.name} is not supported yet. Use a SQLite or PostgreSQL DATABASE_URL.`);
   const scheme = normalized.match(/^[a-z][a-z0-9+.-]*:/)?.[0];
   const accepted = Object.values(ENGINES).flatMap((urls) => urls.prefixes).join(", ");
   throw new Error(`${scheme ? `Unknown database URL scheme "${scheme}"` : "Unrecognised DATABASE_URL"}. Use one of ${accepted}, or a path ending in .db, .sqlite or .sqlite3.`);

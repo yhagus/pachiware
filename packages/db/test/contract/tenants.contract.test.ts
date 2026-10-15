@@ -112,6 +112,14 @@ contract("Tenants and API keys", (use) => {
     expect(await tenants.getApiKey("missing")).toBeNull();
   });
 
+  test("a second key with the same value is rejected", async () => {
+    const { tenants } = use().repos;
+    const issued = await tenants.issueApiKey("deploy");
+    await expect(use().storeKeyCopy(issued.keyId)).rejects.toThrow();
+    expect((await tenants.listApiKeys()).map((k) => k.id)).toEqual([issued.keyId]);
+    expect((await tenants.resolveApiKey(issued.raw))?.id).toBe(issued.keyId);
+  });
+
   test("a key reaches only the tenants created under or linked to it, by id or slug", async () => {
     const { tenants } = use().repos;
     const key = await tenants.issueApiKey("one"), other = await tenants.issueApiKey("two");

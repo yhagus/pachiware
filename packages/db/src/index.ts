@@ -58,6 +58,7 @@ export type { Skill, SkillDefinition, TenantSkill, TenantSkillListing, SkillRepo
 export type { RuleLevel, RuleTargetKind, RuleValue, RuleScope, RuleTarget, AvailabilityRuleRecord, AvailabilityRuleRepository } from "./repositories/index.js";
 export type { Conversation, NewConversation, ConversationListing, Message, NewMessage, ConversationRepository } from "./repositories/index.js";
 export { openConnection, type Connection } from "./connection.js";
+export { ReplicaSetRequiredError } from "./mongo/connection.js";
 export * from "./persona.js";
 export { eq, desc, asc, sql, and, or } from "drizzle-orm";
 export default db;

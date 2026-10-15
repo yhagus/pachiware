@@ -1,4 +1,5 @@
 import type { Connection } from "../connection.js";
+import { createMongoTenantRepository } from "./tenants/mongo.js";
 import { createSqlTenantRepository } from "./tenants/sql.js";
 import type { TenantRepository } from "./tenants/types.js";
 import { createSqlScheduleRepository } from "./schedules/sql.js";
@@ -15,7 +16,7 @@ import { createSqlConversationRepository } from "./conversations/sql.js";
 import type { ConversationRepository } from "./conversations/types.js";
 
 // One folder per kind of record: `types.ts` holds its domain types and interface, `sql.ts` serves SQLite
-// and PostgreSQL, and a MongoDB file will sit beside them. Its contract suite lives in
+// and PostgreSQL, and `mongo.ts` serves MongoDB. Its contract suite lives in
 // packages/db/test/contract/<name>.contract.test.ts and runs on every engine through `contract()`.
 export type * from "./tenants/types.js";
 export type * from "./schedules/types.js";
@@ -50,5 +51,27 @@ export function createRepositories(connection: Connection): Repositories {
         availability: createSqlAvailabilityRuleRepository(connection),
         conversations: createSqlConversationRepository(connection),
       };
+    case "mongodb":
+      return {
+        tenants: createMongoTenantRepository(connection),
+        schedules: notOnMongoYet("Schedules"),
+        taskRows: notOnMongoYet("Task rows"),
+        bots: notOnMongoYet("Bots"),
+        skills: notOnMongoYet("Skills"),
+        availability: notOnMongoYet("Availability rules"),
+        conversations: notOnMongoYet("Conversations"),
+      };
   }
+}
+
+/**
+ * Stands in for a repository not built for MongoDB yet (#169–#171) so the entry point stays complete:
+ * every call rejects, naming the repository. Replace it with the `mongo.ts` implementation.
+ */
+function notOnMongoYet<T extends object>(name: string): T {
+  return new Proxy({} as T, {
+    get: (_, method) => (method === "then" ? undefined : async () => {
+      throw new Error(`The ${name} repository is not available on MongoDB yet (${String(method)}).`);
+    }),
+  });
 }

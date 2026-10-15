@@ -3,7 +3,7 @@ import { config } from "./config.js";
 import { redis } from "./cache/redis.js";
 import { discordBotManager } from "./discord/client.js";
 import { startScheduler } from "./scheduler.js";
-import { runMigrations, runSeed } from "@pachiware/db";
+import { runMigrations, runSeed, ReplicaSetRequiredError } from "@pachiware/db";
 
 async function main() {
   console.log("=========================================");
@@ -15,6 +15,8 @@ async function main() {
     await runMigrations();
     await runSeed();
   } catch (err: any) {
+    // A server that answers but cannot hold the records is not a setup problem the GUI can fix.
+    if (err instanceof ReplicaSetRequiredError) throw err;
     console.log(`ℹ Database not ready (${err?.message ?? err}). Agent started in setup mode; check DATABASE_URL on the server, then restart.`);
   }
 
