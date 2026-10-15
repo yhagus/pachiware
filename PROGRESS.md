@@ -915,7 +915,7 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
   - #152 read from a DM across shared guilds (blocked by #151)
   - #153 hits that cannot be quoted here (blocked by #151)
   - #154 persona and daily-behaviour eval (blocked by #152, #153)
-- [ ] Implement #147–#154.
+- [x] Implement #147–#154.
   - [x] #148 merged into `spec/146-across-channels`: search matches every word, with ranked lines.
     - New `packages/skills/src/workspace/search.ts`: `matchFile(words, name, text)`, `queryWords(query)`, `searchFolder(...)`. Result shape is now `{ matches: [{ path, lines: [{ line, text }] }] }`.
     - Words are substrings, split on whitespace with edge punctuation stripped; a repeated word counts once; no stemming.
@@ -991,3 +991,8 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
     - Fixture fields `seed.files: [{path, content, channel?}]` (path below the channel folder; absolute and `..` refused) and `seed.hidden: [names]` (calls `s.discord.hide`), documented in the eval README.
     - Known limits: a Minutes link is built from the file's frontmatter (`guildId/postedIn/messageId`), so linking needs a `readFile`; undated files fall back to the date their text gives; seeded Minutes carry only identifying frontmatter; "nothing found" and "suggest a DM" are code-checked by reply phrases (`nothing`, `DM`, `replyLacks`), guessing is left to the judge.
     - Verification: `bun run typecheck` exits 0; `bun test` 687 pass, 0 fail across 124 files.
+  - [x] Code review fixes on `review-fixes-146`:
+    - Behaviour: a no-path search in a channel or its public thread searches and quotes the channel's private threads the asker was added to (root `channel/threads/<id>`, label `#thread-name`); keepAsNote in a private thread redirects only the Note, so a parent channel Document is kept from where it is; inside a private thread a sibling private thread is a non-quotable Source (counted as `notShownHere`, refused with `notQuotableHere` on read and list; `threadAccess` reads paths as shown, counted or refused). Public channels stay quotable inside a private thread.
+    - Structure: `viewableFolders`/`viewedIn` replace three copies of the view+guild check; `sourceAt` builds Sources; the guild path uses `uniqueRoots`; `readableSources` is looked up once per turn context (WeakMap); no-path search grouping and counts live in `sources.ts` (`searchSources`); `agentPaths` maps store paths to agent paths; `threadAccess` exposes only `check`/`sort`.
+    - Names: `ThreadKind` is `"private" | "public"`; `filesRoot` removed for `placeRoot`; `workspaceStore()` returns `SearchableWorkspaceStore`, with matching in `search.ts` and the index in `searchIndex.ts`. Glossary gains Kept material and Source.
+    - Verification: `bun run typecheck` exits 0; `bun test` 690 pass, 0 fail across 124 files.
