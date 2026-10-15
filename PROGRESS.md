@@ -983,3 +983,11 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
     - Known limits: a PDF/DOCX/XLSX and its `.md` count as two hidden hits; each search looks up every thread folder of every other kept channel, no per-turn cache; an Availability rule on a thread's own id isn't checked (its parent's is).
     - The `searchFiles` description explains `notShownHere`; persona left for #154.
     - Verification: `bun run typecheck` exits 0; `bun test` 675 pass, 0 fail across 124 files.
+  - [x] #154 merged into `spec/146-across-channels`: the persona answers questions about kept material, with five eval briefs.
+    - Persona (`packages/db/src/persona.ts`) gains "Asking about kept material": search before answering, name the channel and date of every source, link posted Minutes, say plainly when nothing was found, and on `notShownHere` or a can't-be-shown refusal suggest a DM naming nothing.
+    - `threads/` dropped from the allowed top-level folders; the Files and Decisions lines name Minutes and Documents.
+    - Prior default frozen as `PERSONA_LONG_TEXT` in `OLD_DEFAULT_PROMPTS`; migration test copy added (indices 8→9); `persona.test.ts` covers the rules.
+    - Five eval briefs under `apps/agent/eval/assistant/` with fixtures, dry runs, recordings and required-list names: decision-other-channel, action-items-across-meetings, nothing-found, private-channel-dm, minutes-as-document.
+    - Fixture fields `seed.files: [{path, content, channel?}]` (path below the channel folder; absolute and `..` refused) and `seed.hidden: [names]` (calls `s.discord.hide`), documented in the eval README.
+    - Known limits: a Minutes link is built from the file's frontmatter (`guildId/postedIn/messageId`), so linking needs a `readFile`; undated files fall back to the date their text gives; seeded Minutes carry only identifying frontmatter; "nothing found" and "suggest a DM" are code-checked by reply phrases (`nothing`, `DM`, `replyLacks`), guessing is left to the judge.
+    - Verification: `bun run typecheck` exits 0; `bun test` 687 pass, 0 fail across 124 files.
