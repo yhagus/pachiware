@@ -276,6 +276,13 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       if ("end_date" in body) next.end_date = cycleDate(body.end_date, true);
       return Object.assign(c, next);
     }
+    if (seg.length === 4 && method === "DELETE") {
+      // Only the cycle's owner or a project Admin; its work items stay.
+      if (c.owned_by !== "u-bot" && !(p.member_role > 15)) return json(403, { error: "Only admin or creator can delete the cycle" });
+      cycles.splice(cycles.indexOf(c), 1);
+      for (const r of cycleIssues.filter((x) => x.cycle === c.id)) cycleIssues.splice(cycleIssues.indexOf(r), 1);
+      return noContent();
+    }
     if (seg[4] === "cycle-issues") {
       if (seg.length === 5 && method === "POST") {
         if (!body.issues?.length) return json(400, { error: "Work items are required", code: "MISSING_WORK_ITEMS" });
@@ -334,6 +341,13 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       // Plane answers a module PATCH with its write serializer: no id, no counts, no members.
       return Object.fromEntries(MODULE_FIELDS.map((k) => [k, m[k] ?? null]));
     }
+    if (seg.length === 4 && method === "DELETE") {
+      // Only the module's creator or a project Admin; its work items stay.
+      if (m.created_by !== "u-bot" && !(p.member_role > 15)) return json(403, { error: "Only admin or creator can delete the module" });
+      modules.splice(modules.indexOf(m), 1);
+      for (const r of moduleIssues.filter((x) => x.module === m.id)) moduleIssues.splice(moduleIssues.indexOf(r), 1);
+      return noContent();
+    }
     if (seg[4] === "module-issues") {
       if (seg.length === 5 && method === "POST") {
         if (!body.issues?.length) return json(400, { error: "Issues are required" });
@@ -389,6 +403,15 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
         if (body.status === 2) r.duplicate_to = body.duplicate_to ?? null;
       }
       return intakeOut(r);
+    }
+    if (seg.length === 4 && method === "DELETE") {
+      // An intake item not accepted takes its work item with it, which only the work item's creator or a project Admin may delete.
+      if (r.status !== 1) {
+        const it = items.find((x) => x.id === r.issue)!;
+        if (it.created_by !== "u-bot" && !(p.member_role > 15)) return json(403, { error: "Only admin or creator can delete the work item" });
+        items.splice(items.indexOf(it), 1);
+      }
+      intake.splice(intake.indexOf(r), 1); return noContent();
     }
     return json(405, { detail: `Method "${method}" not allowed.` });
   }

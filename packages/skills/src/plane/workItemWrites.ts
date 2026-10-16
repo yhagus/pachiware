@@ -8,7 +8,7 @@ import { planeRequest, planeList, planeUpload, inWorkspace, PlaneError } from ".
 import { planeHtml, planeText } from "./markdown.js";
 import { planeTarget, resolvePlaneProject, UUID, type PlaneTarget } from "./projectRef.js";
 import { resolveWorkItem, workItemKey, workItemPath, projectNames, planeUserName, type ResolvedWorkItem } from "./resolve.js";
-import { planeWrite, originLine, ORIGIN_LINE, DANGER, DANGER_NOTE } from "./write.js";
+import { planeWrite, originLine, ORIGIN_LINE, DANGER, DANGER_NOTE, notCreator } from "./write.js";
 import { ACCOUNT, ITEM, PROJECT_OF_ID, PRIORITIES } from "./workItems.js";
 import { text, isNone, list, date, title, clip } from "./args.js";
 
@@ -341,10 +341,9 @@ export const workItemWriteHandlers = {
   }),
   workItemDelete: planeWrite("workItemDelete", async (a, ctx) => {
     const { t, w } = await itemOf(a, ctx);
-    const admin = `the work item's creator or an Admin of the Plane project ${w.project.identifier}`;
     return {
-      t, role: admin,
-      refusals: [[/Only admin or creator can delete the work item/, `Plane refused to delete ${w.key}: the bot's Plane user, ${t.access.account.planeUserName ?? "the account's user"}, did not create it and is not an Admin of the Plane project ${w.project.identifier}.`]],
+      t, role: `the work item's creator or an Admin of the Plane project ${w.project.identifier}`,
+      refusals: [[/Only admin or creator can delete the work item/, notCreator(t, w.key, w.project)]],
       summary: `Delete work item ${w.key} "${w.item.name}" for good`,
       run: async () => {
         await planeRequest(t.conn, workItemPath(t, w), { method: "DELETE" });

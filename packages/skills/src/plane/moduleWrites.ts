@@ -9,8 +9,8 @@ import { resolvePlaneProject, PROJECT_ARGS, type PlaneProjectTarget } from "./pr
 import { workItemsIn, findArchived, projectNames, planeUserName } from "./resolve.js";
 import { modulesOff, findModule } from "./modules.js";
 import { text, isNone, date, title, list } from "./args.js";
-import { planeWrite, type PlaneRefusals } from "./write.js";
-import { ITEMS } from "./cycleWrites.js";
+import { planeWrite, DANGER, DANGER_NOTE, notCreator, type PlaneRefusals } from "./write.js";
+import { ITEMS, staying } from "./cycleWrites.js";
 
 type Obj = Record<string, any>;
 
@@ -47,6 +47,8 @@ export const moduleWriteTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...MODULE_ARG }, required: ["project", "module"] } },
   { name: "moduleUnarchive", description: `Brings an archived module back, named by its id or name.${CONFIRM}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...MODULE_ARG }, required: ["project", "module"] } },
+  { name: "moduleDelete", description: `Deletes a module for good; its work items stay in the Plane project. Plane allows it only for the module's creator or an Admin of the Plane project.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { ...PROJECT_ARGS, ...MODULE_ARG }, required: ["project", "module"] } },
 ];
 
 export const moduleWriteToolPolicy: Record<string, ToolPolicy> = {
@@ -56,6 +58,7 @@ export const moduleWriteToolPolicy: Record<string, ToolPolicy> = {
   moduleRemoveItem: { effect: "write", group: "Modules" },
   moduleArchive: { effect: "write", group: "Modules" },
   moduleUnarchive: { effect: "write", group: "Modules" },
+  moduleDelete: { effect: "danger", group: "Modules" },
 };
 
 /** Refused before Confirm when modules are switched off, since Plane refuses create and update then. */
@@ -209,4 +212,16 @@ export const moduleWriteHandlers = {
       },
     };
   }),
+  moduleDelete: planeWrite("moduleDelete", async (a, ctx) => {
+    const { t, m } = await moduleOf(a, ctx);
+    return {
+      t, role: `the module's creator or an Admin of the Plane project ${t.project.identifier}`,
+      refusals: [[/Only admin or creator can delete the module/, notCreator(t, `the module ${m.name}`, t.project)]],
+      summary: `Delete module ${m.name} in ${t.project.identifier} for good; ${staying(m.total_issues)}`,
+      run: async () => {
+        await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/modules/${m.id}/`), { method: "DELETE" });
+        return { module: { id: m.id, name: m.name }, deleted: true };
+      },
+    };
+  }, DANGER),
 };

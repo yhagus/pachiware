@@ -50,6 +50,11 @@ export async function plainly<T>(t: PlaneTarget, call: Promise<T>, refusals: Pla
   }
 }
 
+/** Plane's refusal to delete something the bot's Plane user did not create, without the Admin role, in plain words. */
+export function notCreator(t: PlaneTarget, what: string, project: { identifier: string }): string {
+  return `Plane refused this: the bot's Plane user, ${t.access.account.planeUserName ?? "the account's user"}, did not create ${what} and is not an Admin of the Plane project ${project.identifier}.`;
+}
+
 /**
  * The paragraph that ends a work item or comment the bot writes. Plane shows the bot's Plane user as the author, so it
  * names the Discord asker and channel. The confirmed run carries no display names, so they are looked up in Discord.

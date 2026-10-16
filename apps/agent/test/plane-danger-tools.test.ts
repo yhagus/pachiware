@@ -7,11 +7,11 @@ import { fakePlane } from "./support/fakePlane";
 
 const P1 = "11111111-1111-4111-8111-111111111111", P2 = "22222222-2222-4222-8222-222222222222";
 
-/** ENG is open here, with Budi and the bot as members. */
+/** ENG is open here, with its intake on and Budi and the bot as members. */
 function world(plane: ReturnType<typeof fakePlane>, engRole = 15) {
   const budi = plane.user({ id: "u-budi", first_name: "Budi", last_name: "Santoso", display_name: "budi", email: "budi@acme.test" });
   plane.user({ id: "u-bot", first_name: "Plane", last_name: "Bot", display_name: "pachibot", email: "bot@acme.test" });
-  const eng = plane.project({ id: P1, name: "Engineering", identifier: "ENG", member_role: engRole }, [budi.id, "u-bot"]);
+  const eng = plane.project({ id: P1, name: "Engineering", identifier: "ENG", intake_view: true, member_role: engRole }, [budi.id, "u-bot"]);
   const todo = plane.state({ project: P1, name: "Todo", group: "unstarted", default: true });
   return { budi, eng, todo };
 }
@@ -80,6 +80,47 @@ discordScenario("workItemDeleteComment refuses a comment the account's Plane use
   const notCreator = await ask(s, "workItemDelete", { item: "ENG-43" });
   await s.discord.click(notCreator.confirmation!, "Confirm");
   expect(notCreator.confirmation!.content).toContain("couldn't complete");
-  expect(notCreator.confirmation!.content).toContain("did not create it and is not an Admin of the Plane project ENG");
+  expect(notCreator.confirmation!.content).toContain("pachibot (bot@acme.test), did not create ENG-43 and is not an Admin of the Plane project ENG");
   expect(plane.find.item(budis.id)).toBeDefined();
+});
+
+discordScenario("cycleDelete, moduleDelete and intakeDelete run after their own Confirm; Plane's refusal to delete a module another user made is reported plainly", async (s) => {
+  process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
+  await s.plane({ projects: [P1] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login", state: w.todo.id });
+  const sprint = plane.cycle({ project: P1, name: "Sprint 42", start_date: "2026-10-01T00:00:01Z", end_date: "2026-10-14T23:59:00Z" }, [item.id]);
+  const billing = plane.module({ project: P1, name: "Billing v2" }, [item.id]);
+  const budis = plane.module({ project: P1, name: "Search", created_by: w.budi.id });
+  const pending = plane.intake({ project: P1, name: "Export fails on Safari", sequence_id: 57 });
+
+  const notTrusted = await ask(s, "cycleDelete", { project: "ENG", cycle: "Sprint 42" }, { author: s.discord.bob });
+  expect(notTrusted.result.error).toContain("limited to Trusted members");
+
+  const cycle = await ask(s, "cycleDelete", { project: "ENG", cycle: "sprint 42" });
+  expect(cycle.result.summary).toContain("Delete cycle Sprint 42 in ENG");
+  expect(cycle.result.summary).toContain("its 1 work item stays");
+  const mod = await ask(s, "moduleDelete", { project: "ENG", module: "Billing v2" });
+  const theirs = await ask(s, "moduleDelete", { project: "ENG", module: "Search" });
+  const intake = await ask(s, "intakeDelete", { project: "ENG", workItem: "ENG-57" });
+  expect(intake.result.summary).toContain("ENG-57");
+  expect(intake.result.summary).toContain("deletes its work item too");
+  for (const r of [cycle, mod, theirs, intake]) expect(labels(r.confirmation!)).toEqual(["Confirm", "Cancel"]);
+  expect(plane.writes).toEqual([]);
+
+  for (const r of [cycle, mod, theirs, intake]) await s.discord.click(r.confirmation!, "Confirm");
+  expect(sent(plane)).toEqual([
+    `DELETE projects/${P1}/cycles/${sprint.id}/`,
+    `DELETE projects/${P1}/modules/${billing.id}/`,
+    `DELETE projects/${P1}/modules/${budis.id}/`,
+    `DELETE projects/${P1}/intake-issues/${pending.issue}/`,
+  ]);
+  expect(plane.find.cycle(sprint.id)).toBeUndefined();
+  expect(plane.find.module(billing.id)).toBeUndefined();
+  expect(plane.find.item(item.id)).toBeDefined();
+  expect(theirs.confirmation!.content).toContain("did not create the module Search and is not an Admin of the Plane project ENG");
+  expect(plane.find.module(budis.id)).toBeDefined();
+  expect(plane.find.intake(pending.issue)).toBeUndefined();
+  expect(plane.find.item(pending.issue)).toBeUndefined();
 });

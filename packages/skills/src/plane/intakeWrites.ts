@@ -11,7 +11,7 @@ import { resolveWorkItem } from "./resolve.js";
 import { findIntakeItem, intakeOff, STATUS } from "./intake.js";
 import { PRIORITIES } from "./workItems.js";
 import { text, title } from "./args.js";
-import { planeWrite, originLine } from "./write.js";
+import { planeWrite, originLine, DANGER, DANGER_NOTE, notCreator } from "./write.js";
 
 type Obj = Record<string, any>;
 
@@ -35,11 +35,14 @@ export const intakeWriteTools: ToolDefinition[] = [
       snoozeUntil: { type: "string", description: "For snooze: YYYY-MM-DD or an ISO date and time, in the future." },
       duplicateOf: { type: "string", description: "For duplicate: key of the work item it duplicates, such as ENG-41." },
     }, required: ["project", "workItem", "action"] } },
+  { name: "intakeDelete", description: `Removes an item from the intake. One not yet accepted takes its work item with it, which Plane allows only for the work item's creator or an Admin of the Plane project; an accepted one leaves its work item in place.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { ...PROJECT_ARGS, ...WORK_ITEM }, required: ["project", "workItem"] } },
 ];
 
 export const intakeWriteToolPolicy: Record<string, ToolPolicy> = {
   intakeCreate: { effect: "write", group: "Intake" },
   intakeTriage: { effect: "write", group: "Intake" },
+  intakeDelete: { effect: "danger", group: "Intake" },
 };
 
 /** Refused before Confirm: with intake off Plane refuses the write, or fails with a 500 when it has no intake yet. */
@@ -114,4 +117,22 @@ export const intakeWriteHandlers = {
       },
     };
   }),
+  intakeDelete: planeWrite("intakeDelete", async (a, ctx) => {
+    const t = await resolvePlaneProject(ctx, a);
+    intakeOn(t);
+    const i = await findIntakeItem(t, a.workItem);
+    const itemId = String(i.issue ?? i.issue_detail?.id);
+    const key = keyOf(t, i) ?? itemId;
+    // Plane deletes the work item along with an intake item it has not accepted.
+    const accepted = i.status === 1;
+    return {
+      t, role: `the work item's creator or an Admin of the Plane project ${t.project.identifier}`,
+      refusals: [[/Only admin or creator can delete the work item/, notCreator(t, key, t.project)], [/Intake is not enabled/, intakeOff(t)]],
+      summary: `Remove ${key} "${i.issue_detail?.name ?? ""}" (${STATUS[String(i.status)] ?? "pending"}) from the intake of ${t.project.identifier}; ${accepted ? "its work item stays" : "this deletes its work item too"}`,
+      run: async () => {
+        await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/intake-issues/${itemId}/`), { method: "DELETE" });
+        return { key, removed: true, workItemDeleted: !accepted };
+      },
+    };
+  }, DANGER),
 };
