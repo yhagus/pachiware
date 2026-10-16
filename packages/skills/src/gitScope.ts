@@ -8,10 +8,10 @@ type Rule = { gitAccountId: string; channelId: string; repoPatterns: string[] };
 /** An account the model may use here. A repo is allowed only when it matches every pattern set (server, then channel). */
 export interface GitAccess { account: Account; sets: string[][] }
 
-/** Server rules switch an account on; the channel (or, in a thread, its parent channel) can only narrow that. No server rule means no access. */
+/** Server rules switch an account on and a channel rule narrows them; a thread uses its parent channel's rule, never its own. */
 export function computeAccess(attached: Account[], rules: Rule[], channelId?: string, parentChannelId?: string): GitAccess[] {
-  const chan = (id?: string) => (id ? rules.filter((r) => r.channelId === id) : []);
-  const channelRules = chan(channelId).length ? chan(channelId) : chan(parentChannelId);
+  const place = parentChannelId || channelId;
+  const channelRules = place ? rules.filter((r) => r.channelId === place) : [];
   const out: GitAccess[] = [];
   for (const account of attached) {
     const server = rules.find((r) => r.channelId === "" && r.gitAccountId === account.id);

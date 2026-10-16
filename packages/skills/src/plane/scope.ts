@@ -14,10 +14,10 @@ export interface PlaneAccess { account: PlaneAccount; sets: string[][] }
 
 export const PLANE_NOT_ENABLED = "Plane is not enabled here. An admin can enable a Plane account for this server, and its Plane projects, in the console.";
 
-/** Guild rules switch an account on; the channel (or, in a thread, its parent channel) can only narrow that. No guild rule means no access. */
+/** Guild rules switch an account on and a channel rule narrows them; a thread uses its parent channel's rule, never its own. */
 export function computePlaneAccess(attached: PlaneAccount[], rules: Rule[], channelId?: string, parentChannelId?: string): PlaneAccess[] {
-  const chan = (id?: string) => (id ? rules.filter((r) => r.channelId === id) : []);
-  const channelRules = chan(channelId).length ? chan(channelId) : chan(parentChannelId);
+  const place = parentChannelId || channelId;
+  const channelRules = place ? rules.filter((r) => r.channelId === place) : [];
   const out: PlaneAccess[] = [];
   for (const account of attached) {
     const guild = rules.find((r) => r.channelId === "" && r.planeAccountId === account.id);

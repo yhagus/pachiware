@@ -40,6 +40,23 @@ discordScenario("planeAccounts lists the Plane user and the Plane projects this 
   expect(s.http.requests.every((r) => r.url.startsWith("https://api.plane.so/api/v1/"))).toBe(true);
 });
 
+discordScenario("a Plane scope rule stored on a thread is ignored: the thread uses its parent channel's rule", async (s) => {
+  const P1 = "11111111-1111-4111-8111-111111111111", P2 = "22222222-2222-4222-8222-222222222222";
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const acc = await s.plane({ projects: [P1, P2] });
+  const thread = s.discord.channel("thread-9", { thread: true, parentId: "channel-1" });
+  await repositories().plane.replaceScopes(s.tenant.id, s.bot.id, "guild-1", "channel-1", [{ planeAccountId: acc.id, projectIds: [P1] }]);
+  await repositories().plane.replaceScopes(s.tenant.id, s.bot.id, "guild-1", "thread-9", [{ planeAccountId: acc.id, projectIds: [P2] }]);
+  s.http.on("GET api.plane.so/api/v1/workspaces/acme/projects/", () => ({
+    next_cursor: "100:1:0", next_page_results: false,
+    results: [{ id: P1, name: "Engineering", identifier: "ENG" }, { id: P2, name: "Design", identifier: "DES" }],
+  }));
+  let result: any;
+  s.model.script({ tool: "planeAccounts" }, (turn) => { result = turn.toolResults[0]; return "done"; });
+  await s.discord.send(`${s.discord.mention} which Plane projects can you reach?`, { channel: thread });
+  expect(result.accounts[0].projects.map((p: any) => p.identifier)).toEqual(["ENG"]);
+});
+
 discordScenario("on Plane's rate limit the request waits once when the window reopens soon, and otherwise says when to try again", async (s) => {
   await s.plane();
   let calls = 0, wait = "1";
