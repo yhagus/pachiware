@@ -68,7 +68,7 @@ Done when the contract suite passes on all three engines (see Testing).
 
 `contract("Name", (use) => ...)` from `packages/db/test/contract/engines.ts` registers the suite once per engine. Each test starts from an empty, migrated and seeded database.
 
-- SQLite always runs. PostgreSQL runs when `TEST_POSTGRES_URL` is set, MongoDB when `TEST_MONGODB_URL` is set, for example `mongodb://localhost:27017/<db>?replicaSet=rs0&directConnection=true` against the compose `mongo` profile. The harness drops every table or collection, so point both at a test database.
+- SQLite always runs. PostgreSQL runs when `TEST_POSTGRES_URL` is set, MongoDB when `TEST_MONGODB_URL` is set, for example `mongodb://localhost:27017/pachiware_test?replicaSet=rs0&directConnection=true` against the compose `mongo` profile. The harness drops every table or collection, so it refuses a URL whose database name does not contain `test`.
 - The pre-push hook blanks both URLs, so a push proves SQLite only. Run the suites with both URLs set before calling a repository change done.
 - PostgreSQL keeps microseconds, so compare dates with `>=` and never filter on an exact JS `Date`.
 - A suite that creates bots sets `PLATFORM_ENCRYPTION_KEY` itself (top of `profiles.contract.test.ts`).

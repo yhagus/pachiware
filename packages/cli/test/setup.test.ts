@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdt
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chooseDatabase } from "../src/database-choice";
+import { requireTestDatabase } from "../../db/test/test-database.ts";
 
 const workspace = process.cwd();
 const cli = join(workspace, "packages/cli/src/index.ts");
@@ -160,7 +161,7 @@ esac
   });
 
   test.skipIf(!process.env.TEST_MONGODB_URL)("sets up an installation on a MongoDB replica set from --mongodb-url", async () => {
-    const url = process.env.TEST_MONGODB_URL!.replace(/^(mongodb(?:\+srv)?:\/\/[^/?]*)\/?([^?]*)/, (_, server, name) => `${server}/${name || "pachiware"}_cli_init`);
+    const url = requireTestDatabase("TEST_MONGODB_URL", process.env.TEST_MONGODB_URL!).replace(/^(mongodb(?:\+srv)?:\/\/[^/?]*)\/?([^?]*)/, (_, server, name) => `${server}/${name || "pachiware"}_cli_init`);
     const { MongoClient } = require(join(workspace, "packages/db/node_modules/mongodb"));
     const client = new MongoClient(url);
     try {
