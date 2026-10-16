@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { createConnection } from "net";
 import { createInterface } from "readline/promises";
 import { stdin as input, stdout as output } from "process";
+import { assertSameEngine, chooseDatabase, composeUpArgs, engineOfUrl, ENGINE_NAMES, type DockerEngine, type Engine } from "./database-choice.js";
 
 const VERSION = "1.0.0";
 
@@ -165,7 +166,7 @@ function requireWorkspaceRoot(): string {
   return rootDir;
 }
 
-function getDatabaseTarget(dir: string): { dialect: "sqlite" | "postgres"; host: string; port: number; url: string; sqlitePath?: string } {
+function getDatabaseTarget(dir: string): { dialect: Engine; host: string; port: number; url: string; sqlitePath?: string } {
   let dbUrl = "";
   const runtimeFile = join(dir, "runtime-config.json");
   if (existsSync(runtimeFile)) {
@@ -187,15 +188,14 @@ function getDatabaseTarget(dir: string): { dialect: "sqlite" | "postgres"; host:
     dbUrl = "sqlite:./data/pachiware.db";
   }
 
-  const lower = dbUrl.trim().toLowerCase();
-  const isSqlite =
-    lower.startsWith("sqlite:") ||
-    lower.startsWith("sqlite3:") ||
-    lower.startsWith("file:") ||
-    /\.(db|sqlite|sqlite3)$/.test(lower) ||
-    (!lower.startsWith("postgres://") && !lower.startsWith("postgresql://"));
+  const dialect = engineOfUrl(dbUrl);
+  if (dialect === "mongodb") {
+    // Credentials stay out; a replica set lists every member, and mongodb+srv names only a DNS record.
+    const hosts = dbUrl.trim().match(/^mongodb(?:\+srv)?:\/\/(?:[^@/?]*@)?([^/?]+)/i)?.[1] ?? "unknown host";
+    return { dialect, host: hosts, port: 0, url: dbUrl };
+  }
 
-  if (isSqlite) {
+  if (dialect === "sqlite") {
     let p = dbUrl.trim();
     for (const prefix of ["sqlite://", "sqlite3://", "sqlite:", "sqlite3:", "file://", "file:"]) {
       if (p.startsWith(prefix)) {
@@ -242,31 +242,20 @@ async function ask(question: string, fallback: string): Promise<string> {
   if (!input.isTTY || !output.isTTY) return fallback;
   const readline = createInterface({ input, output });
   try {
-    const answer = (await readline.question(`${question} ${c.gray}[${fallback}]${c.reset} `)).trim();
+    const answer = (await readline.question(`${c.bold}${question}${c.reset} ${c.gray}[${fallback}]${c.reset} `)).trim();
     return answer || fallback;
   } finally {
     readline.close();
   }
 }
 
-async function chooseDatabase(options: { database?: string; postgresUrl?: string; currentUrl?: string; dockerUrl?: string } = {}) {
-  const currentChoice = options.currentUrl?.startsWith("postgres") ? "2" : "1";
-  const choice = options.database || (options.postgresUrl ? "2" : "") || (!input.isTTY || !output.isTTY ? currentChoice : await ask(
-    `${c.bold}Database${c.reset}: ${c.cyan}1${c.reset}) SQLite  ${c.cyan}2${c.reset}) PostgreSQL external  ${c.cyan}3${c.reset}) PostgreSQL 18 Docker`,
-    currentChoice
-  ));
-  if (!["1", "2", "3", "sqlite", "postgres", "postgresql", "docker"].includes(choice.toLowerCase())) throw new Error("Choose sqlite, postgres, or docker.");
-  if (choice === "2" || /postgres/i.test(choice)) {
-    const url = options.postgresUrl || await ask("PostgreSQL connection URL:", options.currentUrl?.startsWith("postgres") ? options.currentUrl : "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent");
-    const parsed = new URL(url);
-    if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname || parsed.pathname.length < 2) throw new Error("Provide a valid PostgreSQL URL with a database name.");
-    if (parsed.hash) throw new Error("PostgreSQL URL credentials must be URL-encoded (for example, # becomes %23).");
-    return { url: parsed.toString(), label: "PostgreSQL (external)", needsDocker: false };
+function recordedEngine(dir: string): string | undefined {
+  try {
+    const engine = JSON.parse(readFileSync(join(dir, "runtime-config.json"), "utf8")).databaseEngine;
+    return typeof engine === "string" && engine ? engine : undefined;
+  } catch {
+    return undefined;
   }
-  if (choice === "3" || /docker/i.test(choice)) {
-    return { url: options.dockerUrl || "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent", label: "PostgreSQL 18 (bundled Docker)", needsDocker: true };
-  }
-  return { url: "sqlite:./data/pachiware.db", label: "SQLite (zero-config)", needsDocker: false };
 }
 
 function updateEnvValue(envFile: string, key: string, value: string): void {
@@ -299,8 +288,8 @@ function preparePlatformKeys(envFile: string, fresh: boolean) {
   chmodSync(envFile, 0o600);
 }
 
-function dockerDatabaseUrl(envFile: string): string {
-  const content = readFileSync(envFile, "utf8");
+/** The URL of each compose database service, from this shell's environment or the .env text given. */
+function dockerDatabaseUrls(content: string): Record<DockerEngine, string> {
   const value = (key: string, fallback: string) => {
     if (process.env[key]) return process.env[key]!;
     const raw = content.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1]?.trim();
@@ -313,7 +302,12 @@ function dockerDatabaseUrl(envFile: string): string {
   const password = encodeURIComponent(value("POSTGRES_PASSWORD", "pachiware_secret"));
   const port = value("POSTGRES_PORT", "5432");
   const database = encodeURIComponent(value("POSTGRES_DB", "pachiware_agent"));
-  return `postgresql://${user}:${password}@localhost:${port}/${database}`;
+  // The compose replica set names its member localhost:27017, so a remapped port connects directly.
+  const mongoPort = value("MONGO_PORT", "27017");
+  return {
+    postgres: `postgresql://${user}:${password}@localhost:${port}/${database}`,
+    mongodb: `mongodb://localhost:${mongoPort}/pachiware?replicaSet=rs0&directConnection=true`,
+  };
 }
 
 const program = new Command();
@@ -331,16 +325,30 @@ program
 program
   .command("init [dir]")
   .description("Initialize or scaffold a Pachiware Agent deployment")
-  .option("--database <choice>", "Database choice: sqlite, postgres, or docker")
+  .option("--database <choice>", "Database choice: sqlite, postgres, mongodb, or docker")
   .option("--postgres-url <url>", "PostgreSQL URL when using external PostgreSQL")
+  .option("--mongodb-url <url>", "MongoDB URL (mongodb:// or mongodb+srv://) when using external MongoDB")
+  .option("--docker-engine <engine>", "Database Docker runs with --database docker: postgres or mongodb")
   .action(async (dir, options) => {
     console.log(BANNER);
     const targetDir = dir ? resolve(process.cwd(), dir) : requireWorkspaceRoot();
     console.log(`${c.green}⚡ Initializing Pachiware Agent at:${c.reset} ${c.bold}${targetDir}${c.reset}\n`);
 
-    // 1. Check or create .env
     const envFile = join(targetDir, ".env");
     const envExample = join(targetDir, ".env.example");
+    const envTemplate = [envFile, envExample].find((file) => existsSync(file));
+
+    // Nothing is written until the choice passes the engine lock, so a refused re-run leaves the installation as it was.
+    const recorded = recordedEngine(targetDir);
+    console.log(recorded
+      ? `  ${c.yellow}!${c.reset} This installation keeps its records in ${ENGINE_NAMES[recorded as keyof typeof ENGINE_NAMES] ?? recorded}. The database engine cannot change after setup.`
+      : `  ${c.yellow}!${c.reset} The database engine you choose is fixed after setup. Records cannot move to another engine later.`);
+    const database = await chooseDatabase({
+      ...options,
+      currentUrl: getDatabaseTarget(targetDir).url,
+      dockerUrls: dockerDatabaseUrls(envTemplate ? readFileSync(envTemplate, "utf8") : ""),
+    }, ask);
+    assertSameEngine(recorded, database.engine);
 
     const freshEnvironment = !existsSync(envFile);
     if (freshEnvironment && existsSync(envExample)) {
@@ -351,7 +359,6 @@ program
     }
 
     preparePlatformKeys(envFile, freshEnvironment);
-    const database = await chooseDatabase({ ...options, currentUrl: getDatabaseTarget(targetDir).url, dockerUrl: dockerDatabaseUrl(envFile) });
     updateEnvValue(envFile, "DATABASE_URL", database.url);
     const runtimeFile = join(targetDir, "runtime-config.json");
     if (existsSync(runtimeFile)) {
@@ -359,20 +366,22 @@ program
       writeFileSync(runtimeFile, JSON.stringify({ ...runtime, databaseUrl: database.url }, null, 2) + "\n", { mode: 0o600 });
     }
     console.log(`  ${c.green}✔${c.reset} Database selected: ${database.label}`);
-    if (database.needsDocker) {
-      console.log(`  ${c.cyan}ℹ${c.reset} Run ${c.bold}pachiware start --docker${c.reset} to start PostgreSQL 18 and Redis.`);
-    } else if (database.url.startsWith("sqlite:")) {
-      console.log(`  ${c.cyan}ℹ${c.reset} SQLite needs no Docker, PostgreSQL, or Redis setup.`);
+    if (database.docker) {
+      console.log(`  ${c.cyan}ℹ${c.reset} Run ${c.bold}pachiware start --docker${c.reset} to start ${ENGINE_NAMES[database.engine]} and Redis.`);
+    } else if (database.engine === "sqlite") {
+      console.log(`  ${c.cyan}ℹ${c.reset} SQLite needs no Docker, PostgreSQL, MongoDB, or Redis setup.`);
+    } else if (database.engine === "mongodb") {
+      console.log(`  ${c.cyan}ℹ${c.reset} MongoDB must run as a replica set (Atlas does). Setup stops on a standalone server.`);
     } else {
       console.log(`  ${c.cyan}ℹ${c.reset} Verify PostgreSQL is reachable before running ${c.bold}pachiware start${c.reset}.`);
     }
 
-    if (database.needsDocker) {
-      const docker = spawnSync("docker", ["compose", "up", "-d", "--wait", "--wait-timeout", "60"], { cwd: targetDir, stdio: "inherit" });
-      if (docker.error || docker.status !== 0) throw new Error("Start Docker and rerun pachiware init --database docker.");
+    if (database.docker) {
+      const docker = spawnSync("docker", composeUpArgs(database.engine), { cwd: targetDir, stdio: "inherit" });
+      if (docker.error || docker.status !== 0) throw new Error(`Start Docker and rerun pachiware init --database docker --docker-engine ${database.engine}.`);
     }
     completeCliSetup(targetDir, database.url);
-    console.log(`\n${c.green}${c.bold}Setup complete.${c.reset} Run ${c.cyan}pachiware start${database.needsDocker ? " --docker" : ""}${c.reset}, then open http://localhost:3000.`);
+    console.log(`\n${c.green}${c.bold}Setup complete.${c.reset} Run ${c.cyan}pachiware start${database.docker ? " --docker" : ""}${c.reset}, then open http://localhost:3000.`);
     console.log(`  Localhost automatically connects to your tenant. LLM credentials and optional bots can be configured in the console.`);
 
   });
@@ -385,29 +394,29 @@ program
   .description("Start Agent API and Web Management Console (uses existing DB/Redis by default)")
   .option("-d, --daemon", "Run processes in the background (daemon mode)")
   .option("--no-gui", "Start only the Agent backend service without the Web GUI")
-  .option("--docker", "Also spin up bundled PostgreSQL 18 and Redis containers via Docker Compose")
+  .option("--docker", "Also spin up the bundled database (PostgreSQL 18 or MongoDB 8.0) and Redis containers via Docker Compose")
   .action(async (options) => {
     console.log(BANNER);
     const wsRoot = requireWorkspaceRoot();
     console.log(`${c.bold}🚀 Starting Pachiware Agent Platform...${c.reset}\n`);
+    const dbTarget = getDatabaseTarget(wsRoot);
 
     // 1. Optional Docker containers (only if --docker is specified)
     if (options.docker) {
-      console.log(`  ${c.cyan}→ Starting bundled PostgreSQL 18 and Redis containers via Docker Compose...${c.reset}`);
-      try {
-        execSync("docker compose up -d --wait --wait-timeout 60", { cwd: wsRoot, stdio: "inherit" });
-        console.log(`  ${c.green}✔${c.reset} Bundled infrastructure containers running.`);
-      } catch (err: any) {
-        console.error(`  ${c.red}✖ Failed to start Docker containers:${c.reset}`, err.message);
+      const bundled = dbTarget.dialect === "mongodb" ? "MongoDB 8.0" : "PostgreSQL 18";
+      console.log(`  ${c.cyan}→ Starting bundled ${bundled} and Redis containers via Docker Compose...${c.reset}`);
+      const docker = spawnSync("docker", composeUpArgs(dbTarget.dialect), { cwd: wsRoot, stdio: "inherit" });
+      if (docker.error || docker.status !== 0) {
+        console.error(`  ${c.red}✖ Failed to start Docker containers.${c.reset}`);
         process.exit(1);
       }
+      console.log(`  ${c.green}✔${c.reset} Bundled infrastructure containers running.`);
     } else {
-      console.log(`  ${c.gray}→ Using external / pre-existing PostgreSQL & Redis from .env (default).${c.reset}`);
+      console.log(`  ${c.gray}→ Using the external / pre-existing database & Redis from .env (default).${c.reset}`);
       console.log(`  ${c.gray}  Tip: Run with ${c.cyan}--docker${c.gray} if you want Pachiware to spin up bundled containers.${c.reset}`);
     }
 
     // 2. Check DB connectivity before attempting migrations
-    const dbTarget = getDatabaseTarget(wsRoot);
     let dbConnected = false;
     let dbDescription = "";
 
@@ -417,6 +426,10 @@ program
       dbDescription = dbTarget.sqlitePath === ":memory:"
         ? "SQLite :memory: (ephemeral)"
         : `SQLite file (${dbTarget.sqlitePath})`;
+    } else if (dbTarget.dialect === "mongodb") {
+      // A replica set has several members and mongodb+srv has no port, so setup itself finds out whether it answers.
+      dbConnected = true;
+      dbDescription = `MongoDB (${dbTarget.host})`;
     } else {
       console.log(`  ${c.cyan}→ Checking PostgreSQL database availability...${c.reset}`);
       dbConnected = await isPortOpen(dbTarget.host, dbTarget.port, 1500);
@@ -447,7 +460,7 @@ program
       console.log(`${c.green}${c.bold}====================================================${c.reset}`);
       console.log(`  ${c.cyan}🌐 Web Console:${c.reset}       ${c.bold}http://localhost:3000${c.reset}`);
       console.log(`  ${c.cyan}⚡ Agent REST API:${c.reset}    ${c.bold}http://localhost:3001${c.reset}`);
-      const dbIcon = dbTarget.dialect === "sqlite" ? "💾" : "🐘";
+      const dbIcon = dbTarget.dialect === "sqlite" ? "💾" : dbTarget.dialect === "mongodb" ? "🍃" : "🐘";
       console.log(`  ${c.cyan}${dbIcon} Database:${c.reset}          ${dbDescription}`);
       console.log(`  ${c.cyan}🔴 Cache Engine:${c.reset}      Active (Redis / native in-memory fallback)`);
       console.log(`  ${c.cyan}📡 Messaging:${c.reset}        Configure tenant bots in the console`);
@@ -610,13 +623,15 @@ program
  */
 program
   .command("logs [service]")
-  .description("Stream logs for agent, web, postgres, or redis")
+  .description("Stream logs for agent, web, postgres, mongo, or redis")
   .action((service) => {
     const target = service || "agent";
     console.log(`${c.cyan}Streaming logs for: ${target}...${c.reset}`);
 
     if (target === "postgres" || target === "pg") {
       spawnSync("docker", ["logs", "-f", "pachiware-postgres"], { stdio: "inherit" });
+    } else if (target === "mongo" || target === "mongodb") {
+      spawnSync("docker", ["logs", "-f", "pachiware-mongo"], { stdio: "inherit" });
     } else if (target === "redis") {
       spawnSync("docker", ["logs", "-f", "pachiware-redis"], { stdio: "inherit" });
     } else {
@@ -660,7 +675,7 @@ program
     // 3. Run database migrations (check DB connectivity first)
     console.log(`  ${c.cyan}→ Applying database migrations...${c.reset}`);
     const updTarget = getDatabaseTarget(wsRoot);
-    const dbReachable = updTarget.dialect === "sqlite" ? true : await isPortOpen(updTarget.host, updTarget.port, 1500);
+    const dbReachable = updTarget.dialect !== "postgres" ? true : await isPortOpen(updTarget.host, updTarget.port, 1500);
     if (dbReachable) {
       try {
         const migrateScript = join(wsRoot, "packages", "db", "src", "migrate.ts");
@@ -738,6 +753,7 @@ program
       { port: 3001, desc: "Agent API" },
       { port: 3000, desc: "Web GUI" },
       { port: 5432, desc: "PostgreSQL (only required when DATABASE_URL=postgres://...)" },
+      { port: 27017, desc: "MongoDB (only required when DATABASE_URL=mongodb://localhost...)" },
       { port: 6380, desc: "Redis Cache (optional — native in-memory fallback available)" },
     ];
 
@@ -770,6 +786,9 @@ program
       if (dbTarget.dialect === "sqlite") {
         console.log(`  ${c.green}✔${c.reset} Database:           SQLite ${c.gray}(${dbTarget.sqlitePath})${c.reset}`);
         console.log(`  ${c.dim}                      Zero-config — no external services required.${c.reset}`);
+      } else if (dbTarget.dialect === "mongodb") {
+        console.log(`  ${c.cyan}ℹ${c.reset} Database:           MongoDB at ${dbTarget.host}`);
+        console.log(`  ${c.dim}                      Needs a replica set or Atlas; a standalone server stops the start.${c.reset}`);
       } else {
         console.log(`  ${c.cyan}ℹ${c.reset} Database:           PostgreSQL at ${dbTarget.host}:${dbTarget.port}`);
       }

@@ -65,7 +65,7 @@ fi
 
 if ! command -v docker &> /dev/null; then
   echo -e "  ${CYAN}ℹ Docker is not installed (optional).${NC}"
-  echo -e "    Note: Docker is only needed if you want to use the bundled PostgreSQL/Redis containers."
+  echo -e "    Note: Docker is only needed if you want to use the bundled PostgreSQL, MongoDB or Redis containers."
 else
   echo -e "  ${GREEN}✔ Docker is installed (optional container runner):${NC} $(docker --version)"
 fi
@@ -121,6 +121,12 @@ fi
 if [ -n "${PACHIWARE_POSTGRES_URL:-}" ]; then
   INIT_ARGS+=(--postgres-url "$PACHIWARE_POSTGRES_URL")
 fi
+if [ -n "${PACHIWARE_MONGODB_URL:-}" ]; then
+  INIT_ARGS+=(--mongodb-url "$PACHIWARE_MONGODB_URL")
+fi
+if [ -n "${PACHIWARE_DOCKER_ENGINE:-}" ]; then
+  INIT_ARGS+=(--docker-engine "$PACHIWARE_DOCKER_ENGINE")
+fi
 if { exec 3<>/dev/tty; } 2>/dev/null; then
   "$INSTALL_DIR/bin/pachiware" "${INIT_ARGS[@]}" <&3
   exec 3>&-
@@ -155,7 +161,7 @@ echo -e "You can now run:"
 echo -e "  ${CYAN}pachiware --help${NC}          Show all available commands"
 echo -e "  ${CYAN}pachiware doctor${NC}          Verify system health and configuration"
 echo -e "  ${CYAN}pachiware start${NC}           Launch Agent & Web GUI (connects to DB & Redis in .env)"
-echo -e "  ${CYAN}pachiware start --docker${NC}  Launch Agent and spin up bundled Postgres & Redis"
+echo -e "  ${CYAN}pachiware start --docker${NC}  Launch Agent and spin up the bundled database & Redis"
 echo -e "  ${CYAN}pachiware update${NC}          Pull latest updates, migrations & restart"
 echo -e "  ${CYAN}pachiware status${NC}          Inspect real-time system status"
 echo -e "  ${CYAN}pachiware uninstall${NC}       Completely remove Pachiware CLI and services"
