@@ -1110,6 +1110,10 @@ Tickets [#173](https://github.com/yhagus/pachiware/issues/173)–[#177](https://
   - The contract harness checks `TEST_POSTGRES_URL` and `TEST_MONGODB_URL` while registering suites, before any connection. The other tests that drop data on those servers check too: `mongo-migrations.test.ts` and the CLI MongoDB setup test. `database-engine.test.ts` drops nothing and is unchanged; `TEST_MONGODB_STANDALONE_URL` is unchecked because a standalone server is refused before anything is written.
   - Verification: `bun run typecheck` exits 0; `bun test` 858 pass, 236 skip, 0 fail across 141 files; with both test URLs on `pachiware_test_174`, db, CLI and `database-engine` tests 370 pass, 2 skip (standalone). New `test-database.test.ts` has 19 tests, two of them run a contract suite against a `pachiware` URL and see it refused before connecting.
 - [ ] #175 The engine contract suites run on PostgreSQL and MongoDB in CI and with one local command.
-- [ ] #176 A doc for adding records on all three Database engines.
+- [x] #176 A doc for adding records on all three Database engines.
+  - `docs/agents/database-engines.md`: code map, Profiles as the worked example (pointing at its files), steps for a method, a kind of record and a field, the rules (UUID ids, `Date` dates, MongoDB documents mirroring SQL rows, numbered idempotent steps, transactions for same-tenant and cascade rules, the `public-surface.test.ts` guard), and how the contract suites run per engine.
+  - AGENTS.md gains one pointer line beside the tasks.md one, and the `packages/db/` workspace line now names repositories, migrations, engine lock, runtime config, crypto and the contract suites.
+  - SQL schema changes are hand-written in `migrate.ts` (`definitions()` plus guarded `ALTER TABLE`); `drizzle-kit generate` plays no part, and there is no `drizzle/` output folder.
+  - Verification: `bun run typecheck` exits 0; `bun test` 839 pass, 236 skip, 0 fail across 140 files.
 - [ ] #177 A commit is refused while its message still has merge-conflict comments.
 - [ ] Code review of `main...spec/173-177-test-hardening`, fixed in one pass.
