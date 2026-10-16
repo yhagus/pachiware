@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getInfraConfig, saveRedisUrl, getGitAllowedHosts, saveGitAllowedHosts, activeEngine, redactedDatabaseHost } from "@pachiware/db";
+import { getInfraConfig, saveRedisUrl, getAllowedHosts, saveAllowedHosts, activeEngine, redactedDatabaseHost } from "@pachiware/db";
 import { object } from "../validation.js";
 import { redis, reconnectRedis } from "../../cache/redis.js";
 export const infrastructureRoutes = new Hono();
@@ -7,9 +7,9 @@ function maskConnectionUrl(url: string): string {
   try { const parsed = new URL(url); if (parsed.password) parsed.password = "••••••••"; return parsed.toString(); }
   catch { return url; }
 }
-// Platform-wide allowlist for self-hosted git hosts (empty = unrestricted).
-infrastructureRoutes.get("/git-hosts", (c) => c.json({ success: true, hosts: getGitAllowedHosts() }));
-infrastructureRoutes.put("/git-hosts", async (c) => {
+// Allowed hosts: the platform-wide list of self-hosted git and Plane servers (empty = unrestricted). "/git-hosts" is its older path.
+const getHosts = (c: any) => c.json({ success: true, hosts: getAllowedHosts() });
+const putHosts = async (c: any) => {
   const body = object(await c.req.json(), "body");
   if (!Array.isArray(body.hosts) || body.hosts.length > 50) return c.json({ error: "hosts must be an array of at most 50 entries" }, 400);
   const hosts: string[] = [];
@@ -19,8 +19,12 @@ infrastructureRoutes.put("/git-hosts", async (c) => {
     if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{1,5})?$/.test(host)) return c.json({ error: `Invalid host "${raw}". Use host or host:port, without https://` }, 400);
     if (!hosts.includes(host)) hosts.push(host);
   }
-  return c.json({ success: true, hosts: saveGitAllowedHosts(hosts) });
-});
+  return c.json({ success: true, hosts: saveAllowedHosts(hosts) });
+};
+for (const path of ["/allowed-hosts", "/git-hosts"]) {
+  infrastructureRoutes.get(path, getHosts);
+  infrastructureRoutes.put(path, putHosts);
+}
 
 // The database shows only its engine and host: it is chosen at setup and changed on the server (ADR 0010).
 infrastructureRoutes.get("/", async (c) => {

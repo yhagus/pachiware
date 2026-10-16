@@ -135,8 +135,8 @@ export const api = {
   getHealth: () => fetchJSON<HealthResponse>("/api/health"),
   getStats: () => fetchJSON<Stats>("/api/admin/stats"),
   getInfrastructure: () => fetchJSON<{ infrastructure: InfrastructureData }>("/api/admin/infrastructure"),
-  getGitHosts: () => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/git-hosts"),
-  saveGitHosts: (hosts: string[]) => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/git-hosts", json("PUT", { hosts })),
+  getAllowedHosts: () => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/allowed-hosts"),
+  saveAllowedHosts: (hosts: string[]) => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/allowed-hosts", json("PUT", { hosts })),
 
   listTenants: () => fetchJSON<{ tenants: Tenant[] }>("/api/admin/tenants"),
   getTenant: (id: string) => fetchJSON<{ tenant: Tenant }>(`/api/admin/tenants/${id}`),

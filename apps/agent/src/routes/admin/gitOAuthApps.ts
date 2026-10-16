@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { repositories, encryptSecret, assertGitHostAllowed } from "@pachiware/db";
+import { repositories, encryptSecret, assertHostAllowed } from "@pachiware/db";
 import { object, string } from "../validation.js";
 import { GIT_PROVIDERS, isDefaultGitHost, type GitProvider } from "@pachiware/skills";
 
@@ -14,7 +14,7 @@ function host(value: unknown): string {
   const url = string(value, "baseUrl")!.replace(/\/+$/, "");
   if (!/^https:\/\//i.test(url)) throw new HTTPException(400, { message: "baseUrl must start with https://" });
   if (isDefaultGitHost(url)) return "";
-  try { assertGitHostAllowed(url); } catch (e) { throw new HTTPException(400, { message: (e as Error).message }); }
+  try { assertHostAllowed(url); } catch (e) { throw new HTTPException(400, { message: (e as Error).message }); }
   return url;
 }
 

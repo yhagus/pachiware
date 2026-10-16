@@ -13,17 +13,17 @@ import { api, type GitOAuthApp } from "@/lib/api";
 // Platform-wide: applies to every tenant, so it lives apart from the account list.
 function AllowedHosts() {
   const [text, setText] = useState<string | null>(null);
-  useEffect(() => { api.getGitHosts().then((r) => setText(r.hosts.join("\n"))).catch((e) => toast.error(e.message)); }, []);
+  useEffect(() => { api.getAllowedHosts().then((r) => setText(r.hosts.join("\n"))).catch((e) => toast.error(e.message)); }, []);
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    try { const r = await api.saveGitHosts((text ?? "").split(/\s+/).filter(Boolean)); setText(r.hosts.join("\n")); toast.success("Allowed hosts saved"); } catch (err: any) { toast.error(err.message); }
+    try { const r = await api.saveAllowedHosts((text ?? "").split(/\s+/).filter(Boolean)); setText(r.hosts.join("\n")); toast.success("Allowed hosts saved"); } catch (err: any) { toast.error(err.message); }
   };
   return (
     <form onSubmit={save} className="space-y-2 rounded-lg border p-4">
-      <Label htmlFor="ah">Allowed git hosts (all tenants)</Label>
+      <Label htmlFor="ah">Allowed hosts (all tenants)</Label>
       <textarea id="ah" rows={3} autoComplete="off" spellCheck={false} disabled={text === null} placeholder="gitlab.example.com" value={text ?? ""} onChange={(e) => setText(e.target.value)}
         className="w-full rounded-md border bg-transparent px-3 py-2 font-mono text-sm focus-visible:outline-2 focus-visible:outline-ring" />
-      <p className="text-xs text-muted-foreground">One host per line, with a port if needed. When empty, any https host is accepted. When set, accounts and bots can only use these hosts for self-hosted servers.</p>
+      <p className="text-xs text-muted-foreground">One host per line, with a port if needed. When empty, any https host is accepted. When set, git accounts and Plane accounts on self-hosted servers can only use these hosts. A self-hosted Plane on plain http must be listed here.</p>
       <Button size="sm" disabled={text === null}>Save hosts</Button>
     </form>
   );

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { repositories, encryptSecret, assertGitHostAllowed, type GitAccountUpdate } from "@pachiware/db";
+import { repositories, encryptSecret, assertHostAllowed, type GitAccountUpdate } from "@pachiware/db";
 import { object, string } from "../validation.js";
 import { fetchGitUsername, isDefaultGitHost, findOAuthApp, buildAuthorizeUrl, getGitToken, browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, GIT_PROVIDERS, type GitConn, type GitProvider, type GitState } from "@pachiware/skills";
 import { redirectUri } from "./gitOAuthApps.js";
@@ -15,7 +15,7 @@ function baseUrlOf(value: unknown): string | null {
   if (!/^https:\/\//i.test(url)) throw new HTTPException(400, { message: "baseUrl must start with https://" });
   const clean = url.replace(/\/+$/, "");
   if (isDefaultGitHost(clean)) return null;
-  try { assertGitHostAllowed(clean); } catch (e) { throw new HTTPException(400, { message: (e as Error).message }); }
+  try { assertHostAllowed(clean); } catch (e) { throw new HTTPException(400, { message: (e as Error).message }); }
   return clean;
 }
 async function verify(provider: GitProvider, baseUrl: string | null, token: string) {
@@ -90,7 +90,7 @@ gitAccountAdminRoutes.delete("/git-accounts/:accountId", async (c) => {
 async function connOf(accountId: string): Promise<GitConn> {
   const acc = await repositories().git.getAccount(accountId);
   if (!acc) throw new HTTPException(404, { message: "Git account not found" });
-  try { assertGitHostAllowed(acc.baseUrl); } catch (e) { throw new HTTPException(400, { message: (e as Error).message }); }
+  try { assertHostAllowed(acc.baseUrl); } catch (e) { throw new HTTPException(400, { message: (e as Error).message }); }
   return { provider: acc.provider as GitProvider, baseUrl: acc.baseUrl, token: await getGitToken(acc), oauth: acc.authType === "oauth" };
 }
 const browse = (run: (g: GitConn, q: (k: string) => string | undefined) => Promise<unknown>) => async (c: any) => {
