@@ -1,6 +1,8 @@
 import type { Effect, SkillModule, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { listPlaneProjects } from "../plane/client.js";
 import { loadPlaneAccess, planeConnOf, allowedPlaneProjectIds, PLANE_NOT_ENABLED } from "../plane/scope.js";
+import { browseTools, browseHandlers, browseToolPolicy } from "../plane/browse.js";
+import { workItemTools, workItemHandlers, workItemToolPolicy } from "../plane/workItems.js";
 import { cycleTools, cycleHandlers, cycleToolPolicy } from "../plane/cycles.js";
 import { moduleTools, moduleHandlers, moduleToolPolicy } from "../plane/modules.js";
 import { intakeTools, intakeHandlers, intakeToolPolicy } from "../plane/intake.js";
@@ -14,6 +16,8 @@ const R: Effect = "read";
 export const planeTools: ToolDefinition[] = [
   { name: "planeAccounts", description: "Lists the Plane accounts you may use in this channel, the Plane user each acts as, and the Plane projects open here (id, identifier and name). Call it first when unsure which account or Plane project to use.",
     parameters: { type: "object", properties: {} } },
+  ...browseTools,
+  ...workItemTools,
   ...cycleTools,
   ...moduleTools,
   ...intakeTools,
@@ -22,6 +26,8 @@ export const planeTools: ToolDefinition[] = [
 
 export const planeToolPolicy: Record<string, ToolPolicy> = {
   planeAccounts: { effect: R, group: "Browse" },
+  ...browseToolPolicy,
+  ...workItemToolPolicy,
   ...cycleToolPolicy,
   ...moduleToolPolicy,
   ...intakeToolPolicy,
@@ -45,6 +51,8 @@ export const planeHandlers: Record<string, ToolHandler> = {
       })),
     };
   },
+  ...browseHandlers,
+  ...workItemHandlers,
   ...cycleHandlers,
   ...moduleHandlers,
   ...intakeHandlers,

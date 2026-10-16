@@ -1,6 +1,7 @@
 /** Read tools for the intake of a Plane project: intakeList, intakeGet. */
 import type { Effect, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeList, planeRequest, inWorkspace, PlaneError } from "./client.js";
+import { planeMarkdown } from "./markdown.js";
 import { resolvePlaneProject, projectHead, PROJECT_ARGS, UUID, type PlaneProjectTarget } from "./projectRef.js";
 
 const R: Effect = "read";
@@ -31,12 +32,6 @@ const intakeView = (t: PlaneProjectTarget, i: any) => {
   };
 };
 
-/** Plane's description HTML as plain text, paragraphs and list items on their own lines. */
-const htmlText = (html: unknown) => typeof html !== "string" ? "" : html
-  .replace(/<\s*br\s*\/?>/gi, "\n").replace(/<\/(p|div|li|h[1-6]|blockquote|pre)>/gi, "\n").replace(/<li[^>]*>/gi, "- ").replace(/<[^>]+>/g, "")
-  .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&")
-  .replace(/\n{3,}/g, "\n\n").trim();
-
 const listIntake = (t: PlaneProjectTarget, maxPages = MAX_PAGES) => planeList<any>(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/intake-issues/`), { maxPages });
 
 export const intakeHandlers: Record<string, ToolHandler> = {
@@ -65,7 +60,7 @@ export const intakeHandlers: Record<string, ToolHandler> = {
     const w = item.issue_detail ?? {};
     return {
       project: projectHead(t.project),
-      item: { ...intakeView(t, item), state: w.state?.name ?? null, description: htmlText(w.description_html), source: item.source ?? null },
+      item: { ...intakeView(t, item), state: w.state?.name ?? null, description: planeMarkdown(w.description_html), source: item.source ?? null },
     };
   },
 };

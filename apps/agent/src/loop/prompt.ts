@@ -121,6 +121,7 @@ export class SystemPromptBuilder {
     // 3. Execution & Tool-Calling guidelines
     const activeTools = await skillRegistry.getActiveTools(context.tenantId);
     const hasGit = activeTools.some((t) => t.name === "repoList");
+    const hasPlane = activeTools.some((t) => t.name === "planeAccounts");
     promptSections.push(`
 ### Execution Rules:
 - You operate using an explicit ReAct (Reasoning + Action) cycle.
@@ -129,6 +130,9 @@ export class SystemPromptBuilder {
 ${hasGit ? `- Git tools (repo*, gitAccounts) act on repositories the admins enabled for this channel. If a git tool says nothing is enabled, tell the user an admin can enable it in the console; do not retry.
 - For git, never invent repository names: use repoList to find them, then pass the exact owner/name. Lists come in pages of 30; follow hasMore when the user asks for "all". When several accounts exist, pass "account" or call gitAccounts first.
 - Git write tools (repoWriteFile, repoOpenPullRequest, repoComment, repoCreateIssue, repoMergeMergeRequest, repoCloseItem) do not run immediately: they return pending, and the user must press Confirm on a message that appears. Say what you asked for and that it awaits their confirmation; never claim it is done, and never call the tool a second time.
+` : ""}${hasPlane ? `- Plane tools (plane*, workItem*) work in Plane, the team's tracker. A Plane project is a project in Plane (identifier such as ENG); a work item is one of its tickets, named by a key such as ENG-42. Work items are never Tasks: use the task tools only for Tasks.
+- Plane tools reach only the Plane projects the admins opened for this channel. If one says Plane is not enabled or a Plane project is not open here, tell the user an admin can change it in the console; do not retry.
+- Before creating or changing a work item, look up the real names with planeStates, planeLabels and planeMembers; never invent a state, label or person. When a name matches several members, or the user says "me", ask who they mean.
 ` : ""}- Do NOT fabricate tool results. Always observe the output returned by the system.
 `);
 
