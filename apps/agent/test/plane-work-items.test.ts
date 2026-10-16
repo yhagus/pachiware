@@ -101,3 +101,60 @@ discordScenario("workItemSearch uses Plane's workspace-wide search and drops res
   expect(inDesign.items.map((i: any) => i.key)).toEqual(["DES-42"]);
   expect(JSON.stringify(await ask(s, "workItemSearch", { query: "login", project: "SEC" }))).toContain("is not open in this channel");
 });
+
+discordScenario("workItemList filters on our side by state group, state, assignee, label, priority, change date and text, newest change first", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  const desTodo = plane.state({ project: P2, name: "Todo", group: "unstarted" });
+  plane.item({ project: P1, sequence_id: 1, name: "Login loops", state: w.doing.id, assignees: [w.budi.id], labels: [w.bug.id], priority: "high", updated_at: "2026-10-15T10:00:00.000000Z" });
+  plane.item({ project: P1, sequence_id: 2, name: "Old login bug", state: w.todo.id, assignees: [w.budi.id, w.sari.id], labels: [w.bug.id, w.ui.id], priority: "low", updated_at: "2026-09-01T10:00:00.000000Z" });
+  plane.item({ project: P1, sequence_id: 3, name: "Shipped", state: w.done.id, assignees: [w.budi.id], updated_at: "2026-10-16T08:00:00.000000Z" });
+  plane.item({ project: P1, sequence_id: 4, name: "Nobody's", state: w.todo.id, updated_at: "2026-10-10T08:00:00.000000Z" });
+  plane.item({ project: P2, sequence_id: 1, name: "Mockups", state: desTodo.id, assignees: [w.sari.id], updated_at: "2026-10-12T08:00:00.000000Z" });
+  plane.item({ project: P3, sequence_id: 1, name: "Secret", assignees: [w.budi.id], updated_at: "2026-10-16T09:00:00.000000Z" });
+  const keys = (r: any) => r.items.map((i: any) => i.key);
+
+  const budiOpen = await ask(s, "workItemList", { assignee: "Budi", stateGroup: "open" });
+  expect(keys(budiOpen)).toEqual(["ENG-1", "ENG-2"]);
+  expect(budiOpen.items[0]).toMatchObject({ key: "ENG-1", name: "Login loops", state: "In Progress", priority: "high", assignees: ["Budi Santoso (budi)"], labels: ["bug"] });
+  expect(budiOpen.stoppedEarly).toBeUndefined();
+  expect(s.http.requests.some((r) => r.url.includes(`/projects/${P3}/`))).toBe(false);
+  const list = s.http.requests.find((r) => r.url.includes(`/projects/${P1}/work-items/`))!;
+  expect(new URL(list.url).searchParams.get("order_by")).toBe("-updated_at");
+  expect(new URL(list.url).searchParams.get("per_page")).toBe("1000");
+
+  expect(keys(await ask(s, "workItemList", { project: "ENG", label: "ui" }))).toEqual(["ENG-2"]);
+  expect(keys(await ask(s, "workItemList", { project: "ENG", priority: "high" }))).toEqual(["ENG-1"]);
+  expect(keys(await ask(s, "workItemList", { project: "ENG", state: "done" }))).toEqual(["ENG-3"]);
+  expect(keys(await ask(s, "workItemList", { project: "ENG", assignee: "none" }))).toEqual(["ENG-4"]);
+  expect(keys(await ask(s, "workItemList", { changedSince: "2026-10-11" }))).toEqual(["ENG-3", "ENG-1", "DES-1"]);
+  expect(keys(await ask(s, "workItemList", { text: "login" }))).toEqual(["ENG-1", "ENG-2"]);
+  expect(keys(await ask(s, "workItemList", { assignee: "sari@acme.test" }))).toEqual(["DES-1", "ENG-2"]);
+  expect(JSON.stringify(await ask(s, "workItemList", { assignee: "me" }))).toContain("name the person");
+  expect(JSON.stringify(await ask(s, "workItemList", { project: "SEC" }))).toContain("is not open in this channel");
+});
+
+discordScenario("workItemList reads at most 2 pages of 1000 per Plane project and at most 20 Plane projects, and says when it stopped early", async (s) => {
+  await s.plane({ projects: ["*"] });
+  const plane = fakePlane(s);
+  const ids = Array.from({ length: 22 }, (_, i) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(i + 1).padStart(12, "0")}`);
+  ids.forEach((id, i) => plane.project({ id, name: `Team ${i + 1}`, identifier: `T${i + 1}` }));
+  plane.project({ id: P3, name: "Old", identifier: "OLD", archived_at: "2026-01-01T00:00:00Z" });
+  for (let n = 1; n <= 2001; n++) plane.item({ project: ids[0], sequence_id: n, name: `Item ${n}`, updated_at: `2026-10-${String(1 + (n % 15)).padStart(2, "0")}T00:00:00.000000Z` });
+  plane.item({ project: ids[1], sequence_id: 1, name: "Needle" });
+
+  const result = await ask(s, "workItemList", { text: "needle" });
+  expect(result.items.map((i: any) => i.key)).toEqual(["T2-1"]);
+  expect(result.stoppedEarly).toContain("T1");
+  expect(result.stoppedEarly).toContain("20 of 22");
+  const t1Pages = s.http.requests.filter((r) => r.url.includes(`/projects/${ids[0]}/work-items/`));
+  expect(t1Pages.length).toBe(2);
+  expect(s.http.requests.some((r) => r.url.includes(`/projects/${ids[21]}/work-items/`))).toBe(false);
+  expect(s.http.requests.some((r) => r.url.includes(`/projects/${P3}/work-items/`))).toBe(false);
+
+  const capped = await ask(s, "workItemList", { project: "T1", limit: 5 });
+  expect(capped.items.length).toBe(5);
+  expect(capped.matched).toBe(2000);
+  expect(capped.stoppedEarly).toContain("T1");
+}, 60000);

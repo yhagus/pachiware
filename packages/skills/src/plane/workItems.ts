@@ -6,13 +6,21 @@ import type { ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeList, planeRequest, inWorkspace } from "./client.js";
 import { planeProjectAllowed } from "./scope.js";
 import { planeMarkdown } from "./markdown.js";
-import { planeTarget, resolvePlaneProject, resolveWorkItem, workItemPath, projectRef, planeUserName, type PlaneTarget, type ResolvedWorkItem } from "./resolve.js";
+import { planeTarget, resolvePlaneProject, resolveWorkItem, workItemPath, workItemKey, projectRef, planeUserName, planeUserAliases, matchByName, type PlaneTarget, type ResolvedWorkItem } from "./resolve.js";
 
 type Obj = Record<string, any>;
 
 const ACCOUNT = { type: "string", description: "Plane account name; needed only when several are available (see planeAccounts)." };
 const ITEM = { type: "string", description: "Work item key such as ENG-42, or its id (then pass project too)." };
 const PROJECT_OF_ID = { type: "string", description: "Plane project id, identifier or name; needed only when item is an id." };
+
+const STATE_GROUPS = ["backlog", "unstarted", "started", "completed", "cancelled"];
+const PRIORITIES = ["urgent", "high", "medium", "low", "none"];
+const GROUP_ALIASES: Record<string, string[]> = { open: ["backlog", "unstarted", "started"], closed: ["completed", "cancelled"] };
+
+/** `workItemList` reads Plane's unfiltered list: at most this many pages of PAGE per Plane project, and this many Plane projects. */
+const LIST_PAGES = 2, LIST_PAGE = 1000, LIST_PROJECTS = 20;
+const LIST_FIELDS = "id,name,priority,state,assignees,labels,target_date,sequence_id,project,updated_at";
 
 const ITEM_FIELDS = "id,name,description_html,priority,state,assignees,labels,start_date,target_date,completed_at,parent,sequence_id,project,created_by,created_at,updated_at";
 
@@ -26,11 +34,25 @@ export const workItemTools: ToolDefinition[] = [
       limit: { type: "number", description: "At most this many results (default 20, max 50)." },
       account: ACCOUNT,
     }, required: ["query"] } },
+  { name: "workItemList", description: "Lists work items, newest change first, filtered by state or state group, assignee, label, priority, change date and title text, in one Plane project or in all open here. Reads at most 2000 work items per Plane project and 20 Plane projects; stoppedEarly says when it hit that.",
+    parameters: { type: "object", properties: {
+      project: { type: "string", description: "Plane project id, identifier or name; omit for every Plane project open here." },
+      stateGroup: { type: "string", enum: [...STATE_GROUPS, "open", "closed"], description: "open = backlog, unstarted or started; closed = completed or cancelled." },
+      state: { type: "string", description: "State name, as planeStates lists it." },
+      assignee: { type: "string", description: "A member's name, display name or email (see planeMembers), or \"none\" for unassigned." },
+      label: { type: "string", description: "Label name, as planeLabels lists it." },
+      priority: { type: "string", enum: PRIORITIES },
+      changedSince: { type: "string", description: "Only work items changed on or after this date (YYYY-MM-DD or ISO 8601)." },
+      text: { type: "string", description: "Words that must appear in the title or key." },
+      limit: { type: "number", description: "At most this many results (default 50, max 200)." },
+      account: ACCOUNT,
+    } } },
 ];
 
 export const workItemToolPolicy: Record<string, ToolPolicy> = {
   workItemGet: { effect: "read", group: "Work items" },
   workItemSearch: { effect: "read", group: "Work items" },
+  workItemList: { effect: "read", group: "Work items" },
 };
 
 /** The current cycle and modules of a work item, replayed from its activity, since Plane's work item carries neither. */
@@ -54,7 +76,95 @@ async function activitiesOf(t: PlaneTarget, w: ResolvedWorkItem, expandActor = f
 /** Plane's search returns at most `limit` hits across the whole Plane workspace, so it is asked for more than are shown and then cut to the scope. */
 const SEARCH_FETCH = 100;
 
+type ListFilter = (item: Obj) => boolean;
+
+/** The filters of a workItemList call, checked before Plane is asked anything. */
+function listFilters(args: Obj): { filters: ListFilter[]; since: number | null } {
+  const filters: ListFilter[] = [];
+  const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const group = text(args.stateGroup)?.toLowerCase();
+  if (group) {
+    const groups = GROUP_ALIASES[group] ?? (STATE_GROUPS.includes(group) ? [group] : null);
+    if (!groups) throw new Error(`stateGroup must be one of ${[...STATE_GROUPS, "open", "closed"].join(", ")}`);
+    filters.push((it) => groups.includes(String(it.state?.group)));
+  }
+  const state = text(args.state)?.toLowerCase();
+  if (state) filters.push((it) => String(it.state?.name ?? "").toLowerCase() === state);
+  const assignee = text(args.assignee);
+  if (assignee) {
+    if (/^(me|myself|i|saya|aku)$/i.test(assignee)) throw new Error(`Plane does not know who "${assignee}" is: name the person, as planeMembers lists them.`);
+    if (assignee.toLowerCase() === "none") filters.push((it) => !(it.assignees ?? []).length);
+    else filters.push((it) => matchByName<Obj>(it.assignees ?? [], assignee, planeUserAliases).length > 0);
+  }
+  const label = text(args.label)?.toLowerCase();
+  if (label) filters.push((it) => (it.labels ?? []).some((l: Obj) => String(l.name).toLowerCase() === label));
+  const priority = text(args.priority)?.toLowerCase();
+  if (priority) {
+    if (!PRIORITIES.includes(priority)) throw new Error(`priority must be one of ${PRIORITIES.join(", ")}`);
+    filters.push((it) => it.priority === priority);
+  }
+  const words = text(args.text)?.toLowerCase();
+  if (words) filters.push((it) => `${it.key} ${it.name}`.toLowerCase().includes(words));
+  let since: number | null = null;
+  const changed = text(args.changedSince);
+  if (changed) {
+    since = Date.parse(changed);
+    if (Number.isNaN(since)) throw new Error(`changedSince must be a date such as 2026-10-01`);
+    filters.push((it) => Date.parse(it.updated_at) >= since!);
+  }
+  return { filters, since };
+}
+
+/** One Plane project's work items, newest change first, stopping at the page cap or once older than `since`. */
+async function readProjectItems(t: PlaneTarget, p: Obj, since: number | null): Promise<{ items: Obj[]; capped: boolean }> {
+  const items: Obj[] = [];
+  let cursor: string | undefined;
+  for (let n = 0; n < LIST_PAGES; n++) {
+    const page = await planeRequest<Obj>(t.conn, inWorkspace(t.conn, `projects/${p.id}/work-items/`), {
+      query: { order_by: "-updated_at", per_page: LIST_PAGE, fields: LIST_FIELDS, expand: "state,assignees,labels", ...(cursor ? { cursor } : {}) },
+    });
+    const results: Obj[] = page?.results ?? [];
+    items.push(...results);
+    if (!page?.next_page_results || !page.next_cursor) return { items, capped: false };
+    if (since !== null && results.length && Date.parse(results.at(-1)!.updated_at) < since) return { items, capped: false };
+    cursor = page.next_cursor;
+  }
+  return { items, capped: true };
+}
+
 export const workItemHandlers: Record<string, ToolHandler> = {
+  workItemList: async (args, ctx) => {
+    const { filters, since } = listFilters(args);
+    const limit = Math.min(Math.max(1, Number(args.limit) || 50), 200);
+    const t = await planeTarget(ctx, args);
+    const open = args.project ? [await resolvePlaneProject(t, args.project)] : await t.openProjects();
+    const read = open.slice(0, LIST_PROJECTS);
+    const capped: string[] = [];
+    const matched: Obj[] = [];
+    for (const p of read) {
+      const got = await readProjectItems(t, p, since);
+      if (got.capped) capped.push(p.identifier);
+      for (const it of got.items) {
+        const row = { ...it, key: workItemKey(p, it) };
+        if (filters.every((f) => f(row))) matched.push(row);
+      }
+    }
+    matched.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+    const notes = [
+      ...(capped.length ? [`read only the ${LIST_PAGES * LIST_PAGE} most recently changed work items of ${capped.join(", ")}`] : []),
+      ...(open.length > read.length ? [`read ${read.length} of ${open.length} Plane projects (${open.slice(read.length).map((p) => p.identifier).join(", ")} not read); name a project to read it`] : []),
+    ];
+    return {
+      items: matched.slice(0, limit).map((it) => ({
+        key: it.key, name: it.name, state: it.state?.name ?? null, priority: it.priority,
+        assignees: (it.assignees ?? []).map(planeUserName), labels: (it.labels ?? []).map((l: Obj) => l.name),
+        targetDate: it.target_date ?? null, updatedAt: it.updated_at,
+      })),
+      matched: matched.length,
+      ...(matched.length > limit ? { more: true } : {}),
+      ...(notes.length ? { stoppedEarly: `Stopped early: ${notes.join("; ")}.` } : {}),
+    };
+  },
   workItemSearch: async (args, ctx) => {
     const query = typeof args.query === "string" ? args.query.trim() : "";
     if (!query) throw new Error(`Pass "query": words from the title, or a key such as ENG-42.`);
