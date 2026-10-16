@@ -143,3 +143,35 @@ discordScenario("workItemEditComment edits only a comment the account's Plane us
   await s.discord.click(edit.confirmation!, "Confirm");
   expect(plane.writes).toEqual([{ method: "PATCH", path: `projects/${P1}/work-items/${item.id}/comments/${ours.id}/`, body: { comment_html: "<p>Seen on Safari and Firefox.</p><p><em>Sent from Discord by Bob in #channel-1</em></p>" } }]);
 });
+
+discordScenario("links are added and removed by URL; workItemRelate relates work items in the scope and says Plane cannot undo it", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login" });
+  const blocker = plane.item({ project: P1, sequence_id: 41, name: "Auth refactor" });
+  const mockups = plane.item({ project: P2, sequence_id: 3, name: "Login mockups" });
+  plane.item({ project: P3, sequence_id: 1, name: "Secret" });
+  const old = plane.link({ issue: item.id, project: P1, url: "https://github.com/acme/web/pull/800", title: "Old PR" });
+
+  const bad = await ask(s, "workItemAddLink", { item: "ENG-42", url: "javascript:alert(1)" });
+  expect(bad.result.error).toContain("http");
+  const add = await ask(s, "workItemAddLink", { item: "ENG-42", url: "https://github.com/acme/web/pull/812", title: "PR #812" });
+  const remove = await ask(s, "workItemRemoveLink", { item: "ENG-42", link: "https://github.com/acme/web/pull/800" });
+  expect(remove.result.summary).toContain("Old PR");
+  expect(plane.writes).toEqual([]);
+  await s.discord.click(add.confirmation!, "Confirm");
+  await s.discord.click(remove.confirmation!, "Confirm");
+  expect(plane.writes).toEqual([
+    { method: "POST", path: `projects/${P1}/work-items/${item.id}/links/`, body: { url: "https://github.com/acme/web/pull/812", title: "PR #812" } },
+    { method: "DELETE", path: `projects/${P1}/work-items/${item.id}/links/${old.id}/`, body: null },
+  ]);
+
+  const outside = await ask(s, "workItemRelate", { item: "ENG-42", relation: "blocked_by", related: ["SEC-1"] });
+  expect(outside.result.error).toContain("is not open in this channel");
+  const relate = await ask(s, "workItemRelate", { item: "ENG-42", relation: "blocked_by", related: ["ENG-41", "des-3"] });
+  expect(relate.result.summary).toContain("blocked by ENG-41, DES-3");
+  await s.discord.click(relate.confirmation!, "Confirm");
+  expect(plane.writes.at(-1)).toEqual({ method: "POST", path: `projects/${P1}/work-items/${item.id}/relations/`, body: { relation_type: "blocked_by", issues: [blocker.id, mockups.id] } });
+  expect(relate.confirmation!.content).toContain("cannot remove a relation");
+});

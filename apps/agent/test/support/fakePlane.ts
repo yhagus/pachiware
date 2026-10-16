@@ -158,6 +158,23 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
       if (!c) return missing();
       if (req.method === "PATCH") return Object.assign(c, { comment_html: body.comment_html ?? c.comment_html, edited_at: "2026-10-02T09:00:00.000000Z" });
     }
+    if (seg[4] === "links") {
+      if (seg.length === 5 && req.method === "POST") {
+        if (!/^https?:\/\//.test(String(body.url ?? ""))) return json(400, { url: ["Invalid URL scheme."] });
+        if (links.some((l) => l.issue === it.id && l.url === body.url)) return json(400, { error: "URL already exists for this Issue" });
+        return json(201, api.link({ issue: it.id, project: p.id, url: body.url, title: body.title ?? null, created_by: "u-bot" }));
+      }
+      const at = links.findIndex((l) => l.id === seg[5] && l.issue === it.id);
+      if (at < 0) return missing();
+      if (req.method === "DELETE") { links.splice(at, 1); return new Response(null, { status: 204 }); }
+    }
+    if (seg[4] === "relations" && seg.length === 5 && req.method === "POST") {
+      const rel: Obj = relations.get(it.id) ?? {};
+      const others = (body.issues ?? []).map((id: string) => items.find((x) => x.id === id)).filter(Boolean);
+      rel[body.relation_type] = [...(rel[body.relation_type] ?? []), ...others.map((o: Obj) => ({ project_id: o.project, issue_id: o.id }))];
+      relations.set(it.id, rel);
+      return json(201, others.map((o: Obj) => ({ id: o.id, project_id: o.project, sequence_id: o.sequence_id, relation_type: body.relation_type, name: o.name, state_id: o.state, priority: o.priority, created_by: "u-bot", created_at: STAMP, updated_at: STAMP, updated_by: "u-bot" })));
+    }
     return json(405, { detail: `Method "${req.method}" not allowed.` });
   }
 

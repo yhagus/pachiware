@@ -4,7 +4,7 @@
  * Markdown and go to Plane as HTML.
  */
 import type { ToolDefinition, ToolPolicy } from "../types.js";
-import { planeRequest, inWorkspace, PlaneError } from "./client.js";
+import { planeRequest, planeList, inWorkspace, PlaneError } from "./client.js";
 import { planeHtml } from "./markdown.js";
 import { planeTarget, resolvePlaneProject, UUID, type PlaneTarget } from "./projectRef.js";
 import { resolveWorkItem, workItemKey, workItemPath, projectNames, planeUserName } from "./resolve.js";
@@ -17,6 +17,8 @@ const NAMES = (what: string) => ({ type: "array", items: { type: "string" }, des
 const DATE = (what: string, clear = "") => ({ type: "string", description: `${what} as YYYY-MM-DD${clear}.` });
 const NONE = ', or "none" to clear it';
 const CONFIRM = " Waits for the asker's Confirm in Discord before anything changes.";
+const RELATIONS = ["blocking", "blocked_by", "duplicate", "relates_to", "start_before", "start_after", "finish_before", "finish_after"];
+const RELATE_NOTE = "Plane's API cannot remove a relation; to undo it, remove it in Plane itself.";
 
 export const workItemWriteTools: ToolDefinition[] = [
   { name: "workItemCreate", description: `Creates a work item in a Plane project. The description is Markdown; a line saying who asked from which Discord channel is added at its end. Names of state, assignees and labels must be the Plane project's own; ask the person when a name is unclear or is "me".${CONFIRM}`,
@@ -51,6 +53,17 @@ export const workItemWriteTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, body: { type: "string", description: "Markdown." }, account: ACCOUNT }, required: ["item", "body"] } },
   { name: "workItemEditComment", description: `Replaces the text of a comment that this Plane account wrote (see workItemComments for ids). Comments written by people are refused.${CONFIRM}`,
     parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, comment: { type: "string", description: "The comment's id." }, body: { type: "string", description: "The new text, in Markdown." }, account: ACCOUNT }, required: ["item", "comment", "body"] } },
+  { name: "workItemAddLink", description: `Adds a link (an http or https URL, with an optional title) to a work item.${CONFIRM}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, url: { type: "string", description: "http:// or https:// address." }, title: { type: "string" }, account: ACCOUNT }, required: ["item", "url"] } },
+  { name: "workItemRemoveLink", description: `Removes a link from a work item, named by its URL or its id (see workItemLinks).${CONFIRM}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, link: { type: "string", description: "The link's URL or id." }, account: ACCOUNT }, required: ["item", "link"] } },
+  { name: "workItemRelate", description: `Relates a work item to other work items open here, such as "ENG-42 is blocked by ENG-41". Plane's API cannot remove a relation afterwards; that has to be done in Plane itself, so say so before asking for Confirm.${CONFIRM}`,
+    parameters: { type: "object", properties: {
+      item: ITEM, project: PROJECT_OF_ID,
+      relation: { type: "string", enum: RELATIONS, description: "How item relates to the others, e.g. blocked_by: item is blocked by them." },
+      related: { type: "array", items: { type: "string" }, description: "Keys of the other work items, such as ENG-41." },
+      account: ACCOUNT,
+    }, required: ["item", "relation", "related"] } },
 ];
 
 export const workItemWriteToolPolicy: Record<string, ToolPolicy> = {
@@ -58,6 +71,9 @@ export const workItemWriteToolPolicy: Record<string, ToolPolicy> = {
   workItemUpdate: { effect: "write", group: "Work items" },
   workItemComment: { effect: "write", group: "Work items" },
   workItemEditComment: { effect: "write", group: "Work items" },
+  workItemAddLink: { effect: "write", group: "Work items" },
+  workItemRemoveLink: { effect: "write", group: "Work items" },
+  workItemRelate: { effect: "write", group: "Work items" },
 };
 
 const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -214,6 +230,60 @@ export const workItemWriteHandlers = {
       run: async () => {
         await planeRequest(t.conn, workItemPath(t, w, `comments/${id.toLowerCase()}/`), { method: "PATCH", body: { comment_html: planeHtml(body) + origin } });
         return { key: w.key, commentId: id, edited: true };
+      },
+    };
+  }),
+  workItemAddLink: planeWrite("workItemAddLink", async (a, ctx) => {
+    const { t, w } = await itemOf(a, ctx);
+    const url = text(a.url) ?? "";
+    let parsed: URL | null = null;
+    try { parsed = new URL(url); } catch {}
+    if (!parsed || !/^https?:$/.test(parsed.protocol)) throw new Error(`url must be a full http:// or https:// address.`);
+    const linkTitle = text(a.title);
+    if (linkTitle && linkTitle.length > 255) throw new Error("title must be at most 255 characters");
+    return {
+      t,
+      summary: `Add link ${linkTitle ? `"${linkTitle}" ` : ""}${url} to ${w.key} "${w.item.name}"`,
+      run: async () => {
+        const link = await planeRequest<Obj>(t.conn, workItemPath(t, w, "links/"), { method: "POST", body: { url, ...(linkTitle ? { title: linkTitle } : {}) } });
+        return { key: w.key, linkId: link?.id, url };
+      },
+    };
+  }),
+  workItemRemoveLink: planeWrite("workItemRemoveLink", async (a, ctx) => {
+    const { t, w } = await itemOf(a, ctx);
+    const ref = text(a.link);
+    if (!ref) throw new Error(`Pass "link" with the link's URL or id, as workItemLinks lists it.`);
+    const { items } = await planeList<Obj>(t.conn, workItemPath(t, w, "links/"), { perPage: 100, maxPages: 5 });
+    const link = items.find((l) => String(l.id) === ref.toLowerCase()) ?? items.find((l) => l.url === ref);
+    if (!link) throw new Error(`${w.key} has no link ${ref}. Its links: ${items.map((l) => l.url).join(", ") || "none"}.`);
+    return {
+      t,
+      summary: `Remove link ${link.title ? `"${link.title}" ` : ""}${link.url} from ${w.key} "${w.item.name}"`,
+      run: async () => {
+        await planeRequest(t.conn, workItemPath(t, w, `links/${link.id}/`), { method: "DELETE" });
+        return { key: w.key, removed: link.url };
+      },
+    };
+  }),
+  workItemRelate: planeWrite("workItemRelate", async (a, ctx) => {
+    const { t, w } = await itemOf(a, ctx);
+    const relation = text(a.relation)?.toLowerCase() ?? "";
+    if (!RELATIONS.includes(relation)) throw new Error(`relation must be one of ${RELATIONS.join(", ")}`);
+    const refs = list(a.related, "related");
+    if (!refs.length) throw new Error(`Pass "related" with the keys of the other work items, such as ENG-41.`);
+    const others: Obj[] = [];
+    for (const ref of refs) {
+      const o = await resolveWorkItem(t, ref, a.project, { fields: "id,name,sequence_id,project" });
+      if (String(o.item.id) === String(w.item.id)) throw new Error(`A work item cannot be related to itself (${w.key}).`);
+      if (!others.some((x) => x.item.id === o.item.id)) others.push(o);
+    }
+    return {
+      t,
+      summary: `Mark ${w.key} "${w.item.name}" as ${relation.replace(/_/g, " ")} ${others.map((o) => o.key).join(", ")}. ${RELATE_NOTE}`,
+      run: async () => {
+        await planeRequest(t.conn, workItemPath(t, w, "relations/"), { method: "POST", body: { relation_type: relation, issues: others.map((o) => o.item.id) } });
+        return { key: w.key, relation, related: others.map((o) => o.key), note: RELATE_NOTE };
       },
     };
   }),
