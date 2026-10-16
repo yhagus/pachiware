@@ -1,6 +1,6 @@
 /**
  * Workspace-level Plane tools: they reach the whole Plane workspace, so they run only where the Plane scope is "all Plane projects".
- * `WORKSPACE_LEVEL_TOOLS` names every such tool (later ones, such as projectCreate, join it); `hiddenWorkspaceTools` keeps them from
+ * `WORKSPACE_LEVEL_TOOLS` names every such tool (projectCreate in projectAdmin.ts included); `hiddenWorkspaceTools` keeps them from
  * the model elsewhere, and `pickWorkspaceAccess` is how their handlers choose an account.
  */
 import type { Effect, SkillContext, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
@@ -10,7 +10,7 @@ import { loadPlaneAccess, pickPlaneAccess, allPlaneProjectsAllowed, planeConnOf,
 const R: Effect = "read";
 
 /** Tools offered only where some usable Plane account has all its Plane projects open. */
-export const WORKSPACE_LEVEL_TOOLS = ["workspaceMembers", "workspaceInvitations"];
+export const WORKSPACE_LEVEL_TOOLS = ["workspaceMembers", "workspaceInvitations", "projectCreate"];
 
 /** The workspace-level tools to hide here: all of them unless some usable account has every Plane project open. */
 export async function hiddenWorkspaceTools(ctx: SkillContext): Promise<string[]> {

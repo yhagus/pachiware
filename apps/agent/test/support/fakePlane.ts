@@ -469,6 +469,7 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       intake.push(r); return r;
     },
     /** What a test asserts on after a write. */
+    projects,
     cycleOf: (itemId: string): string | null => cycleIssues.find((r) => r.issue === itemId)?.cycle ?? null,
     modulesOf: (itemId: string): string[] => moduleIssues.filter((r) => r.issue === itemId).map((r) => r.module),
     find: {

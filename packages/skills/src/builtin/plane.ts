@@ -10,6 +10,7 @@ import { moduleTools, moduleHandlers, moduleToolPolicy } from "../plane/modules.
 import { moduleWriteTools, moduleWriteHandlers, moduleWriteToolPolicy } from "../plane/moduleWrites.js";
 import { intakeTools, intakeHandlers, intakeToolPolicy } from "../plane/intake.js";
 import { intakeWriteTools, intakeWriteHandlers, intakeWriteToolPolicy } from "../plane/intakeWrites.js";
+import { projectAdminTools, projectAdminHandlers, projectAdminToolPolicy } from "../plane/projectAdmin.js";
 import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools } from "../plane/workspace.js";
 
 /** Tool groups in display order, as Availability rules and the console show them. Every Plane tool joins one; a group shows once it holds a tool. */
@@ -29,6 +30,7 @@ export const planeTools: ToolDefinition[] = [
   ...moduleWriteTools,
   ...intakeTools,
   ...intakeWriteTools,
+  ...projectAdminTools,
   ...workspaceTools,
 ];
 
@@ -43,6 +45,7 @@ export const planeToolPolicy: Record<string, ToolPolicy> = {
   ...moduleWriteToolPolicy,
   ...intakeToolPolicy,
   ...intakeWriteToolPolicy,
+  ...projectAdminToolPolicy,
   ...workspaceToolPolicy,
 };
 
@@ -72,6 +75,7 @@ export const planeHandlers: Record<string, ToolHandler> = {
   ...moduleWriteHandlers,
   ...intakeHandlers,
   ...intakeWriteHandlers,
+  ...projectAdminHandlers,
   ...workspaceHandlers,
 };
 

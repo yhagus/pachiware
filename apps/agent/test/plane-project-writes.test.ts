@@ -91,3 +91,74 @@ discordScenario("intakeTriage accepts, snoozes until a date, and marks a duplica
   expect(plane.find.item(a.issue)!.state).toBe(w.todo.id);
   for (const r of [accept, snooze, duplicate]) expect(r.confirmation!.content).toContain("Completed");
 });
+
+discordScenario("projectCreate is offered only where the scope is all Plane projects, and creates a Plane project with cycles and modules on", async (s) => {
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const account = await s.plane({ projects: ["*"] });
+  const plane = fakePlane(s);
+  world(plane);
+  const scopes = async () => (await repositories().plane.listScopes(s.bot.id, s.discord.guildId)).map(({ channelId, projectIds }) => ({ channelId, projectIds }));
+  const before = await scopes();
+
+  const hyphen = await ask(s, "projectCreate", { name: "Mobile-App", identifier: "MOB" });
+  expect(hyphen.result.error).toContain("hyphen");
+  const taken = await ask(s, "projectCreate", { name: "Mobile", identifier: "eng" });
+  expect(taken.result.error).toContain(`identifier ENG is taken`);
+  const create = await ask(s, "projectCreate", { name: "Mobile", identifier: "mob", description: "The apps", intake: true });
+  expect(create.result.summary).toContain(`"Mobile" (MOB)`);
+  expect(plane.writes).toEqual([]);
+  await s.discord.click(create.confirmation!, "Confirm");
+  const made = plane.projects.find((p) => p.identifier === "MOB")!;
+  expect(plane.writes).toEqual([
+    { method: "POST", path: "projects/", body: { name: "Mobile", identifier: "MOB", description: "The apps", cycle_view: true, module_view: true } },
+    { method: "PATCH", path: `projects/${made.id}/`, body: { intake_view: true } },
+  ]);
+  expect(made).toMatchObject({ cycle_view: true, module_view: true, intake_view: true });
+  expect(create.confirmation!.content).toContain("Completed");
+  expect(await scopes()).toEqual(before);
+
+  // Where a channel rule names one Plane project, projectCreate is neither offered nor run.
+  await repositories().plane.replaceScopes(s.tenant.id, s.bot.id, s.discord.guildId, "channel-2", [{ planeAccountId: account.id, projectIds: [P1] }]);
+  s.discord.channel("channel-2");
+  let refused: any;
+  s.model.script({ tool: "projectCreate", args: { name: "Web", identifier: "WEB" } }, (turn) => { refused = turn.toolResults[0]; return "done"; });
+  await s.discord.send(`${s.discord.mention} make a Plane project`, { channel: "channel-2" });
+  expect(s.model.tools.at(-1)).toContain("stateCreate");
+  expect(s.model.tools.at(-1)).not.toContain("projectCreate");
+  expect(JSON.stringify(refused)).toContain("unavailable here");
+  expect(plane.writes.length).toBe(2);
+});
+
+discordScenario("stateCreate, stateUpdate, labelCreate and labelUpdate change a Plane project's states and labels after Confirm; a taken name is refused first", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  plane.label({ project: P1, name: "bug", color: "#EF4444" });
+  const ui = plane.label({ project: P1, name: "ui", color: "#3B82F6" });
+
+  const takenState = await ask(s, "stateCreate", { project: "ENG", name: "todo", group: "unstarted" });
+  expect(takenState.result.error).toContain(`already has a state named "Todo"`);
+  const badGroup = await ask(s, "stateCreate", { project: "ENG", name: "Triage", group: "triage" });
+  expect(badGroup.result.error).toContain("group must be one of");
+  const badColor = await ask(s, "labelCreate", { project: "ENG", name: "perf", color: "red" });
+  expect(badColor.result.error).toContain("#RRGGBB");
+  const takenLabel = await ask(s, "labelUpdate", { project: "ENG", label: "ui", name: "Bug" });
+  expect(takenLabel.result.error).toContain(`already has a label named "bug"`);
+  expect(plane.writes).toEqual([]);
+
+  const state = await ask(s, "stateCreate", { project: "ENG", name: "In Review", group: "started", color: "#F59E0B" });
+  const rename = await ask(s, "stateUpdate", { project: "ENG", state: "todo", name: "To do", color: "#64748B" });
+  const label = await ask(s, "labelCreate", { project: "ENG", name: "perf", description: "Slow paths" });
+  const recolor = await ask(s, "labelUpdate", { project: "ENG", label: "UI", color: "#10B981" });
+  expect(rename.result.summary).toContain(`state Todo in ENG: name "To do", color #64748B`);
+  for (const r of [state, rename, label, recolor]) await s.discord.click(r.confirmation!, "Confirm");
+  expect(plane.writes).toEqual([
+    { method: "POST", path: `projects/${P1}/states/`, body: { name: "In Review", group: "started", color: "#F59E0B" } },
+    { method: "PATCH", path: `projects/${P1}/states/${w.todo.id}/`, body: { name: "To do", color: "#64748B" } },
+    { method: "POST", path: `projects/${P1}/labels/`, body: { name: "perf", description: "Slow paths" } },
+    { method: "PATCH", path: `projects/${P1}/labels/${ui.id}/`, body: { color: "#10B981" } },
+  ]);
+  expect(plane.find.state(P1, "In Review")).toMatchObject({ group: "started" });
+  expect(plane.find.label(P1, "perf")).toBeDefined();
+  for (const r of [state, rename, label, recolor]) expect(r.confirmation!.content).toContain("Completed");
+});
