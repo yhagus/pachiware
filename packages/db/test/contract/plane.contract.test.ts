@@ -37,6 +37,17 @@ contract("Plane accounts and Plane scopes", (use) => {
     expect((await skills.getForTenant(b.id, "plane"))?.isEnabled).toBe(false);
   });
 
+  test("linking another account to a bot that already has one leaves a switched-off plane skill off", async () => {
+    const { plane, skills } = use().repos;
+    const t = await tenant("acme");
+    const [first, second] = [await account(t.id, "first"), await account(t.id, "second")];
+    const bot = await newBot(t.id);
+    await plane.setBotAccounts(t.id, bot, [first.id]);
+    await skills.setEnabled(t.id, "plane", false);
+    await plane.setBotAccounts(t.id, bot, [first.id, second.id]);
+    expect((await skills.getForTenant(t.id, "plane"))?.isEnabled).toBe(false);
+  });
+
   test("an account name is unique within its tenant only, and accounts are listed newest first", async () => {
     const { plane } = use().repos;
     const [a, b] = [await tenant("a"), await tenant("b")];

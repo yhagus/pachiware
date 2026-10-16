@@ -48,7 +48,7 @@ export function createSqlPlaneRepository(connection: SqlConnection): PlaneReposi
 
     async setBotAccounts(tenantId, botId, ids) {
       const want = [...new Set(ids)];
-      const added = await sqlTransaction(connection, function* (tx) {
+      const firstLinked = await sqlTransaction(connection, function* (tx) {
         const [bot] = yield tx.select({ id: t.bots.id }).from(t.bots).where(and(eq(t.bots.id, botId), eq(t.bots.tenantId, tenantId))).limit(1);
         if (!bot) throw new Error("Bot not found");
         const owned = want.length ? yield tx.select({ id: t.planeAccounts.id }).from(t.planeAccounts).where(and(eq(t.planeAccounts.tenantId, tenantId), inArray(t.planeAccounts.id, want))) : [];
@@ -62,10 +62,10 @@ export function createSqlPlaneRepository(connection: SqlConnection): PlaneReposi
         }
         const add = want.filter((id) => !have.includes(id));
         if (add.length) yield tx.insert(t.botPlaneAccounts).values(add.map((planeAccountId) => ({ id: randomUUID(), tenantId, botId, planeAccountId, createdAt: new Date() })));
-        return add.length > 0;
+        return have.length === 0 && add.length > 0;
       });
-      // The plane skill ships off; linking an account is the moment someone wants it. Plane stays closed anywhere without a guild rule.
-      if (added) await skills.enable(tenantId, "plane");
+      // The plane skill ships off, so a bot's first Plane account switches it on; later links leave an admin's choice alone.
+      if (firstLinked) await skills.enable(tenantId, "plane");
     },
     async listBotAccounts(botId) {
       const rows = await db.select({ acc: t.planeAccounts }).from(t.botPlaneAccounts).innerJoin(t.planeAccounts, eq(t.planeAccounts.id, t.botPlaneAccounts.planeAccountId))
