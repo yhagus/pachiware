@@ -2,11 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { requireTestDatabase } from "../../../packages/db/test/test-database.ts";
 
 const workspace = process.cwd();
 const agent = join(workspace, "apps/agent/src/index.ts");
 const READY = "Agent REST API starting";
 const directories: string[] = [];
+const testMongoUrl = process.env.TEST_MONGODB_URL ? requireTestDatabase("TEST_MONGODB_URL", process.env.TEST_MONGODB_URL) : undefined;
 
 afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
@@ -138,8 +140,8 @@ describe("admin infrastructure API", () => {
     expect(JSON.parse(api.get.body).infrastructure).toMatchObject({ databaseEngine: "sqlite", databaseHost: null });
   });
 
-  test.skipIf(!process.env.TEST_MONGODB_URL)("on MongoDB the health check reports the database answering, and stats show its size", () => {
-    const { responses: [health, stats] } = serverRequests(testDatabase(process.env.TEST_MONGODB_URL!, "server"), [
+  test.skipIf(!testMongoUrl)("on MongoDB the health check reports the database answering, and stats show its size", () => {
+    const { responses: [health, stats] } = serverRequests(testDatabase(testMongoUrl!, "server"), [
       { method: "GET", path: "/api/health" },
       { method: "GET", path: "/api/admin/stats" },
     ]);
@@ -219,8 +221,8 @@ describe("database engine lock at start-up", () => {
     expect(result.runtimeConfig).toEqual({ databaseEngine: "mongodb" });
   }, 30_000);
 
-  test.skipIf(!process.env.TEST_MONGODB_URL)("a fresh install on a MongoDB replica set starts and records its engine", async () => {
-    const result = await startAgent({ databaseUrl: testDatabase(process.env.TEST_MONGODB_URL!, "agent_start") });
+  test.skipIf(!testMongoUrl)("a fresh install on a MongoDB replica set starts and records its engine", async () => {
+    const result = await startAgent({ databaseUrl: testDatabase(testMongoUrl!, "agent_start") });
     expect(result.started, result.errors).toBe(true);
     expect(result.runtimeConfig).toEqual({ databaseEngine: "mongodb" });
     expect(result.installationFiles).toEqual([]);

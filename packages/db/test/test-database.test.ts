@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { requireTestDatabase } from "./test-database.ts";
+import { postgresTestDatabase, requireTestDatabase } from "./test-database.ts";
 
 describe("a test URL must name a test database", () => {
   test.each([
@@ -62,11 +62,11 @@ describe("a test URL must name a test database", () => {
   });
 });
 
-describe("the contract harness", () => {
-  /** Runs one small contract suite in its own process with these test URLs. */
-  function runContract(env: Record<string, string>) {
+describe("test files that write to the test servers", () => {
+  /** Runs a test file in its own process with these test URLs; by default one small contract suite. */
+  function runContract(env: Record<string, string>, cmd = ["packages/db/test/contract/stats.contract.test.ts"]) {
     const result = Bun.spawnSync({
-      cmd: ["bun", "test", "packages/db/test/contract/stats.contract.test.ts"],
+      cmd: ["bun", "test", ...cmd],
       cwd: `${import.meta.dir}/../../..`,
       env: { ...process.env, TEST_POSTGRES_URL: "", TEST_MONGODB_URL: "", ...env },
     });
@@ -82,4 +82,26 @@ describe("the contract harness", () => {
     expect(exitCode).not.toBe(0);
     expect(output).toContain(`${variable} names the database "pachiware", which is not a test database`);
   }, 30_000);
+
+  test("the agent's engine tests refuse a TEST_MONGODB_URL naming a real database", () => {
+    const { exitCode, output } = runContract(
+      { TEST_MONGODB_URL: "mongodb://localhost:1/pachiware?replicaSet=rs0&serverSelectionTimeoutMS=500" },
+      ["apps/agent/test/database-engine.test.ts", "--test-name-pattern", "MongoDB replica set starts"],
+    );
+    expect(exitCode).not.toBe(0);
+    expect(output).toContain('TEST_MONGODB_URL names the database "pachiware", which is not a test database');
+  }, 30_000);
+});
+
+describe("PostgreSQL test database", () => {
+  test("is created from the same server's postgres database, keeping credentials and options", () => {
+    expect(postgresTestDatabase("postgres://admin:p%40ss@localhost:6543/pachiware_test?sslmode=disable")).toEqual({
+      name: "pachiware_test",
+      serverUrl: "postgres://admin:p%40ss@localhost:6543/postgres?sslmode=disable",
+    });
+    expect(postgresTestDatabase("postgresql://ci@db.internal/ci_test")).toEqual({
+      name: "ci_test",
+      serverUrl: "postgresql://ci@db.internal/postgres",
+    });
+  });
 });

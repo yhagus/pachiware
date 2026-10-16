@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { engineTargets, postgresTestDatabase } from "./engines-run.ts";
+import { engineTargets } from "./engines-run.ts";
 
 describe("engine test targets", () => {
   test("with nothing set, each engine is a test database on its compose service", () => {
     expect(engineTargets({})).toEqual([
-      { variable: "TEST_POSTGRES_URL", url: "postgres://pachiware:pachiware_secret@localhost:5432/pachiware_test", service: "postgres" },
-      { variable: "TEST_MONGODB_URL", url: "mongodb://localhost:27017/pachiware_test?replicaSet=rs0&directConnection=true", service: "mongo" },
-      { variable: "TEST_MONGODB_STANDALONE_URL", url: "mongodb://localhost:27018/pachiware_test?directConnection=true", service: "mongo-standalone" },
+      { kind: "postgres", variable: "TEST_POSTGRES_URL", url: "postgres://pachiware:pachiware_secret@localhost:5432/pachiware_test", service: "postgres" },
+      { kind: "replicaSet", variable: "TEST_MONGODB_URL", url: "mongodb://localhost:27017/pachiware_test?replicaSet=rs0&directConnection=true", service: "mongo" },
+      { kind: "standalone", variable: "TEST_MONGODB_STANDALONE_URL", url: "mongodb://localhost:27018/pachiware_test?directConnection=true", service: "mongo-standalone" },
     ]);
   });
 
@@ -30,7 +30,7 @@ describe("engine test targets", () => {
       TEST_POSTGRES_URL: "postgres://ci:ci@db.internal:5432/ci_test",
       TEST_MONGODB_URL: "",
     });
-    expect(targets[0]).toEqual({ variable: "TEST_POSTGRES_URL", url: "postgres://ci:ci@db.internal:5432/ci_test" });
+    expect(targets[0]).toEqual({ kind: "postgres", variable: "TEST_POSTGRES_URL", url: "postgres://ci:ci@db.internal:5432/ci_test" });
     expect(targets[1]).toMatchObject({ url: "mongodb://localhost:27017/pachiware_test?replicaSet=rs0&directConnection=true", service: "mongo" });
   });
 
@@ -39,18 +39,5 @@ describe("engine test targets", () => {
       .toThrow('TEST_POSTGRES_URL names the database "pachiware_agent", which is not a test database');
     expect(() => engineTargets({ TEST_MONGODB_URL: "mongodb://localhost:27017/?replicaSet=rs0" }))
       .toThrow('TEST_MONGODB_URL names the database "pachiware"');
-  });
-});
-
-describe("PostgreSQL test database", () => {
-  test("is created from the same server's postgres database, keeping credentials and options", () => {
-    expect(postgresTestDatabase("postgres://admin:p%40ss@localhost:6543/pachiware_test?sslmode=disable")).toEqual({
-      name: "pachiware_test",
-      serverUrl: "postgres://admin:p%40ss@localhost:6543/postgres?sslmode=disable",
-    });
-    expect(postgresTestDatabase("postgresql://ci@db.internal/ci_test")).toEqual({
-      name: "ci_test",
-      serverUrl: "postgresql://ci@db.internal/postgres",
-    });
   });
 });
