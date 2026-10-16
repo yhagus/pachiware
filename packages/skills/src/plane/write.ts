@@ -25,6 +25,11 @@ export interface PlaneChange<T = unknown> { t: PlaneTarget; summary: string; run
 /** `access: "trusted"` and `ownConfirmation: true` are for danger tools. */
 export type PlaneWriteOptions = Pick<WriteRequest, "access" | "ownConfirmation">;
 
+/** What every Plane danger tool passes: only a Trusted member may ask, and only its own Confirm runs it. */
+export const DANGER: PlaneWriteOptions = { access: "trusted", ownConfirmation: true };
+/** The end of every Plane danger tool's description. */
+export const DANGER_NOTE = " Only a Trusted member may ask for it, and it waits for its own Confirm in Discord, which a thread grant does not cover.";
+
 export function planeWrite<T>(tool: string, prepare: (args: Obj, ctx: SkillContext) => Promise<PlaneChange<T>>, options: PlaneWriteOptions = {}): ToolHandler {
   return (args, ctx) => confirmWrite(ctx, { tool, args: args ?? {}, ...options }, async () => {
     const { t, summary, run, refusals = [], role } = await prepare(args ?? {}, ctx);
@@ -43,6 +48,11 @@ export async function plainly<T>(t: PlaneTarget, call: Promise<T>, refusals: Pla
     if (NOT_PERMITTED.test(e.message)) throw new Error(`Plane refused this because the bot's Plane user, ${t.access.account.planeUserName ?? "the account's user"}, lacks the role for it${role ? `: it needs to be ${role}` : ""}.`);
     throw e;
   }
+}
+
+/** Plane's refusal to delete something the bot's Plane user did not create, without the Admin role, in plain words. */
+export function notCreator(t: PlaneTarget, what: string, project: { identifier: string }): string {
+  return `Plane refused this: the bot's Plane user, ${t.access.account.planeUserName ?? "the account's user"}, did not create ${what} and is not an Admin of the Plane project ${project.identifier}.`;
 }
 
 /**

@@ -32,6 +32,8 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
   const cycles: Obj[] = [], cycleIssues: Obj[] = [], modules: Obj[] = [], moduleIssues: Obj[] = [], intake: Obj[] = [];
   /** Plane projects with an Intake row: one created with intake on, or switched on by a PATCH. */
   const intakeRows = new Set<string>();
+  const invitations: Obj[] = [];
+  const workspaceRoles = new Map<string, number>();
   const writes: { method: string; path: string; body: any }[] = [];
   let n = 0;
   const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
@@ -96,6 +98,9 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       const it = items.find((x) => x.project === p.id && String(x.sequence_id) === seq);
       return it ? pick(expandItem(it, expand), fields) : missing();
     }
+    // The Plane workspace's members (every user here, a Member unless given `workspaceRole`) and invitations, as plain arrays.
+    if (seg[0] === "members" && seg.length === 1) return users.map((u) => ({ ...userLite(u.id), role: workspaceRoles.get(u.id) ?? 15 }));
+    if (seg[0] === "invitations" && seg.length === 1) return invitations;
     if (seg[0] !== "projects") return html404();
     if (seg.length === 1) return page(projects, url);
     const p = projects.find((x) => x.id === seg[1]);
@@ -141,9 +146,23 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
   function write(req: HttpRequest, seg: string[]): unknown {
     const body = (req.body ?? {}) as Obj;
     if (seg[0] === "projects" && seg.length === 1 && req.method === "POST") return createProject(body);
+    if (seg[0] === "invitations") return writeInvitation(seg, req.method, body);
     const p = seg[0] === "projects" ? projects.find((x) => x.id === seg[1]) : undefined;
     if (!p) return missing();
     if (seg.length === 2 && req.method === "PATCH") return patchProject(p, body);
+    if (seg.length === 2 && req.method === "DELETE") {
+      if (!(p.member_role > 15)) return json(403, { detail: "You do not have permission to perform this action." });
+      projects.splice(projects.indexOf(p), 1); return noContent();
+    }
+    if (seg.length === 3 && seg[2] === "archive") {
+      // Archiving needs only a workspace Admin or Member; bringing one back needs a project Admin.
+      if (req.method === "POST") { p.archived_at = "2026-10-02T09:00:00.000000Z"; return noContent(); }
+      if (req.method === "DELETE") {
+        if (!(p.member_role > 15)) return json(403, { detail: "You do not have permission to perform this action." });
+        p.archived_at = null; return noContent();
+      }
+    }
+    if (seg[2] === "members") return writeMember(p, seg, req.method, body);
     if (seg[2] === "cycles" || seg[2] === "archived-cycles") return writeCycle(p, seg, req.method, body);
     if (seg[2] === "modules" || seg[2] === "archived-modules") return writeModule(p, seg, req.method, body);
     if (seg[2] === "intake-issues") return writeIntake(p, seg, req.method, body);
@@ -168,12 +187,19 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       Object.assign(it, settable(body), { updated_at: "2026-10-02T09:00:00.000000Z" });
       return it;
     }
+    if (seg.length === 4 && req.method === "DELETE") {
+      // Plane lets only the work item's creator or a project Admin delete it.
+      if (it.created_by !== "u-bot" && !(p.member_role > 15)) return json(403, { error: "Only admin or creator can delete the work item" });
+      items.splice(items.indexOf(it), 1); return noContent();
+    }
     if (seg[4] === "comments") {
       // Like Plane, the comment's actor is the API user, and created_by is taken from the body when sent.
       if (seg.length === 5 && req.method === "POST") return json(201, api.comment({ issue: it.id, project: p.id, comment_html: body.comment_html ?? "", access: body.access ?? "INTERNAL", actor: "u-bot", created_by: body.created_by ?? "u-bot" }));
       const c = comments.find((x) => x.id === seg[5] && x.issue === it.id);
       if (!c) return missing();
       if (req.method === "PATCH") return Object.assign(c, { comment_html: body.comment_html ?? c.comment_html, edited_at: "2026-10-02T09:00:00.000000Z" });
+      // Plane has no author check on a comment delete: any project member may delete any comment.
+      if (req.method === "DELETE") { comments.splice(comments.indexOf(c), 1); return noContent(); }
     }
     if (seg[4] === "links") {
       if (seg.length === 5 && req.method === "POST") {
@@ -269,6 +295,13 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       if ("end_date" in body) next.end_date = cycleDate(body.end_date, true);
       return Object.assign(c, next);
     }
+    if (seg.length === 4 && method === "DELETE") {
+      // Only the cycle's owner or a project Admin; its work items stay.
+      if (c.owned_by !== "u-bot" && !(p.member_role > 15)) return json(403, { error: "Only admin or creator can delete the cycle" });
+      cycles.splice(cycles.indexOf(c), 1);
+      for (const r of cycleIssues.filter((x) => x.cycle === c.id)) cycleIssues.splice(cycleIssues.indexOf(r), 1);
+      return noContent();
+    }
     if (seg[4] === "cycle-issues") {
       if (seg.length === 5 && method === "POST") {
         if (!body.issues?.length) return json(400, { error: "Work items are required", code: "MISSING_WORK_ITEMS" });
@@ -327,6 +360,13 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       // Plane answers a module PATCH with its write serializer: no id, no counts, no members.
       return Object.fromEntries(MODULE_FIELDS.map((k) => [k, m[k] ?? null]));
     }
+    if (seg.length === 4 && method === "DELETE") {
+      // Only the module's creator or a project Admin; its work items stay.
+      if (m.created_by !== "u-bot" && !(p.member_role > 15)) return json(403, { error: "Only admin or creator can delete the module" });
+      modules.splice(modules.indexOf(m), 1);
+      for (const r of moduleIssues.filter((x) => x.module === m.id)) moduleIssues.splice(moduleIssues.indexOf(r), 1);
+      return noContent();
+    }
     if (seg[4] === "module-issues") {
       if (seg.length === 5 && method === "POST") {
         if (!body.issues?.length) return json(400, { error: "Issues are required" });
@@ -383,6 +423,15 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       }
       return intakeOut(r);
     }
+    if (seg.length === 4 && method === "DELETE") {
+      // An intake item not accepted takes its work item with it, which only the work item's creator or a project Admin may delete.
+      if (r.status !== 1) {
+        const it = items.find((x) => x.id === r.issue)!;
+        if (it.created_by !== "u-bot" && !(p.member_role > 15)) return json(403, { error: "Only admin or creator can delete the work item" });
+        items.splice(items.indexOf(it), 1);
+      }
+      intake.splice(intake.indexOf(r), 1); return noContent();
+    }
     return json(405, { detail: `Method "${method}" not allowed.` });
   }
 
@@ -401,10 +450,43 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
   }
 
   function patchProject(p: Obj, body: Obj): unknown {
+    if (!(p.member_role > 15)) return json(403, { detail: "You do not have permission to perform this action." });
     if (p.archived_at) return json(400, { error: "Archived project cannot be updated" });
     Object.assign(p, body);
     if (body.intake_view === true) intakeRows.add(p.id);
     return p;
+  }
+
+  /**
+   * Adding a project member, as v1.3.1 does: project Admin only, the user must be in the Plane workspace, the role defaults
+   * to Guest, and anyone already listed (a removed member included, since the list keeps them) is a 400 "payload is not valid".
+   */
+  function writeMember(p: Obj, seg: string[], method: string, body: Obj): unknown {
+    if (seg.length !== 3 || method !== "POST") return json(405, { detail: `Method "${method}" not allowed.` });
+    if (!(p.member_role > 15)) return json(403, { detail: "You do not have permission to perform this action." });
+    if (!users.some((u) => u.id === body.member)) return json(400, { member: ["Member not found in workspace"] });
+    const role = body.role ?? 5;
+    if (![20, 15, 5].includes(role)) return json(400, { role: ["Invalid role"] });
+    const listed = members.get(p.id) ?? [];
+    if (listed.includes(body.member)) return json(400, { error: "The payload is not valid" });
+    members.set(p.id, [...listed, body.member]);
+    return json(201, { id: uuid(), member: body.member, role });
+  }
+
+  function writeInvitation(seg: string[], method: string, body: Obj): unknown {
+    if (seg.length === 1 && method === "POST") {
+      if (![20, 15, 5].includes(body.role ?? 5)) return json(400, { role: ["Invalid role"] });
+      if (invitations.some((i) => i.email === body.email)) return json(400, { non_field_errors: ["Email already invited"] });
+      return json(201, api.invitation({ email: body.email, role: body.role ?? 5 }));
+    }
+    const i = invitations.find((x) => x.id === seg[1]);
+    if (!i) return missing();
+    if (seg.length === 2 && method === "DELETE") {
+      if (i.accepted) return json(400, { error: "The invitation has already been accepted", code: "INVITE_ALREADY_ACCEPTED" });
+      if (i.responded_at) return json(400, { error: "The invitation has already been responded to", code: "INVITE_ALREADY_RESPONDED" });
+      invitations.splice(invitations.indexOf(i), 1); return noContent();
+    }
+    return json(405, { detail: `Method "${method}" not allowed.` });
   }
 
   function writeStateOrLabel(p: Obj, seg: string[], method: string, body: Obj): unknown {
@@ -423,6 +505,13 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       if (body.name && list.some((y) => y.project === p.id && y.id !== x.id && y.name === body.name)) return json(400, { error: "The payload is not valid" });
       return Object.assign(x, body, { updated_at: "2026-10-02T09:00:00.000000Z" });
     }
+    if (seg.length === 4 && method === "DELETE") {
+      if (isState && x.default) return json(400, { error: "Default state cannot be deleted" });
+      if (isState && items.some((it) => it.state === x.id)) return json(400, { error: "The state is not empty, only empty states can be deleted" });
+      list.splice(list.indexOf(x), 1);
+      if (!isState) for (const it of items) it.labels = it.labels.filter((id: string) => id !== x.id);
+      return noContent();
+    }
     return json(405, { detail: `Method "${method}" not allowed.` });
   }
 
@@ -439,7 +528,13 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
   const base = (o: Obj): Obj => ({ id: uuid(), created_at: STAMP, updated_at: STAMP, deleted_at: null, ...o });
   const api = {
     writes,
-    user(o: Obj): Obj { const u = { avatar: "", avatar_url: null, first_name: "", last_name: "", email: "", ...o }; users.push(u); return u; },
+    /** A user of the Plane workspace; `workspaceRole` (20, 15 or 5) is their role there, Member by default. */
+    user({ workspaceRole, ...o }: Obj): Obj {
+      const u: Obj = { avatar: "", avatar_url: null, first_name: "", last_name: "", email: "", ...o }; users.push(u);
+      if (workspaceRole) workspaceRoles.set(u.id, workspaceRole);
+      return u;
+    },
+    invitation(o: Obj): Obj { const i = base({ email: "someone@example.com", role: 15, responded_at: null, accepted: false, ...o }); delete i.deleted_at; invitations.push(i); return i; },
     /** `member_role` is the account's Plane user's role in it: 15 Member (the default) or 20 Admin. Intake on comes with its Intake row. */
     project(o: Obj, memberIds: string[] = []) {
       const p = base({ name: "Project", identifier: "PRJ", description: "", network: 2, is_member: true, member_role: 15, archived_at: null, cycle_view: true, module_view: true, intake_view: false, timezone: "UTC", project_lead: null, default_state: null, total_members: memberIds.length, total_cycles: 0, total_modules: 0, ...o });
@@ -476,7 +571,10 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       project: (id: string) => projects.find((x) => x.id === id), cycle: (id: string) => cycles.find((x) => x.id === id), module: (id: string) => modules.find((x) => x.id === id),
       item: (id: string) => items.find((x) => x.id === id), intake: (itemId: string) => intake.find((x) => x.issue === itemId),
       state: (project: string, name: string) => states.find((x) => x.project === project && x.name === name), label: (project: string, name: string) => labels.find((x) => x.project === project && x.name === name),
+      invitation: (email: string) => invitations.find((x) => x.email === email),
     },
+    /** The users a Plane project lists as members, removed ones included, as Plane lists them. */
+    membersOf: (projectId: string): string[] => members.get(projectId) ?? [],
     state(o: Obj) { const st = base({ name: "Todo", color: "#888888", group: "unstarted", default: false, sequence: 1000, is_triage: false, ...o }); states.push(st); return st; },
     label(o: Obj) { const l = base({ name: "label", color: "#EF4444", parent: null, description: "", ...o }); labels.push(l); return l; },
     item(o: Obj) {

@@ -6,11 +6,14 @@
 import type { Effect, SkillContext, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeRequest, inWorkspace } from "./client.js";
 import { loadPlaneAccess, pickPlaneAccess, allPlaneProjectsAllowed, planeConnOf, type PlaneAccess } from "./scope.js";
+import { planeTargetOf, type PlaneTarget } from "./projectRef.js";
+import { planeWrite, plainly, DANGER, DANGER_NOTE } from "./write.js";
+import { text } from "./args.js";
 
 const R: Effect = "read";
 
 /** Tools offered only where some usable Plane account has all its Plane projects open. */
-export const WORKSPACE_LEVEL_TOOLS = ["workspaceMembers", "workspaceInvitations", "projectCreate"];
+export const WORKSPACE_LEVEL_TOOLS = ["workspaceMembers", "workspaceInvitations", "projectCreate", "workspaceInvite", "workspaceCancelInvite"];
 
 /** The workspace-level tools to hide here: all of them unless some usable account has every Plane project open. */
 export async function hiddenWorkspaceTools(ctx: SkillContext): Promise<string[]> {
@@ -25,21 +28,49 @@ export async function pickWorkspaceAccess(ctx: SkillContext, name?: unknown): Pr
   return pickPlaneAccess(whole, name);
 }
 
+/** Plane's role numbers, the same in a Plane project and the Plane workspace. */
+export const MEMBER_ROLES: Record<string, number> = { admin: 20, member: 15, guest: 5 };
+
+/** A role argument as its display name and Plane's number; Member when left out. */
+export function memberRole(v: unknown): [string, number] {
+  const r = text(v)?.toLowerCase() ?? "member";
+  if (!(r in MEMBER_ROLES)) throw new Error(`role must be one of ${Object.keys(MEMBER_ROLES).join(", ")}`);
+  return [`${r[0]!.toUpperCase()}${r.slice(1)}`, MEMBER_ROLES[r]!];
+}
+
 const ACCOUNT_ARG = { account: { type: "string", description: "Plane account name; needed only when several are usable here (see planeAccounts)." } };
 const ROLE: Record<string, string> = { "20": "Admin", "15": "Member", "5": "Guest" };
 const roleName = (r: unknown) => ROLE[String(r)] ?? String(r);
+const WORKSPACE_ADMIN = "an Admin of the Plane workspace";
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const workspaceTools: ToolDefinition[] = [
   { name: "workspaceMembers", description: "Lists the members of the Plane workspace with their workspace role (Admin, Member or Guest).",
     parameters: { type: "object", properties: { ...ACCOUNT_ARG } } },
   { name: "workspaceInvitations", description: "Lists the invitations to the Plane workspace: email, role, and whether each was accepted. Plane allows this only when the bot's Plane user is a workspace Admin.",
     parameters: { type: "object", properties: { ...ACCOUNT_ARG } } },
+  { name: "workspaceInvite", description: `Invites an email address to the Plane workspace as Admin, Member or Guest. Plane records the invitation but sends no email: the person joins by signing up or logging in to Plane with that address. Plane allows it only when the bot's Plane user is a workspace Admin.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: {
+      email: { type: "string", description: "The email address to invite." },
+      role: { type: "string", enum: Object.keys(MEMBER_ROLES), description: "Default member." },
+      ...ACCOUNT_ARG,
+    }, required: ["email"] } },
+  { name: "workspaceCancelInvite", description: `Cancels an invitation to the Plane workspace that nobody has answered yet, named by its email address or id (see workspaceInvitations).${DANGER_NOTE}`,
+    parameters: { type: "object", properties: {
+      invitation: { type: "string", description: "The invited email address, or the invitation's id." },
+      ...ACCOUNT_ARG,
+    }, required: ["invitation"] } },
 ];
 
 export const workspaceToolPolicy: Record<string, ToolPolicy> = {
   workspaceMembers: { effect: R, group: "Workspace" },
   workspaceInvitations: { effect: R, group: "Workspace" },
+  workspaceInvite: { effect: "danger", group: "Workspace" },
+  workspaceCancelInvite: { effect: "danger", group: "Workspace" },
 };
+
+/** The Plane workspace's invitations; Plane shows them only to a workspace Admin, which the refusal names. */
+const invitationsOf = (t: PlaneTarget) => plainly(t, planeRequest<any[]>(t.conn, inWorkspace(t.conn, "invitations/")), [], WORKSPACE_ADMIN).then((l) => l ?? []);
 
 export const workspaceHandlers: Record<string, ToolHandler> = {
   workspaceMembers: async (args, ctx) => {
@@ -57,4 +88,37 @@ export const workspaceHandlers: Record<string, ToolHandler> = {
       invitations: (invitations ?? []).map((i) => ({ id: i.id, email: i.email, role: roleName(i.role), invitedAt: i.created_at ?? null, accepted: !!i.accepted, respondedAt: i.responded_at ?? null })),
     };
   },
+  workspaceInvite: planeWrite("workspaceInvite", async (a, ctx) => {
+    const t = planeTargetOf(await pickWorkspaceAccess(ctx, a.account));
+    const email = text(a.email)?.toLowerCase() ?? "";
+    if (!EMAIL.test(email)) throw new Error(`Pass "email" with the email address to invite, such as sari@example.com.`);
+    const [name, role] = memberRole(a.role);
+    if ((await invitationsOf(t)).some((i) => String(i.email).toLowerCase() === email)) throw new Error(`${email} is already invited to the Plane workspace.`);
+    return {
+      t, role: WORKSPACE_ADMIN,
+      refusals: [[/Email already invited/, `${email} is already invited to the Plane workspace.`]],
+      summary: `Invite ${email} to the Plane workspace as a ${name}`,
+      run: async () => {
+        const i = await planeRequest<any>(t.conn, inWorkspace(t.conn, "invitations/"), { method: "POST", body: { email, role } });
+        return { invitation: { id: i?.id ?? null, email, role: name }, note: "Plane sends no invitation email. Tell the person to sign up or log in to Plane with this address." };
+      },
+    };
+  }, DANGER),
+  workspaceCancelInvite: planeWrite("workspaceCancelInvite", async (a, ctx) => {
+    const t = planeTargetOf(await pickWorkspaceAccess(ctx, a.account));
+    const ref = text(a.invitation)?.toLowerCase();
+    if (!ref) throw new Error(`Pass "invitation" with the invited email address or the invitation's id.`);
+    const i = (await invitationsOf(t)).find((x) => String(x.id).toLowerCase() === ref || String(x.email).toLowerCase() === ref);
+    if (!i) throw new Error(`No invitation to the Plane workspace matches ${ref}; see workspaceInvitations.`);
+    if (i.accepted) throw new Error(`${i.email} already accepted the invitation, so there is nothing to cancel.`);
+    if (i.responded_at) throw new Error(`${i.email} already answered the invitation, so Plane does not cancel it.`);
+    return {
+      t, role: WORKSPACE_ADMIN,
+      summary: `Cancel the invitation of ${i.email} (${roleName(i.role)}) to the Plane workspace`,
+      run: async () => {
+        await planeRequest(t.conn, inWorkspace(t.conn, `invitations/${i.id}/`), { method: "DELETE" });
+        return { invitation: { id: i.id, email: i.email }, cancelled: true };
+      },
+    };
+  }, DANGER),
 };

@@ -10,7 +10,7 @@ import { resolvePlaneProject, PROJECT_ARGS, type PlaneProjectTarget } from "./pr
 import { workItemsIn, findArchived } from "./resolve.js";
 import { cyclesOff, findCycle } from "./cycles.js";
 import { text, date, title, list } from "./args.js";
-import { planeWrite, type PlaneRefusals } from "./write.js";
+import { planeWrite, DANGER, DANGER_NOTE, notCreator, type PlaneRefusals } from "./write.js";
 
 type Obj = Record<string, any>;
 
@@ -44,6 +44,8 @@ export const cycleWriteTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...CYCLE_ARG }, required: ["project", "cycle"] } },
   { name: "cycleUnarchive", description: `Brings an archived cycle back, named by its id or name.${CONFIRM}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...CYCLE_ARG }, required: ["project", "cycle"] } },
+  { name: "cycleDelete", description: `Deletes a cycle for good; its work items stay in the Plane project. Plane allows it only for the cycle's owner or an Admin of the Plane project.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { ...PROJECT_ARGS, ...CYCLE_ARG }, required: ["project", "cycle"] } },
 ];
 
 export const cycleWriteToolPolicy: Record<string, ToolPolicy> = {
@@ -54,6 +56,7 @@ export const cycleWriteToolPolicy: Record<string, ToolPolicy> = {
   cycleTransfer: { effect: "write", group: "Cycles" },
   cycleArchive: { effect: "write", group: "Cycles" },
   cycleUnarchive: { effect: "write", group: "Cycles" },
+  cycleDelete: { effect: "danger", group: "Cycles" },
 };
 
 /** Plane needs an ended cycle for transfer and archive; a draft has no end, and archiving one is a 500 in Plane. */
@@ -205,4 +208,19 @@ export const cycleWriteHandlers = {
       },
     };
   }),
+  cycleDelete: planeWrite("cycleDelete", async (a, ctx) => {
+    const { t, c } = await cycleOf(a, ctx, null);
+    return {
+      t, role: `the cycle's owner or an Admin of the Plane project ${t.project.identifier}`,
+      refusals: [[/Only admin or creator can delete the cycle/, notCreator(t, `the cycle ${c.name}`, t.project)]],
+      summary: `Delete cycle ${c.name} in ${t.project.identifier} for good; ${staying(c.total_issues)}`,
+      run: async () => {
+        await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/cycles/${c.id}/`), { method: "DELETE" });
+        return { cycle: { id: c.id, name: c.name }, deleted: true };
+      },
+    };
+  }, DANGER),
 };
+
+/** What a cycle or module delete leaves: its work items, which stay in the Plane project. */
+export const staying = (n: unknown) => (typeof n === "number" ? `its ${n} work item${n === 1 ? " stays" : "s stay"} in the Plane project` : "its work items stay in the Plane project");

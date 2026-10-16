@@ -5,10 +5,10 @@
  */
 import type { DiscordAttachmentInfo, DiscordMessageInfo, SkillContext, ToolDefinition, ToolPolicy } from "../types.js";
 import { planeRequest, planeList, planeUpload, inWorkspace, PlaneError } from "./client.js";
-import { planeHtml } from "./markdown.js";
+import { planeHtml, planeText } from "./markdown.js";
 import { planeTarget, resolvePlaneProject, UUID, type PlaneTarget } from "./projectRef.js";
-import { resolveWorkItem, workItemKey, workItemPath, projectNames, planeUserName } from "./resolve.js";
-import { planeWrite, originLine, ORIGIN_LINE } from "./write.js";
+import { resolveWorkItem, workItemKey, workItemPath, projectNames, planeUserName, type ResolvedWorkItem } from "./resolve.js";
+import { planeWrite, originLine, ORIGIN_LINE, DANGER, DANGER_NOTE, notCreator } from "./write.js";
 import { ACCOUNT, ITEM, PROJECT_OF_ID, PRIORITIES } from "./workItems.js";
 import { text, isNone, list, date, title, clip } from "./args.js";
 
@@ -72,6 +72,10 @@ export const workItemWriteTools: ToolDefinition[] = [
       name: { type: "string", description: "The file's name, when the message holds more than one." },
       account: ACCOUNT,
     }, required: ["item", "messageId"] } },
+  { name: "workItemDelete", description: `Deletes a work item for good. Plane allows it only for the work item's creator or an Admin of the Plane project.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT }, required: ["item"] } },
+  { name: "workItemDeleteComment", description: `Deletes a comment that this Plane account wrote (see workItemComments for ids). Comments written by people are refused.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, comment: { type: "string", description: "The comment's id." }, account: ACCOUNT }, required: ["item", "comment"] } },
 ];
 
 export const workItemWriteToolPolicy: Record<string, ToolPolicy> = {
@@ -83,6 +87,8 @@ export const workItemWriteToolPolicy: Record<string, ToolPolicy> = {
   workItemRemoveLink: { effect: "write", group: "Work items" },
   workItemRelate: { effect: "write", group: "Work items" },
   workItemAttach: { effect: "write", group: "Work items" },
+  workItemDelete: { effect: "danger", group: "Work items" },
+  workItemDeleteComment: { effect: "danger", group: "Work items" },
 };
 
 /** Plane's default FILE_SIZE_LIMIT; its storage refuses a larger file. */
@@ -129,6 +135,23 @@ function markdown(v: unknown, what: string): string {
 async function itemOf(a: Obj, ctx: SkillContext) {
   const t = await planeTarget(ctx, a);
   return { t, w: await resolveWorkItem(t, a.item, a.project, { fields: "id,name,sequence_id,project" }) };
+}
+
+/**
+ * A comment on the work item that this account's Plane user wrote. Plane lets any project member change or delete any
+ * comment, so the tool checks the author itself: `actor` is who wrote it. `refused` ends the refusal ("…cannot be <refused>").
+ */
+async function ownComment(t: PlaneTarget, w: ResolvedWorkItem, ref: unknown, refused: string) {
+  const id = text(ref)?.toLowerCase();
+  if (!id || !UUID.test(id)) throw new Error(`Pass "comment" with the comment's id, as workItemComments lists it.`);
+  const path = workItemPath(t, w, `comments/${id}/`);
+  let old: Obj;
+  try { old = await planeRequest<Obj>(t.conn, path, { query: { expand: "actor" } }); }
+  catch (e) { if (e instanceof PlaneError && e.status === 404) throw new Error(`${w.key} has no comment ${id}.`); throw e; }
+  const author = String(old?.actor?.id ?? old?.actor ?? "");
+  const self = t.access.account.planeUserId;
+  if (!self || author !== String(self)) throw new Error(`That comment was written by ${planeUserName(old?.actor)}, not by this account's Plane user, so it cannot be ${refused}.`);
+  return { id, old, path };
 }
 
 /** The assignees Plane dropped from a write without saying so: people who are Guests or no longer in the Plane project. */
@@ -231,23 +254,15 @@ export const workItemWriteHandlers = {
   }),
   workItemEditComment: planeWrite("workItemEditComment", async (a, ctx) => {
     const { t, w } = await itemOf(a, ctx);
-    const id = text(a.comment);
-    if (!id || !UUID.test(id)) throw new Error(`Pass "comment" with the comment's id, as workItemComments lists it.`);
     const body = markdown(a.body, "body");
-    let old: Obj;
-    try { old = await planeRequest<Obj>(t.conn, workItemPath(t, w, `comments/${id.toLowerCase()}/`), { query: { expand: "actor" } }); }
-    catch (e) { if (e instanceof PlaneError && e.status === 404) throw new Error(`${w.key} has no comment ${id}.`); throw e; }
-    // Plane lets any project member change any comment, so the tool checks the author itself: `actor` is who wrote it.
-    const author = String(old?.actor?.id ?? old?.actor ?? "");
-    const self = t.access.account.planeUserId;
-    if (!self || author !== String(self)) throw new Error(`That comment was written by ${planeUserName(old?.actor)}, not by this account's Plane user, so it cannot be edited. Comment again instead.`);
+    const { id, old, path } = await ownComment(t, w, a.comment, "edited. Comment again instead");
     // The comment keeps the line that says who asked for it.
     const origin = ORIGIN_LINE.exec(String(old.comment_html ?? ""))?.[0] ?? "";
     return {
       t,
       summary: `Edit a comment on ${w.key} "${w.item.name}" to: ${clip(body)}`,
       run: async () => {
-        await planeRequest(t.conn, workItemPath(t, w, `comments/${id.toLowerCase()}/`), { method: "PATCH", body: { comment_html: planeHtml(body) + origin } });
+        await planeRequest(t.conn, path, { method: "PATCH", body: { comment_html: planeHtml(body) + origin } });
         return { key: w.key, commentId: id, edited: true };
       },
     };
@@ -324,4 +339,28 @@ export const workItemWriteHandlers = {
       },
     };
   }),
+  workItemDelete: planeWrite("workItemDelete", async (a, ctx) => {
+    const { t, w } = await itemOf(a, ctx);
+    return {
+      t, role: `the work item's creator or an Admin of the Plane project ${w.project.identifier}`,
+      refusals: [[/Only admin or creator can delete the work item/, notCreator(t, w.key, w.project)]],
+      summary: `Delete work item ${w.key} "${w.item.name}" for good`,
+      run: async () => {
+        await planeRequest(t.conn, workItemPath(t, w), { method: "DELETE" });
+        return { key: w.key, deleted: true };
+      },
+    };
+  }, DANGER),
+  workItemDeleteComment: planeWrite("workItemDeleteComment", async (a, ctx) => {
+    const { t, w } = await itemOf(a, ctx);
+    const { id, old, path } = await ownComment(t, w, a.comment, "deleted");
+    return {
+      t,
+      summary: `Delete a comment on ${w.key} "${w.item.name}": ${planeText(String(old.comment_html ?? "").replace(ORIGIN_LINE, ""), 300) ?? "(empty)"}`,
+      run: async () => {
+        await planeRequest(t.conn, path, { method: "DELETE" });
+        return { key: w.key, commentId: id, deleted: true };
+      },
+    };
+  }, DANGER),
 };
