@@ -18,10 +18,28 @@ export async function assertGitAccounts(tenantId: string, ids: string[] | undefi
   if (!ids?.length) return;
   if (!await repositories().git.ownsAccounts(tenantId, ids)) throw new HTTPException(400, { message: "Git account not found for this tenant" });
 }
-// Bots as the API returns them, plus the ids of the git accounts attached to each.
+// A bot may hold many Plane accounts, all of its own tenant.
+export async function assertPlaneAccounts(tenantId: string, ids: string[] | undefined) {
+  if (!ids?.length) return;
+  if (!await repositories().plane.ownsAccounts(tenantId, ids)) throw new HTTPException(400, { message: "Plane account not found for this tenant" });
+}
+// Bots as the API returns them, plus the ids of the git and Plane accounts attached to each.
 export async function botsOut(rows: Bot[]) {
-  const links = await repositories().git.botAccountIds(rows.map((r) => r.id));
-  return rows.map((r) => ({ ...r, gitAccountIds: links[r.id] ?? [] }));
+  const ids = rows.map((r) => r.id);
+  const [git, plane] = [await repositories().git.botAccountIds(ids), await repositories().plane.botAccountIds(ids)];
+  return rows.map((r) => ({ ...r, gitAccountIds: git[r.id] ?? [], planeAccountIds: plane[r.id] ?? [] }));
+}
+/** Checks the account ids a bot body names against the tenant, before the bot is written. */
+export async function assertAccounts(tenantId: string, fields: Record<string, any>) {
+  await assertGitAccounts(tenantId, fields.gitAccountIds);
+  await assertPlaneAccounts(tenantId, fields.planeAccountIds);
+}
+/** The bot's own fields, without the account links that `saveAccounts` writes. */
+export const botColumns = ({ gitAccountIds, planeAccountIds, ...rest }: Record<string, any>) => rest;
+/** Replaces the git and Plane accounts a bot holds, for each list the body gave. */
+export async function saveAccounts(tenantId: string, botId: string, fields: Record<string, any>) {
+  if (fields.gitAccountIds) await repositories().git.setBotAccounts(tenantId, botId, fields.gitAccountIds);
+  if (fields.planeAccountIds) await repositories().plane.setBotAccounts(tenantId, botId, fields.planeAccountIds);
 }
 export function botFields(body: Record<string, any>, creating = false) {
   const fields: Record<string, any> = {};
@@ -31,6 +49,7 @@ export function botFields(body: Record<string, any>, creating = false) {
   if (creating && !fields.token) throw new HTTPException(400, { message: "A new bot token is required" });
   if (body.profileId !== undefined) fields.profileId = body.profileId === null ? null : string(body.profileId, "profileId");
   if (body.gitAccountIds !== undefined) fields.gitAccountIds = stringArray(body.gitAccountIds, "gitAccountIds").slice(0, 20);
+  if (body.planeAccountIds !== undefined) fields.planeAccountIds = stringArray(body.planeAccountIds, "planeAccountIds").slice(0, 20);
   if (body.guildIds !== undefined) fields.guildIds = stringArray(body.guildIds, "guildIds");
   if (body.isEnabled !== undefined) {
     if (typeof body.isEnabled !== "boolean") throw new HTTPException(400, { message: "isEnabled must be boolean" });
@@ -44,10 +63,9 @@ botRoutes.post("/", async (c) => {
   const body = object(await c.req.json(), "body");
   const fields = botFields(body, true);
   await assertProfile(c.get("tenantId"), fields.profileId);
-  await assertGitAccounts(c.get("tenantId"), fields.gitAccountIds);
-  const { gitAccountIds, ...rest } = fields;
-  const bot = await repositories().bots.create({ tenantId: c.get("tenantId"), ...rest } as any);
-  if (gitAccountIds) await repositories().git.setBotAccounts(c.get("tenantId"), bot.id, gitAccountIds);
+  await assertAccounts(c.get("tenantId"), fields);
+  const bot = await repositories().bots.create({ tenantId: c.get("tenantId"), ...botColumns(fields) } as any);
+  await saveAccounts(c.get("tenantId"), bot.id, fields);
   if (bot.isEnabled) void discordBotManager.startBot(bot.id).catch(() => {});
   return c.json({ success: true, bot: (await botsOut([bot]))[0] }, 201);
 });
@@ -63,10 +81,9 @@ botRoutes.use("/:id", async (c, next) => {
 botRoutes.patch("/:id", async (c) => {
   const fields = botFields(object(await c.req.json(), "body"));
   await assertProfile(c.get("tenantId"), fields.profileId);
-  await assertGitAccounts(c.get("tenantId"), fields.gitAccountIds);
-  const { gitAccountIds, ...rest } = fields;
-  const bot = (await repositories().bots.update(c.req.param("id"), rest))!;
-  if (gitAccountIds) await repositories().git.setBotAccounts(c.get("tenantId"), c.req.param("id"), gitAccountIds);
+  await assertAccounts(c.get("tenantId"), fields);
+  const bot = (await repositories().bots.update(c.req.param("id"), botColumns(fields)))!;
+  await saveAccounts(c.get("tenantId"), c.req.param("id"), fields);
   if (bot.isEnabled) void discordBotManager.restartBot(bot.id).catch(() => {});
   else await discordBotManager.stopBot(c.req.param("id"));
   return c.json({ success: true, bot: (await botsOut([bot]))[0] });

@@ -14,6 +14,7 @@ import { apiKeyAdminRoutes } from "./routes/admin/apiKeys.js";
 import { botAdminRoutes } from "./routes/admin/bots.js";
 import { profileAdminRoutes } from "./routes/admin/profiles.js";
 import { gitAccountAdminRoutes } from "./routes/admin/gitAccounts.js";
+import { planeAccountAdminRoutes } from "./routes/admin/planeAccounts.js";
 import { skillAdminRoutes } from "./routes/admin/skills.js";
 import { workspaceAdminRoutes } from "./routes/admin/workspace.js";
 import { gitOAuthAppAdminRoutes } from "./routes/admin/gitOAuthApps.js";
@@ -68,6 +69,7 @@ export function createServer() {
   app.route("/api/admin", botAdminRoutes);
   app.route("/api/admin", profileAdminRoutes);
   app.route("/api/admin", gitAccountAdminRoutes);
+  app.route("/api/admin", planeAccountAdminRoutes);
   app.route("/api/admin", skillAdminRoutes);
   app.route("/api/admin", workspaceAdminRoutes);
   app.route("/api/admin", gitOAuthAppAdminRoutes);
