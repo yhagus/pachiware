@@ -7,7 +7,9 @@
  *   plane.project({ id: P1, identifier: "ENG", name: "Engineering" });
  *   plane.item({ project: P1, sequence_id: 42, name: "Fix login", state: S1 });
  *
- * Writes are not modelled yet; `plane.requests` holds the Plane requests seen, after the harness's own `s.http.requests`.
+ * Writes change the fake as Plane would (assignees and labels outside the Plane project are dropped silently, a PATCH of
+ * either replaces the whole set). `plane.writes` lists every request that is not a GET, in order, with its path inside the
+ * Plane workspace, so a test can assert that nothing changed before Confirm.
  */
 import type { HttpRequest } from "./discordScenario";
 
@@ -16,11 +18,12 @@ type Scenario = { http: { on(match: RegExp, respond: (req: HttpRequest) => unkno
 
 export const STAMP = "2026-10-01T09:00:00.000000Z";
 
-export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } = {}) {
+export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", uploadUrl = "https://plane-uploads.s3.amazonaws.com/uploads" } = {}) {
   const projects: Obj[] = [], states: Obj[] = [], labels: Obj[] = [], users: Obj[] = [], items: Obj[] = [];
   const members = new Map<string, string[]>();
   const comments: Obj[] = [], activities: Obj[] = [], links: Obj[] = [], attachments: Obj[] = [];
   const relations = new Map<string, Obj>();
+  const writes: { method: string; path: string; body: any }[] = [];
   let n = 0;
   const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
 
@@ -59,7 +62,10 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
     const expand = (url.searchParams.get("expand") ?? "").split(",").filter(Boolean);
     const fields = (url.searchParams.get("fields") ?? "").split(",").filter(Boolean);
     const seg = path.split("/").filter(Boolean);
-    if (req.method !== "GET") return json(405, { detail: `Method "${req.method}" not allowed.` });
+    if (req.method !== "GET") {
+      writes.push({ method: req.method, path, body: req.body });
+      return write(req, seg);
+    }
 
     if (seg[0] === "work-items" && seg[1] === "search") {
       const q = (url.searchParams.get("search") ?? "").toLowerCase();
@@ -106,20 +112,96 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
     if (!it) return missing();
     if (seg.length === 4) return pick(expandItem(it, expand), fields);
     const of = (list: Obj[]) => list.filter((x) => x.issue === it.id);
+    if (seg.length === 6 && seg[4] === "comments") {
+      const c = of(comments).find((x) => x.id === seg[5]);
+      return !c ? missing() : expand.includes("actor") ? { ...c, actor: userLite(c.actor) } : c;
+    }
     switch (seg[4]) {
       case "comments": return page(of(comments).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).map((c) => (expand.includes("actor") ? { ...c, actor: userLite(c.actor) } : c)), url);
       case "activities": return page(of(activities).sort((a, b) => (a.created_at < b.created_at ? -1 : 1)).map((a) => (expand.includes("actor") ? { ...a, actor: userLite(a.actor) } : a)), url);
       case "links": return page(of(links), url);
-      case "attachments": return of(attachments);
+      case "attachments": return of(attachments).filter((a) => a.is_uploaded);
       case "relations": return { blocking: [], blocked_by: [], duplicate: [], relates_to: [], start_after: [], start_before: [], finish_after: [], finish_before: [], ...relations.get(it.id) };
       default: return html404();
     }
   }
 
+  /** The API user is "u-bot", the Plane user `s.plane()` records for its account. */
+  function write(req: HttpRequest, seg: string[]): unknown {
+    const body = (req.body ?? {}) as Obj;
+    const p = seg[0] === "projects" ? projects.find((x) => x.id === seg[1]) : undefined;
+    if (!p) return missing();
+    const memberIds = members.get(p.id) ?? [];
+    const settable = (o: Obj) => {
+      const out: Obj = { ...o };
+      if (Array.isArray(o.assignees)) out.assignees = o.assignees.filter((id: string) => memberIds.includes(id));
+      if (Array.isArray(o.labels)) out.labels = o.labels.filter((id: string) => labels.some((l) => l.id === id && l.project === p.id));
+      return out;
+    };
+    if (seg[2] === "work-items" && seg.length === 3 && req.method === "POST") {
+      if (!body.name) return json(400, { name: ["This field is required."] });
+      const seq = Math.max(0, ...items.filter((x) => x.project === p.id).map((x) => x.sequence_id)) + 1;
+      const it = base({ name: "", description_html: "<p></p>", description_binary: null, priority: "none", start_date: null, target_date: null, completed_at: null, archived_at: null, is_draft: false, created_by: "u-bot", parent: null, state: null, assignees: [], labels: [], workspace: "ws-1", ...settable(body), sequence_id: seq, project: p.id });
+      items.push(it);
+      return json(201, it);
+    }
+    const it = seg[2] === "work-items" ? items.find((x) => x.id === seg[3] && x.project === p.id) : undefined;
+    if (!it) return missing();
+    if (seg.length === 4 && req.method === "PATCH") {
+      Object.assign(it, settable(body), { updated_at: "2026-10-02T09:00:00.000000Z" });
+      return it;
+    }
+    if (seg[4] === "comments") {
+      // Like Plane, the comment's actor is the API user, and created_by is taken from the body when sent.
+      if (seg.length === 5 && req.method === "POST") return json(201, api.comment({ issue: it.id, project: p.id, comment_html: body.comment_html ?? "", access: body.access ?? "INTERNAL", actor: "u-bot", created_by: body.created_by ?? "u-bot" }));
+      const c = comments.find((x) => x.id === seg[5] && x.issue === it.id);
+      if (!c) return missing();
+      if (req.method === "PATCH") return Object.assign(c, { comment_html: body.comment_html ?? c.comment_html, edited_at: "2026-10-02T09:00:00.000000Z" });
+    }
+    if (seg[4] === "links") {
+      if (seg.length === 5 && req.method === "POST") {
+        if (!/^https?:\/\//.test(String(body.url ?? ""))) return json(400, { url: ["Invalid URL scheme."] });
+        if (links.some((l) => l.issue === it.id && l.url === body.url)) return json(400, { error: "URL already exists for this Issue" });
+        return json(201, api.link({ issue: it.id, project: p.id, url: body.url, title: body.title ?? null, created_by: "u-bot" }));
+      }
+      const at = links.findIndex((l) => l.id === seg[5] && l.issue === it.id);
+      if (at < 0) return missing();
+      if (req.method === "DELETE") { links.splice(at, 1); return new Response(null, { status: 204 }); }
+    }
+    if (seg[4] === "attachments") {
+      if (seg.length === 5 && req.method === "POST") {
+        if (!body.name || typeof body.size !== "number") return json(400, { error: "Invalid request.", status: false });
+        const asset = `ws-1/${uuid().slice(-6)}-${body.name}`;
+        const a = api.attachment({ issue: it.id, project: p.id, attributes: { name: body.name, type: body.type, size: body.size }, size: body.size, is_uploaded: false, asset });
+        return { upload_data: { url: uploadUrl, fields: { "Content-Type": body.type, key: asset, policy: "cG9saWN5", "x-amz-signature": "sig" } }, asset_id: a.id, attachment: a, asset_url: `/api/assets/v2/workspaces/${slug}/projects/${p.id}/issues/${it.id}/attachments/${a.id}/` };
+      }
+      const a = attachments.find((x) => x.id === seg[5] && x.issue === it.id);
+      if (!a) return missing();
+      if (req.method === "PATCH") { a.is_uploaded = true; return new Response(null, { status: 204 }); }
+    }
+    if (seg[4] === "relations" && seg.length === 5 && req.method === "POST") {
+      const rel: Obj = relations.get(it.id) ?? {};
+      const others = (body.issues ?? []).map((id: string) => items.find((x) => x.id === id)).filter(Boolean);
+      rel[body.relation_type] = [...(rel[body.relation_type] ?? []), ...others.map((o: Obj) => ({ project_id: o.project, issue_id: o.id }))];
+      relations.set(it.id, rel);
+      return json(201, others.map((o: Obj) => ({ id: o.id, project_id: o.project, sequence_id: o.sequence_id, relation_type: body.relation_type, name: o.name, state_id: o.state, priority: o.priority, created_by: "u-bot", created_at: STAMP, updated_at: STAMP, updated_by: "u-bot" })));
+    }
+    return json(405, { detail: `Method "${req.method}" not allowed.` });
+  }
+
   s.http.on(new RegExp(`^[A-Z]+ https://${host.replace(/\./g, "\\.")}/api/v1/`), respond);
+  // The presigned upload, at either scheme so a test sees which one was used. Its body is recorded as the form's keys in order and the file.
+  const upload = new URL(uploadUrl);
+  s.http.on(new RegExp(`^POST https?://${upload.host.replace(/\./g, "\\.")}${upload.pathname}$`), async (req) => {
+    const form = req.body as FormData;
+    const file = form.get("file") as File | null;
+    writes.push({ method: "POST", path: req.url, body: { keys: [...form.keys()], file: file && { name: file.name, type: file.type, text: await file.text() } } });
+    return new Response(null, { status: 204 });
+  });
 
   const base = (o: Obj) => ({ id: uuid(), created_at: STAMP, updated_at: STAMP, deleted_at: null, ...o });
-  return {
+  const api = {
+    writes,
     user(o: Obj): Obj { const u = { avatar: "", avatar_url: null, first_name: "", last_name: "", email: "", ...o }; users.push(u); return u; },
     project(o: Obj, memberIds: string[] = []) {
       const p = base({ name: "Project", identifier: "PRJ", description: "", network: 2, is_member: true, member_role: 15, archived_at: null, cycle_view: true, module_view: true, intake_view: false, timezone: "UTC", project_lead: null, default_state: null, total_members: memberIds.length, total_cycles: 0, total_modules: 0, ...o });
@@ -137,4 +219,5 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
     attachment(o: Obj) { const a = base({ attributes: { name: "file.txt", type: "text/plain", size: 10 }, asset: "ws-1/abc-file.txt", entity_type: "ISSUE_ATTACHMENT", is_uploaded: true, size: 10, storage_metadata: {}, ...o }); attachments.push(a); return a; },
     relate(itemId: string, rel: Obj) { relations.set(itemId, rel); },
   };
+  return api;
 }

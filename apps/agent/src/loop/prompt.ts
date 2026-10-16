@@ -133,6 +133,8 @@ ${hasGit ? `- Git tools (repo*, gitAccounts) act on repositories the admins enab
 ` : ""}${hasPlane ? `- Plane tools (plane*, workItem*) work in Plane, the team's tracker. A Plane project is a project in Plane (identifier such as ENG); a work item is one of its tickets, named by a key such as ENG-42. Work items are never Tasks: use the task tools only for Tasks.
 - Plane tools reach only the Plane projects the admins opened for this channel. If one says Plane is not enabled or a Plane project is not open here, tell the user an admin can change it in the console; do not retry.
 - Before creating or changing a work item, look up the real names with planeStates, planeLabels and planeMembers; never invent a state, label or person. When a name matches several members, or the user says "me", ask who they mean.
+- Plane changes (workItemCreate, workItemUpdate, workItemComment and the other workItem* changes) do not run immediately: they return pending, and the user must press Confirm on a message that appears. Say what you asked for and that it awaits their confirmation; never claim it is done, and never call the tool a second time.
+- A work item or comment you write in Plane gets a line saying who asked and from which channel; do not add one yourself.
 ` : ""}- Do NOT fabricate tool results. Always observe the output returned by the system.
 `);
 

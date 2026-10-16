@@ -7,16 +7,16 @@ import { planeList, planeRequest, inWorkspace } from "./client.js";
 import { planeProjectAllowed } from "./scope.js";
 import { planeMarkdown, planeText } from "./markdown.js";
 import { planeTarget, findPlaneProject, projectHead, type PlaneTarget } from "./projectRef.js";
-import { resolveWorkItem, workItemPath, workItemKey, planeUserName, planeUserAliases, matchByName, projectMembers, type ResolvedWorkItem } from "./resolve.js";
+import { resolveWorkItem, workItemPath, workItemKey, planeUserName, planeUserAliases, matchByName, projectMembers, ME, type ResolvedWorkItem } from "./resolve.js";
 
 type Obj = Record<string, any>;
 
-const ACCOUNT = { type: "string", description: "Plane account name; needed only when several are available (see planeAccounts)." };
-const ITEM = { type: "string", description: "Work item key such as ENG-42, or its id (then pass project too)." };
-const PROJECT_OF_ID = { type: "string", description: "Plane project id, identifier or name; needed only when item is an id." };
+export const ACCOUNT = { type: "string", description: "Plane account name; needed only when several are available (see planeAccounts)." };
+export const ITEM = { type: "string", description: "Work item key such as ENG-42, or its id (then pass project too)." };
+export const PROJECT_OF_ID = { type: "string", description: "Plane project id, identifier or name; needed only when item is an id." };
 
 const STATE_GROUPS = ["backlog", "unstarted", "started", "completed", "cancelled"];
-const PRIORITIES = ["urgent", "high", "medium", "low", "none"];
+export const PRIORITIES = ["urgent", "high", "medium", "low", "none"];
 const GROUP_ALIASES: Record<string, string[]> = { open: ["backlog", "unstarted", "started"], closed: ["completed", "cancelled"] };
 
 /** `workItemList` reads Plane's unfiltered list: at most this many pages of PAGE per Plane project, and this many Plane projects. */
@@ -108,7 +108,7 @@ function listFilters(args: Obj): { filters: ListFilter[]; since: number | null }
   if (state) filters.push((it) => String(it.state?.name ?? "").toLowerCase() === state);
   const assignee = text(args.assignee);
   if (assignee) {
-    if (/^(me|myself|i|saya|aku)$/i.test(assignee)) throw new Error(`Plane does not know who "${assignee}" is: name the person, as planeMembers lists them.`);
+    if (ME.test(assignee)) throw new Error(`Plane does not know who "${assignee}" is: name the person, as planeMembers lists them.`);
     if (assignee.toLowerCase() === "none") filters.push((it) => !(it.assignees ?? []).length);
     else filters.push((it) => matchByName<Obj>(it.assignees ?? [], assignee, planeUserAliases).length > 0);
   }
