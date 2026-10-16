@@ -33,7 +33,7 @@ discordScenario("confirming git changes for the thread is refused too when the q
   const confirmation = s.discord.botMessages.at(-1)!;
 
   await s.availability({ level: "channel", channelId: "channel-1" }, { kind: "tool", name: "repoComment", value: "off" });
-  const click = await s.discord.click(confirmation, "Confirm Git changes in this thread");
+  const click = await s.discord.click(confirmation, "Confirm changes in this thread");
   expect(click.responses).toMatchObject([{ kind: "reply", payload: { ephemeral: true, content: expect.stringContaining("turned off") } }]);
   expect(s.http.requests).toEqual([]);
 });
@@ -59,7 +59,7 @@ discordScenario("a danger git tool still needs an owner to ask and a Confirm cli
   s.model.script({ tool: "repoDelete", args: { repo: "acme/api" } }, (turn) => `result: ${JSON.stringify(turn.toolResults[0])}`,
     { tool: "repoDelete", args: { repo: "acme/api" } }, "Queued the deletion for your confirmation.");
   await s.discord.send(`${s.discord.mention} delete acme/api`, { author: s.discord.bob });
-  expect(s.discord.botMessages.at(-1)?.content).toMatch(/limited to the bot's owners/);
+  expect(s.discord.botMessages.at(-1)?.content).toMatch(/limited to Trusted members/);
 
   await s.discord.send(`${s.discord.mention} delete acme/api`);
   const confirmation = s.discord.botMessages.at(-1)!;
