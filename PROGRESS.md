@@ -1105,7 +1105,10 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
 Tickets [#173](https://github.com/yhagus/pachiware/issues/173)–[#177](https://github.com/yhagus/pachiware/issues/177); #175 is blocked by #173 and #174. Integration branch `spec/173-177-test-hardening`, merged into `main` when done (no PR).
 
 - [ ] #173 Contract tests run without a `.env`.
-- [ ] #174 The contract harness refuses a database that isn't a test database.
+- [x] #174 The contract harness refuses a database that isn't a test database.
+  - `requireTestDatabase(variable, url)` in `packages/db/test/test-database.ts` throws unless the database name contains `test` (any case). MongoDB reads the name with `mongoDatabaseName`, so a URL without one counts as the default `pachiware` and is refused; PostgreSQL reads the raw path as postgres.js does and refuses an empty one, which the driver would fill from `PGDATABASE` or the user. Query strings, credentials, hosts and `mongodb+srv` never count; the error names the variable and database, never the password.
+  - The contract harness checks `TEST_POSTGRES_URL` and `TEST_MONGODB_URL` while registering suites, before any connection. The other tests that drop data on those servers check too: `mongo-migrations.test.ts` and the CLI MongoDB setup test. `database-engine.test.ts` drops nothing and is unchanged; `TEST_MONGODB_STANDALONE_URL` is unchecked because a standalone server is refused before anything is written.
+  - Verification: `bun run typecheck` exits 0; `bun test` 858 pass, 236 skip, 0 fail across 141 files; with both test URLs on `pachiware_test_174`, db, CLI and `database-engine` tests 370 pass, 2 skip (standalone). New `test-database.test.ts` has 19 tests, two of them run a contract suite against a `pachiware` URL and see it refused before connecting.
 - [ ] #175 The engine contract suites run on PostgreSQL and MongoDB in CI and with one local command.
 - [ ] #176 A doc for adding records on all three Database engines.
 - [ ] #177 A commit is refused while its message still has merge-conflict comments.
