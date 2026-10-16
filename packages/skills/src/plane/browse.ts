@@ -4,24 +4,23 @@
  */
 import type { ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeRequest, inWorkspace } from "./client.js";
-import { planeTarget, resolvePlaneProject, projectStates, projectLabels, projectMembers, planeUserName } from "./resolve.js";
+import { planeTarget, findPlaneProject, PROJECT_ARGS } from "./projectRef.js";
+import { projectStates, projectLabels, projectMembers, planeUserName } from "./resolve.js";
 
 type Obj = Record<string, any>;
 
-const ACCOUNT = { type: "string", description: "Plane account name; needed only when several are available (see planeAccounts)." };
-const PROJECT = { type: "string", description: "Plane project id, identifier (such as ENG) or name." };
 
 export const browseTools: ToolDefinition[] = [
   { name: "planeProjects", description: "Lists the Plane projects open in this channel: id, identifier (the prefix of work item keys, such as ENG) and name, and whether cycles, modules and intake are switched on.",
-    parameters: { type: "object", properties: { account: ACCOUNT } } },
+    parameters: { type: "object", properties: { account: PROJECT_ARGS.account! } } },
   { name: "planeProject", description: "Reads one Plane project: description, visibility, timezone, lead, features switched on, and how many members, cycles and modules it has.",
-    parameters: { type: "object", properties: { project: PROJECT, account: ACCOUNT }, required: ["project"] } },
+    parameters: { type: "object", properties: { ...PROJECT_ARGS }, required: ["project"] } },
   { name: "planeStates", description: "Lists a Plane project's states in board order, with their group (backlog, unstarted, started, completed, cancelled) and which is the default.",
-    parameters: { type: "object", properties: { project: PROJECT, account: ACCOUNT }, required: ["project"] } },
+    parameters: { type: "object", properties: { ...PROJECT_ARGS }, required: ["project"] } },
   { name: "planeLabels", description: "Lists a Plane project's labels, with the parent label of nested ones.",
-    parameters: { type: "object", properties: { project: PROJECT, account: ACCOUNT }, required: ["project"] } },
+    parameters: { type: "object", properties: { ...PROJECT_ARGS }, required: ["project"] } },
   { name: "planeMembers", description: "Lists a Plane project's members by name. Plane also lists members who were removed from the Plane project.",
-    parameters: { type: "object", properties: { project: PROJECT, account: ACCOUNT }, required: ["project"] } },
+    parameters: { type: "object", properties: { ...PROJECT_ARGS }, required: ["project"] } },
 ];
 
 export const browseToolPolicy: Record<string, ToolPolicy> = Object.fromEntries(browseTools.map((t) => [t.name, { effect: "read", group: "Browse" }]));
@@ -35,7 +34,7 @@ export const browseHandlers: Record<string, ToolHandler> = {
   },
   planeProject: async (args, ctx) => {
     const t = await planeTarget(ctx, args);
-    const ref = await resolvePlaneProject(t, args.project);
+    const ref = await findPlaneProject(t, args.project);
     const p = await planeRequest<Obj>(t.conn, inWorkspace(t.conn, `projects/${ref.id}/`), { query: { expand: "project_lead" } });
     return {
       id: p.id, identifier: p.identifier, name: p.name, description: p.description || null,
@@ -47,18 +46,18 @@ export const browseHandlers: Record<string, ToolHandler> = {
   },
   planeStates: async (args, ctx) => {
     const t = await planeTarget(ctx, args);
-    const states = await projectStates(t, await resolvePlaneProject(t, args.project));
+    const states = await projectStates(t, await findPlaneProject(t, args.project));
     return { states: [...states].sort((a, b) => Number(a.sequence ?? 0) - Number(b.sequence ?? 0)).map((st) => ({ id: st.id, name: st.name, group: st.group, default: !!st.default })) };
   },
   planeLabels: async (args, ctx) => {
     const t = await planeTarget(ctx, args);
-    const labels = await projectLabels(t, await resolvePlaneProject(t, args.project));
+    const labels = await projectLabels(t, await findPlaneProject(t, args.project));
     const byId = new Map(labels.map((l) => [String(l.id), l]));
     return { labels: labels.map((l) => ({ id: l.id, name: l.name, ...(l.parent ? { parent: byId.get(String(l.parent))?.name ?? null } : {}) })) };
   },
   planeMembers: async (args, ctx) => {
     const t = await planeTarget(ctx, args);
-    const members = await projectMembers(t, await resolvePlaneProject(t, args.project));
+    const members = await projectMembers(t, await findPlaneProject(t, args.project));
     return { members: members.map((m) => ({ id: m.id, name: planeUserName(m) })) };
   },
 };

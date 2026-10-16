@@ -6,7 +6,8 @@ import type { ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeList, planeRequest, inWorkspace } from "./client.js";
 import { planeProjectAllowed } from "./scope.js";
 import { planeMarkdown, planeText } from "./markdown.js";
-import { planeTarget, resolvePlaneProject, resolveWorkItem, workItemPath, workItemKey, projectRef, planeUserName, planeUserAliases, matchByName, projectMembers, type PlaneTarget, type ResolvedWorkItem } from "./resolve.js";
+import { planeTarget, findPlaneProject, projectHead, type PlaneTarget } from "./projectRef.js";
+import { resolveWorkItem, workItemPath, workItemKey, planeUserName, planeUserAliases, matchByName, projectMembers, type ResolvedWorkItem } from "./resolve.js";
 
 type Obj = Record<string, any>;
 
@@ -224,7 +225,7 @@ export const workItemHandlers: Record<string, ToolHandler> = {
     const { filters, since } = listFilters(args);
     const limit = Math.min(Math.max(1, Number(args.limit) || 50), 200);
     const t = await planeTarget(ctx, args);
-    const open = args.project ? [await resolvePlaneProject(t, args.project)] : await t.openProjects();
+    const open = args.project ? [await findPlaneProject(t, args.project)] : await t.openProjects();
     const read = open.slice(0, LIST_PROJECTS);
     const capped: string[] = [];
     const matched: Obj[] = [];
@@ -257,7 +258,7 @@ export const workItemHandlers: Record<string, ToolHandler> = {
     if (!query) throw new Error(`Pass "query": words from the title, or a key such as ENG-42.`);
     const limit = Math.min(Math.max(1, Number(args.limit) || 20), 50);
     const t = await planeTarget(ctx, args);
-    const only = args.project ? await resolvePlaneProject(t, args.project) : null;
+    const only = args.project ? await findPlaneProject(t, args.project) : null;
     const res = await planeRequest<{ issues?: Obj[] }>(t.conn, inWorkspace(t.conn, "work-items/search/"), {
       query: { search: query, limit: SEARCH_FETCH, ...(only ? { workspace_search: "false", project_id: String(only.id) } : { workspace_search: "true" }) },
     });
@@ -278,7 +279,7 @@ export const workItemHandlers: Record<string, ToolHandler> = {
     const names = new Map<string, string>([...(item.assignees ?? []), item.created_by, ...mentioned].filter((u: Obj | null) => u?.id).map((u: Obj) => [String(u.id), planeUserName(u)]));
     const { cycle, modules } = cycleAndModules((await activitiesOf(t, w)).items);
     return {
-      key: w.key, id: item.id, name: item.name, project: projectRef(w.project),
+      key: w.key, id: item.id, name: item.name, project: projectHead(w.project),
       state: item.state ? { name: item.state.name, group: item.state.group } : null,
       priority: item.priority,
       assignees: (item.assignees ?? []).map(planeUserName),

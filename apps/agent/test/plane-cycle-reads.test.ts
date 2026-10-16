@@ -133,7 +133,7 @@ discordScenario("intakeList lists a Plane project's intake with its triage statu
   expect(list.note).toBeUndefined();
 
   const got = await ask(s, "intakeGet", { project: ENG, workItem: "ENG-57" });
-  expect(got.item).toMatchObject({ key: "ENG-57", title: "Export fails on Safari", status: "pending", state: "Triage", description: "Clicking Export does nothing.\n- Safari 18" });
+  expect(got.item).toMatchObject({ key: "ENG-57", title: "Export fails on Safari", status: "pending", state: "Triage", description: "Clicking **Export** does nothing.\n\n- Safari 18" });
 });
 
 discordScenario("intakeList answers an empty list with a note when the Plane project has intake switched off", async (s) => {

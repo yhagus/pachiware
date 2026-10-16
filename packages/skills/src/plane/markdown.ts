@@ -6,6 +6,18 @@ import TurndownService from "turndown";
 
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-", emDelimiter: "_" });
 
+// List items with one space after the marker ("- a", "1. a") instead of turndown's padded "-   a", which reads oddly in Discord.
+turndown.addRule("listItem", {
+  filter: "li",
+  replacement: (content, node, options) => {
+    const parent = node.parentNode as any;
+    const ordered = parent?.nodeName === "OL";
+    const prefix = ordered ? `${Number(parent.getAttribute("start") || 1) + Array.prototype.indexOf.call(parent.children, node)}. ` : `${options.bulletListMarker} `;
+    const body = content.replace(/^\n+/, "").replace(/\n+$/, "\n").replace(/\n/gm, `\n${" ".repeat(prefix.length)}`);
+    return prefix + body + (node.nextSibling && !/\n$/.test(body) ? "\n" : "");
+  },
+});
+
 // An image's address may be a presigned download link, which must never reach the channel: only its alt text is kept.
 turndown.addRule("image", { filter: "img", replacement: (_c, node) => `[image${(node as any).getAttribute?.("alt") ? `: ${(node as any).getAttribute("alt")}` : ""}]` });
 
