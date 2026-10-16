@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Filter } from "mongodb";
 import { ensureCollection, inTransaction, type MongoConnection, type MongoMigration } from "../../mongo/connection.js";
-import type { Profile, ProfileRepository } from "./types.js";
+import { definedProfileFields, PROFILE_DEFAULTS, type Profile, type ProfileRepository } from "./types.js";
 
 type ProfileDoc = Omit<Profile, "id"> & { _id: string };
 
@@ -31,7 +31,7 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
     },
     async create(tenantId, input) {
       const now = new Date();
-      const doc: ProfileDoc = { _id: randomUUID(), tenantId, baseUrl: null, apiKeyEncrypted: null, acceptsImages: false, apiFormat: "chat_completions", ...defined(input), createdAt: now, updatedAt: now } as ProfileDoc;
+      const doc = { _id: randomUUID(), tenantId, ...PROFILE_DEFAULTS, ...definedProfileFields(input), createdAt: now, updatedAt: now } as ProfileDoc;
       await inTransaction(connection, async (session) => {
         // SQL's foreign key: the tenant must exist.
         if (!(await db.collection<{ _id: string }>("tenants").findOne({ _id: tenantId }, { session, projection: { _id: 1 } }))) throw new Error("Tenant not found");
@@ -46,7 +46,7 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
       return bot?.profileId ? one({ _id: bot.profileId, tenantId }) : null;
     },
     async update(id, input) {
-      const doc = await profiles.findOneAndUpdate({ _id: id }, { $set: { ...defined(input), updatedAt: new Date() } }, { returnDocument: "after" });
+      const doc = await profiles.findOneAndUpdate({ _id: id }, { $set: { ...definedProfileFields(input), updatedAt: new Date() } }, { returnDocument: "after" });
       return doc ? toProfile(doc) : null;
     },
     async remove(id) {
@@ -58,9 +58,6 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
     },
   };
 }
-
-const FIELDS = ["name", "provider", "model", "baseUrl", "apiKeyEncrypted", "acceptsImages", "apiFormat"] as const;
-const defined = (input: Record<string, any>) => Object.fromEntries(FIELDS.filter((f) => input[f] !== undefined).map((f) => [f, input[f]]));
 
 function toProfile(doc: ProfileDoc): Profile {
   return {

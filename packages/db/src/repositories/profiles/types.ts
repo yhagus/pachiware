@@ -28,6 +28,14 @@ export type NewProfile = {
 
 export type ProfileUpdate = Partial<NewProfile>;
 
+/** What a new profile holds where its input names nothing, on every engine. */
+export const PROFILE_DEFAULTS = { baseUrl: null, apiKeyEncrypted: null, acceptsImages: false, apiFormat: "chat_completions" };
+
+const FIELDS = ["name", "provider", "model", "baseUrl", "apiKeyEncrypted", "acceptsImages", "apiFormat"] as const;
+
+/** The profile fields an input gives; an undefined one is left out, so it keeps the stored value. */
+export const definedProfileFields = (input: Record<string, any>) => Object.fromEntries(FIELDS.filter((f) => input[f] !== undefined).map((f) => [f, input[f]]));
+
 export interface ProfileRepository {
   /** A tenant's profiles, newest first, at most 500. */
   listForTenant(tenantId: string): Promise<Profile[]>;

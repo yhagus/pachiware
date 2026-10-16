@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { ClientSession, Db, Filter } from "mongodb";
 import { generateApiKey, hashApiKey } from "../../crypto.js";
-import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 import { dataCollections, ensureCollection, inTransaction, type MongoConnection, type MongoMigration } from "../../mongo/connection.js";
-import type { ApiKey, Tenant, TenantRepository, TenantStatus } from "./types.js";
+import { defaultAgentConfig } from "../agent-config/types.js";
+import { tenantStatus, type ApiKey, type Tenant, type TenantRepository } from "./types.js";
 
 // Collections mirror the SQL tables and keep their names; fields keep the camelCase names of the domain types.
 // `_id` holds the UUID string the SQL engines use, and every document a tenant owns carries its `tenantId`.
@@ -30,7 +30,6 @@ export const tenantMigrations: MongoMigration[] = [
   },
 ];
 
-const STATUSES: TenantStatus[] = ["active", "suspended", "deleted"];
 const live = { status: { $ne: "deleted" as const } };
 
 /** Tenants and API keys on MongoDB. */
@@ -65,10 +64,7 @@ export function createMongoTenantRepository(connection: MongoConnection): Tenant
     async update(id, input) {
       const values: Partial<TenantDoc> = {};
       if (input.name !== undefined) values.name = input.name;
-      if (input.status !== undefined) {
-        if (!STATUSES.includes(input.status as TenantStatus)) throw new Error("Invalid tenant status");
-        values.status = input.status as TenantStatus;
-      }
+      if (input.status !== undefined) values.status = tenantStatus(input.status);
       if (input.metadata !== undefined) values.platformMetadata = input.metadata;
       return change(id, values);
     },
@@ -121,7 +117,7 @@ export function createMongoTenantRepository(connection: MongoConnection): Tenant
 /** Writes the agent configuration and skill switches a tenant lacks, leaving any it has untouched. */
 async function insertTenantDefaults(db: Db, tenantId: string, session?: ClientSession) {
   const now = new Date();
-  await db.collection<{ _id: string }>("agents_config").updateOne({ _id: tenantId }, { $setOnInsert: defaultAgentConfig(tenantId, now) }, { upsert: true, session });
+  await db.collection<{ _id: string }>("agents_config").updateOne({ _id: tenantId }, { $setOnInsert: defaultAgentConfig(tenantId, now) as Record<string, any> }, { upsert: true, session });
   for (const skill of await db.collection<SkillDoc>("skills").find({}, { session }).toArray()) {
     await db.collection("tenant_skills").updateOne(
       { tenantId, skillId: skill._id },
@@ -130,30 +126,6 @@ async function insertTenantDefaults(db: Db, tenantId: string, session?: ClientSe
     );
   }
 }
-
-/** What the SQL column defaults and `defaultAgentConfig` in sql.ts give a new tenant. */
-const defaultAgentConfig = (tenantId: string, now: Date) => ({
-  tenantId,
-  name: "Pachiware Agent",
-  systemPrompt: DEFAULT_SYSTEM_PROMPT,
-  defaultProvider: "openai",
-  defaultModel: "gpt-4o",
-  temperature: 0.2,
-  maxTokens: 4096,
-  openaiApiKeyEncrypted: null,
-  openaiBaseUrl: null,
-  openaiModel: null,
-  anthropicApiKeyEncrypted: null,
-  anthropicBaseUrl: null,
-  anthropicModel: null,
-  customBaseUrl: null,
-  customApiKeyEncrypted: null,
-  customModel: null,
-  timezone: "Asia/Jakarta",
-  language: "id",
-  settings: { maxReActIterations: 32 },
-  updatedAt: now,
-});
 
 function toTenant({ _id, ...doc }: TenantDoc): Tenant {
   return { id: _id, name: doc.name, slug: doc.slug, apiKeyId: doc.apiKeyId ?? null, status: doc.status, platformMetadata: doc.platformMetadata ?? {}, createdAt: doc.createdAt, updatedAt: doc.updatedAt };

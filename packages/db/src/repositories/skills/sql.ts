@@ -14,7 +14,8 @@ export function createSqlSkillRepository({ db, tables: t }: SqlConnection): Skil
     async register(skill) {
       const [existing] = await db.select({ id: t.skills.id }).from(t.skills).where(eq(t.skills.id, skill.id)).limit(1);
       if (!existing) {
-        await db.insert(t.skills).values(skill);
+        const now = new Date();
+        await db.insert(t.skills).values({ ...skill, createdAt: now, updatedAt: now });
         return true;
       }
       await db.update(t.skills).set({ name: skill.name, description: skill.description, toolDefinitions: skill.toolDefinitions, updatedAt: new Date() }).where(eq(t.skills.id, skill.id));
@@ -25,7 +26,7 @@ export function createSqlSkillRepository({ db, tables: t }: SqlConnection): Skil
     },
     async seedTenant(tenantId) {
       for (const skill of await db.select().from(t.skills)) {
-        await db.insert(t.tenantSkills).values({ id: randomUUID(), tenantId, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config }).onConflictDoNothing();
+        await db.insert(t.tenantSkills).values({ id: randomUUID(), tenantId, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config, updatedAt: new Date() }).onConflictDoNothing();
       }
     },
     async listForTenant(tenantId) {
@@ -48,7 +49,7 @@ export function createSqlSkillRepository({ db, tables: t }: SqlConnection): Skil
       const [skill] = await db.select({ id: t.skills.id }).from(t.skills).where(eq(t.skills.id, skillId)).limit(1);
       if (!skill) return false;
       // The unique switch per tenant and skill makes a second insert a no-op, so two callers never both add one.
-      await db.insert(t.tenantSkills).values({ id: randomUUID(), tenantId, skillId, isEnabled: true }).onConflictDoNothing();
+      await db.insert(t.tenantSkills).values({ id: randomUUID(), tenantId, skillId, isEnabled: true, updatedAt: new Date() }).onConflictDoNothing();
       await db.update(t.tenantSkills).set({ isEnabled: true, updatedAt: new Date() }).where(and(switchOf(tenantId, skillId), eq(t.tenantSkills.isEnabled, false)));
       return true;
     },

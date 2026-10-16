@@ -2,9 +2,8 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { SqlConnection, SqlTables } from "../../connection.js";
 import { generateApiKey, hashApiKey } from "../../crypto.js";
-import type { ApiKey, Tenant, TenantRepository, TenantStatus } from "./types.js";
-
-const STATUSES: TenantStatus[] = ["active", "suspended", "deleted"];
+import { defaultAgentConfig } from "../agent-config/types.js";
+import { tenantStatus, type ApiKey, type Tenant, type TenantRepository } from "./types.js";
 
 /** Tenants and API keys on SQLite and PostgreSQL. */
 export function createSqlTenantRepository({ engine, db, tables: t }: SqlConnection): TenantRepository {
@@ -21,19 +20,20 @@ export function createSqlTenantRepository({ engine, db, tables: t }: SqlConnecti
 
   return {
     async create(input) {
-      const values = { id: randomUUID(), name: input.name, slug: input.slug || randomUUID(), apiKeyId: input.apiKeyId ?? null, platformMetadata: input.metadata || {} };
+      const now = new Date();
+      const values = { id: randomUUID(), name: input.name, slug: input.slug || randomUUID(), apiKeyId: input.apiKeyId ?? null, platformMetadata: input.metadata || {}, createdAt: now, updatedAt: now };
       if (engine === "sqlite") {
         // Bun SQLite transactions must stay synchronous to keep their rollback.
         return toTenant(db.transaction((tx: any) => {
           const row = tx.insert(t.tenants).values(values).returning().get();
-          tx.insert(t.agentsConfig).values(defaultAgentConfig(row.id)).run();
-          for (const skill of tx.select().from(t.skills).all()) tx.insert(t.tenantSkills).values(defaultTenantSkill(row.id, skill)).run();
+          tx.insert(t.agentsConfig).values(defaultAgentConfig(row.id, now)).run();
+          for (const skill of tx.select().from(t.skills).all()) tx.insert(t.tenantSkills).values(defaultTenantSkill(row.id, skill, now)).run();
           return row;
         }));
       }
       return toTenant(await db.transaction(async (tx: any) => {
         const [row] = await tx.insert(t.tenants).values(values).returning();
-        await insertTenantDefaults(tx, t, row.id);
+        await insertTenantDefaults(tx, t, row.id, now);
         return row;
       }));
     },
@@ -47,10 +47,7 @@ export function createSqlTenantRepository({ engine, db, tables: t }: SqlConnecti
     async update(id, input) {
       const values: Record<string, any> = {};
       if (input.name !== undefined) values.name = input.name;
-      if (input.status !== undefined) {
-        if (!STATUSES.includes(input.status as TenantStatus)) throw new Error("Invalid tenant status");
-        values.status = input.status;
-      }
+      if (input.status !== undefined) values.status = tenantStatus(input.status);
       if (input.metadata !== undefined) values.platformMetadata = input.metadata;
       return change(id, values);
     },
@@ -75,7 +72,7 @@ export function createSqlTenantRepository({ engine, db, tables: t }: SqlConnecti
 
     async issueApiKey(name = "API Key", scopes = ["*"]) {
       const key = generateApiKey();
-      const [row] = await db.insert(t.apiKeys).values({ id: randomUUID(), name, scopes, keyPrefix: key.keyPrefix, keyHash: hashApiKey(key.raw) }).returning();
+      const [row] = await db.insert(t.apiKeys).values({ id: randomUUID(), name, scopes, keyPrefix: key.keyPrefix, keyHash: hashApiKey(key.raw), createdAt: new Date() }).returning();
       return { ...key, keyId: row.id };
     },
     async getApiKey(id) {
@@ -106,15 +103,14 @@ export function createSqlTenantRepository({ engine, db, tables: t }: SqlConnecti
 }
 
 /** Writes the agent configuration and skill switches a tenant lacks. `store` is a database or a transaction. */
-export async function insertTenantDefaults(store: any, t: SqlTables, tenantId: string) {
-  await store.insert(t.agentsConfig).values(defaultAgentConfig(tenantId)).onConflictDoNothing();
+export async function insertTenantDefaults(store: any, t: SqlTables, tenantId: string, now = new Date()) {
+  await store.insert(t.agentsConfig).values(defaultAgentConfig(tenantId, now)).onConflictDoNothing();
   for (const skill of await store.select().from(t.skills)) {
-    await store.insert(t.tenantSkills).values(defaultTenantSkill(tenantId, skill)).onConflictDoNothing();
+    await store.insert(t.tenantSkills).values(defaultTenantSkill(tenantId, skill, now)).onConflictDoNothing();
   }
 }
 
-const defaultAgentConfig = (tenantId: string) => ({ tenantId, timezone: "Asia/Jakarta", language: "id", temperature: 0.2, settings: { maxReActIterations: 32 } });
-const defaultTenantSkill = (tenantId: string, skill: { id: string; defaultEnabled: boolean; config: any }) => ({ tenantId, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config });
+const defaultTenantSkill = (tenantId: string, skill: { id: string; defaultEnabled: boolean; config: any }, updatedAt: Date) => ({ tenantId, skillId: skill.id, isEnabled: skill.defaultEnabled, config: skill.config, updatedAt });
 
 /** Every table whose rows belong to a tenant, children before parents. */
 function ownedTables(t: SqlTables): any[] {

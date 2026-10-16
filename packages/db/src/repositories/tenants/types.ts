@@ -2,6 +2,14 @@
 
 export type TenantStatus = "active" | "suspended" | "deleted";
 
+const STATUSES: TenantStatus[] = ["active", "suspended", "deleted"];
+
+/** The status, once it is one a tenant can have. */
+export function tenantStatus(status: string): TenantStatus {
+  if (!STATUSES.includes(status as TenantStatus)) throw new Error("Invalid tenant status");
+  return status as TenantStatus;
+}
+
 export type Tenant = {
   id: string;
   name: string;

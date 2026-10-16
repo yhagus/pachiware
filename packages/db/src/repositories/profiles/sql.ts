@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { SqlConnection } from "../../connection.js";
-import type { Profile, ProfileRepository } from "./types.js";
+import { definedProfileFields, PROFILE_DEFAULTS, type Profile, type ProfileRepository } from "./types.js";
 
 /** Profiles on SQLite and PostgreSQL. */
 export function createSqlProfileRepository({ db, tables: t }: SqlConnection): ProfileRepository {
@@ -15,7 +15,8 @@ export function createSqlProfileRepository({ db, tables: t }: SqlConnection): Pr
       return (await db.select().from(t.profiles).where(eq(t.profiles.tenantId, tenantId)).orderBy(desc(t.profiles.createdAt), desc(t.profiles.id)).limit(500)).map(toProfile);
     },
     async create(tenantId, input) {
-      const [row] = await db.insert(t.profiles).values({ ...defined(input), id: randomUUID(), tenantId }).returning();
+      const now = new Date();
+      const [row] = await db.insert(t.profiles).values({ ...PROFILE_DEFAULTS, ...definedProfileFields(input), id: randomUUID(), tenantId, createdAt: now, updatedAt: now }).returning();
       return toProfile(row);
     },
     get: (id) => one(eq(t.profiles.id, id)),
@@ -26,7 +27,7 @@ export function createSqlProfileRepository({ db, tables: t }: SqlConnection): Pr
       return row ? toProfile(row.profile) : null;
     },
     async update(id, input) {
-      const [row] = await db.update(t.profiles).set({ ...defined(input), updatedAt: new Date() }).where(eq(t.profiles.id, id)).returning();
+      const [row] = await db.update(t.profiles).set({ ...definedProfileFields(input), updatedAt: new Date() }).where(eq(t.profiles.id, id)).returning();
       return row ? toProfile(row) : null;
     },
     async remove(id) {
@@ -35,9 +36,6 @@ export function createSqlProfileRepository({ db, tables: t }: SqlConnection): Pr
     },
   };
 }
-
-const FIELDS = ["name", "provider", "model", "baseUrl", "apiKeyEncrypted", "acceptsImages", "apiFormat"] as const;
-const defined = (input: Record<string, any>) => Object.fromEntries(FIELDS.filter((f) => input[f] !== undefined).map((f) => [f, input[f]]));
 
 function toProfile(row: any): Profile {
   return {

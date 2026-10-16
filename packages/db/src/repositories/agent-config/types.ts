@@ -1,4 +1,5 @@
 /** Domain types and the repository interface for a tenant's agent configuration. Every engine implements it. */
+import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 
 export type AgentLanguage = "id" | "en";
 
@@ -27,6 +28,32 @@ export type AgentConfig = {
 };
 
 export type AgentConfigUpdate = Partial<Omit<AgentConfig, "tenantId" | "updatedAt">>;
+
+/** The configuration a new tenant starts with, on every engine. */
+export function defaultAgentConfig(tenantId: string, now: Date): AgentConfig {
+  return {
+    tenantId,
+    name: "Pachiware Agent",
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    defaultProvider: "openai",
+    defaultModel: "gpt-4o",
+    temperature: 0.2,
+    maxTokens: 4096,
+    openaiApiKeyEncrypted: null,
+    openaiBaseUrl: null,
+    openaiModel: null,
+    anthropicApiKeyEncrypted: null,
+    anthropicBaseUrl: null,
+    anthropicModel: null,
+    customBaseUrl: null,
+    customApiKeyEncrypted: null,
+    customModel: null,
+    timezone: "Asia/Jakarta",
+    language: "id",
+    settings: { maxReActIterations: 32 },
+    updatedAt: now,
+  };
+}
 
 export interface AgentConfigRepository {
   /** The tenant's configuration; null when it has none. */

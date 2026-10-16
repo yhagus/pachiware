@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { DEFAULT_SYSTEM_PROMPT } from "../../src/persona.ts";
 import { contract } from "./engines.ts";
 
 contract("Agent configuration", (use) => {
@@ -6,12 +7,12 @@ contract("Agent configuration", (use) => {
     const { tenants, agentConfig } = use().repos;
     const tenant = await tenants.create({ name: "Acme", slug: "acme" });
     const config = await agentConfig.get(tenant.id);
-    expect(config).toMatchObject({
-      tenantId: tenant.id, name: "Pachiware Agent", defaultProvider: "openai", defaultModel: "gpt-4o", temperature: 0.2, maxTokens: 4096,
-      openaiApiKeyEncrypted: null, anthropicModel: null, customBaseUrl: null, timezone: "Asia/Jakarta", language: "id", settings: { maxReActIterations: 32 },
+    expect(config).toEqual({
+      tenantId: tenant.id, name: "Pachiware Agent", systemPrompt: DEFAULT_SYSTEM_PROMPT, defaultProvider: "openai", defaultModel: "gpt-4o", temperature: 0.2, maxTokens: 4096,
+      openaiApiKeyEncrypted: null, openaiBaseUrl: null, openaiModel: null, anthropicApiKeyEncrypted: null, anthropicBaseUrl: null, anthropicModel: null,
+      customBaseUrl: null, customApiKeyEncrypted: null, customModel: null, timezone: "Asia/Jakarta", language: "id", settings: { maxReActIterations: 32 },
+      updatedAt: expect.any(Date),
     });
-    expect(config!.systemPrompt.length).toBeGreaterThan(0);
-    expect(config!.updatedAt).toBeInstanceOf(Date);
     expect(await agentConfig.get("missing")).toBeNull();
   });
 
