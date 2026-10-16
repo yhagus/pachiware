@@ -42,3 +42,4 @@ export * from "./schedule.js";
 export * from "./builtin/reminders.js";
 export * from "./plane/client.js";
 export * from "./plane/scope.js";
+export * from "./builtin/plane.js";

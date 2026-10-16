@@ -70,6 +70,11 @@ export interface Scenario {
   http: { on(match: string | RegExp, respond: (req: HttpRequest) => unknown): void; passthrough(match: string | RegExp): void; requests: HttpRequest[] };
   /** Attaches a git account to the bot and opens these repositories in the guild. */
   git(options?: { provider?: "github" | "gitlab"; repos?: string[] }): Promise<{ id: string }>;
+  /**
+   * Attaches a Plane account to the bot, which switches the plane skill on, and opens these Plane project ids ("*" for all) in the guild;
+   * `projects: null` leaves the guild without a rule. Its key is "plane-key", its Plane user "u-bot", and Plane's cloud its host unless `baseUrl` says.
+   */
+  plane(options?: { name?: string; baseUrl?: string | null; workspaceSlug?: string; projects?: string[] | null }): Promise<{ id: string }>;
   /** Saves guild settings as the console does, Digest schedule rows included. */
   guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: { channelId: string; hour: number }[] }): Promise<void>;
   /** The clock the time context, task dates and the scheduler read. `set` pins it (ms, Date, or ISO text); `advance` moves it forward. */
@@ -424,6 +429,16 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       const account = await git.createAccount({ tenantId: tenant.id, name: provider, provider, username: "octo", tokenEncrypted: encryptSecret("git-token") });
       await git.setBotAccounts(tenant.id, bot.id, [account.id]);
       await git.replaceScopes(tenant.id, bot.id, GUILD.id, "", [{ gitAccountId: account.id, repoPatterns: repos }]);
+      return account;
+    },
+    plane: async ({ name = "plane", baseUrl = null, workspaceSlug = "acme", projects = ["*"] } = {}) => {
+      const { plane } = repositories();
+      const account = await plane.createAccount({ tenantId: tenant.id, name, baseUrl, workspaceSlug, apiKeyEncrypted: encryptSecret("plane-key"), planeUserId: "u-bot", planeUserName: "pachibot (bot@acme.test)" });
+      await plane.setBotAccounts(tenant.id, bot.id, [...(await plane.botAccountIds([bot.id]))[bot.id] ?? [], account.id]);
+      if (projects) {
+        const others = (await plane.listScopes(bot.id, GUILD.id)).filter((r) => r.channelId === "").map(({ planeAccountId, projectIds }) => ({ planeAccountId, projectIds }));
+        await plane.replaceScopes(tenant.id, bot.id, GUILD.id, "", [...others, { planeAccountId: account.id, projectIds: projects }]);
+      }
       return account;
     },
     guildSettings: async (input) => { await saveGuildSettings(tenant.id, bot.id, GUILD.id, input); },

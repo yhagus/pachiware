@@ -199,11 +199,11 @@ test("each level reports what the levels above leave it, apart from its own rule
   await put("channel", "effect", "read", "off");
 
   same(await inherited("tenant"), [], "the tenant inherits nothing");
-  same(await inherited("bot"), ["skill:discord_management unavailable off at tenant", "skill:git_repositories unavailable off at tenant", "tool:createTask unavailable off at tenant"], "bot");
-  same(await inherited("guild"), ["effect:danger unavailable off at bot", "skill:discord_management unavailable off at tenant", "skill:git_repositories unavailable off at tenant", "skill:task_management unavailable opt-in at bot", "tool:createTask unavailable off at tenant"], "guild");
-  same(await inherited("channel"), ["effect:danger unavailable off at bot", "playbook:issue-draft unavailable opt-in at guild", "skill:discord_management unavailable off at tenant", "skill:git_repositories unavailable off at tenant", "skill:task_management available opt-in at bot", "tool:createTask unavailable off at tenant"], "channel");
+  same(await inherited("bot"), ["skill:discord_management unavailable off at tenant", "skill:git_repositories unavailable off at tenant", "skill:plane unavailable off at tenant", "tool:createTask unavailable off at tenant"], "bot");
+  same(await inherited("guild"), ["effect:danger unavailable off at bot", "skill:discord_management unavailable off at tenant", "skill:git_repositories unavailable off at tenant", "skill:plane unavailable off at tenant", "skill:task_management unavailable opt-in at bot", "tool:createTask unavailable off at tenant"], "guild");
+  same(await inherited("channel"), ["effect:danger unavailable off at bot", "playbook:issue-draft unavailable opt-in at guild", "skill:discord_management unavailable off at tenant", "skill:git_repositories unavailable off at tenant", "skill:plane unavailable off at tenant", "skill:task_management available opt-in at bot", "tool:createTask unavailable off at tenant"], "channel");
   const other = (await call("GET", at.guild + "/channels/c2/availability", h)).body;
-  assert(other.rules.length === 0 && own(other.inherited).length === 6, "another channel inherits the same: " + JSON.stringify(other));
+  assert(other.rules.length === 0 && own(other.inherited).length === 7, "another channel inherits the same: " + JSON.stringify(other));
   const cleared = await call("DELETE", at.guild + "/availability?kind=skill&name=task_management", h);
   assert(cleared.body.inherited.some((e) => e.name === "task_management" && !e.available && e.optIn === "bot"), "clearing the guild's on leaves the bot's opt-in waiting: " + JSON.stringify(cleared.body.inherited));
 `));
@@ -214,7 +214,7 @@ test("the tenant API reports what a bot level inherits", () => run(`
   const as = { Authorization: "Bearer " + key.raw, "X-Tenant-Id": a.id, "Content-Type": "application/json" };
   assert((await call("PUT", "/api/v1/availability", as, { kind: "effect", name: "danger", value: "off" })).status === 200, "tenant rule");
   const got = await call("GET", "/api/v1/bots/" + botA.id + "/guilds/g1/availability", as);
-  assert(JSON.stringify(own(got.body.inherited)) === JSON.stringify([{ kind: "effect", name: "danger", available: false, off: "tenant" }, { kind: "skill", name: "git_repositories", available: false, off: "tenant" }]), JSON.stringify(got.body));
+  assert(JSON.stringify(own(got.body.inherited)) === JSON.stringify([{ kind: "effect", name: "danger", available: false, off: "tenant" }, { kind: "skill", name: "git_repositories", available: false, off: "tenant" }, { kind: "skill", name: "plane", available: false, off: "tenant" }]), JSON.stringify(got.body));
   assert(JSON.stringify((await call("GET", "/api/v1/availability", as)).body.inherited) === "[]", "the tenant inherits nothing");
 `));
 
