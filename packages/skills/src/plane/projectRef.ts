@@ -36,7 +36,11 @@ export const projectHead = (p: PlaneProjectDetail) => ({ id: String(p.id), ident
 
 /** Resolves `args.account` (optional when one account is usable). Throws when Plane is not enabled here. */
 export async function planeTarget(ctx: SkillContext, args: { account?: unknown }): Promise<PlaneTarget> {
-  const access = pickPlaneAccess(await loadPlaneAccess(ctx), args.account);
+  return planeTargetOf(pickPlaneAccess(await loadPlaneAccess(ctx), args.account));
+}
+
+/** The target of an account already chosen, e.g. by `pickWorkspaceAccess` for a workspace-level tool. */
+export function planeTargetOf(access: PlaneAccess): PlaneTarget {
   const conn = planeConnOf(access.account);
   let listed: Promise<PlaneProjectDetail[]> | null = null;
   const projects = () => (listed ??= planeList<PlaneProjectDetail>(conn, inWorkspace(conn, "projects/"), { perPage: 1000, maxPages: 3 }).then((r) => r.items));

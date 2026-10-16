@@ -10,6 +10,7 @@ import { planeTarget, resolvePlaneProject, UUID, type PlaneTarget } from "./proj
 import { resolveWorkItem, workItemKey, workItemPath, projectNames, planeUserName } from "./resolve.js";
 import { planeWrite, originLine, ORIGIN_LINE } from "./write.js";
 import { ACCOUNT, ITEM, PROJECT_OF_ID, PRIORITIES } from "./workItems.js";
+import { text, isNone, list, date, title, clip } from "./args.js";
 
 type Obj = Record<string, any>;
 
@@ -117,35 +118,12 @@ async function download(file: DiscordAttachmentInfo): Promise<Uint8Array> {
   return bytes;
 }
 
-const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
-const isNone = (v: unknown) => text(v)?.toLowerCase() === "none";
-const list = (v: unknown, what: string): string[] => {
-  if (v === undefined || v === null) return [];
-  if (typeof v === "string") return [v];
-  if (!Array.isArray(v)) throw new Error(`${what} must be a list of names`);
-  return v.map(String);
-};
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-/** undefined when not given; null for "none", which clears the date. */
-function date(v: unknown, what: string): string | null | undefined {
-  const d = text(v);
-  if (d === null) return undefined;
-  if (isNone(d)) return null;
-  if (!DAY.test(d) || Number.isNaN(Date.parse(d))) throw new Error(`${what} must be a date such as 2026-10-20, or "none"`);
-  return d;
-}
-function title(v: unknown): string | null {
-  const name = text(v);
-  if (name && name.length > 255) throw new Error("name must be at most 255 characters");
-  return name;
-}
 const resolveAll = (names: string[], one: (name: string) => Promise<Obj>) => Promise.all(names.map((n) => one(n)));
 function markdown(v: unknown, what: string): string {
   const md = text(v);
   if (!md) throw new Error(`Pass "${what}", in Markdown.`);
   return md;
 }
-const clip = (s: string, max = 300) => (s.length > max ? `${s.slice(0, max)}…` : s);
 
 /** The work item a per-item write is about, with its target. */
 async function itemOf(a: Obj, ctx: SkillContext) {

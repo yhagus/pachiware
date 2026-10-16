@@ -5,8 +5,12 @@ import { browseTools, browseHandlers, browseToolPolicy } from "../plane/browse.j
 import { workItemTools, workItemHandlers, workItemToolPolicy } from "../plane/workItems.js";
 import { workItemWriteTools, workItemWriteHandlers, workItemWriteToolPolicy } from "../plane/workItemWrites.js";
 import { cycleTools, cycleHandlers, cycleToolPolicy } from "../plane/cycles.js";
+import { cycleWriteTools, cycleWriteHandlers, cycleWriteToolPolicy } from "../plane/cycleWrites.js";
 import { moduleTools, moduleHandlers, moduleToolPolicy } from "../plane/modules.js";
+import { moduleWriteTools, moduleWriteHandlers, moduleWriteToolPolicy } from "../plane/moduleWrites.js";
 import { intakeTools, intakeHandlers, intakeToolPolicy } from "../plane/intake.js";
+import { intakeWriteTools, intakeWriteHandlers, intakeWriteToolPolicy } from "../plane/intakeWrites.js";
+import { projectAdminTools, projectAdminHandlers, projectAdminToolPolicy } from "../plane/projectAdmin.js";
 import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools } from "../plane/workspace.js";
 
 /** Tool groups in display order, as Availability rules and the console show them. Every Plane tool joins one; a group shows once it holds a tool. */
@@ -21,8 +25,12 @@ export const planeTools: ToolDefinition[] = [
   ...workItemTools,
   ...workItemWriteTools,
   ...cycleTools,
+  ...cycleWriteTools,
   ...moduleTools,
+  ...moduleWriteTools,
   ...intakeTools,
+  ...intakeWriteTools,
+  ...projectAdminTools,
   ...workspaceTools,
 ];
 
@@ -32,8 +40,12 @@ export const planeToolPolicy: Record<string, ToolPolicy> = {
   ...workItemToolPolicy,
   ...workItemWriteToolPolicy,
   ...cycleToolPolicy,
+  ...cycleWriteToolPolicy,
   ...moduleToolPolicy,
+  ...moduleWriteToolPolicy,
   ...intakeToolPolicy,
+  ...intakeWriteToolPolicy,
+  ...projectAdminToolPolicy,
   ...workspaceToolPolicy,
 };
 
@@ -58,8 +70,12 @@ export const planeHandlers: Record<string, ToolHandler> = {
   ...workItemHandlers,
   ...workItemWriteHandlers,
   ...cycleHandlers,
+  ...cycleWriteHandlers,
   ...moduleHandlers,
+  ...moduleWriteHandlers,
   ...intakeHandlers,
+  ...intakeWriteHandlers,
+  ...projectAdminHandlers,
   ...workspaceHandlers,
 };
 
