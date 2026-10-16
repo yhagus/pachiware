@@ -106,6 +106,12 @@ export class SkillRegistry {
     return resolveAvailability(place, await this.getActiveSkills(place.tenantId), playbooks ?? await listPlaybooks(place.tenantId));
   }
 
+  /** The tools the place does not support, from every skill that says so (`SkillModule.hiddenTools`); `skills` defaults to all registered. */
+  public async hiddenTools(context: SkillContext, skills: SkillModule[] = this.getAllSkills()): Promise<Set<string>> {
+    const lists = await Promise.all(skills.map((s) => s.hiddenTools?.(context) ?? []));
+    return new Set(lists.flat());
+  }
+
   /**
    * Converts ToolDefinitions into OpenAI function calling format:
    * [ { type: "function", function: { name, description, parameters } } ]
@@ -164,6 +170,11 @@ export class SkillRegistry {
     const skill = this.skills.get(skillId);
     if (!skill) {
       return { toolCallId, name, success: false, error: `Skill "${skillId}" not found for tool "${name}".` };
+    }
+
+    if ((await this.hiddenTools(context, [skill])).has(name)) {
+      await audit(context, "tool_denied", { tool: name, reason: "disabled_or_unavailable" });
+      return { toolCallId, name, success: false, error: "Tool is disabled or unavailable here" };
     }
 
     const handler = skill.handlers[name];

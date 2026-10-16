@@ -210,6 +210,11 @@ export interface SkillModule {
   toolPolicy?: Record<string, ToolPolicy>;
   /** Display order of the groups the tools sit in; large skills only. */
   groups?: string[];
+  /**
+   * Tools of this skill that the place does not support although Availability rules allow them (Plane's workspace tools where the
+   * Plane scope names specific Plane projects). They are not offered to the model, and a call to one is refused as unavailable.
+   */
+  hiddenTools?: (ctx: SkillContext) => Promise<string[]>;
 }
 
 export interface CatalogueTool { name: string; description: string; effect?: Effect; group?: string; playbook?: string }
