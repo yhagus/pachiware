@@ -23,8 +23,7 @@ turndown.addRule("listItem", {
 turndown.addRule("image", { filter: "img", replacement: (_c, node) => `[image${(node as any).getAttribute?.("alt") ? `: ${(node as any).getAttribute("alt")}` : ""}]` });
 
 /**
- * Plane's editor writes mentions and images as empty custom elements, which turndown drops as blank. They become
- * placeholder words before the conversion and their text after it, so turndown neither drops nor escapes them.
+ * Plane writes mentions and images as empty elements, which turndown drops, so they pass through as placeholder words.
  * A mention carries the user's id; `names` turns it into a name.
  */
 function planeComponents(html: string, names: Map<string, string>): { html: string; restore: (md: string) => string } {

@@ -55,6 +55,8 @@ export function assertPlaneUrl(baseUrl: string | null): void {
 /** A path inside the account's Plane workspace, e.g. inWorkspace(conn, "projects/") for `workspaces/<slug>/projects/`. */
 export const inWorkspace = (conn: PlaneConn, path: string) => `workspaces/${encodeURIComponent(conn.workspaceSlug)}/${path.replace(/^\/+/, "")}`;
 
+/** A Plane answer, read field by field. */
+export type Obj = Record<string, any>;
 type Query = Record<string, string | number | boolean | undefined | null>;
 export type PlaneRequest = { method?: string; query?: Query; body?: unknown };
 
@@ -66,7 +68,7 @@ export async function planeRequest<T = any>(conn: PlaneConn, path: string, req: 
   assertPlaneUrl(conn.baseUrl);
   const url = new URL(`${conn.baseUrl ?? PLANE_CLOUD_URL}/api/v1/${path.replace(/^\/+/, "")}`);
   for (const [k, v] of Object.entries(req.query ?? {})) if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
-  const send = () => send1(conn, url, req);
+  const send = () => sendOnce(conn, url, req);
   let res = await send();
   if (res.status === 429) {
     const wait = retryAfter(res);
@@ -82,7 +84,7 @@ export async function planeRequest<T = any>(conn: PlaneConn, path: string, req: 
   try { return JSON.parse(text) as T; } catch { throw new PlaneError("Plane answered with something other than JSON; check the base URL", res.status); }
 }
 
-async function send1(conn: PlaneConn, url: URL, req: PlaneRequest): Promise<Response> {
+async function sendOnce(conn: PlaneConn, url: URL, req: PlaneRequest): Promise<Response> {
   const headers: Record<string, string> = { "X-Api-Key": conn.apiKey, Accept: "application/json" };
   if (req.body !== undefined) headers["Content-Type"] = "application/json";
   try {

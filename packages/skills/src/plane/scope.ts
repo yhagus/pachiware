@@ -1,8 +1,4 @@
-/**
- * Plane scope at run time: which of the bot's Plane accounts, and which Plane projects of each, a tool may use in this place.
- * Every Plane tool resolves its account with `loadPlaneAccess` + `pickPlaneAccess`, checks a Plane project with
- * `planeProjectAllowed`, and builds its connection with `planeConnOf`.
- */
+/** Plane scope at run time: which of the bot's Plane accounts, and which Plane projects of each, a tool may use here. */
 import { repositories, decryptSecret, ALL_PLANE_PROJECTS, type PlaneAccount } from "@pachiware/db";
 import type { SkillContext } from "../types.js";
 import { assertPlaneUrl, type PlaneConn } from "./client.js";

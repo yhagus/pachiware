@@ -1,10 +1,11 @@
 /** Read tools for the cycles of a Plane project: cycleList, cycleGet, cycleItems. */
+import { PLANE_ID } from "@pachiware/db";
 import type { Effect, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeList, planeRequest, inWorkspace, PlaneError } from "./client.js";
-import { resolvePlaneProject, projectHead, PROJECT_ARGS, UUID, type PlaneProjectTarget } from "./projectRef.js";
+import { resolvePlaneProject, projectHead, PROJECT_ARGS, type PlaneProjectTarget } from "./projectRef.js";
 import { listWorkItemsIn } from "./items.js";
 
-const R: Effect = "read";
+const READ: Effect = "read";
 export const CYCLE_VIEWS = ["all", "current", "upcoming", "completed", "draft", "incomplete"];
 const CYCLE_ARG = { cycle: { type: "string", description: "The cycle: its id, or its name." } };
 
@@ -18,9 +19,9 @@ export const cycleTools: ToolDefinition[] = [
 ];
 
 export const cycleToolPolicy: Record<string, ToolPolicy> = {
-  cycleList: { effect: R, group: "Cycles" },
-  cycleGet: { effect: R, group: "Cycles" },
-  cycleItems: { effect: R, group: "Cycles" },
+  cycleList: { effect: READ, group: "Cycles" },
+  cycleGet: { effect: READ, group: "Cycles" },
+  cycleItems: { effect: READ, group: "Cycles" },
 };
 
 const cycleView = (c: any) => ({
@@ -35,7 +36,7 @@ export async function findCycle(t: PlaneProjectTarget, ref: unknown): Promise<an
   const name = typeof ref === "string" ? ref.trim() : "";
   if (!name) throw new Error('Pass "cycle" with a cycle id or name (see cycleList).');
   const { conn, project } = t;
-  if (UUID.test(name)) {
+  if (PLANE_ID.test(name)) {
     try { return await planeRequest(conn, inWorkspace(conn, `projects/${project.id}/cycles/${name.toLowerCase()}/`)); }
     catch (e) { if (e instanceof PlaneError && e.status === 404) throw new Error(`No cycle ${name} in ${project.identifier}, or it is archived; see cycleList.`); throw e; }
   }

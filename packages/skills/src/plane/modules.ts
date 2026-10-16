@@ -1,10 +1,11 @@
 /** Read tools for the modules of a Plane project: moduleList, moduleGet, moduleItems. */
+import { PLANE_ID } from "@pachiware/db";
 import type { Effect, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeList, planeRequest, inWorkspace, PlaneError } from "./client.js";
-import { resolvePlaneProject, projectHead, PROJECT_ARGS, UUID, type PlaneProjectTarget } from "./projectRef.js";
+import { resolvePlaneProject, projectHead, PROJECT_ARGS, type PlaneProjectTarget } from "./projectRef.js";
 import { listWorkItemsIn } from "./items.js";
 
-const R: Effect = "read";
+const READ: Effect = "read";
 const MODULE_ARG = { module: { type: "string", description: "The module: its id, or its name." } };
 
 export const moduleTools: ToolDefinition[] = [
@@ -17,9 +18,9 @@ export const moduleTools: ToolDefinition[] = [
 ];
 
 export const moduleToolPolicy: Record<string, ToolPolicy> = {
-  moduleList: { effect: R, group: "Modules" },
-  moduleGet: { effect: R, group: "Modules" },
-  moduleItems: { effect: R, group: "Modules" },
+  moduleList: { effect: READ, group: "Modules" },
+  moduleGet: { effect: READ, group: "Modules" },
+  moduleItems: { effect: READ, group: "Modules" },
 };
 
 const moduleView = (m: any) => ({
@@ -34,7 +35,7 @@ export async function findModule(t: PlaneProjectTarget, ref: unknown): Promise<a
   const name = typeof ref === "string" ? ref.trim() : "";
   if (!name) throw new Error('Pass "module" with a module id or name (see moduleList).');
   const { conn, project } = t;
-  if (UUID.test(name)) {
+  if (PLANE_ID.test(name)) {
     try { return await planeRequest(conn, inWorkspace(conn, `projects/${project.id}/modules/${name.toLowerCase()}/`)); }
     catch (e) { if (e instanceof PlaneError && e.status === 404) throw new Error(`No module ${name} in ${project.identifier}, or it is archived; see moduleList.`); throw e; }
   }

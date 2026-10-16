@@ -3,14 +3,14 @@ import type { PlaneScope, PlaneScopeRule } from "./types.js";
 /** In a rule's projectIds, every Plane project of the account. It stands alone. */
 export const ALL_PLANE_PROJECTS = "*";
 
-/** Plane project ids are UUIDs; they are stored lowercased so a channel rule compares with its guild rule exactly. */
-const PROJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** A Plane id (UUID), in any case. Project ids are stored lowercased so a channel rule compares with its guild rule exactly. */
+export const PLANE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function cleanProjectIds(ids: string[]): string[] {
   const out = [...new Set((ids || []).map((x) => String(x).trim().toLowerCase()).filter(Boolean))];
   if (!out.length) throw new Error("projectIds must not be empty");
   if (out.includes(ALL_PLANE_PROJECTS)) return [ALL_PLANE_PROJECTS];
-  if (out.some((x) => !PROJECT_ID.test(x))) throw new Error("Invalid Plane project id");
+  if (out.some((x) => !PLANE_ID.test(x))) throw new Error("Invalid Plane project id");
   return out;
 }
 

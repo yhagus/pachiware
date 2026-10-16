@@ -1,34 +1,30 @@
 /**
- * Write tools for the intake (group "Intake"): adding to it, and triage. The intake item is named by its work item id or
- * key, which is also the id in Plane's intake path. Plane applies a triage only for a project Admin and answers anyone
- * else with a 200 and nothing changed, so `intakeTriage` reads the status back and reports the role problem itself.
+ * Write tools for the intake; an intake item's id in Plane's intake path is its work item id. Plane answers a triage by
+ * anyone but a Plane project Admin with 200 and changes nothing, so `intakeTriage` reads the status back.
  */
 import type { ToolDefinition, ToolPolicy } from "../types.js";
-import { planeRequest, inWorkspace } from "./client.js";
+import { planeRequest, inWorkspace, type Obj } from "./client.js";
 import { planeHtml } from "./markdown.js";
 import { resolvePlaneProject, PROJECT_ARGS, type PlaneProjectTarget } from "./projectRef.js";
 import { resolveWorkItem } from "./resolve.js";
 import { findIntakeItem, intakeOff, STATUS } from "./intake.js";
 import { PRIORITIES } from "./workItems.js";
 import { text, title } from "./args.js";
-import { planeWrite, originLine, DANGER, DANGER_NOTE, notCreator } from "./write.js";
+import { planeWrite, CONFIRM_NOTE, originLine, DANGER, DANGER_NOTE, notCreator } from "./write.js";
 
-type Obj = Record<string, any>;
-
-const CONFIRM = " Waits for the asker's Confirm in Discord before anything changes.";
 /** Plane's intake status numbers for each triage action. */
 const ACTIONS: Record<string, number> = { accept: 1, reject: -1, snooze: 0, duplicate: 2 };
 const WORK_ITEM = { workItem: { type: "string", description: "The intake item's work item id, or its key such as ENG-57 (see intakeList)." } };
 
 export const intakeWriteTools: ToolDefinition[] = [
-  { name: "intakeCreate", description: `Adds a work item to the intake of a Plane project open here, for someone to triage. The description is Markdown; a line saying who asked from which Discord channel is added at its end.${CONFIRM}`,
+  { name: "intakeCreate", description: `Adds a work item to the intake of a Plane project open here, for someone to triage. The description is Markdown; a line saying who asked from which Discord channel is added at its end.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS,
       name: { type: "string", description: "Title, at most 255 characters." },
       description: { type: "string", description: "Markdown." },
       priority: { type: "string", enum: PRIORITIES },
     }, required: ["project", "name"] } },
-  { name: "intakeTriage", description: `Triages an intake item: accept (it becomes a work item in the Plane project's default state), reject, snooze until a date, or mark it a duplicate of another work item. Plane allows this only when the bot's Plane user is an Admin of the Plane project.${CONFIRM}`,
+  { name: "intakeTriage", description: `Triages an intake item: accept (it becomes a work item in the Plane project's default state), reject, snooze until a date, or mark it a duplicate of another work item. Plane allows this only when the bot's Plane user is an Admin of the Plane project.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS, ...WORK_ITEM,
       action: { type: "string", enum: Object.keys(ACTIONS) },
@@ -73,7 +69,7 @@ export const intakeWriteHandlers = {
     if (priority && !PRIORITIES.includes(priority)) throw new Error(`priority must be one of ${PRIORITIES.join(", ")}`);
     const description = typeof a.description === "string" ? a.description : "";
     return {
-      t, refusals: [[/Intake is not enabled/, intakeOff(t)]],
+      target: t, refusals: [[/Intake is not enabled/, intakeOff(t)]],
       summary: `Add "${name}" to the intake of ${t.project.identifier} (${t.project.name})${priority ? `, priority ${priority}` : ""}`,
       run: async () => {
         // The intake item is a new work item, so it carries the origin line like workItemCreate.
@@ -103,7 +99,7 @@ export const intakeWriteHandlers = {
     }
     const path = inWorkspace(t.conn, `projects/${t.project.id}/intake-issues/${itemId}/`);
     return {
-      t, role: `an Admin of the Plane project ${t.project.identifier}`,
+      target: t, role: `an Admin of the Plane project ${t.project.identifier}`,
       refusals: [[/No default state found/, `The Plane project ${t.project.identifier} has no default state, so Plane cannot accept intake items. Set a default state in Plane first.`]],
       summary: said,
       run: async () => {
@@ -111,7 +107,7 @@ export const intakeWriteHandlers = {
         // Plane ignores a status change from anyone but a project Admin and still answers 200, so the result is read back.
         const after = await planeRequest<Obj>(t.conn, path);
         if (after?.status !== body.status) {
-          throw new Error(`Plane did not triage ${key}, which is still ${STATUS[String(after?.status)] ?? "unchanged"}: the bot's Plane user ${t.access.account.planeUserName ?? ""} is not an Admin of the Plane project ${t.project.identifier}, and only an Admin can triage intake.`);
+          throw new Error(`Plane did not triage ${key}, which is still ${STATUS[String(after?.status)] ?? "unchanged"}: the bot's Plane user ${t.access.account.planeUserName} is not an Admin of the Plane project ${t.project.identifier}, and only an Admin can triage intake.`);
         }
         return { key, status: STATUS[String(after.status)] };
       },
@@ -126,7 +122,7 @@ export const intakeWriteHandlers = {
     // Plane deletes the work item along with an intake item it has not accepted.
     const accepted = i.status === 1;
     return {
-      t, role: `the work item's creator or an Admin of the Plane project ${t.project.identifier}`,
+      target: t, role: `the work item's creator or an Admin of the Plane project ${t.project.identifier}`,
       refusals: [[/Only admin or creator can delete the work item/, notCreator(t, key, t.project)], [/Intake is not enabled/, intakeOff(t)]],
       summary: `Remove ${key} "${i.issue_detail?.name ?? ""}" (${STATUS[String(i.status)] ?? "pending"}) from the intake of ${t.project.identifier}; ${accepted ? "its work item stays" : "this deletes its work item too"}`,
       run: async () => {

@@ -3,11 +3,9 @@
  * project's settings, and its states, labels and members, which write tools need by name.
  */
 import type { ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
-import { planeRequest, inWorkspace } from "./client.js";
+import { planeRequest, inWorkspace, type Obj } from "./client.js";
 import { planeTarget, findPlaneProject, PROJECT_ARGS } from "./projectRef.js";
 import { projectStates, projectLabels, projectMembers, planeUserName } from "./resolve.js";
-
-type Obj = Record<string, any>;
 
 
 export const browseTools: ToolDefinition[] = [

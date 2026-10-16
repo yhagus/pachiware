@@ -1,26 +1,19 @@
-/**
- * Write tools for modules (group "Modules"). Each is a `planeWrite`: the Plane project, the module, its lead and members,
- * and the work items are resolved before the change is queued for the asker's Confirm, and again when it runs.
- * Unlike a cycle, a work item can be in several modules, and a module is archived by its status, not its dates.
- */
+/** Write tools for modules, each a `planeWrite`. Unlike a cycle, a work item can be in several modules, and a module is archived by its status. */
 import type { SkillContext, ToolDefinition, ToolPolicy } from "../types.js";
-import { planeRequest, planeList, inWorkspace } from "./client.js";
+import { planeRequest, planeList, inWorkspace, type Obj } from "./client.js";
 import { resolvePlaneProject, PROJECT_ARGS, type PlaneProjectTarget } from "./projectRef.js";
 import { workItemsIn, findArchived, projectNames, planeUserName } from "./resolve.js";
 import { modulesOff, findModule } from "./modules.js";
 import { text, isNone, date, title, list } from "./args.js";
-import { planeWrite, DANGER, DANGER_NOTE, notCreator, type PlaneRefusals } from "./write.js";
+import { planeWrite, CONFIRM_NOTE, DANGER, DANGER_NOTE, notCreator, type PlaneRefusals } from "./write.js";
 import { ITEMS, staying } from "./cycleWrites.js";
 
-type Obj = Record<string, any>;
-
-const CONFIRM = " Waits for the asker's Confirm in Discord before anything changes.";
 export const MODULE_STATUSES = ["backlog", "planned", "in-progress", "paused", "completed", "cancelled"];
 const MODULE_ARG = { module: { type: "string", description: "The module: its id, or its name (see moduleList)." } };
 const NAMES = (what: string) => ({ type: "array", items: { type: "string" }, description: `${what}, named as planeMembers lists them.` });
 
 export const moduleWriteTools: ToolDefinition[] = [
-  { name: "moduleCreate", description: `Creates a module in a Plane project open here. Lead and members must be members of the Plane project; ask the person when a name is unclear or is "me".${CONFIRM}`,
+  { name: "moduleCreate", description: `Creates a module in a Plane project open here. Lead and members must be members of the Plane project; ask the person when a name is unclear or is "me".${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS,
       name: { type: "string", description: "The module's name, at most 255 characters; unique in the Plane project." },
@@ -30,7 +23,7 @@ export const moduleWriteTools: ToolDefinition[] = [
       members: NAMES("Members"),
       startDate: { type: "string", description: "YYYY-MM-DD." }, targetDate: { type: "string", description: "YYYY-MM-DD." },
     }, required: ["project", "name"] } },
-  { name: "moduleUpdate", description: `Changes a module's name, description, status, dates or lead, and adds or removes members one by one while keeping the others. Pass only what changes.${CONFIRM}`,
+  { name: "moduleUpdate", description: `Changes a module's name, description, status, dates or lead, and adds or removes members one by one while keeping the others. Pass only what changes.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS, ...MODULE_ARG,
       name: { type: "string" }, description: { type: "string", description: "Plain text; replaces the old one." },
@@ -39,13 +32,13 @@ export const moduleWriteTools: ToolDefinition[] = [
       addMembers: NAMES("Members to add"), removeMembers: NAMES("Members to remove"),
       startDate: { type: "string", description: 'YYYY-MM-DD, or "none" to clear it.' }, targetDate: { type: "string", description: 'YYYY-MM-DD, or "none" to clear it.' },
     }, required: ["project", "module"] } },
-  { name: "moduleAddItems", description: `Adds work items of the same Plane project to a module. A work item can be in several modules, so it stays in any other module it is in.${CONFIRM}`,
+  { name: "moduleAddItems", description: `Adds work items of the same Plane project to a module. A work item can be in several modules, so it stays in any other module it is in.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...MODULE_ARG, items: ITEMS }, required: ["project", "module", "items"] } },
-  { name: "moduleRemoveItem", description: `Takes one work item out of a module; the work item itself stays.${CONFIRM}`,
+  { name: "moduleRemoveItem", description: `Takes one work item out of a module; the work item itself stays.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...MODULE_ARG, item: { type: "string", description: "Key of the work item, such as ENG-42." } }, required: ["project", "module", "item"] } },
-  { name: "moduleArchive", description: `Archives a module whose status is completed or cancelled, hiding it from the module list.${CONFIRM}`,
+  { name: "moduleArchive", description: `Archives a module whose status is completed or cancelled, hiding it from the module list.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...MODULE_ARG }, required: ["project", "module"] } },
-  { name: "moduleUnarchive", description: `Brings an archived module back, named by its id or name.${CONFIRM}`,
+  { name: "moduleUnarchive", description: `Brings an archived module back, named by its id or name.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...MODULE_ARG }, required: ["project", "module"] } },
   { name: "moduleDelete", description: `Deletes a module for good; its work items stay in the Plane project. Plane allows it only for the module's creator or an Admin of the Plane project.${DANGER_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...MODULE_ARG }, required: ["project", "module"] } },
@@ -118,7 +111,7 @@ export const moduleWriteHandlers = {
     dates(a, body, said);
     await freeName(t, name);
     return {
-      t, refusals: refusals(t, name),
+      target: t, refusals: refusals(t, name),
       summary: `Create module "${name}" in ${t.project.identifier} (${t.project.name})${said.length ? `: ${said.join(", ")}` : ""}`,
       run: async () => {
         const m = await planeRequest<Obj>(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/modules/`), { method: "POST", body });
@@ -145,7 +138,7 @@ export const moduleWriteHandlers = {
     if (remove.length) said.push(`remove members ${remove.map(planeUserName).join(", ")}`);
     if (!said.length) throw new Error("Nothing to change: pass at least one field to change.");
     return {
-      t, refusals: refusals(t, name ?? m.name),
+      target: t, refusals: refusals(t, name ?? m.name),
       summary: `Update module ${m.name} in ${t.project.identifier}: ${said.join(", ")}`,
       run: async () => {
         if (add.length || remove.length) {
@@ -166,7 +159,7 @@ export const moduleWriteHandlers = {
     if (!refs.length) throw new Error(`Pass "items" with the keys of the work items, such as ENG-42.`);
     const found = await workItemsIn(t, t.project, refs, "a module");
     return {
-      t, refusals: refusals(t),
+      target: t, refusals: refusals(t),
       summary: `Add ${found.map((w) => w.key).join(", ")} to module ${m.name} in ${t.project.identifier}. Each stays in any other module it is in.`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/modules/${m.id}/module-issues/`), { method: "POST", body: { issues: found.map((w) => w.item.id) } });
@@ -180,7 +173,7 @@ export const moduleWriteHandlers = {
     const { items } = await planeList<Obj>(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/modules/${m.id}/module-issues/`), { query: { fields: "id" }, perPage: 1000, maxPages: 5 });
     if (!items.some((x) => String(x.id) === String(w!.item.id))) throw new Error(`${w!.key} is not in the module ${m.name}.`);
     return {
-      t,
+      target: t,
       summary: `Take ${w!.key} "${w!.item.name}" out of module ${m.name} in ${t.project.identifier}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/modules/${m.id}/module-issues/${w!.item.id}/`), { method: "DELETE" });
@@ -192,7 +185,7 @@ export const moduleWriteHandlers = {
     const { t, m } = await moduleOf(a, ctx);
     if (!["completed", "cancelled"].includes(String(m.status))) throw new Error(`The module ${m.name} is ${m.status}; Plane archives only a completed or cancelled module. Change its status first.`);
     return {
-      t, refusals: [[/Only completed or cancelled/, `The module ${m.name} is no longer completed or cancelled.`]],
+      target: t, refusals: [[/Only completed or cancelled/, `The module ${m.name} is no longer completed or cancelled.`]],
       summary: `Archive module ${m.name} (${m.status}) in ${t.project.identifier}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/modules/${m.id}/archive/`), { method: "POST" });
@@ -204,7 +197,7 @@ export const moduleWriteHandlers = {
     const t = await resolvePlaneProject(ctx, a);
     const m = await findArchived(t, t.project, "module", a.module);
     return {
-      t,
+      target: t,
       summary: `Bring back the archived module ${m.name} in ${t.project.identifier}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/archived-modules/${m.id}/unarchive/`), { method: "DELETE" });
@@ -215,7 +208,7 @@ export const moduleWriteHandlers = {
   moduleDelete: planeWrite("moduleDelete", async (a, ctx) => {
     const { t, m } = await moduleOf(a, ctx);
     return {
-      t, role: `the module's creator or an Admin of the Plane project ${t.project.identifier}`,
+      target: t, role: `the module's creator or an Admin of the Plane project ${t.project.identifier}`,
       refusals: [[/Only admin or creator can delete the module/, notCreator(t, `the module ${m.name}`, t.project)]],
       summary: `Delete module ${m.name} in ${t.project.identifier} for good; ${staying(m.total_issues)}`,
       run: async () => {

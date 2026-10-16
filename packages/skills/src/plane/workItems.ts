@@ -3,15 +3,12 @@
  * relations and attachments. Every tool resolves its Plane project inside the Plane scope first (`resolve.ts`).
  */
 import type { ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
-import { planeList, planeRequest, inWorkspace } from "./client.js";
+import { planeList, planeRequest, inWorkspace, type Obj } from "./client.js";
 import { planeProjectAllowed } from "./scope.js";
 import { planeMarkdown, planeText } from "./markdown.js";
-import { planeTarget, findPlaneProject, projectHead, type PlaneTarget } from "./projectRef.js";
+import { planeTarget, findPlaneProject, projectHead, ACCOUNT_ARG, type PlaneTarget } from "./projectRef.js";
 import { resolveWorkItem, workItemPath, workItemKey, planeUserName, planeUserAliases, matchByName, projectMembers, ME, type ResolvedWorkItem } from "./resolve.js";
 
-type Obj = Record<string, any>;
-
-export const ACCOUNT = { type: "string", description: "Plane account name; needed only when several are available (see planeAccounts)." };
 export const ITEM = { type: "string", description: "Work item key such as ENG-42, or its id (then pass \"project\" too)." };
 export const PROJECT_OF_ID = { type: "string", description: "Plane project id, identifier or name; needed only when item is an id." };
 
@@ -27,13 +24,13 @@ const ITEM_FIELDS = "id,name,description_html,priority,state,assignees,labels,st
 
 export const workItemTools: ToolDefinition[] = [
   { name: "workItemGet", description: "Reads one work item: description (Markdown), state, priority, assignees, labels, dates, parent, cycle and modules. Takes its key such as ENG-42.",
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT }, required: ["item"] } },
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT_ARG }, required: ["item"] } },
   { name: "workItemSearch", description: "Finds work items by words in the title, or by key such as ENG-42, across the Plane projects open here (or in one). Plane's search covers title and key only; use workItemList to filter by state, assignee, label or priority.",
     parameters: { type: "object", properties: {
       query: { type: "string", description: "Words from the title, or a key such as ENG-42." },
       project: { type: "string", description: "Plane project id, identifier or name, to search only there." },
       limit: { type: "number", description: "At most this many results (default 20, max 50)." },
-      account: ACCOUNT,
+      account: ACCOUNT_ARG,
     }, required: ["query"] } },
   { name: "workItemList", description: "Lists work items, newest change first, filtered by state or state group, assignee, label, priority, change date and title text, in one Plane project or in all open here. Reads at most 2000 work items per Plane project and 20 Plane projects; stoppedEarly says when it hit that.",
     parameters: { type: "object", properties: {
@@ -46,18 +43,18 @@ export const workItemTools: ToolDefinition[] = [
       changedSince: { type: "string", description: "Only work items changed on or after this date (YYYY-MM-DD or ISO 8601)." },
       text: { type: "string", description: "Words that must appear in the title or key." },
       limit: { type: "number", description: "At most this many results (default 50, max 200)." },
-      account: ACCOUNT,
+      account: ACCOUNT_ARG,
     } } },
   { name: "workItemComments", description: "Reads a work item's comments, newest first, as Markdown.",
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, limit: { type: "number", description: "At most this many (default 20, max 100)." }, account: ACCOUNT }, required: ["item"] } },
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, limit: { type: "number", description: "At most this many (default 20, max 100)." }, account: ACCOUNT_ARG }, required: ["item"] } },
   { name: "workItemActivity", description: "Reads a work item's change history (who changed which field, from what to what), oldest first, ending with the latest changes.",
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, limit: { type: "number", description: "The latest this many changes (default 30, max 100)." }, account: ACCOUNT }, required: ["item"] } },
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, limit: { type: "number", description: "The latest this many changes (default 30, max 100)." }, account: ACCOUNT_ARG }, required: ["item"] } },
   { name: "workItemLinks", description: "Lists the links added to a work item (title and URL).",
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT }, required: ["item"] } },
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT_ARG }, required: ["item"] } },
   { name: "workItemRelations", description: "Lists the work items related to a work item (blocking, blocked_by, duplicate, relates_to, start/finish before/after), by key and title.",
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT }, required: ["item"] } },
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT_ARG }, required: ["item"] } },
   { name: "workItemAttachments", description: "Lists the files attached to a work item: name, type and size. File contents and download links are not available.",
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT }, required: ["item"] } },
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT_ARG }, required: ["item"] } },
 ];
 
 export const workItemToolPolicy: Record<string, ToolPolicy> = {

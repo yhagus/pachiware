@@ -46,7 +46,7 @@ discordScenario("workItemDelete is refused for someone who is not a Trusted memb
 
   const del = await ask(s, "workItemDelete", { item: "ENG-42" }, { channel: comment.confirmation!.channelId });
   expect(del.result).toMatchObject({ pending: true, ownConfirmation: true });
-  expect(del.result.summary).toContain(`Delete work item ENG-42 "Fix login"`);
+  expect(del.result.summary).toStartWith(`⚠️ DANGEROUS: Delete work item ENG-42 "Fix login"`);
   expect(labels(del.confirmation!)).toEqual(["Confirm", "Cancel"]);
   expect(plane.writes.length).toBe(1);
 

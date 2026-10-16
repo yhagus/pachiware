@@ -1,28 +1,22 @@
-/**
- * Write tools for work items (group "Work items"). Each one is a `planeWrite`: names are resolved and arguments checked
- * before the change is queued for the asker's Confirm, and again when it runs. Descriptions and comments arrive as
- * Markdown and go to Plane as HTML.
- */
+/** Write tools for work items, each a `planeWrite`. Descriptions and comments arrive as Markdown and go to Plane as HTML. */
+import { PLANE_ID } from "@pachiware/db";
 import type { DiscordAttachmentInfo, DiscordMessageInfo, SkillContext, ToolDefinition, ToolPolicy } from "../types.js";
-import { planeRequest, planeList, planeUpload, inWorkspace, PlaneError } from "./client.js";
+import { planeRequest, planeList, planeUpload, inWorkspace, PlaneError, type Obj } from "./client.js";
 import { planeHtml, planeText } from "./markdown.js";
-import { planeTarget, resolvePlaneProject, UUID, type PlaneTarget } from "./projectRef.js";
+import { planeTarget, resolvePlaneProject, ACCOUNT_ARG, type PlaneTarget } from "./projectRef.js";
 import { resolveWorkItem, workItemKey, workItemPath, projectNames, planeUserName, type ResolvedWorkItem } from "./resolve.js";
-import { planeWrite, originLine, ORIGIN_LINE, DANGER, DANGER_NOTE, notCreator } from "./write.js";
-import { ACCOUNT, ITEM, PROJECT_OF_ID, PRIORITIES } from "./workItems.js";
+import { planeWrite, CONFIRM_NOTE, originLine, ORIGIN_LINE, DANGER, DANGER_NOTE, notCreator } from "./write.js";
+import { ITEM, PROJECT_OF_ID, PRIORITIES } from "./workItems.js";
 import { text, isNone, list, date, title, clip } from "./args.js";
-
-type Obj = Record<string, any>;
 
 const NAMES = (what: string) => ({ type: "array", items: { type: "string" }, description: `${what} names, as planeMembers or planeLabels list them.` });
 const DATE = (what: string, clear = "") => ({ type: "string", description: `${what} as YYYY-MM-DD${clear}.` });
 const NONE = ', or "none" to clear it';
-const CONFIRM = " Waits for the asker's Confirm in Discord before anything changes.";
 const RELATIONS = ["blocking", "blocked_by", "duplicate", "relates_to", "start_before", "start_after", "finish_before", "finish_after"];
 const RELATE_NOTE = "Plane's API cannot remove a relation; to undo it, remove it in Plane itself.";
 
 export const workItemWriteTools: ToolDefinition[] = [
-  { name: "workItemCreate", description: `Creates a work item in a Plane project. The description is Markdown; a line saying who asked from which Discord channel is added at its end. Names of state, assignees and labels must be the Plane project's own; ask the person when a name is unclear or is "me".${CONFIRM}`,
+  { name: "workItemCreate", description: `Creates a work item in a Plane project. The description is Markdown; a line saying who asked from which Discord channel is added at its end. Names of state, assignees and labels must be the Plane project's own; ask the person when a name is unclear or is "me".${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       project: { type: "string", description: "The Plane project: its id, its identifier such as ENG, or its name." },
       name: { type: "string", description: "Title, at most 255 characters." },
@@ -34,9 +28,9 @@ export const workItemWriteTools: ToolDefinition[] = [
       startDate: DATE("Start date"),
       targetDate: DATE("Due date"),
       parent: { type: "string", description: "Key of the parent work item, such as ENG-7, in the same Plane project." },
-      account: ACCOUNT,
+      account: ACCOUNT_ARG,
     }, required: ["project", "name"] } },
-  { name: "workItemUpdate", description: `Changes a work item's title, description (Markdown, replaces the old one), state, priority, dates or parent, and adds or removes assignees and labels one by one while keeping the others. Pass only what changes. Names must be the Plane project's own; ask the person when a name is unclear or is "me".${CONFIRM}`,
+  { name: "workItemUpdate", description: `Changes a work item's title, description (Markdown, replaces the old one), state, priority, dates or parent, and adds or removes assignees and labels one by one while keeping the others. Pass only what changes. Names must be the Plane project's own; ask the person when a name is unclear or is "me".${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       item: ITEM, project: PROJECT_OF_ID,
       name: { type: "string", description: "New title, at most 255 characters." },
@@ -48,34 +42,34 @@ export const workItemWriteTools: ToolDefinition[] = [
       parent: { type: "string", description: 'Key of the parent work item in the same Plane project, or "none" to clear it.' },
       addAssignees: NAMES("Member"), removeAssignees: NAMES("Member"),
       addLabels: NAMES("Label"), removeLabels: NAMES("Label"),
-      account: ACCOUNT,
+      account: ACCOUNT_ARG,
     }, required: ["item"] } },
-  { name: "workItemComment", description: `Comments on a work item. The body is Markdown; a line saying who asked from which Discord channel is added at its end.${CONFIRM}`,
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, body: { type: "string", description: "Markdown." }, account: ACCOUNT }, required: ["item", "body"] } },
-  { name: "workItemEditComment", description: `Replaces the text of a comment that this Plane account wrote (see workItemComments for ids). Comments written by people are refused.${CONFIRM}`,
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, comment: { type: "string", description: "The comment's id." }, body: { type: "string", description: "The new text, in Markdown." }, account: ACCOUNT }, required: ["item", "comment", "body"] } },
-  { name: "workItemAddLink", description: `Adds a link (an http or https URL, with an optional title) to a work item.${CONFIRM}`,
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, url: { type: "string", description: "http:// or https:// address." }, title: { type: "string" }, account: ACCOUNT }, required: ["item", "url"] } },
-  { name: "workItemRemoveLink", description: `Removes a link from a work item, named by its URL or its id (see workItemLinks).${CONFIRM}`,
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, link: { type: "string", description: "The link's URL or id." }, account: ACCOUNT }, required: ["item", "link"] } },
-  { name: "workItemRelate", description: `Relates a work item to other work items open here, such as "ENG-42 is blocked by ENG-41". Plane's API cannot remove a relation afterwards; that has to be done in Plane itself, so say so before asking for Confirm.${CONFIRM}`,
+  { name: "workItemComment", description: `Comments on a work item. The body is Markdown; a line saying who asked from which Discord channel is added at its end.${CONFIRM_NOTE}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, body: { type: "string", description: "Markdown." }, account: ACCOUNT_ARG }, required: ["item", "body"] } },
+  { name: "workItemEditComment", description: `Replaces the text of a comment that this Plane account wrote (see workItemComments for ids). Comments written by people are refused.${CONFIRM_NOTE}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, comment: { type: "string", description: "The comment's id." }, body: { type: "string", description: "The new text, in Markdown." }, account: ACCOUNT_ARG }, required: ["item", "comment", "body"] } },
+  { name: "workItemAddLink", description: `Adds a link (an http or https URL, with an optional title) to a work item.${CONFIRM_NOTE}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, url: { type: "string", description: "http:// or https:// address." }, title: { type: "string" }, account: ACCOUNT_ARG }, required: ["item", "url"] } },
+  { name: "workItemRemoveLink", description: `Removes a link from a work item, named by its URL or its id (see workItemLinks).${CONFIRM_NOTE}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, link: { type: "string", description: "The link's URL or id." }, account: ACCOUNT_ARG }, required: ["item", "link"] } },
+  { name: "workItemRelate", description: `Relates a work item to other work items open here, such as "ENG-42 is blocked by ENG-41". Plane's API cannot remove a relation afterwards; that has to be done in Plane itself, so say so before asking for Confirm.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       item: ITEM, project: PROJECT_OF_ID,
       relation: { type: "string", enum: RELATIONS, description: "How item relates to the others, e.g. blocked_by: item is blocked by them." },
       related: { type: "array", items: { type: "string" }, description: "Keys of the other work items, such as ENG-41." },
-      account: ACCOUNT,
+      account: ACCOUNT_ARG,
     }, required: ["item", "relation", "related"] } },
-  { name: "workItemAttach", description: `Attaches a file someone posted in this channel or thread to a work item, at most 5 MB. Name the message by its id, from a line such as "Alice (message 123): ..." or "[file: report.pdf (message 123)]".${CONFIRM}`,
+  { name: "workItemAttach", description: `Attaches a file someone posted in this channel or thread to a work item, at most 5 MB. Name the message by its id, from a line such as "Alice (message 123): ..." or "[file: report.pdf (message 123)]".${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       item: ITEM, project: PROJECT_OF_ID,
       messageId: { type: "string", description: "The id of the Discord message holding the file." },
       name: { type: "string", description: "The file's name, when the message holds more than one." },
-      account: ACCOUNT,
+      account: ACCOUNT_ARG,
     }, required: ["item", "messageId"] } },
   { name: "workItemDelete", description: `Deletes a work item for good. Plane allows it only for the work item's creator or an Admin of the Plane project.${DANGER_NOTE}`,
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT }, required: ["item"] } },
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT_ARG }, required: ["item"] } },
   { name: "workItemDeleteComment", description: `Deletes a comment that this Plane account wrote (see workItemComments for ids). Comments written by people are refused.${DANGER_NOTE}`,
-    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, comment: { type: "string", description: "The comment's id." }, account: ACCOUNT }, required: ["item", "comment"] } },
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, comment: { type: "string", description: "The comment's id." }, account: ACCOUNT_ARG }, required: ["item", "comment"] } },
 ];
 
 export const workItemWriteToolPolicy: Record<string, ToolPolicy> = {
@@ -143,7 +137,7 @@ async function itemOf(a: Obj, ctx: SkillContext) {
  */
 async function ownComment(t: PlaneTarget, w: ResolvedWorkItem, ref: unknown, refused: string) {
   const id = text(ref)?.toLowerCase();
-  if (!id || !UUID.test(id)) throw new Error(`Pass "comment" with the comment's id, as workItemComments lists it.`);
+  if (!id || !PLANE_ID.test(id)) throw new Error(`Pass "comment" with the comment's id, as workItemComments lists it.`);
   const path = workItemPath(t, w, `comments/${id}/`);
   let old: Obj;
   try { old = await planeRequest<Obj>(t.conn, path, { query: { expand: "actor" } }); }
@@ -196,7 +190,7 @@ export const workItemWriteHandlers = {
     if (labels.length) { body.labels = labels.map((l) => l.id); said.push(`labels ${labels.map((l) => l.name).join(", ")}`); }
     const description = typeof a.description === "string" ? a.description : "";
     return {
-      t,
+      target: t,
       summary: `Create work item "${name}" in ${t.project.identifier} (${t.project.name})${said.length ? `: ${said.join(", ")}` : ""}`,
       run: async () => {
         const created = await planeRequest<Obj>(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/work-items/`), {
@@ -222,7 +216,7 @@ export const workItemWriteHandlers = {
     }
     if (!said.length) throw new Error("Nothing to change: pass at least one field to change.");
     return {
-      t,
+      target: t,
       summary: `Update ${w.key} "${w.item.name}": ${said.join(", ")}`,
       run: async () => {
         // Plane replaces the whole set it is sent, so the current one is read just before the change and merged.
@@ -244,7 +238,7 @@ export const workItemWriteHandlers = {
     const { t, w } = await itemOf(a, ctx);
     const body = markdown(a.body, "body");
     return {
-      t,
+      target: t,
       summary: `Comment on ${w.key} "${w.item.name}": ${clip(body)}`,
       run: async () => {
         const c = await planeRequest<Obj>(t.conn, workItemPath(t, w, "comments/"), { method: "POST", body: { comment_html: planeHtml(body) + await originLine(ctx), access: "INTERNAL" } });
@@ -259,7 +253,7 @@ export const workItemWriteHandlers = {
     // The comment keeps the line that says who asked for it.
     const origin = ORIGIN_LINE.exec(String(old.comment_html ?? ""))?.[0] ?? "";
     return {
-      t,
+      target: t,
       summary: `Edit a comment on ${w.key} "${w.item.name}" to: ${clip(body)}`,
       run: async () => {
         await planeRequest(t.conn, path, { method: "PATCH", body: { comment_html: planeHtml(body) + origin } });
@@ -276,7 +270,7 @@ export const workItemWriteHandlers = {
     const linkTitle = text(a.title);
     if (linkTitle && linkTitle.length > 255) throw new Error("title must be at most 255 characters");
     return {
-      t,
+      target: t,
       summary: `Add link ${linkTitle ? `"${linkTitle}" ` : ""}${url} to ${w.key} "${w.item.name}"`,
       run: async () => {
         const link = await planeRequest<Obj>(t.conn, workItemPath(t, w, "links/"), { method: "POST", body: { url, ...(linkTitle ? { title: linkTitle } : {}) } });
@@ -292,7 +286,7 @@ export const workItemWriteHandlers = {
     const link = items.find((l) => String(l.id) === ref.toLowerCase()) ?? items.find((l) => l.url === ref);
     if (!link) throw new Error(`${w.key} has no link ${ref}. Its links: ${items.map((l) => l.url).join(", ") || "none"}.`);
     return {
-      t,
+      target: t,
       summary: `Remove link ${link.title ? `"${link.title}" ` : ""}${link.url} from ${w.key} "${w.item.name}"`,
       run: async () => {
         await planeRequest(t.conn, workItemPath(t, w, `links/${link.id}/`), { method: "DELETE" });
@@ -313,7 +307,7 @@ export const workItemWriteHandlers = {
       if (!others.some((x) => x.item.id === o.item.id)) others.push(o);
     }
     return {
-      t,
+      target: t,
       summary: `Mark ${w.key} "${w.item.name}" as ${relation.replace(/_/g, " ")} ${others.map((o) => o.key).join(", ")}. ${RELATE_NOTE}`,
       run: async () => {
         await planeRequest(t.conn, workItemPath(t, w, "relations/"), { method: "POST", body: { relation_type: relation, issues: others.map((o) => o.item.id) } });
@@ -325,7 +319,7 @@ export const workItemWriteHandlers = {
     const { t, w } = await itemOf(a, ctx);
     const file = await discordFile(ctx, a.messageId, a.name);
     return {
-      t,
+      target: t,
       summary: `Attach ${file.name} (${mb(file.size)}) to ${w.key} "${w.item.name}"`,
       run: async () => {
         const bytes = await download(file);
@@ -342,7 +336,7 @@ export const workItemWriteHandlers = {
   workItemDelete: planeWrite("workItemDelete", async (a, ctx) => {
     const { t, w } = await itemOf(a, ctx);
     return {
-      t, role: `the work item's creator or an Admin of the Plane project ${w.project.identifier}`,
+      target: t, role: `the work item's creator or an Admin of the Plane project ${w.project.identifier}`,
       refusals: [[/Only admin or creator can delete the work item/, notCreator(t, w.key, w.project)]],
       summary: `Delete work item ${w.key} "${w.item.name}" for good`,
       run: async () => {
@@ -355,7 +349,7 @@ export const workItemWriteHandlers = {
     const { t, w } = await itemOf(a, ctx);
     const { id, old, path } = await ownComment(t, w, a.comment, "deleted");
     return {
-      t,
+      target: t,
       summary: `Delete a comment on ${w.key} "${w.item.name}": ${planeText(String(old.comment_html ?? "").replace(ORIGIN_LINE, ""), 300) ?? "(empty)"}`,
       run: async () => {
         await planeRequest(t.conn, path, { method: "DELETE" });

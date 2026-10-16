@@ -1,20 +1,15 @@
 /**
- * Write tools that set up Plane projects (group "Project admin"): creating a Plane project, and creating or changing its
- * states and labels. `projectCreate` reaches the whole Plane workspace, so it is a workspace-level tool (see
- * `WORKSPACE_LEVEL_TOOLS`): offered only where the Plane scope is "all Plane projects", and the Plane project it creates
- * joins no narrower scope.
+ * Plane project admin tools: creating a Plane project, its states and labels, and the danger tools that change one.
+ * `projectCreate` is workspace-level, and the Plane project it creates joins no narrower Plane scope.
  */
-import type { ToolDefinition, ToolPolicy } from "../types.js";
-import { planeRequest, inWorkspace } from "./client.js";
+import type { ToolDefinition } from "../types.js";
+import { planeRequest, inWorkspace, type Obj } from "./client.js";
 import { resolvePlaneProject, planeTargetOf, PROJECT_ARGS, type PlaneTarget, type PlaneProjectTarget } from "./projectRef.js";
 import { projectNames, projectStates, projectLabels, projectMembers, pickByName, planeUserAliases, planeUserName, ME } from "./resolve.js";
-import { pickWorkspaceAccess, memberRole, MEMBER_ROLES } from "./workspace.js";
+import { pickWorkspaceAccess, memberRole, MEMBER_ROLES, type PlaneToolPolicy } from "./workspace.js";
 import { text, title } from "./args.js";
-import { planeWrite, DANGER, DANGER_NOTE, type PlaneRefusals } from "./write.js";
+import { planeWrite, CONFIRM_NOTE, DANGER, DANGER_NOTE, type PlaneRefusals } from "./write.js";
 
-type Obj = Record<string, any>;
-
-const CONFIRM = " Waits for the asker's Confirm in Discord before anything changes.";
 export const STATE_GROUPS = ["backlog", "unstarted", "started", "completed", "cancelled"];
 /** Plane needs a color for a state; these follow Plane's own defaults per group. */
 const GROUP_COLORS: Record<string, string> = { backlog: "#A3A3A3", unstarted: "#3A3A3A", started: "#F59E0B", completed: "#16A34A", cancelled: "#EF4444" };
@@ -25,7 +20,7 @@ const COLOR = { type: "string", description: "A hex color such as #F59E0B." };
 const MEMBER_ROLE = (t: PlaneProjectTarget) =>`a Member or Admin of the Plane project ${t.project.identifier}`;
 
 export const projectAdminTools: ToolDefinition[] = [
-  { name: "projectCreate", description: `Creates a Plane project in the Plane workspace, with cycles and modules switched on unless asked otherwise. Plane refuses a hyphen, dot, parentheses and other punctuation in the name and the identifier.${CONFIRM}`,
+  { name: "projectCreate", description: `Creates a Plane project in the Plane workspace, with cycles and modules switched on unless asked otherwise. Plane refuses a hyphen, dot, parentheses and other punctuation in the name and the identifier.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       account: PROJECT_ARGS.account!,
       name: { type: "string", description: "The Plane project's name: letters, digits, spaces and underscores." },
@@ -35,21 +30,21 @@ export const projectAdminTools: ToolDefinition[] = [
       modules: { type: "boolean", description: "Switch modules on (default true)." },
       intake: { type: "boolean", description: "Switch the intake on (default false)." },
     }, required: ["name", "identifier"] } },
-  { name: "stateCreate", description: `Adds a state to a Plane project open here, in one of the state groups.${CONFIRM}`,
+  { name: "stateCreate", description: `Adds a state to a Plane project open here, in one of the state groups.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS,
       name: { type: "string" }, group: { type: "string", enum: STATE_GROUPS, description: "Default backlog." }, color: COLOR,
       description: { type: "string" },
     }, required: ["project", "name"] } },
-  { name: "stateUpdate", description: `Renames a state of a Plane project open here, or changes its group, color or description. Pass only what changes.${CONFIRM}`,
+  { name: "stateUpdate", description: `Renames a state of a Plane project open here, or changes its group, color or description. Pass only what changes.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS,
       state: { type: "string", description: "The state's current name, as planeStates lists it." },
       name: { type: "string", description: "New name." }, group: { type: "string", enum: STATE_GROUPS }, color: COLOR, description: { type: "string" },
     }, required: ["project", "state"] } },
-  { name: "labelCreate", description: `Adds a label to a Plane project open here.${CONFIRM}`,
+  { name: "labelCreate", description: `Adds a label to a Plane project open here.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, name: { type: "string" }, color: COLOR, description: { type: "string" } }, required: ["project", "name"] } },
-  { name: "labelUpdate", description: `Renames a label of a Plane project open here, or changes its color or description. Pass only what changes.${CONFIRM}`,
+  { name: "labelUpdate", description: `Renames a label of a Plane project open here, or changes its color or description. Pass only what changes.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS,
       label: { type: "string", description: "The label's current name, as planeLabels lists it." },
@@ -75,7 +70,7 @@ export const projectAdminTools: ToolDefinition[] = [
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS,
       member: { type: "string", description: "The person, named as workspaceMembers lists them." },
-      role: { type: "string", enum: Object.keys(MEMBER_ROLES), description: "Default member." },
+      role: { type: "string", enum: MEMBER_ROLES, description: "Default member." },
     }, required: ["project", "member"] } },
   { name: "stateDelete", description: `Deletes a state of a Plane project open here. Plane refuses the default state and a state that still holds work items, archived and draft ones included.${DANGER_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, state: { type: "string", description: "The state's name, as planeStates lists it." } }, required: ["project", "state"] } },
@@ -83,8 +78,8 @@ export const projectAdminTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { ...PROJECT_ARGS, label: { type: "string", description: "The label's name, as planeLabels lists it." } }, required: ["project", "label"] } },
 ];
 
-export const projectAdminToolPolicy: Record<string, ToolPolicy> = {
-  projectCreate: { effect: "write", group: "Plane project admin" },
+export const projectAdminToolPolicy: Record<string, PlaneToolPolicy> = {
+  projectCreate: { effect: "write", group: "Plane project admin", workspaceLevel: true },
   stateCreate: { effect: "write", group: "Plane project admin" },
   stateUpdate: { effect: "write", group: "Plane project admin" },
   labelCreate: { effect: "write", group: "Plane project admin" },
@@ -165,7 +160,7 @@ export const projectAdminHandlers = {
     const on = { cycles: a.cycles !== false, modules: a.modules !== false, intake: a.intake === true };
     const features = Object.entries(on).filter(([, v]) => v).map(([k]) => k);
     return {
-      t, role: "a Member or Admin of the Plane workspace", refusals: projectNameRefusals(name, identifier),
+      target: t, role: "a Member or Admin of the Plane workspace", refusals: projectNameRefusals(name, identifier),
       summary: `Create the Plane project "${name}" (${identifier}) in the Plane workspace, with ${features.length ? features.join(", ") : "no cycles, modules or intake"} on`,
       run: async () => {
         // Plane switches cycles and modules off for a Plane project created through its API unless they are sent.
@@ -194,7 +189,7 @@ export const projectAdminHandlers = {
     const { body } = edits(a, "state", t, states);
     const c = body.color ?? GROUP_COLORS[g];
     return {
-      t, role: MEMBER_ROLE(t), refusals: taken(t, "state", name),
+      target: t, role: MEMBER_ROLE(t), refusals: taken(t, "state", name),
       summary: `Add the state "${name}" (group ${g}, color ${c}) to ${t.project.identifier}`,
       run: async () => {
         const s = await planeRequest<Obj>(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/states/`), { method: "POST", body: { ...body, name, group: g, color: c } });
@@ -211,7 +206,7 @@ export const projectAdminHandlers = {
     if (g) { body.group = g; said.push(`group ${g}`); }
     if (!said.length) throw new Error("Nothing to change: pass name, group, color or description.");
     return {
-      t, role: MEMBER_ROLE(t), refusals: taken(t, "state", name),
+      target: t, role: MEMBER_ROLE(t), refusals: taken(t, "state", name),
       summary: `Update the state ${state.name} in ${t.project.identifier}: ${said.join(", ")}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/states/${state.id}/`), { method: "PATCH", body });
@@ -225,7 +220,7 @@ export const projectAdminHandlers = {
     if (!name) throw new Error(`Pass "name", the label's name.`);
     const { body } = edits(a, "label", t, await projectLabels(t, t.project));
     return {
-      t, role: MEMBER_ROLE(t), refusals: taken(t, "label", name),
+      target: t, role: MEMBER_ROLE(t), refusals: taken(t, "label", name),
       summary: `Add the label "${name}"${body.color ? ` (${body.color})` : ""} to ${t.project.identifier}`,
       run: async () => {
         const l = await planeRequest<Obj>(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/labels/`), { method: "POST", body: { ...body, name } });
@@ -240,7 +235,7 @@ export const projectAdminHandlers = {
     const { body, said, name } = edits(a, "label", t, others);
     if (!said.length) throw new Error("Nothing to change: pass name, color or description.");
     return {
-      t, role: MEMBER_ROLE(t), refusals: taken(t, "label", name),
+      target: t, role: MEMBER_ROLE(t), refusals: taken(t, "label", name),
       summary: `Update the label ${label.name} in ${t.project.identifier}: ${said.join(", ")}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/labels/${label.id}/`), { method: "PATCH", body });
@@ -263,7 +258,7 @@ export const projectAdminHandlers = {
     }
     if (!said.length) throw new Error("Nothing to change: pass name, identifier, description, cycles, modules or intake.");
     return {
-      t, role: ADMIN_ROLE(t),
+      target: t, role: ADMIN_ROLE(t),
       refusals: [...projectNameRefusals(name, identifier), [/Archived project cannot be updated/, `${t.project.identifier} is archived, so Plane did not change it.`]],
       summary: `Update the Plane project ${t.project.identifier}: ${said.join(", ")}`,
       run: async () => {
@@ -276,7 +271,7 @@ export const projectAdminHandlers = {
     const t = await resolvePlaneProject(ctx, a);
     if (t.project.archived_at) throw new Error(`${t.project.identifier} is already archived.`);
     return {
-      t, role: "a Member or Admin of the Plane workspace",
+      target: t, role: "a Member or Admin of the Plane workspace",
       summary: `Archive the Plane project ${t.project.identifier} (${t.project.name}); its work items cannot be changed until it is brought back`,
       run: async () => {
         await planeRequest(t.conn, projectPath(t, "archive/"), { method: "POST" });
@@ -288,7 +283,7 @@ export const projectAdminHandlers = {
     const t = await resolvePlaneProject(ctx, a);
     if (!t.project.archived_at) throw new Error(`${t.project.identifier} is not archived.`);
     return {
-      t, role: ADMIN_ROLE(t),
+      target: t, role: ADMIN_ROLE(t),
       summary: `Bring back the archived Plane project ${t.project.identifier} (${t.project.name})`,
       run: async () => {
         await planeRequest(t.conn, projectPath(t, "archive/"), { method: "DELETE" });
@@ -299,7 +294,7 @@ export const projectAdminHandlers = {
   projectDelete: planeWrite("projectDelete", async (a, ctx) => {
     const t = await resolvePlaneProject(ctx, a);
     return {
-      t, role: ADMIN_ROLE(t),
+      target: t, role: ADMIN_ROLE(t),
       summary: `Delete the Plane project ${t.project.identifier} (${t.project.name}) for good, with all its work items, cycles, modules and intake`,
       run: async () => {
         await planeRequest(t.conn, projectPath(t), { method: "DELETE" });
@@ -318,7 +313,7 @@ export const projectAdminHandlers = {
     const notAgain = `${who} is already listed among the members of ${t.project.identifier}. Plane lists removed members there too, and its API cannot add a removed member back or change a member's role; that has to be done in Plane itself.`;
     if ((await projectMembers(t, t.project)).some((m) => String(m.id) === String(user.id))) throw new Error(notAgain);
     return {
-      t, role: ADMIN_ROLE(t),
+      target: t, role: ADMIN_ROLE(t),
       refusals: [[/payload is not valid/, notAgain], [/Member not found in workspace/, `${who} is not a member of the Plane workspace.`]],
       summary: `Add ${who} to the Plane project ${t.project.identifier} as a ${roleName}`,
       run: async () => {
@@ -333,7 +328,7 @@ export const projectAdminHandlers = {
     const state = await projectNames(t, t.project).state(a.state);
     if (state.default) throw new Error(`${state.name} is the default state of ${t.project.identifier}, which Plane does not let anyone delete. Make another state the default in Plane first.`);
     return {
-      t, role: MEMBER_ROLE(t),
+      target: t, role: MEMBER_ROLE(t),
       refusals: [
         [/state is not empty/, `The state ${state.name} still holds work items (archived and draft ones count too), so Plane kept it. Move them to another state first.`],
         [/Default state cannot be deleted/, `${state.name} is the default state of ${t.project.identifier}, so Plane kept it.`],
@@ -349,7 +344,7 @@ export const projectAdminHandlers = {
     const t = await resolvePlaneProject(ctx, a);
     const label = await projectNames(t, t.project).label(a.label);
     return {
-      t, role: MEMBER_ROLE(t),
+      target: t, role: MEMBER_ROLE(t),
       summary: `Delete the label ${label.name} from ${t.project.identifier}; work items that carry it lose it`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/labels/${label.id}/`), { method: "DELETE" });

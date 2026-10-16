@@ -1,48 +1,43 @@
 /**
- * Write tools for cycles (group "Cycles"). Each is a `planeWrite`: the Plane project, the cycle and the work items are
- * resolved and the cycle's dates checked before the change is queued for the asker's Confirm, and again when it runs.
- * Plane answers some wrong requests with a 500 (archiving a cycle without dates, transferring to a missing cycle), so
- * those are refused here first.
+ * Write tools for cycles, each a `planeWrite`. Plane answers some wrong requests with a 500 (archiving a cycle
+ * without dates, transferring to a missing cycle), so those are refused here first.
  */
 import type { SkillContext, ToolDefinition, ToolPolicy } from "../types.js";
-import { planeRequest, planeList, inWorkspace } from "./client.js";
+import { planeRequest, planeList, inWorkspace, type Obj } from "./client.js";
 import { resolvePlaneProject, PROJECT_ARGS, type PlaneProjectTarget } from "./projectRef.js";
 import { workItemsIn, findArchived } from "./resolve.js";
 import { cyclesOff, findCycle } from "./cycles.js";
 import { text, date, title, list } from "./args.js";
-import { planeWrite, DANGER, DANGER_NOTE, notCreator, type PlaneRefusals } from "./write.js";
+import { planeWrite, CONFIRM_NOTE, DANGER, DANGER_NOTE, notCreator, type PlaneRefusals } from "./write.js";
 
-type Obj = Record<string, any>;
-
-const CONFIRM = " Waits for the asker's Confirm in Discord before anything changes.";
 const DATE = (what: string) => ({ type: "string", description: `${what} as YYYY-MM-DD; give both dates or neither.` });
 const CYCLE_ARG = { cycle: { type: "string", description: "The cycle: its id, or its name (see cycleList)." } };
 export const ITEMS = { type: "array", items: { type: "string" }, description: "Keys of the work items, such as ENG-42." };
 
 export const cycleWriteTools: ToolDefinition[] = [
-  { name: "cycleCreate", description: `Creates a cycle (sprint) in a Plane project open here. Give both dates or neither; without dates it is a draft.${CONFIRM}`,
+  { name: "cycleCreate", description: `Creates a cycle (sprint) in a Plane project open here. Give both dates or neither; without dates it is a draft.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS,
       name: { type: "string", description: "The cycle's name, at most 255 characters." },
       description: { type: "string", description: "Plain text." },
       startDate: DATE("First day"), endDate: DATE("Last day"),
     }, required: ["project", "name"] } },
-  { name: "cycleUpdate", description: `Renames a cycle, changes its description, or moves its dates (give both). A cycle that has ended cannot be changed.${CONFIRM}`,
+  { name: "cycleUpdate", description: `Renames a cycle, changes its description, or moves its dates (give both). A cycle that has ended cannot be changed.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: {
       ...PROJECT_ARGS, ...CYCLE_ARG,
       name: { type: "string", description: "New name." },
       description: { type: "string", description: "New description, plain text." },
       startDate: DATE("New first day"), endDate: DATE("New last day"),
     }, required: ["project", "cycle"] } },
-  { name: "cycleAddItems", description: `Adds work items of the same Plane project to a cycle that has not ended. A work item is in at most one cycle, so one already in another cycle moves out of it; say so before asking for Confirm.${CONFIRM}`,
+  { name: "cycleAddItems", description: `Adds work items of the same Plane project to a cycle that has not ended. A work item is in at most one cycle, so one already in another cycle moves out of it; say so before asking for Confirm.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...CYCLE_ARG, items: ITEMS }, required: ["project", "cycle", "items"] } },
-  { name: "cycleRemoveItem", description: `Takes one work item out of a cycle; the work item itself stays.${CONFIRM}`,
+  { name: "cycleRemoveItem", description: `Takes one work item out of a cycle; the work item itself stays.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...CYCLE_ARG, item: { type: "string", description: "Key of the work item, such as ENG-42." } }, required: ["project", "cycle", "item"] } },
-  { name: "cycleTransfer", description: `Moves the unfinished work items (backlog, unstarted or started) of a cycle that has ended into another cycle that has not. Finished and cancelled work items stay.${CONFIRM}`,
+  { name: "cycleTransfer", description: `Moves the unfinished work items (backlog, unstarted or started) of a cycle that has ended into another cycle that has not. Finished and cancelled work items stay.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, cycle: { type: "string", description: "The ended cycle to move work items from: id or name." }, to: { type: "string", description: "The cycle to move them to: id or name." } }, required: ["project", "cycle", "to"] } },
-  { name: "cycleArchive", description: `Archives a cycle that has ended, hiding it from the cycle list.${CONFIRM}`,
+  { name: "cycleArchive", description: `Archives a cycle that has ended, hiding it from the cycle list.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...CYCLE_ARG }, required: ["project", "cycle"] } },
-  { name: "cycleUnarchive", description: `Brings an archived cycle back, named by its id or name.${CONFIRM}`,
+  { name: "cycleUnarchive", description: `Brings an archived cycle back, named by its id or name.${CONFIRM_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...CYCLE_ARG }, required: ["project", "cycle"] } },
   { name: "cycleDelete", description: `Deletes a cycle for good; its work items stay in the Plane project. Plane allows it only for the cycle's owner or an Admin of the Plane project.${DANGER_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, ...CYCLE_ARG }, required: ["project", "cycle"] } },
@@ -111,7 +106,7 @@ export const cycleWriteHandlers = {
     const description = text(a.description);
     const when = dates(a);
     return {
-      t, refusals: refusals(t),
+      target: t, refusals: refusals(t),
       summary: `Create cycle "${name}" in ${t.project.identifier} (${t.project.name}), ${when.start_date ? `${when.start_date} to ${when.end_date}` : "a draft without dates"}`,
       run: async () => {
         // Plane v1.3.1 requires the Plane project's id in the body as well as in the path.
@@ -132,7 +127,7 @@ export const cycleWriteHandlers = {
     if (body.start_date) said.push(`dates ${body.start_date} to ${body.end_date}`);
     if (!said.length) throw new Error("Nothing to change: pass name, description, or both dates.");
     return {
-      t, refusals: refusals(t),
+      target: t, refusals: refusals(t),
       summary: `Update cycle ${c.name} in ${t.project.identifier}: ${said.join(", ")}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/cycles/${c.id}/`), { method: "PATCH", body });
@@ -147,7 +142,7 @@ export const cycleWriteHandlers = {
     const found = await workItemsIn(t, t.project, refs, "a cycle");
     const keys = found.map((w) => w.key).join(", ");
     return {
-      t, refusals: refusals(t),
+      target: t, refusals: refusals(t),
       summary: `Add ${keys} to cycle ${c.name} in ${t.project.identifier}. A work item already in another cycle is moved out of it.`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/cycles/${c.id}/cycle-issues/`), { method: "POST", body: { issues: found.map((w) => w.item.id) } });
@@ -160,7 +155,7 @@ export const cycleWriteHandlers = {
     const [w] = await workItemsIn(t, t.project, [String(a.item ?? "")], "a cycle");
     if (!(await holds(t, `cycles/${c.id}/cycle-issues/`, w!.item.id))) throw new Error(`${w!.key} is not in the cycle ${c.name}.`);
     return {
-      t,
+      target: t,
       summary: `Take ${w!.key} "${w!.item.name}" out of cycle ${c.name} in ${t.project.identifier}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/cycles/${c.id}/cycle-issues/${w!.item.id}/`), { method: "DELETE" });
@@ -176,7 +171,7 @@ export const cycleWriteHandlers = {
     if (String(to.id) === String(c.id)) throw new Error("Pick a different cycle to move the work items to.");
     if (hasEnded(to)) throw new Error(`The cycle ${to.name} has ended too (${day(to.end_date)}); pick one that has not.`);
     return {
-      t, refusals: [...refusals(t), [/old cycle is not completed/, `The cycle ${c.name} has not ended yet.`], [/transferred is already completed/, `The cycle ${to.name} has already ended.`]],
+      target: t, refusals: [...refusals(t), [/old cycle is not completed/, `The cycle ${c.name} has not ended yet.`], [/transferred is already completed/, `The cycle ${to.name} has already ended.`]],
       summary: `Move the unfinished work items (backlog, unstarted, started) of cycle ${c.name} into ${to.name} in ${t.project.identifier}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/cycles/${c.id}/transfer-issues/`), { method: "POST", body: { new_cycle_id: to.id } });
@@ -188,7 +183,7 @@ export const cycleWriteHandlers = {
     const { t, c } = await cycleOf(a, ctx, null);
     mustHaveEnded(c);
     return {
-      t, refusals: [[/Only completed cycles/, `The cycle ${c.name} has not ended yet.`]],
+      target: t, refusals: [[/Only completed cycles/, `The cycle ${c.name} has not ended yet.`]],
       summary: `Archive cycle ${c.name} (${day(c.start_date)} to ${day(c.end_date)}) in ${t.project.identifier}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/cycles/${c.id}/archive/`), { method: "POST" });
@@ -200,7 +195,7 @@ export const cycleWriteHandlers = {
     const t = await resolvePlaneProject(ctx, a);
     const c = await findArchived(t, t.project, "cycle", a.cycle);
     return {
-      t,
+      target: t,
       summary: `Bring back the archived cycle ${c.name} in ${t.project.identifier}`,
       run: async () => {
         await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/archived-cycles/${c.id}/unarchive/`), { method: "DELETE" });
@@ -211,7 +206,7 @@ export const cycleWriteHandlers = {
   cycleDelete: planeWrite("cycleDelete", async (a, ctx) => {
     const { t, c } = await cycleOf(a, ctx, null);
     return {
-      t, role: `the cycle's owner or an Admin of the Plane project ${t.project.identifier}`,
+      target: t, role: `the cycle's owner or an Admin of the Plane project ${t.project.identifier}`,
       refusals: [[/Only admin or creator can delete the cycle/, notCreator(t, `the cycle ${c.name}`, t.project)]],
       summary: `Delete cycle ${c.name} in ${t.project.identifier} for good; ${staying(c.total_issues)}`,
       run: async () => {

@@ -1,12 +1,7 @@
-/**
- * Turns what the model names into Plane ids, inside the Plane scope: a work item (key such as `ENG-42`, or id with its
- * Plane project), and states, labels and members by name. Read and write tools share it; Plane projects resolve
- * through `projectRef.ts`, so one outside the scope is refused the same way everywhere.
- */
-import { planeRequest, planeList, inWorkspace, PlaneError } from "./client.js";
-import { findPlaneProject, UUID, type PlaneTarget, type PlaneProjectDetail } from "./projectRef.js";
-
-type Obj = Record<string, any>;
+/** Turns what the model names into Plane ids inside the Plane scope: a work item by key or id, and states, labels and members by name. */
+import { PLANE_ID } from "@pachiware/db";
+import { planeRequest, planeList, inWorkspace, PlaneError, type Obj } from "./client.js";
+import { findPlaneProject, type PlaneTarget, type PlaneProjectDetail } from "./projectRef.js";
 type Query = Record<string, string | number | boolean | undefined>;
 
 /** A work item key: a Plane project identifier (letters and digits, at most 12) and a sequence number. */
@@ -30,7 +25,7 @@ export async function resolveWorkItem(t: PlaneTarget, ref: unknown, project?: un
       const item = await planeRequest<Obj>(t.conn, inWorkspace(t.conn, `work-items/${encodeURIComponent(`${p.identifier}-${key[2]}`)}/`), { query });
       return { project: p, item, key: workItemKey(p, item ?? { sequence_id: key[2] }) };
     }
-    if (UUID.test(raw)) {
+    if (PLANE_ID.test(raw)) {
       if (project === undefined || project === null || project === "") throw new Error(`A work item id needs "project" too; or pass its key, such as ENG-42.`);
       const p = await findPlaneProject(t, project);
       const item = await planeRequest<Obj>(t.conn, inWorkspace(t.conn, `projects/${p.id}/work-items/${raw.toLowerCase()}/`), { query });

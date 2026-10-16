@@ -1,10 +1,8 @@
 /**
- * Finds the account and the Plane project a tool names, inside the Plane scope of the place it runs in.
- * A Plane project outside the scope is refused before Plane is asked anything about it.
- *
- * Tools on one Plane project call `resolvePlaneProject(ctx, args)`. Tools that may span Plane projects (work-item search
- * and list, a work item by key) start from `planeTarget(ctx, args)` and resolve each project with `findPlaneProject`.
+ * Finds the account and Plane project a tool names inside the Plane scope; one outside it is refused before Plane is asked.
+ * Tools spanning Plane projects start from `planeTarget` and call `findPlaneProject` for each.
  */
+import { PLANE_ID } from "@pachiware/db";
 import type { SkillContext, ToolPropertySchema } from "../types.js";
 import { planeList, planeRequest, inWorkspace, PlaneError, type PlaneConn } from "./client.js";
 import { loadPlaneAccess, pickPlaneAccess, planeProjectAllowed, planeConnOf, type PlaneAccess } from "./scope.js";
@@ -23,11 +21,11 @@ export interface PlaneTarget {
 }
 export type PlaneProjectTarget = PlaneTarget & { project: PlaneProjectDetail };
 
-export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const ACCOUNT_ARG: ToolPropertySchema = { type: "string", description: "Plane account name; needed only when several are usable here (see planeAccounts)." };
 
 /** The `account` and `project` arguments every tool on one Plane project takes. */
 export const PROJECT_ARGS: Record<string, ToolPropertySchema> = {
-  account: { type: "string", description: "Plane account name; needed only when several are usable here (see planeAccounts)." },
+  account: ACCOUNT_ARG,
   project: { type: "string", description: "The Plane project: its id, its identifier such as ENG, or its name." },
 };
 
@@ -50,15 +48,12 @@ export function planeTargetOf(access: PlaneAccess): PlaneTarget {
   };
 }
 
-/**
- * A Plane project by id, identifier or name (any case), refused unless the Plane scope allows it. An id is checked
- * against the scope first and then read; an identifier or name is looked up in Plane's list of projects.
- */
+/** A Plane project by id, identifier or name (any case), refused unless the Plane scope allows it; an id is checked before it is read. */
 export async function findPlaneProject(t: PlaneTarget, ref: unknown): Promise<PlaneProjectDetail> {
   const raw = typeof ref === "string" ? ref.trim() : "";
   if (!raw) throw new Error('Pass "project" with a Plane project id, identifier such as ENG, or name (see planeProjects).');
   const refused = () => new Error(`The Plane project "${raw}" is not open in this channel. Call planeProjects to see the ones that are.`);
-  if (UUID.test(raw)) {
+  if (PLANE_ID.test(raw)) {
     if (!planeProjectAllowed(t.access, raw)) throw refused();
     try { return await planeRequest<PlaneProjectDetail>(t.conn, inWorkspace(t.conn, `projects/${raw.toLowerCase()}/`)); }
     catch (e) { if (e instanceof PlaneError && e.status === 404) throw refused(); throw e; }

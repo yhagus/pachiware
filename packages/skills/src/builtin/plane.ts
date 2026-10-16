@@ -1,4 +1,4 @@
-import type { Effect, SkillModule, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
+import type { Effect, SkillModule, ToolDefinition, ToolHandler } from "../types.js";
 import { listPlaneProjects } from "../plane/client.js";
 import { loadPlaneAccess, planeConnOf, allowedPlaneProjectIds, PLANE_NOT_ENABLED } from "../plane/scope.js";
 import { browseTools, browseHandlers, browseToolPolicy } from "../plane/browse.js";
@@ -11,12 +11,12 @@ import { moduleWriteTools, moduleWriteHandlers, moduleWriteToolPolicy } from "..
 import { intakeTools, intakeHandlers, intakeToolPolicy } from "../plane/intake.js";
 import { intakeWriteTools, intakeWriteHandlers, intakeWriteToolPolicy } from "../plane/intakeWrites.js";
 import { projectAdminTools, projectAdminHandlers, projectAdminToolPolicy } from "../plane/projectAdmin.js";
-import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools } from "../plane/workspace.js";
+import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools, type PlaneToolPolicy } from "../plane/workspace.js";
 
 /** Tool groups in display order, as Availability rules and the console show them. Every Plane tool joins one; a group shows once it holds a tool. */
 export const PLANE_GROUPS = ["Browse", "Work items", "Cycles", "Modules", "Intake", "Plane project admin", "Plane workspace"];
 
-const R: Effect = "read";
+const READ: Effect = "read";
 
 export const planeTools: ToolDefinition[] = [
   { name: "planeAccounts", description: "Lists the Plane accounts you may use in this channel, the Plane user each acts as, and the Plane projects open here (id, identifier and name). Call it first when unsure which account or Plane project to use.",
@@ -34,8 +34,8 @@ export const planeTools: ToolDefinition[] = [
   ...workspaceTools,
 ];
 
-export const planeToolPolicy: Record<string, ToolPolicy> = {
-  planeAccounts: { effect: R, group: "Browse" },
+export const planeToolPolicy: Record<string, PlaneToolPolicy> = {
+  planeAccounts: { effect: READ, group: "Browse" },
   ...browseToolPolicy,
   ...workItemToolPolicy,
   ...workItemWriteToolPolicy,
@@ -90,6 +90,6 @@ export const planeSkill: SkillModule = {
   // Every write goes through planeWrite (plane/write.ts), which queues it for the asker's Confirm.
   confirmsInternally: true,
   // Workspace-level tools are offered only where the Plane scope is "all Plane projects".
-  hiddenTools: hiddenWorkspaceTools,
+  hiddenTools: (ctx) => hiddenWorkspaceTools(ctx, planeToolPolicy),
   groups: PLANE_GROUPS.filter((g) => Object.values(planeToolPolicy).some((p) => p.group === g)),
 };
