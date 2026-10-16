@@ -8,20 +8,27 @@ const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fen
 
 // An image's address may be a presigned download link, which must never reach the channel: only its alt text is kept.
 turndown.addRule("image", { filter: "img", replacement: (_c, node) => `[image${(node as any).getAttribute?.("alt") ? `: ${(node as any).getAttribute("alt")}` : ""}]` });
-turndown.addRule("planeImage", { filter: (node) => node.nodeName === "IMAGE-COMPONENT", replacement: () => "[image]" });
 
-// Mentions in Plane's editor carry the user's id; the names passed to the current call turn it into a name.
-let mentionNames = new Map<string, string>();
-turndown.addRule("mention", {
-  filter: (node) => node.nodeName === "MENTION-COMPONENT",
-  replacement: (_c, node) => `@${mentionNames.get(String((node as any).getAttribute?.("entity_identifier") ?? "")) ?? "member"}`,
-});
+/**
+ * Plane's editor writes mentions and images as empty custom elements, which turndown drops as blank. They become
+ * placeholder words before the conversion and their text after it, so turndown neither drops nor escapes them.
+ * A mention carries the user's id; `names` turns it into a name.
+ */
+function planeComponents(html: string, names: Map<string, string>): { html: string; restore: (md: string) => string } {
+  const attr = (tag: string, name: string) => new RegExp(`${name}\\s*=\\s*"([^"]*)"`, "i").exec(tag)?.[1] ?? "";
+  const texts: string[] = [];
+  const hold = (text: string) => `planecomponent${texts.push(text) - 1}x`;
+  const out = html
+    .replace(/<mention-component\b[^>]*>(?:\s*<\/mention-component>)?/gi, (tag) => hold(`@${names.get(attr(tag, "entity_identifier")) ?? "member"}`))
+    .replace(/<image-component\b[^>]*>(?:\s*<\/image-component>)?/gi, (tag) => hold(`[image${attr(tag, "alt") ? `: ${attr(tag, "alt")}` : ""}]`));
+  return { html: out, restore: (md) => md.replace(/planecomponent(\d+)x/g, (_m, i) => texts[Number(i)] ?? "") };
+}
 
 /** Plane HTML as Markdown. Empty paragraphs and Plane's empty description ("<p></p>") come back as "". */
 export function planeMarkdown(html: string | null | undefined, names: Map<string, string> = new Map()): string {
   if (!html || !html.trim()) return "";
-  mentionNames = names;
-  return turndown.turndown(html).replace(/\n{3,}/g, "\n\n").trim();
+  const held = planeComponents(html, names);
+  return held.restore(turndown.turndown(held.html)).replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /** A value that may be HTML (activity values on a description), as Markdown, cut to `max` characters. */

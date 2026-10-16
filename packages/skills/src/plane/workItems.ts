@@ -5,8 +5,8 @@
 import type { ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeList, planeRequest, inWorkspace } from "./client.js";
 import { planeProjectAllowed } from "./scope.js";
-import { planeMarkdown } from "./markdown.js";
-import { planeTarget, resolvePlaneProject, resolveWorkItem, workItemPath, workItemKey, projectRef, planeUserName, planeUserAliases, matchByName, type PlaneTarget, type ResolvedWorkItem } from "./resolve.js";
+import { planeMarkdown, planeText } from "./markdown.js";
+import { planeTarget, resolvePlaneProject, resolveWorkItem, workItemPath, workItemKey, projectRef, planeUserName, planeUserAliases, matchByName, projectMembers, type PlaneTarget, type ResolvedWorkItem } from "./resolve.js";
 
 type Obj = Record<string, any>;
 
@@ -47,12 +47,27 @@ export const workItemTools: ToolDefinition[] = [
       limit: { type: "number", description: "At most this many results (default 50, max 200)." },
       account: ACCOUNT,
     } } },
+  { name: "workItemComments", description: "Reads a work item's comments, newest first, as Markdown.",
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, limit: { type: "number", description: "At most this many (default 20, max 100)." }, account: ACCOUNT }, required: ["item"] } },
+  { name: "workItemActivity", description: "Reads a work item's change history (who changed which field, from what to what), oldest first, ending with the latest changes.",
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, limit: { type: "number", description: "The latest this many changes (default 30, max 100)." }, account: ACCOUNT }, required: ["item"] } },
+  { name: "workItemLinks", description: "Lists the links added to a work item (title and URL).",
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT }, required: ["item"] } },
+  { name: "workItemRelations", description: "Lists the work items related to a work item (blocking, blocked_by, duplicate, relates_to, start/finish before/after), by key and title.",
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT }, required: ["item"] } },
+  { name: "workItemAttachments", description: "Lists the files attached to a work item: name, type and size. File contents and download links are not available.",
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, account: ACCOUNT }, required: ["item"] } },
 ];
 
 export const workItemToolPolicy: Record<string, ToolPolicy> = {
   workItemGet: { effect: "read", group: "Work items" },
   workItemSearch: { effect: "read", group: "Work items" },
   workItemList: { effect: "read", group: "Work items" },
+  workItemComments: { effect: "read", group: "Work items" },
+  workItemActivity: { effect: "read", group: "Work items" },
+  workItemLinks: { effect: "read", group: "Work items" },
+  workItemRelations: { effect: "read", group: "Work items" },
+  workItemAttachments: { effect: "read", group: "Work items" },
 };
 
 /** The current cycle and modules of a work item, replayed from its activity, since Plane's work item carries neither. */
@@ -132,7 +147,79 @@ async function readProjectItems(t: PlaneTarget, p: Obj, since: number | null): P
   return { items, capped: true };
 }
 
+/** At most this many related work items are looked up for their key and title; the rest are shown by id. */
+const RELATION_LOOKUPS = 25;
+const between = (v: unknown, fallback: number, max: number) => Math.min(Math.max(1, Number(v) || fallback), max);
+
+/** Resolves the work item a tool is about; every per-item tool starts here. */
+async function itemOf(args: Obj, ctx: Parameters<ToolHandler>[1]) {
+  const t = await planeTarget(ctx, args);
+  const w = await resolveWorkItem(t, args.item, args.project, { fields: "id,name,sequence_id,project" });
+  return { t, w };
+}
+
 export const workItemHandlers: Record<string, ToolHandler> = {
+  workItemComments: async (args, ctx) => {
+    const { t, w } = await itemOf(args, ctx);
+    const limit = between(args.limit, 20, 100);
+    const { items, more } = await planeList<Obj>(t.conn, workItemPath(t, w, "comments/"), { perPage: limit, maxPages: 1, query: { expand: "actor" } });
+    const authors = new Map(items.filter((c) => c.actor?.id).map((c) => [String(c.actor.id), planeUserName(c.actor)]));
+    const members = items.some((c) => /mention-component/.test(c.comment_html ?? "")) ? await projectMembers(t, w.project) : [];
+    for (const m of members) authors.set(String(m.id), planeUserName(m));
+    return {
+      key: w.key,
+      comments: items.slice(0, limit).map((c) => ({ id: c.id, author: planeUserName(c.actor), createdAt: c.created_at, edited: !!c.edited_at, body: planeMarkdown(c.comment_html, authors) })),
+      ...(more || items.length > limit ? { more: true } : {}),
+    };
+  },
+  workItemActivity: async (args, ctx) => {
+    const { t, w } = await itemOf(args, ctx);
+    const limit = between(args.limit, 30, 100);
+    const { items, more } = await activitiesOf(t, w, true);
+    const latest = items.slice(-limit);
+    return {
+      key: w.key,
+      activity: latest.map((a) => ({ at: a.created_at, by: planeUserName(a.actor), verb: a.verb, field: a.field ?? null, from: planeText(a.old_value), to: planeText(a.new_value) })),
+      ...(items.length > latest.length ? { earlier: items.length - latest.length } : {}),
+      ...(more ? { stoppedEarly: `Only the first ${items.length} changes were read.` } : {}),
+    };
+  },
+  workItemLinks: async (args, ctx) => {
+    const { t, w } = await itemOf(args, ctx);
+    const { items, more } = await planeList<Obj>(t.conn, workItemPath(t, w, "links/"), { perPage: 100, maxPages: 2 });
+    return { key: w.key, links: items.map((l) => ({ id: l.id, title: l.title || null, url: l.url })), ...(more ? { more: true } : {}) };
+  },
+  workItemRelations: async (args, ctx) => {
+    const { t, w } = await itemOf(args, ctx);
+    const raw = (await planeRequest<Obj>(t.conn, workItemPath(t, w, "relations/"))) ?? {};
+    const projects = await t.projects();
+    let lookups = 0;
+    const relations: Record<string, Obj[]> = {};
+    for (const [type, refs] of Object.entries(raw)) {
+      if (!Array.isArray(refs) || !refs.length) continue;
+      relations[type] = [];
+      for (const ref of refs as Obj[]) {
+        const p = projects.find((x) => String(x.id) === String(ref.project_id));
+        if (!p || !planeProjectAllowed(t.access, String(ref.project_id))) { relations[type]!.push({ outsideScope: true }); continue; }
+        if (lookups++ >= RELATION_LOOKUPS) { relations[type]!.push({ id: ref.issue_id, project: p.identifier }); continue; }
+        try {
+          const it = await planeRequest<Obj>(t.conn, inWorkspace(t.conn, `projects/${p.id}/work-items/${ref.issue_id}/`), { query: { fields: "id,name,sequence_id" } });
+          relations[type]!.push({ key: workItemKey(p, it), name: it.name, id: it.id });
+        } catch {
+          relations[type]!.push({ id: ref.issue_id, project: p.identifier, unavailable: true });
+        }
+      }
+    }
+    return { key: w.key, relations };
+  },
+  workItemAttachments: async (args, ctx) => {
+    const { t, w } = await itemOf(args, ctx);
+    const list = (await planeRequest<Obj[]>(t.conn, workItemPath(t, w, "attachments/"))) ?? [];
+    return {
+      key: w.key,
+      attachments: list.map((a) => ({ id: a.id, name: a.attributes?.name ?? null, type: a.attributes?.type ?? null, size: Number(a.attributes?.size ?? a.size ?? 0), uploadedAt: a.created_at })),
+    };
+  },
   workItemList: async (args, ctx) => {
     const { filters, since } = listFilters(args);
     const limit = Math.min(Math.max(1, Number(args.limit) || 50), 200);
@@ -187,7 +274,8 @@ export const workItemHandlers: Record<string, ToolHandler> = {
     const { item } = w;
     const projects = await t.projects();
     const parentProject = item.parent ? projects.find((p) => String(p.id) === String(item.parent.project_id)) : null;
-    const names = new Map<string, string>([...(item.assignees ?? []), item.created_by].filter((u: Obj | null) => u?.id).map((u: Obj) => [String(u.id), planeUserName(u)]));
+    const mentioned = /mention-component/.test(item.description_html ?? "") ? await projectMembers(t, w.project) : [];
+    const names = new Map<string, string>([...(item.assignees ?? []), item.created_by, ...mentioned].filter((u: Obj | null) => u?.id).map((u: Obj) => [String(u.id), planeUserName(u)]));
     const { cycle, modules } = cycleAndModules((await activitiesOf(t, w)).items);
     return {
       key: w.key, id: item.id, name: item.name, project: projectRef(w.project),

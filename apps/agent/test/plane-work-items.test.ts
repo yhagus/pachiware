@@ -158,3 +158,52 @@ discordScenario("workItemList reads at most 2 pages of 1000 per Plane project an
   expect(capped.matched).toBe(2000);
   expect(capped.stoppedEarly).toContain("T1");
 }, 60000);
+
+discordScenario("workItemComments and workItemActivity read a work item's comments newest first and its activity latest last, as Markdown", async (s) => {
+  await s.plane({ projects: [P1] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login" });
+  plane.comment({ issue: item.id, actor: w.budi.id, created_at: "2026-10-14T08:00:00.000000Z", comment_html: `<p>Seen on <em>Safari</em>.</p>` });
+  plane.comment({ issue: item.id, actor: w.sari.id, created_at: "2026-10-15T08:00:00.000000Z", comment_html: `<p>Ping <mention-component entity_identifier="u-budi" entity_name="user_mention"></mention-component></p>`, edited_at: "2026-10-15T09:00:00.000000Z" });
+  for (let n = 1; n <= 60; n++) plane.activity({ issue: item.id, actor: w.budi.id, field: "priority", old_value: "low", new_value: "high", created_at: `2026-10-01T00:${String(n).padStart(2, "0")}:00.000000Z` });
+  plane.activity({ issue: item.id, actor: w.sari.id, field: "description", old_value: "<p>old</p>", new_value: "<p>new <strong>text</strong></p>", created_at: "2026-10-02T00:00:00.000000Z" });
+
+  const comments = await ask(s, "workItemComments", { item: "ENG-42" });
+  expect(comments.key).toBe("ENG-42");
+  expect(comments.comments).toEqual([
+    { id: expect.any(String), author: "Sari Dewi (sari)", createdAt: "2026-10-15T08:00:00.000000Z", edited: true, body: "Ping @Budi Santoso (budi)" },
+    { id: expect.any(String), author: "Budi Santoso (budi)", createdAt: "2026-10-14T08:00:00.000000Z", edited: false, body: "Seen on _Safari_." },
+  ]);
+
+  const activity = await ask(s, "workItemActivity", { item: "ENG-42", limit: 10 });
+  expect(activity.activity.length).toBe(10);
+  expect(activity.activity.at(-1)).toMatchObject({ at: "2026-10-02T00:00:00.000000Z", by: "Sari Dewi (sari)", field: "description", from: "old", to: "new **text**" });
+  expect(activity.earlier).toBe(51);
+  expect(JSON.stringify([comments, activity])).not.toMatch(/<\/?(p|strong|em|mention-component)/);
+});
+
+discordScenario("workItemLinks, workItemRelations and workItemAttachments list what is attached, never a download link or a work item outside the scope", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login" });
+  const blocker = plane.item({ project: P2, sequence_id: 3, name: "New login screen" });
+  const hidden = plane.item({ project: P3, sequence_id: 9, name: "Secret thing" });
+  plane.link({ issue: item.id, title: "PR #812", url: "https://github.com/acme/web/pull/812" });
+  plane.relate(item.id, { blocked_by: [{ project_id: P2, issue_id: blocker.id }], relates_to: [{ project_id: P3, issue_id: hidden.id }] });
+  plane.attachment({ issue: item.id, attributes: { name: "screenshot.png", type: "image/png", size: 48213 }, asset: "ws-1/3f9e-screenshot.png", size: 48213 });
+
+  expect((await ask(s, "workItemLinks", { item: "ENG-42" })).links).toEqual([{ id: expect.any(String), title: "PR #812", url: "https://github.com/acme/web/pull/812" }]);
+
+  const relations = await ask(s, "workItemRelations", { item: "ENG-42" });
+  expect(relations.relations).toEqual({
+    blocked_by: [{ key: "DES-3", name: "New login screen", id: blocker.id }],
+    relates_to: [{ outsideScope: true }],
+  });
+  expect(s.http.requests.some((r) => r.url.includes(hidden.id))).toBe(false);
+
+  const files = await ask(s, "workItemAttachments", { item: "ENG-42" });
+  expect(files.attachments).toEqual([{ id: expect.any(String), name: "screenshot.png", type: "image/png", size: 48213, uploadedAt: expect.any(String) }]);
+  expect(JSON.stringify(files)).not.toContain("3f9e");
+});
