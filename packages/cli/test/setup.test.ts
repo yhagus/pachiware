@@ -193,6 +193,49 @@ esac
     expect(result.stderr).toContain("Start Docker and rerun pachiware init --database docker --docker-engine mongodb.");
     expect(result.read(".env")).toContain('DATABASE_URL="mongodb://localhost:27999/pachiware?replicaSet=rs0&directConnection=true"');
   });
+
+  test("MongoDB without a URL and without a terminal stops instead of using an example address", () => {
+    const result = init(["--database", "mongodb"]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("MongoDB needs a connection URL: pass --mongodb-url, or type one at the prompt.");
+    expect(result.read(".env")).toBeNull();
+  });
+});
+
+describe("Docker commands reach the container of the installation's engine", () => {
+  /** Runs a command in an installation on `url`, with a docker, pkill and rm that only record how they were called. */
+  function run(url: string, ...args: string[]) {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-docker-commands-"));
+    directories.push(directory);
+    const bin = join(directory, "bin"), home = join(directory, "home"), calls = join(directory, "calls");
+    for (const path of [bin, home, join(directory, "apps/agent/src")]) mkdirSync(path, { recursive: true });
+    writeFileSync(join(directory, "apps/agent/src/index.ts"), "");
+    writeFileSync(join(directory, "package.json"), "{}");
+    writeFileSync(join(directory, ".env"), `DATABASE_URL="${url}"\n`);
+    for (const tool of ["docker", "pkill", "rm"]) {
+      writeFileSync(join(bin, tool), `#!/bin/sh\necho "${tool} $@" >> "${calls}"\n`);
+      chmodSync(join(bin, tool), 0o755);
+    }
+    const env: Record<string, string | undefined> = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HOME: home };
+    delete env.PACHIWARE_DIR;
+    const result = Bun.spawnSync({ cmd: ["bun", cli, ...args], cwd: directory, env, stdin: "ignore" });
+    expect(result.exitCode, text(result.stderr)).toBe(0);
+    return readFileSync(calls, "utf8").trim().split("\n").filter((line) => line.startsWith("docker "));
+  }
+  const mongodb = "mongodb://localhost:27017/pachiware?replicaSet=rs0&directConnection=true";
+  const postgres = "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent";
+
+  test("stop, restart and uninstall with --docker include the mongo profile on MongoDB", () => {
+    expect(run(mongodb, "stop", "--docker")).toEqual(["docker compose --profile mongo down"]);
+    expect(run(mongodb, "restart", "--docker")).toEqual(["docker compose --profile mongo restart"]);
+    expect(run(mongodb, "uninstall", "--docker")).toEqual(["docker compose --profile mongo down -v"]);
+  });
+
+  test("on PostgreSQL they leave the profile out", () => {
+    expect(run(postgres, "stop", "--docker")).toEqual(["docker compose down"]);
+    expect(run(postgres, "restart", "--docker")).toEqual(["docker compose restart"]);
+    expect(run(postgres, "uninstall", "--docker")).toEqual(["docker compose down -v"]);
+  });
 });
 
 test("doctor reports a MongoDB installation by its members, without credentials", () => {
@@ -224,6 +267,7 @@ describe("the database question", () => {
     const replicaSet = "mongodb://app:s3cret@db1.internal:27017,db2.internal:27017/pachiware?replicaSet=rs0";
     expect(await chooseDatabase({ dockerUrls }, terminal("3", replicaSet).ask)).toEqual({ engine: "mongodb", url: replicaSet, label: "MongoDB (external)", docker: false });
     await expect(chooseDatabase({ dockerUrls }, terminal("mongodb", "mysql://db.internal/pachiware").ask)).rejects.toThrow("starts with mongodb:// or mongodb+srv://");
+    await expect(chooseDatabase({ dockerUrls }, terminal("mongodb", "").ask)).rejects.toThrow("MongoDB needs a connection URL");
   });
 
   test("an answer already given on the command line is not asked again", async () => {

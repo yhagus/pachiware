@@ -1,5 +1,4 @@
 // The database question `pachiware init` asks. Kept apart from the command so tests can answer it.
-// The URL prefixes follow detectEngine in the database package, which the agent checks at start.
 
 export type Engine = "sqlite" | "postgres" | "mongodb";
 export type DockerEngine = Exclude<Engine, "sqlite">;
@@ -33,12 +32,32 @@ export const SQLITE_URL = "sqlite:./data/pachiware.db";
 const POSTGRES_EXAMPLE = "postgresql://pachiware:pachiware_secret@localhost:5432/pachiware_agent";
 const MONGODB_EXAMPLE = "mongodb://localhost:27017/pachiware?replicaSet=rs0";
 
-/** The engine a database URL names. Anything that is not PostgreSQL or MongoDB is left to the agent's own check. */
+// A copy of detectEngine's prefixes, since the CLI cannot load the database package; packages/db/test/engine-urls.test.ts keeps them equal.
+const PREFIXES: Record<Engine, string[]> = {
+  sqlite: ["sqlite:", "sqlite3:", "file:"],
+  postgres: ["postgres://", "postgresql://"],
+  mongodb: ["mongodb://", "mongodb+srv://"],
+};
+
+/** The engine a database URL names. An unknown scheme counts as SQLite here; the agent refuses it at start. */
 export function engineOfUrl(url = ""): Engine {
   const lower = url.trim().toLowerCase();
-  if (lower.startsWith("postgres://") || lower.startsWith("postgresql://")) return "postgres";
-  if (lower.startsWith("mongodb://") || lower.startsWith("mongodb+srv://")) return "mongodb";
-  return "sqlite";
+  return (["postgres", "mongodb"] as const).find((engine) => PREFIXES[engine].some((prefix) => lower.startsWith(prefix))) ?? "sqlite";
+}
+
+/** The file path a SQLite URL names, without its scheme; `//` after the scheme is optional. */
+export function sqlitePathOf(url: string): string {
+  const trimmed = url.trim();
+  const prefix = PREFIXES.sqlite.find((p) => trimmed.toLowerCase().startsWith(p));
+  return prefix ? trimmed.slice(prefix.length).replace(/^\/\//, "") : trimmed;
+}
+
+// Not parsed with URL: a replica set URL lists several hosts, which URL rejects.
+const MONGODB_URL = /^mongodb(?:\+srv)?:\/\/(?:[^@/?]*@)?([^/?]+)/i;
+
+/** The hosts a MongoDB URL names, without credentials: every replica set member, or the DNS name of `mongodb+srv`. */
+export function mongoHosts(url: string): string | null {
+  return url.trim().match(MONGODB_URL)?.[1] ?? null;
 }
 
 function pick(answer: string, choices: Record<string, string[]>, problem: string): string {
@@ -55,10 +74,9 @@ function postgresUrl(url: string): string {
   return parsed.toString();
 }
 
-// Not parsed with URL: a replica set URL lists several hosts, which URL rejects.
 function mongodbUrl(url: string): string {
   const trimmed = url.trim();
-  if (!/^mongodb(\+srv)?:\/\/([^@/?]*@)?[^@/?]+/i.test(trimmed)) throw new Error("Provide a MongoDB URL that starts with mongodb:// or mongodb+srv:// and names a host.");
+  if (!mongoHosts(trimmed)) throw new Error("Provide a MongoDB URL that starts with mongodb:// or mongodb+srv:// and names a host.");
   return trimmed;
 }
 
@@ -80,7 +98,8 @@ export async function chooseDatabase(options: ChoiceOptions, ask: Ask): Promise<
     return { engine: "postgres", url: postgresUrl(url), label: "PostgreSQL (external)", docker: false };
   }
   if (choice === "mongodb") {
-    const url = options.mongodbUrl || await ask("MongoDB connection URL (a replica set or Atlas):", current === "mongodb" ? options.currentUrl! : MONGODB_EXAMPLE);
+    const url = options.mongodbUrl || await ask(`MongoDB connection URL (a replica set or Atlas, such as ${MONGODB_EXAMPLE}):`, current === "mongodb" ? options.currentUrl! : "");
+    if (!url.trim()) throw new Error("MongoDB needs a connection URL: pass --mongodb-url, or type one at the prompt.");
     return { engine: "mongodb", url: mongodbUrl(url), label: "MongoDB (external)", docker: false };
   }
   if (choice === "docker") {
@@ -94,10 +113,15 @@ export async function chooseDatabase(options: ChoiceOptions, ask: Ask): Promise<
   return { engine: "sqlite", url: SQLITE_URL, label: "SQLite (zero-config)", docker: false };
 }
 
+/** A `docker compose` command that also reaches the engine's service when it sits behind a profile. */
+export function composeArgs(engine: Engine, ...command: string[]): string[] {
+  return ["compose", ...(engine === "mongodb" ? ["--profile", "mongo"] : []), ...command];
+}
+
 /** The compose command that starts the chosen engine's container and Redis, and waits until they are healthy. */
 export function composeUpArgs(engine: Engine): string[] {
-  if (engine === "mongodb") return ["compose", "--profile", "mongo", "up", "-d", "--wait", "--wait-timeout", "90", "mongo", "redis"];
-  return ["compose", "up", "-d", "--wait", "--wait-timeout", "60"];
+  if (engine === "mongodb") return composeArgs(engine, "up", "-d", "--wait", "--wait-timeout", "90", "mongo", "redis");
+  return composeArgs(engine, "up", "-d", "--wait", "--wait-timeout", "60");
 }
 
 /** Refuses a choice of another engine than the one this installation's records are in (ADR 0010). */

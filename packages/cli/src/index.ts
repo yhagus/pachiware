@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { spawn, spawnSync, execSync } from "child_process";
+import { spawn, spawnSync, execSync, execFileSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync, realpathSync, chmodSync } from "fs";
 import { resolve, join, dirname } from "path";
 import { randomBytes } from "node:crypto";
 import { createConnection } from "net";
 import { createInterface } from "readline/promises";
 import { stdin as input, stdout as output } from "process";
-import { assertSameEngine, chooseDatabase, composeUpArgs, engineOfUrl, ENGINE_NAMES, type DockerEngine, type Engine } from "./database-choice.js";
+import { assertSameEngine, chooseDatabase, composeArgs, composeUpArgs, engineOfUrl, ENGINE_NAMES, mongoHosts, sqlitePathOf, type DockerEngine, type Engine } from "./database-choice.js";
 
 const VERSION = "1.0.0";
 
@@ -166,7 +166,7 @@ function requireWorkspaceRoot(): string {
   return rootDir;
 }
 
-function getDatabaseTarget(dir: string): { dialect: Engine; host: string; port: number; url: string; sqlitePath?: string } {
+function getDatabaseTarget(dir: string): { engine: Engine; host: string; port: number; url: string; sqlitePath?: string } {
   let dbUrl = "";
   const runtimeFile = join(dir, "runtime-config.json");
   if (existsSync(runtimeFile)) {
@@ -188,35 +188,25 @@ function getDatabaseTarget(dir: string): { dialect: Engine; host: string; port: 
     dbUrl = "sqlite:./data/pachiware.db";
   }
 
-  const dialect = engineOfUrl(dbUrl);
-  if (dialect === "mongodb") {
-    // Credentials stay out; a replica set lists every member, and mongodb+srv names only a DNS record.
-    const hosts = dbUrl.trim().match(/^mongodb(?:\+srv)?:\/\/(?:[^@/?]*@)?([^/?]+)/i)?.[1] ?? "unknown host";
-    return { dialect, host: hosts, port: 0, url: dbUrl };
-  }
+  const engine = engineOfUrl(dbUrl);
+  if (engine === "mongodb") return { engine, host: mongoHosts(dbUrl) ?? "unknown host", port: 0, url: dbUrl };
 
-  if (dialect === "sqlite") {
-    let p = dbUrl.trim();
-    for (const prefix of ["sqlite://", "sqlite3://", "sqlite:", "sqlite3:", "file://", "file:"]) {
-      if (p.startsWith(prefix)) {
-        p = p.slice(prefix.length);
-        break;
-      }
-    }
+  if (engine === "sqlite") {
+    const p = sqlitePathOf(dbUrl);
     const sqlitePath = p === ":memory:" || p === "" ? ":memory:" : (p.startsWith("/") ? p : resolve(dir, p));
-    return { dialect: "sqlite", host: "local", port: 0, url: dbUrl, sqlitePath };
+    return { engine: "sqlite", host: "local", port: 0, url: dbUrl, sqlitePath };
   }
 
   try {
     const parsed = new URL(dbUrl);
     return {
-      dialect: "postgres",
+      engine: "postgres",
       host: parsed.hostname || "127.0.0.1",
       port: parseInt(parsed.port || "5432", 10),
       url: dbUrl,
     };
   } catch {
-    return { dialect: "postgres", host: "127.0.0.1", port: 5432, url: dbUrl };
+    return { engine: "postgres", host: "127.0.0.1", port: 5432, url: dbUrl };
   }
 }
 
@@ -238,11 +228,18 @@ async function isPortOpen(host: string, port: number, timeoutMs = 1500): Promise
   });
 }
 
+/** Runs `docker compose` in the installation, with the profile of its engine's service; throws when it fails. */
+function dockerCompose(...command: string[]) {
+  const root = requireWorkspaceRoot();
+  execFileSync("docker", composeArgs(getDatabaseTarget(root).engine, ...command), { cwd: root, stdio: "inherit" });
+}
+
 async function ask(question: string, fallback: string): Promise<string> {
   if (!input.isTTY || !output.isTTY) return fallback;
   const readline = createInterface({ input, output });
   try {
-    const answer = (await readline.question(`${c.bold}${question}${c.reset} ${c.gray}[${fallback}]${c.reset} `)).trim();
+    const hint = fallback ? ` ${c.gray}[${fallback}]${c.reset}` : "";
+    const answer = (await readline.question(`${c.bold}${question}${c.reset}${hint} `)).trim();
     return answer || fallback;
   } finally {
     readline.close();
@@ -403,9 +400,9 @@ program
 
     // 1. Optional Docker containers (only if --docker is specified)
     if (options.docker) {
-      const bundled = dbTarget.dialect === "mongodb" ? "MongoDB 8.0" : "PostgreSQL 18";
+      const bundled = dbTarget.engine === "mongodb" ? "MongoDB 8.0" : "PostgreSQL 18";
       console.log(`  ${c.cyan}→ Starting bundled ${bundled} and Redis containers via Docker Compose...${c.reset}`);
-      const docker = spawnSync("docker", composeUpArgs(dbTarget.dialect), { cwd: wsRoot, stdio: "inherit" });
+      const docker = spawnSync("docker", composeUpArgs(dbTarget.engine), { cwd: wsRoot, stdio: "inherit" });
       if (docker.error || docker.status !== 0) {
         console.error(`  ${c.red}✖ Failed to start Docker containers.${c.reset}`);
         process.exit(1);
@@ -420,13 +417,13 @@ program
     let dbConnected = false;
     let dbDescription = "";
 
-    if (dbTarget.dialect === "sqlite") {
+    if (dbTarget.engine === "sqlite") {
       console.log(`  ${c.cyan}→ Using SQLite database (zero-config, no external services required)...${c.reset}`);
       dbConnected = true;
       dbDescription = dbTarget.sqlitePath === ":memory:"
         ? "SQLite :memory: (ephemeral)"
         : `SQLite file (${dbTarget.sqlitePath})`;
-    } else if (dbTarget.dialect === "mongodb") {
+    } else if (dbTarget.engine === "mongodb") {
       // A replica set has several members and mongodb+srv has no port, so setup itself finds out whether it answers.
       dbConnected = true;
       dbDescription = `MongoDB (${dbTarget.host})`;
@@ -460,7 +457,7 @@ program
       console.log(`${c.green}${c.bold}====================================================${c.reset}`);
       console.log(`  ${c.cyan}🌐 Web Console:${c.reset}       ${c.bold}http://localhost:3000${c.reset}`);
       console.log(`  ${c.cyan}⚡ Agent REST API:${c.reset}    ${c.bold}http://localhost:3001${c.reset}`);
-      const dbIcon = dbTarget.dialect === "sqlite" ? "💾" : dbTarget.dialect === "mongodb" ? "🍃" : "🐘";
+      const dbIcon = dbTarget.engine === "sqlite" ? "💾" : dbTarget.engine === "mongodb" ? "🍃" : "🐘";
       console.log(`  ${c.cyan}${dbIcon} Database:${c.reset}          ${dbDescription}`);
       console.log(`  ${c.cyan}🔴 Cache Engine:${c.reset}      Active (Redis / native in-memory fallback)`);
       console.log(`  ${c.cyan}📡 Messaging:${c.reset}        Configure tenant bots in the console`);
@@ -528,7 +525,7 @@ program
 
       if (options.docker || options.all) {
         try {
-          execSync("docker compose down", { cwd: requireWorkspaceRoot(), stdio: "inherit" });
+          dockerCompose("down");
           console.log(`  ${c.green}✔${c.reset} Docker containers stopped.`);
         } catch {}
       }
@@ -552,7 +549,7 @@ program
       execSync("pkill -f 'vite --port 3000' || true", { stdio: "pipe" });
       if (options.docker) {
         try {
-          execSync("docker compose restart", { cwd: requireWorkspaceRoot(), stdio: "inherit" });
+          dockerCompose("restart");
         } catch {}
       }
       console.log(`${c.green}Services restarted. Run 'pachiware start' or check 'pachiware status'.${c.reset}`);
@@ -637,7 +634,7 @@ program
     } else {
       console.log(`${c.gray}For live agent logs, run in foreground with 'pachiware start'.${c.reset}`);
       const wsRoot = requireWorkspaceRoot();
-      spawnSync("docker", ["compose", "logs", "-f"], { cwd: wsRoot, stdio: "inherit" });
+      spawnSync("docker", composeArgs(getDatabaseTarget(wsRoot).engine, "logs", "-f"), { cwd: wsRoot, stdio: "inherit" });
     }
   });
 
@@ -675,14 +672,14 @@ program
     // 3. Run database migrations (check DB connectivity first)
     console.log(`  ${c.cyan}→ Applying database migrations...${c.reset}`);
     const updTarget = getDatabaseTarget(wsRoot);
-    const dbReachable = updTarget.dialect !== "postgres" ? true : await isPortOpen(updTarget.host, updTarget.port, 1500);
+    const dbReachable = updTarget.engine !== "postgres" ? true : await isPortOpen(updTarget.host, updTarget.port, 1500);
     if (dbReachable) {
       try {
         const migrateScript = join(wsRoot, "packages", "db", "src", "migrate.ts");
         const seedScript = join(wsRoot, "packages", "db", "src", "seed.ts");
         execSync(`bun run "${migrateScript}"`, { cwd: wsRoot, stdio: "inherit" });
         execSync(`bun run "${seedScript}"`, { cwd: wsRoot, stdio: "inherit" });
-        console.log(`  ${c.green}✔${c.reset} Database migrations applied (${updTarget.dialect}).`);
+        console.log(`  ${c.green}✔${c.reset} Database migrations applied (${updTarget.engine}).`);
       } catch (err: any) {
         console.warn(`  ${c.yellow}⚠ Notice during migrations:${c.reset} ${err.message}`);
       }
@@ -783,10 +780,10 @@ program
       }
 
       const dbTarget = getDatabaseTarget(rootDir);
-      if (dbTarget.dialect === "sqlite") {
+      if (dbTarget.engine === "sqlite") {
         console.log(`  ${c.green}✔${c.reset} Database:           SQLite ${c.gray}(${dbTarget.sqlitePath})${c.reset}`);
         console.log(`  ${c.dim}                      Zero-config — no external services required.${c.reset}`);
-      } else if (dbTarget.dialect === "mongodb") {
+      } else if (dbTarget.engine === "mongodb") {
         console.log(`  ${c.cyan}ℹ${c.reset} Database:           MongoDB at ${dbTarget.host}`);
         console.log(`  ${c.dim}                      Needs a replica set or Atlas; a standalone server stops the start.${c.reset}`);
       } else {
@@ -874,7 +871,7 @@ program
       if (rootDir) {
         console.log(`  ${c.cyan}→ Stopping bundled Docker containers...${c.reset}`);
         try {
-          execSync("docker compose down -v", { cwd: requireWorkspaceRoot(), stdio: "inherit" });
+          dockerCompose("down", "-v");
           console.log(`  ${c.green}✔${c.reset} Docker containers stopped and removed.`);
         } catch {
           console.log(`  ${c.gray}  (No running Docker containers found — skipping.)${c.reset}`);
