@@ -47,7 +47,7 @@ export type GuildConfig = {
 export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: DigestChannel[] };
 
 export interface BotRepository {
-  /** Creates a bot of a tenant that is not deleted, its token encrypted. A missing tenant or token, or a platform other than Discord, throws. */
+  /** Creates a bot of a tenant that is not deleted, its token encrypted. A missing tenant or token, a platform other than Discord, or a profile of another tenant throws. */
   create(input: NewBot): Promise<Bot>;
   /** Reads a bot that is not deleted; with `tenantId`, only one of that tenant. */
   get(id: string, tenantId?: string): Promise<Bot | null>;
@@ -61,7 +61,7 @@ export interface BotRepository {
   listRunnable(): Promise<BotWithToken[]>;
   /** How many bots are not deleted, across every tenant. */
   count(): Promise<number>;
-  /** Changes a bot that is not deleted; null when there is none. An empty token throws. */
+  /** Changes a bot that is not deleted; null when there is none. An empty token, or a profile of another tenant, throws. */
   update(id: string, input: BotUpdate): Promise<Bot | null>;
   /** Turns the bot into a tombstone: disabled, its token wiped, gone from every read. Its availability rules are deleted. */
   remove(id: string): Promise<void>;
