@@ -37,7 +37,10 @@ export function detectEngine(url: string): DatabaseEngine {
 
 /** Host and port of a networked engine's URL, without credentials or database name; null for a SQLite file. */
 export function redactedDatabaseHost(url: string): string | null {
-  if (detectEngine(url) === "sqlite") return null;
+  const engine = detectEngine(url);
+  if (engine === "sqlite") return null;
+  // A replica set URL lists every member, which URL cannot parse.
+  if (engine === "mongodb") return url.trim().match(/^mongodb(?:\+srv)?:\/\/(?:[^@/?]*@)?([^/?]+)/i)?.[1] ?? null;
   try { return new URL(url.trim()).host || null; } catch { return null; }
 }
 

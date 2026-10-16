@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type HealthResponse, type InfrastructureData, type Stats } from "@/lib/api";
 
-const ENGINES: Record<string, string> = { sqlite: "SQLite", postgres: "PostgreSQL" };
+const ENGINES: Record<string, string> = { sqlite: "SQLite", postgres: "PostgreSQL", mongodb: "MongoDB" };
 const ok = (s?: string) => !!s && s.startsWith("healthy");
 const gb = (n: number) => `${(n / 1073741824).toFixed(1)} GB`;
 const size = (n?: number | null) => n == null ? undefined : n >= 1073741824 ? `${(n / 1073741824).toFixed(2)} GB` : `${(n / 1048576).toFixed(n < 10485760 ? 2 : 1)} MB`;
@@ -27,7 +27,7 @@ function Service({ icon: Icon, name, engine, healthy, url, raw, size }: { icon: 
       {size && <div className="text-xs text-muted-foreground">Size: {size}</div>}
       {url && (
         <div className="flex items-center gap-1">
-          <code className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{show ? raw ?? url : url}</code>
+          <code className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={show ? raw ?? url : url}>{show ? raw ?? url : url}</code>
           {raw && <Button size="icon" variant="ghost" className="size-7" onClick={() => setShow(!show)} aria-label={show ? "Hide URL" : "Show URL"}>{show ? <EyeOff /> : <Eye />}</Button>}
         </div>
       )}

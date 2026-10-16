@@ -4,13 +4,13 @@
 
 Asisten AI self-hosted untuk chat, pengelolaan task, dan otomasi Discord. Dashboard web menyediakan pengaturan model AI, system prompt, skills, task, dan beberapa Discord bot.
 
-Repository ini menggunakan Bun + Hono untuk backend, React + Vite untuk dashboard, Drizzle untuk SQLite/PostgreSQL 18, dan Discord.js untuk bot. Redis bersifat opsional; tanpa Redis, cache menggunakan memori. Data dan konfigurasi dipisahkan per tenant. Aplikasi signup dan billing tidak disertakan.
+Repository ini menggunakan Bun + Hono untuk backend, React + Vite untuk dashboard, Drizzle untuk SQLite dan PostgreSQL 18, driver resmi MongoDB untuk MongoDB, dan Discord.js untuk bot. Redis bersifat opsional; tanpa Redis, cache menggunakan memori. Data dan konfigurasi dipisahkan per tenant. Aplikasi signup dan billing tidak disertakan.
 
 ## Sebelum Instalasi
 
 - Gunakan Linux atau macOS dengan akses terminal dan koneksi internet.
 - Bun **1.4.0 atau lebih baru** diperlukan. Installer memasangnya jika belum tersedia. Jika Bun sudah terpasang tetapi lebih lama, jalankan `bun upgrade` terlebih dahulu.
-- Docker dengan Compose hanya diperlukan jika memilih PostgreSQL bawaan.
+- Docker dengan Compose hanya diperlukan jika database dijalankan oleh Docker (PostgreSQL atau MongoDB).
 - Siapkan API key provider LLM untuk mulai chat. Token Discord hanya diperlukan jika ingin memakai bot.
 
 ## Instalasi
@@ -43,9 +43,10 @@ Aplikasi menggunakan direktori clone tersebut sebagai direktori instalasi.
 | --- | --- | --- |
 | **SQLite** | Memulai dengan konfigurasi paling sederhana | Tidak ada layanan tambahan; data disimpan di `data/pachiware.db` |
 | **PostgreSQL external** | Menggunakan database yang sudah tersedia | PostgreSQL 18 dan connection URL `postgresql://user:password@host:5432/database` |
-| **PostgreSQL 18 Docker** | Menjalankan database dan Redis di mesin sendiri | Docker aktif; setup menyalakan container dan menunggu siap |
+| **MongoDB external** | Replica set MongoDB atau cluster Atlas yang sudah berjalan | URL `mongodb://` atau `mongodb+srv://` (lihat [URL MongoDB](#url-mongodb)) |
+| **Docker** | Menjalankan database dan Redis di mesin sendiri | Docker aktif; setup menanyakan apakah Docker menjalankan PostgreSQL 18 atau MongoDB 8.0, menyalakan container, lalu menunggu siap |
 
-Pilih **SQLite** jika belum membutuhkan PostgreSQL. Setup membuat konfigurasi lokal, menjalankan migrasi dan seed, serta menyiapkan tenant default dan akses dashboard otomatis. Pada instalasi baru, kunci platform dan enkripsi dibuat otomatis.
+Setup memberi peringatan sebelum Anda memilih: engine tidak bisa diganti setelah setup selesai. Pilih **SQLite** jika belum membutuhkan PostgreSQL atau MongoDB. Setup membuat konfigurasi lokal, menjalankan migrasi dan seed, serta menyiapkan tenant default dan akses dashboard otomatis. Pada instalasi baru, kunci platform dan enkripsi dibuat otomatis.
 
 Untuk instalasi otomatis tanpa prompt, contoh berikut memilih SQLite:
 
@@ -53,11 +54,25 @@ Untuk instalasi otomatis tanpa prompt, contoh berikut memilih SQLite:
 curl -fsSL https://raw.githubusercontent.com/yhagus/pachiware/main/install.sh | PACHIWARE_DATABASE=sqlite bash
 ```
 
-Pilihan lain adalah `PACHIWARE_DATABASE=docker`, atau `PACHIWARE_DATABASE=postgres` dengan `PACHIWARE_POSTGRES_URL`. Tanpa terminal interaktif dan tanpa pilihan eksplisit, instalasi baru menggunakan SQLite.
+Pilihan lain:
 
-Engine database tidak bisa diganti setelah setup. Migrasi pertama yang berhasil mencatatnya sebagai `databaseEngine` di `runtime-config.json`, dan aplikasi menolak berjalan jika `DATABASE_URL` mengarah ke engine lain. Pesan errornya menyebut kedua engine. URL dengan skema yang tidak dikenal juga menghentikan start; `DATABASE_URL` yang kosong memakai SQLite bawaan.
+- `PACHIWARE_DATABASE=postgres` dengan `PACHIWARE_POSTGRES_URL`
+- `PACHIWARE_DATABASE=mongodb` dengan `PACHIWARE_MONGODB_URL`
+- `PACHIWARE_DATABASE=docker`, dengan `PACHIWARE_DOCKER_ENGINE=postgres` (bawaan) atau `PACHIWARE_DOCKER_ENGINE=mongodb`
 
-Alamat engine yang sama tetap bisa diganti, misalnya host baru atau password yang dirotasi. Ubah `DATABASE_URL` di `.env` pada server, dan `databaseUrl` di `runtime-config.json` jika ada, lalu jalankan ulang. Dashboard menampilkan engine dan host, tetapi tidak bisa mengubahnya.
+Pilihan yang sama berlaku untuk `pachiware init`: `--database mongodb --mongodb-url <url>`, atau `--database docker --docker-engine mongodb`. Tanpa terminal interaktif dan tanpa pilihan eksplisit, instalasi baru menggunakan SQLite.
+
+### URL MongoDB
+
+- Replica set self-hosted: `mongodb://user:password@host1:27017,host2:27017/pachiware?replicaSet=rs0`
+- Atlas: `mongodb+srv://user:password@cluster0.xxxxx.mongodb.net/pachiware`
+- Container Docker bawaan: `mongodb://localhost:27017/pachiware?replicaSet=rs0&directConnection=true`
+
+MongoDB harus berjalan sebagai replica set. Atlas selalu begitu; server self-hosted perlu `--replSet`, dan replica set satu node sudah cukup. Pembuatan tenant dan penghapusan memakai transaksi multi-dokumen, sehingga setup dan start berhenti dengan error pada server standalone. Nama database diambil dari path URL, atau `pachiware` jika URL tidak menyebutkannya, sehingga beberapa aplikasi bisa berbagi satu cluster. Encode karakter khusus pada password (`#` menjadi `%23`).
+
+Engine database tidak bisa diganti setelah setup. Migrasi pertama yang berhasil mencatatnya sebagai `databaseEngine` di `runtime-config.json`, dan aplikasi menolak berjalan jika `DATABASE_URL` mengarah ke engine lain. Pesan errornya menyebut kedua engine. Menjalankan ulang `pachiware init` dengan engine lain juga berhenti dengan cara yang sama, sebelum `.env` atau file lain diubah. URL dengan skema yang tidak dikenal juga menghentikan start; `DATABASE_URL` yang kosong memakai SQLite bawaan.
+
+Alamat engine yang sama tetap bisa diganti, misalnya host baru, password yang dirotasi, atau pindah dari MongoDB self-hosted ke Atlas. Ubah `DATABASE_URL` di `.env` pada server, dan `databaseUrl` di `runtime-config.json` jika ada, lalu jalankan ulang. Dashboard menampilkan engine dan host, tetapi tidak bisa mengubahnya.
 
 ### Mulai Ulang dengan Engine Database Lain
 
@@ -67,7 +82,7 @@ Tidak ada perintah untuk ini, dan data tidak dipindahkan antar-engine. Untuk mul
 2. Hapus baris `databaseEngine` dari `runtime-config.json`, juga `databaseUrl` jika ada.
 3. Jalankan `pachiware init` dan pilih engine baru.
 
-Database baru dimulai kosong. Database lama tidak dihapus: file SQLite tetap ada di `data/`, dan database PostgreSQL tetap ada di servernya sampai Anda menghapusnya sendiri.
+Database baru dimulai kosong. Database lama tidak dihapus: file SQLite tetap ada di `data/`, dan database PostgreSQL atau MongoDB tetap ada di servernya sampai Anda menghapusnya sendiri.
 
 ## Jalankan dan Buka Dashboard
 
@@ -77,7 +92,7 @@ Setelah installer selesai:
 pachiware start
 ```
 
-Jika memakai PostgreSQL Docker, gunakan perintah ini untuk memastikan container ikut dinyalakan:
+Jika database dijalankan oleh Docker, gunakan perintah ini untuk memastikan container ikut dinyalakan:
 
 ```bash
 pachiware start --docker
@@ -121,7 +136,7 @@ Instalasi siap dipakai ketika dashboard terhubung, chat mendapat respons dari mo
 | Perintah | Kegunaan |
 | --- | --- |
 | `pachiware start` | Menjalankan backend dan dashboard |
-| `pachiware start --docker` | Menyalakan PostgreSQL/Redis bawaan dan aplikasi |
+| `pachiware start --docker` | Menyalakan database bawaan (PostgreSQL atau MongoDB), Redis, dan aplikasi |
 | `pachiware status` | Memeriksa status layanan |
 | `pachiware doctor` | Memeriksa konfigurasi dan konektivitas |
 | `pachiware stop` | Menghentikan aplikasi |
