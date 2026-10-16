@@ -152,3 +152,44 @@ discordScenario("stateDelete refuses the default state before Confirm and report
   expect(plane.find.label(P1, "bug")).toBeUndefined();
   expect(plane.find.state(P1, w.todo.name)).toBeDefined();
 });
+
+discordScenario("projectUpdate, projectArchive, projectUnarchive and projectDelete change a Plane project open here after their own Confirm", async (s) => {
+  process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  world(plane, 20);
+  plane.project({ id: P2, name: "Operations", identifier: "OPS", member_role: 15 }, ["u-bot"]);
+
+  const hyphen = await ask(s, "projectUpdate", { project: "ENG", name: "Eng-Core" });
+  expect(hyphen.result.error).toContain("hyphen");
+  const nothing = await ask(s, "projectUpdate", { project: "ENG" });
+  expect(nothing.result.error).toContain("Nothing to change");
+  const notArchived = await ask(s, "projectUnarchive", { project: "ENG" });
+  expect(notArchived.result.error).toContain("ENG is not archived");
+  expect(plane.writes).toEqual([]);
+
+  const update = await ask(s, "projectUpdate", { project: "ENG", name: "Engineering Core", description: "Platform team", cycles: false });
+  expect(update.result.summary).toContain(`Update the Plane project ENG: name "Engineering Core", new description, cycles off`);
+  await s.discord.click(update.confirmation!, "Confirm");
+  const archive = await ask(s, "projectArchive", { project: "ENG" });
+  await s.discord.click(archive.confirmation!, "Confirm");
+  const again = await ask(s, "projectArchive", { project: "ENG" });
+  expect(again.result.error).toContain("ENG is already archived");
+  const unarchive = await ask(s, "projectUnarchive", { project: "eng" });
+  await s.discord.click(unarchive.confirmation!, "Confirm");
+  const del = await ask(s, "projectDelete", { project: "OPS" });
+  expect(del.result.summary).toContain("Delete the Plane project OPS (Operations) for good");
+  expect(labels(del.confirmation!)).toEqual(["Confirm", "Cancel"]);
+  await s.discord.click(del.confirmation!, "Confirm");
+
+  expect(plane.writes).toEqual([
+    { method: "PATCH", path: `projects/${P1}/`, body: { name: "Engineering Core", description: "Platform team", cycle_view: false } },
+    { method: "POST", path: `projects/${P1}/archive/`, body: null },
+    { method: "DELETE", path: `projects/${P1}/archive/`, body: null },
+    { method: "DELETE", path: `projects/${P2}/`, body: null },
+  ]);
+  expect(plane.find.project(P1)).toMatchObject({ name: "Engineering Core", cycle_view: false, archived_at: null });
+  // The bot's Plane user is only a Member of OPS, so Plane refuses the delete, and the reply names the role.
+  expect(del.confirmation!.content).toContain("it needs to be an Admin of the Plane project OPS");
+  expect(plane.find.project(P2)).toBeDefined();
+});

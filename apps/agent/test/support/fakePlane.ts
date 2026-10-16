@@ -32,6 +32,8 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
   const cycles: Obj[] = [], cycleIssues: Obj[] = [], modules: Obj[] = [], moduleIssues: Obj[] = [], intake: Obj[] = [];
   /** Plane projects with an Intake row: one created with intake on, or switched on by a PATCH. */
   const intakeRows = new Set<string>();
+  const invitations: Obj[] = [];
+  const workspaceRoles = new Map<string, number>();
   const writes: { method: string; path: string; body: any }[] = [];
   let n = 0;
   const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
@@ -96,6 +98,9 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       const it = items.find((x) => x.project === p.id && String(x.sequence_id) === seq);
       return it ? pick(expandItem(it, expand), fields) : missing();
     }
+    // The Plane workspace's members (every user here, a Member unless given `workspaceRole`) and invitations, as plain arrays.
+    if (seg[0] === "members" && seg.length === 1) return users.map((u) => ({ ...userLite(u.id), role: workspaceRoles.get(u.id) ?? 15 }));
+    if (seg[0] === "invitations" && seg.length === 1) return invitations;
     if (seg[0] !== "projects") return html404();
     if (seg.length === 1) return page(projects, url);
     const p = projects.find((x) => x.id === seg[1]);
@@ -141,9 +146,23 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
   function write(req: HttpRequest, seg: string[]): unknown {
     const body = (req.body ?? {}) as Obj;
     if (seg[0] === "projects" && seg.length === 1 && req.method === "POST") return createProject(body);
+    if (seg[0] === "invitations") return writeInvitation(seg, req.method, body);
     const p = seg[0] === "projects" ? projects.find((x) => x.id === seg[1]) : undefined;
     if (!p) return missing();
     if (seg.length === 2 && req.method === "PATCH") return patchProject(p, body);
+    if (seg.length === 2 && req.method === "DELETE") {
+      if (!(p.member_role > 15)) return json(403, { detail: "You do not have permission to perform this action." });
+      projects.splice(projects.indexOf(p), 1); return noContent();
+    }
+    if (seg.length === 3 && seg[2] === "archive") {
+      // Archiving needs only a workspace Admin or Member; bringing one back needs a project Admin.
+      if (req.method === "POST") { p.archived_at = "2026-10-02T09:00:00.000000Z"; return noContent(); }
+      if (req.method === "DELETE") {
+        if (!(p.member_role > 15)) return json(403, { detail: "You do not have permission to perform this action." });
+        p.archived_at = null; return noContent();
+      }
+    }
+    if (seg[2] === "members") return writeMember(p, seg, req.method, body);
     if (seg[2] === "cycles" || seg[2] === "archived-cycles") return writeCycle(p, seg, req.method, body);
     if (seg[2] === "modules" || seg[2] === "archived-modules") return writeModule(p, seg, req.method, body);
     if (seg[2] === "intake-issues") return writeIntake(p, seg, req.method, body);
@@ -431,10 +450,43 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
   }
 
   function patchProject(p: Obj, body: Obj): unknown {
+    if (!(p.member_role > 15)) return json(403, { detail: "You do not have permission to perform this action." });
     if (p.archived_at) return json(400, { error: "Archived project cannot be updated" });
     Object.assign(p, body);
     if (body.intake_view === true) intakeRows.add(p.id);
     return p;
+  }
+
+  /**
+   * Adding a project member, as v1.3.1 does: project Admin only, the user must be in the Plane workspace, the role defaults
+   * to Guest, and anyone already listed (a removed member included, since the list keeps them) is a 400 "payload is not valid".
+   */
+  function writeMember(p: Obj, seg: string[], method: string, body: Obj): unknown {
+    if (seg.length !== 3 || method !== "POST") return json(405, { detail: `Method "${method}" not allowed.` });
+    if (!(p.member_role > 15)) return json(403, { detail: "You do not have permission to perform this action." });
+    if (!users.some((u) => u.id === body.member)) return json(400, { member: ["Member not found in workspace"] });
+    const role = body.role ?? 5;
+    if (![20, 15, 5].includes(role)) return json(400, { role: ["Invalid role"] });
+    const listed = members.get(p.id) ?? [];
+    if (listed.includes(body.member)) return json(400, { error: "The payload is not valid" });
+    members.set(p.id, [...listed, body.member]);
+    return json(201, { id: uuid(), member: body.member, role });
+  }
+
+  function writeInvitation(seg: string[], method: string, body: Obj): unknown {
+    if (seg.length === 1 && method === "POST") {
+      if (![20, 15, 5].includes(body.role ?? 5)) return json(400, { role: ["Invalid role"] });
+      if (invitations.some((i) => i.email === body.email)) return json(400, { non_field_errors: ["Email already invited"] });
+      return json(201, api.invitation({ email: body.email, role: body.role ?? 5 }));
+    }
+    const i = invitations.find((x) => x.id === seg[1]);
+    if (!i) return missing();
+    if (seg.length === 2 && method === "DELETE") {
+      if (i.accepted) return json(400, { error: "The invitation has already been accepted", code: "INVITE_ALREADY_ACCEPTED" });
+      if (i.responded_at) return json(400, { error: "The invitation has already been responded to", code: "INVITE_ALREADY_RESPONDED" });
+      invitations.splice(invitations.indexOf(i), 1); return noContent();
+    }
+    return json(405, { detail: `Method "${method}" not allowed.` });
   }
 
   function writeStateOrLabel(p: Obj, seg: string[], method: string, body: Obj): unknown {
@@ -476,7 +528,13 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
   const base = (o: Obj): Obj => ({ id: uuid(), created_at: STAMP, updated_at: STAMP, deleted_at: null, ...o });
   const api = {
     writes,
-    user(o: Obj): Obj { const u = { avatar: "", avatar_url: null, first_name: "", last_name: "", email: "", ...o }; users.push(u); return u; },
+    /** A user of the Plane workspace; `workspaceRole` (20, 15 or 5) is their role there, Member by default. */
+    user({ workspaceRole, ...o }: Obj): Obj {
+      const u: Obj = { avatar: "", avatar_url: null, first_name: "", last_name: "", email: "", ...o }; users.push(u);
+      if (workspaceRole) workspaceRoles.set(u.id, workspaceRole);
+      return u;
+    },
+    invitation(o: Obj): Obj { const i = base({ email: "someone@example.com", role: 15, responded_at: null, accepted: false, ...o }); delete i.deleted_at; invitations.push(i); return i; },
     /** `member_role` is the account's Plane user's role in it: 15 Member (the default) or 20 Admin. Intake on comes with its Intake row. */
     project(o: Obj, memberIds: string[] = []) {
       const p = base({ name: "Project", identifier: "PRJ", description: "", network: 2, is_member: true, member_role: 15, archived_at: null, cycle_view: true, module_view: true, intake_view: false, timezone: "UTC", project_lead: null, default_state: null, total_members: memberIds.length, total_cycles: 0, total_modules: 0, ...o });
@@ -513,7 +571,10 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       project: (id: string) => projects.find((x) => x.id === id), cycle: (id: string) => cycles.find((x) => x.id === id), module: (id: string) => modules.find((x) => x.id === id),
       item: (id: string) => items.find((x) => x.id === id), intake: (itemId: string) => intake.find((x) => x.issue === itemId),
       state: (project: string, name: string) => states.find((x) => x.project === project && x.name === name), label: (project: string, name: string) => labels.find((x) => x.project === project && x.name === name),
+      invitation: (email: string) => invitations.find((x) => x.email === email),
     },
+    /** The users a Plane project lists as members, removed ones included, as Plane lists them. */
+    membersOf: (projectId: string): string[] => members.get(projectId) ?? [],
     state(o: Obj) { const st = base({ name: "Todo", color: "#888888", group: "unstarted", default: false, sequence: 1000, is_triage: false, ...o }); states.push(st); return st; },
     label(o: Obj) { const l = base({ name: "label", color: "#EF4444", parent: null, description: "", ...o }); labels.push(l); return l; },
     item(o: Obj) {

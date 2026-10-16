@@ -6,11 +6,11 @@
  */
 import type { ToolDefinition, ToolPolicy } from "../types.js";
 import { planeRequest, inWorkspace } from "./client.js";
-import { resolvePlaneProject, planeTargetOf, PROJECT_ARGS, type PlaneProjectTarget } from "./projectRef.js";
+import { resolvePlaneProject, planeTargetOf, PROJECT_ARGS, type PlaneTarget, type PlaneProjectTarget } from "./projectRef.js";
 import { projectNames, projectStates, projectLabels } from "./resolve.js";
 import { pickWorkspaceAccess } from "./workspace.js";
 import { text, title } from "./args.js";
-import { planeWrite, DANGER, DANGER_NOTE } from "./write.js";
+import { planeWrite, DANGER, DANGER_NOTE, type PlaneRefusals } from "./write.js";
 
 type Obj = Record<string, any>;
 
@@ -55,6 +55,22 @@ export const projectAdminTools: ToolDefinition[] = [
       label: { type: "string", description: "The label's current name, as planeLabels lists it." },
       name: { type: "string", description: "New name." }, color: COLOR, description: { type: "string" },
     }, required: ["project", "label"] } },
+  { name: "projectUpdate", description: `Renames a Plane project open here, changes its identifier or description, or switches its cycles, modules or intake on or off. Pass only what changes. Plane allows it only when the bot's Plane user is an Admin of the Plane project.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: {
+      ...PROJECT_ARGS,
+      name: { type: "string", description: "New name: letters, digits, spaces and underscores." },
+      identifier: { type: "string", description: "New key prefix, 1 to 12 letters or digits; every work item key changes with it." },
+      description: { type: "string", description: "New description, plain text." },
+      cycles: { type: "boolean", description: "Switch cycles on or off." },
+      modules: { type: "boolean", description: "Switch modules on or off." },
+      intake: { type: "boolean", description: "Switch the intake on or off." },
+    }, required: ["project"] } },
+  { name: "projectArchive", description: `Archives a Plane project open here: it leaves Plane's lists, and its work items cannot be changed until it is brought back.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { ...PROJECT_ARGS }, required: ["project"] } },
+  { name: "projectUnarchive", description: `Brings back an archived Plane project open here. Plane allows it only when the bot's Plane user is an Admin of the Plane project.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { ...PROJECT_ARGS }, required: ["project"] } },
+  { name: "projectDelete", description: `Deletes a Plane project open here for good, with all its work items, cycles, modules and intake. Plane allows it only when the bot's Plane user is an Admin of the Plane project.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { ...PROJECT_ARGS }, required: ["project"] } },
   { name: "stateDelete", description: `Deletes a state of a Plane project open here. Plane refuses the default state and a state that still holds work items, archived and draft ones included.${DANGER_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, state: { type: "string", description: "The state's name, as planeStates lists it." } }, required: ["project", "state"] } },
   { name: "labelDelete", description: `Deletes a label of a Plane project open here; work items that carry it lose it.${DANGER_NOTE}`,
@@ -67,6 +83,10 @@ export const projectAdminToolPolicy: Record<string, ToolPolicy> = {
   stateUpdate: { effect: "write", group: "Project admin" },
   labelCreate: { effect: "write", group: "Project admin" },
   labelUpdate: { effect: "write", group: "Project admin" },
+  projectUpdate: { effect: "danger", group: "Project admin" },
+  projectArchive: { effect: "danger", group: "Project admin" },
+  projectUnarchive: { effect: "danger", group: "Project admin" },
+  projectDelete: { effect: "danger", group: "Project admin" },
   stateDelete: { effect: "danger", group: "Project admin" },
   labelDelete: { effect: "danger", group: "Project admin" },
 };
@@ -100,6 +120,29 @@ function edits(a: Obj, what: string, t: PlaneProjectTarget, taken: Obj[]) {
   return { body, said, name };
 }
 
+/**
+ * Refuses a Plane project name or identifier Plane would refuse: forbidden punctuation, an identifier other than 1 to 12
+ * letters or digits, or one another Plane project already has. Either may be null when it does not change.
+ */
+async function freeProjectName(t: PlaneTarget, name: string | null, identifier: string | null, self?: string) {
+  if ((name && SPECIAL.test(name)) || (identifier && SPECIAL.test(identifier))) throw new Error(`Plane does not allow a hyphen, dot, parentheses or the characters & + , : ; $ ^ { } * = ? @ # | ' < > % ! in a Plane project's name or identifier. Ask for a name without them.`);
+  if (identifier !== null && !IDENTIFIER.test(identifier)) throw new Error("identifier must be 1 to 12 letters or digits, such as MOB.");
+  const others = (await t.projects()).filter((p) => String(p.id) !== self);
+  const sameId = identifier && others.find((p) => String(p.identifier).toUpperCase() === identifier);
+  if (sameId) throw new Error(`The identifier ${identifier} is taken by the Plane project ${sameId.name}.`);
+  const sameName = name && others.find((p) => String(p.name).toLowerCase() === name.toLowerCase());
+  if (sameName) throw new Error(`The name ${name} is taken by the Plane project ${sameName.identifier}.`);
+}
+
+const projectNameRefusals = (name: string | null, identifier: string | null): PlaneRefusals => [
+  [/project name is already taken/, `The name ${name} is taken in the Plane workspace.`],
+  [/identifier is already taken/, `The identifier ${identifier} is taken in the Plane workspace.`],
+  [/special characters/, `Plane refused the name or identifier for its punctuation.`],
+];
+
+const ADMIN_ROLE = (t: PlaneProjectTarget) => `an Admin of the Plane project ${t.project.identifier}`;
+const projectPath = (t: PlaneProjectTarget, sub = "") => inWorkspace(t.conn, `projects/${t.project.id}/${sub}`);
+
 const taken = (t: PlaneProjectTarget, what: string, name: string | null) => [
   [/same name already exists|payload is not valid/, `${t.project.identifier} already has a ${what} named "${name}".`],
 ] as [RegExp, string][];
@@ -110,19 +153,12 @@ export const projectAdminHandlers = {
     const name = title(a.name);
     const identifier = text(a.identifier)?.toUpperCase() ?? "";
     if (!name) throw new Error(`Pass "name", the Plane project's name.`);
-    if (SPECIAL.test(name) || SPECIAL.test(identifier)) throw new Error(`Plane does not allow a hyphen, dot, parentheses or the characters & + , : ; $ ^ { } * = ? @ # | ' < > % ! in a Plane project's name or identifier. Ask for a name without them.`);
-    if (!IDENTIFIER.test(identifier)) throw new Error("identifier must be 1 to 12 letters or digits, such as MOB.");
-    const all = await t.projects();
-    const sameId = all.find((p) => String(p.identifier).toUpperCase() === identifier);
-    if (sameId) throw new Error(`The identifier ${identifier} is taken by the Plane project ${sameId.name}.`);
-    const sameName = all.find((p) => String(p.name).toLowerCase() === name.toLowerCase());
-    if (sameName) throw new Error(`The name ${name} is taken by the Plane project ${sameName.identifier}.`);
+    await freeProjectName(t, name, identifier);
     const description = text(a.description);
     const on = { cycles: a.cycles !== false, modules: a.modules !== false, intake: a.intake === true };
     const features = Object.entries(on).filter(([, v]) => v).map(([k]) => k);
     return {
-      t, role: "a Member or Admin of the Plane workspace",
-      refusals: [[/project name is already taken/, `The name ${name} is taken in the Plane workspace.`], [/identifier is already taken/, `The identifier ${identifier} is taken in the Plane workspace.`], [/special characters/, `Plane refused the name or identifier for its punctuation.`]],
+      t, role: "a Member or Admin of the Plane workspace", refusals: projectNameRefusals(name, identifier),
       summary: `Create the Plane project "${name}" (${identifier}) in the Plane workspace, with ${features.length ? features.join(", ") : "no cycles, modules or intake"} on`,
       run: async () => {
         // Plane switches cycles and modules off for a Plane project created through its API unless they are sent.
@@ -205,6 +241,65 @@ export const projectAdminHandlers = {
       },
     };
   }),
+  projectUpdate: planeWrite("projectUpdate", async (a, ctx) => {
+    const t = await resolvePlaneProject(ctx, a);
+    if (t.project.archived_at) throw new Error(`${t.project.identifier} is archived, and Plane does not change an archived Plane project. Bring it back first (projectUnarchive).`);
+    const name = title(a.name);
+    const identifier = text(a.identifier)?.toUpperCase() ?? null;
+    await freeProjectName(t, name, identifier, String(t.project.id));
+    const body: Obj = {}, said: string[] = [];
+    if (name) { body.name = name; said.push(`name "${name}"`); }
+    if (identifier) { body.identifier = identifier; said.push(`identifier ${identifier} (work item keys become ${identifier}-…)`); }
+    if (typeof a.description === "string") { body.description = a.description.trim(); said.push("new description"); }
+    for (const [arg, field] of [["cycles", "cycle_view"], ["modules", "module_view"], ["intake", "intake_view"]] as const) {
+      if (typeof a[arg] === "boolean") { body[field] = a[arg]; said.push(`${arg} ${a[arg] ? "on" : "off"}`); }
+    }
+    if (!said.length) throw new Error("Nothing to change: pass name, identifier, description, cycles, modules or intake.");
+    return {
+      t, role: ADMIN_ROLE(t),
+      refusals: [...projectNameRefusals(name, identifier), [/Archived project cannot be updated/, `${t.project.identifier} is archived, so Plane did not change it.`]],
+      summary: `Update the Plane project ${t.project.identifier}: ${said.join(", ")}`,
+      run: async () => {
+        const p = await planeRequest<Obj>(t.conn, projectPath(t), { method: "PATCH", body });
+        return { project: { id: t.project.id, identifier: p?.identifier ?? identifier ?? t.project.identifier, name: p?.name ?? name ?? t.project.name }, changed: said };
+      },
+    };
+  }, DANGER),
+  projectArchive: planeWrite("projectArchive", async (a, ctx) => {
+    const t = await resolvePlaneProject(ctx, a);
+    if (t.project.archived_at) throw new Error(`${t.project.identifier} is already archived.`);
+    return {
+      t, role: "a Member or Admin of the Plane workspace",
+      summary: `Archive the Plane project ${t.project.identifier} (${t.project.name}); its work items cannot be changed until it is brought back`,
+      run: async () => {
+        await planeRequest(t.conn, projectPath(t, "archive/"), { method: "POST" });
+        return { project: { id: t.project.id, identifier: t.project.identifier }, archived: true };
+      },
+    };
+  }, DANGER),
+  projectUnarchive: planeWrite("projectUnarchive", async (a, ctx) => {
+    const t = await resolvePlaneProject(ctx, a);
+    if (!t.project.archived_at) throw new Error(`${t.project.identifier} is not archived.`);
+    return {
+      t, role: ADMIN_ROLE(t),
+      summary: `Bring back the archived Plane project ${t.project.identifier} (${t.project.name})`,
+      run: async () => {
+        await planeRequest(t.conn, projectPath(t, "archive/"), { method: "DELETE" });
+        return { project: { id: t.project.id, identifier: t.project.identifier }, archived: false };
+      },
+    };
+  }, DANGER),
+  projectDelete: planeWrite("projectDelete", async (a, ctx) => {
+    const t = await resolvePlaneProject(ctx, a);
+    return {
+      t, role: ADMIN_ROLE(t),
+      summary: `Delete the Plane project ${t.project.identifier} (${t.project.name}) for good, with all its work items, cycles, modules and intake`,
+      run: async () => {
+        await planeRequest(t.conn, projectPath(t), { method: "DELETE" });
+        return { project: { id: t.project.id, identifier: t.project.identifier }, deleted: true };
+      },
+    };
+  }, DANGER),
   stateDelete: planeWrite("stateDelete", async (a, ctx) => {
     const t = await resolvePlaneProject(ctx, a);
     const state = await projectNames(t, t.project).state(a.state);
