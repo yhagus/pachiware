@@ -7,7 +7,9 @@
  *   plane.project({ id: P1, identifier: "ENG", name: "Engineering" });
  *   plane.item({ project: P1, sequence_id: 42, name: "Fix login", state: S1 });
  *
- * Writes are not modelled yet; `plane.requests` holds the Plane requests seen, after the harness's own `s.http.requests`.
+ * Writes change the fake as Plane would (assignees and labels outside the Plane project are dropped silently, a PATCH of
+ * either replaces the whole set). `plane.writes` lists every request that is not a GET, in order, with its path inside the
+ * Plane workspace, so a test can assert that nothing changed before Confirm.
  */
 import type { HttpRequest } from "./discordScenario";
 
@@ -21,6 +23,7 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
   const members = new Map<string, string[]>();
   const comments: Obj[] = [], activities: Obj[] = [], links: Obj[] = [], attachments: Obj[] = [];
   const relations = new Map<string, Obj>();
+  const writes: { method: string; path: string; body: any }[] = [];
   let n = 0;
   const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
 
@@ -59,7 +62,10 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
     const expand = (url.searchParams.get("expand") ?? "").split(",").filter(Boolean);
     const fields = (url.searchParams.get("fields") ?? "").split(",").filter(Boolean);
     const seg = path.split("/").filter(Boolean);
-    if (req.method !== "GET") return json(405, { detail: `Method "${req.method}" not allowed.` });
+    if (req.method !== "GET") {
+      writes.push({ method: req.method, path, body: req.body });
+      return write(req, seg);
+    }
 
     if (seg[0] === "work-items" && seg[1] === "search") {
       const q = (url.searchParams.get("search") ?? "").toLowerCase();
@@ -116,10 +122,33 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
     }
   }
 
+  /** The API user is "u-bot", the Plane user `s.plane()` records for its account. */
+  function write(req: HttpRequest, seg: string[]): unknown {
+    const body = (req.body ?? {}) as Obj;
+    const p = seg[0] === "projects" ? projects.find((x) => x.id === seg[1]) : undefined;
+    if (!p) return missing();
+    const memberIds = members.get(p.id) ?? [];
+    const settable = (o: Obj) => {
+      const out: Obj = { ...o };
+      if (Array.isArray(o.assignees)) out.assignees = o.assignees.filter((id: string) => memberIds.includes(id));
+      if (Array.isArray(o.labels)) out.labels = o.labels.filter((id: string) => labels.some((l) => l.id === id && l.project === p.id));
+      return out;
+    };
+    if (seg[2] === "work-items" && seg.length === 3 && req.method === "POST") {
+      if (!body.name) return json(400, { name: ["This field is required."] });
+      const seq = Math.max(0, ...items.filter((x) => x.project === p.id).map((x) => x.sequence_id)) + 1;
+      const it = base({ name: "", description_html: "<p></p>", description_binary: null, priority: "none", start_date: null, target_date: null, completed_at: null, archived_at: null, is_draft: false, created_by: "u-bot", parent: null, state: null, assignees: [], labels: [], workspace: "ws-1", ...settable(body), sequence_id: seq, project: p.id });
+      items.push(it);
+      return json(201, it);
+    }
+    return json(405, { detail: `Method "${req.method}" not allowed.` });
+  }
+
   s.http.on(new RegExp(`^[A-Z]+ https://${host.replace(/\./g, "\\.")}/api/v1/`), respond);
 
   const base = (o: Obj) => ({ id: uuid(), created_at: STAMP, updated_at: STAMP, deleted_at: null, ...o });
   return {
+    writes,
     user(o: Obj): Obj { const u = { avatar: "", avatar_url: null, first_name: "", last_name: "", email: "", ...o }; users.push(u); return u; },
     project(o: Obj, memberIds: string[] = []) {
       const p = base({ name: "Project", identifier: "PRJ", description: "", network: 2, is_member: true, member_role: 15, archived_at: null, cycle_view: true, module_view: true, intake_view: false, timezone: "UTC", project_lead: null, default_state: null, total_members: memberIds.length, total_cycles: 0, total_modules: 0, ...o });

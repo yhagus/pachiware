@@ -3,6 +3,7 @@ import { listPlaneProjects } from "../plane/client.js";
 import { loadPlaneAccess, planeConnOf, allowedPlaneProjectIds, PLANE_NOT_ENABLED } from "../plane/scope.js";
 import { browseTools, browseHandlers, browseToolPolicy } from "../plane/browse.js";
 import { workItemTools, workItemHandlers, workItemToolPolicy } from "../plane/workItems.js";
+import { workItemWriteTools, workItemWriteHandlers, workItemWriteToolPolicy } from "../plane/workItemWrites.js";
 import { cycleTools, cycleHandlers, cycleToolPolicy } from "../plane/cycles.js";
 import { moduleTools, moduleHandlers, moduleToolPolicy } from "../plane/modules.js";
 import { intakeTools, intakeHandlers, intakeToolPolicy } from "../plane/intake.js";
@@ -18,6 +19,7 @@ export const planeTools: ToolDefinition[] = [
     parameters: { type: "object", properties: {} } },
   ...browseTools,
   ...workItemTools,
+  ...workItemWriteTools,
   ...cycleTools,
   ...moduleTools,
   ...intakeTools,
@@ -28,6 +30,7 @@ export const planeToolPolicy: Record<string, ToolPolicy> = {
   planeAccounts: { effect: R, group: "Browse" },
   ...browseToolPolicy,
   ...workItemToolPolicy,
+  ...workItemWriteToolPolicy,
   ...cycleToolPolicy,
   ...moduleToolPolicy,
   ...intakeToolPolicy,
@@ -53,6 +56,7 @@ export const planeHandlers: Record<string, ToolHandler> = {
   },
   ...browseHandlers,
   ...workItemHandlers,
+  ...workItemWriteHandlers,
   ...cycleHandlers,
   ...moduleHandlers,
   ...intakeHandlers,
@@ -67,6 +71,8 @@ export const planeSkill: SkillModule = {
   handlers: planeHandlers,
   capabilities: ["plane"],
   toolPolicy: planeToolPolicy,
+  // Every write goes through planeWrite (plane/write.ts), which queues it for the asker's Confirm.
+  confirmsInternally: true,
   // Workspace-level tools are offered only where the Plane scope is "all Plane projects".
   hiddenTools: hiddenWorkspaceTools,
   groups: PLANE_GROUPS.filter((g) => Object.values(planeToolPolicy).some((p) => p.group === g)),

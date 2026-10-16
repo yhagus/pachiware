@@ -72,6 +72,44 @@ export function matchByName<T>(list: T[], name: string, aliases: (x: T) => strin
   return exact.length ? exact : list.filter((x) => aliases(x).some((a) => a.includes(q)));
 }
 
+/** Words a person uses for themselves. Plane cannot tell who that is, so a tool asks for the name instead. */
+export const ME = /^(me|myself|i|saya|aku)$/i;
+
+/**
+ * The one entry `name` means, for a change: none or several throw a message that lists the choices, so the model asks
+ * the person instead of guessing.
+ */
+export function pickByName<T>(list: T[], name: unknown, aliases: (x: T) => string[], what: string, show: (x: T) => string): T {
+  const raw = typeof name === "string" ? name.trim() : "";
+  if (!raw) throw new Error(`A ${what} name is empty.`);
+  const hits = matchByName(list, raw, aliases);
+  if (hits.length === 1) return hits[0]!;
+  if (hits.length > 1) throw new Error(`"${raw}" could mean several ${what}s: ${hits.map(show).join("; ")}. Ask the person which one they mean.`);
+  throw new Error(`No ${what} matches "${raw}". The ${what}s are: ${list.map(show).join("; ") || "none"}.`);
+}
+
+/**
+ * States, labels and members of one Plane project by name, each list read once and only when needed. Write tools resolve
+ * every name through it before anything is queued, so a wrong or ambiguous name is refused before Confirm.
+ */
+export function projectNames(t: PlaneTarget, p: Obj) {
+  let states: Promise<Obj[]> | null = null, labels: Promise<Obj[]> | null = null, members: Promise<Obj[]> | null = null;
+  const nameOf = (x: Obj) => String(x.name);
+  return {
+    async state(name: unknown): Promise<Obj> {
+      const list = (await (states ??= projectStates(t, p))).filter((s) => !s.is_triage);
+      return pickByName(list, name, (s) => [String(s.name).toLowerCase()], "state", nameOf);
+    },
+    async label(name: unknown): Promise<Obj> {
+      return pickByName(await (labels ??= projectLabels(t, p)), name, (l) => [String(l.name).toLowerCase()], "label", nameOf);
+    },
+    async member(name: unknown): Promise<Obj> {
+      if (typeof name === "string" && ME.test(name.trim())) throw new Error(`Plane does not know who "${name.trim()}" is. Ask the person for their name as planeMembers lists it.`);
+      return pickByName(await (members ??= projectMembers(t, p)), name, planeUserAliases, "member", planeUserName);
+    },
+  };
+}
+
 /** A Plane project's states, labels or members, as Plane lists them (members as a plain array of users). */
 export async function projectStates(t: PlaneTarget, p: Obj): Promise<Obj[]> {
   return (await planeList<Obj>(t.conn, inWorkspace(t.conn, `projects/${p.id}/states/`), { perPage: 1000, maxPages: 2 })).items;
