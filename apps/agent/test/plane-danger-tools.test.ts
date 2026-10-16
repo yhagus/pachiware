@@ -221,3 +221,48 @@ discordScenario("projectMemberAdd adds a Plane workspace member to a Plane proje
   expect(plane.membersOf(P1)).toContain(sari.id);
   expect(add.confirmation!.content).toContain("Completed");
 });
+
+discordScenario("workspaceInvite and workspaceCancelInvite are offered only where the scope is all Plane projects, and change invitations after their own Confirm", async (s) => {
+  process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const account = await s.plane({ projects: ["*"] });
+  const plane = fakePlane(s);
+  world(plane);
+  const old = plane.invitation({ email: "old@example.com", role: 5 });
+  plane.invitation({ email: "joined@example.com", accepted: true, responded_at: "2026-10-05T00:00:00Z" });
+
+  const notTrusted = await ask(s, "workspaceInvite", { email: "sari@example.com" }, { author: s.discord.bob });
+  expect(notTrusted.result.error).toContain("limited to Trusted members");
+  const badEmail = await ask(s, "workspaceInvite", { email: "sari at example" });
+  expect(badEmail.result.error).toContain("email address");
+  const dup = await ask(s, "workspaceInvite", { email: "OLD@example.com" });
+  expect(dup.result.error).toContain("old@example.com is already invited");
+  const accepted = await ask(s, "workspaceCancelInvite", { invitation: "joined@example.com" });
+  expect(accepted.result.error).toContain("joined@example.com already accepted");
+  expect(plane.writes).toEqual([]);
+
+  const invite = await ask(s, "workspaceInvite", { email: "sari@example.com", role: "guest" });
+  expect(invite.result.summary).toContain("Invite sari@example.com to the Plane workspace as a Guest");
+  const cancel = await ask(s, "workspaceCancelInvite", { invitation: "old@example.com" });
+  expect(cancel.result.summary).toContain("Cancel the invitation of old@example.com");
+  for (const r of [invite, cancel]) expect(labels(r.confirmation!)).toEqual(["Confirm", "Cancel"]);
+  for (const r of [invite, cancel]) await s.discord.click(r.confirmation!, "Confirm");
+  expect(plane.writes).toEqual([
+    { method: "POST", path: "invitations/", body: { email: "sari@example.com", role: 5 } },
+    { method: "DELETE", path: `invitations/${old.id}/`, body: null },
+  ]);
+  expect(plane.find.invitation("sari@example.com")).toMatchObject({ role: 5, accepted: false });
+  expect(plane.find.invitation("old@example.com")).toBeUndefined();
+
+  // Where a channel rule names one Plane project, neither is offered, and a call is refused.
+  await repositories().plane.replaceScopes(s.tenant.id, s.bot.id, s.discord.guildId, "channel-2", [{ planeAccountId: account.id, projectIds: [P1] }]);
+  s.discord.channel("channel-2");
+  let refused: any;
+  s.model.script({ tool: "workspaceInvite", args: { email: "budi@example.com" } }, (turn) => { refused = turn.toolResults[0]; return "done"; });
+  await s.discord.send(`${s.discord.mention} invite budi`, { channel: "channel-2" });
+  expect(s.model.tools.at(-1)).toContain("workItemDelete");
+  expect(s.model.tools.at(-1)).not.toContain("workspaceInvite");
+  expect(s.model.tools.at(-1)).not.toContain("workspaceCancelInvite");
+  expect(JSON.stringify(refused)).toContain("unavailable here");
+  expect(plane.writes.length).toBe(2);
+});

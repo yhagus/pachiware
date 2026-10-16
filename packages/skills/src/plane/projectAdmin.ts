@@ -8,7 +8,7 @@ import type { ToolDefinition, ToolPolicy } from "../types.js";
 import { planeRequest, inWorkspace } from "./client.js";
 import { resolvePlaneProject, planeTargetOf, PROJECT_ARGS, type PlaneTarget, type PlaneProjectTarget } from "./projectRef.js";
 import { projectNames, projectStates, projectLabels, projectMembers, pickByName, planeUserAliases, planeUserName, ME } from "./resolve.js";
-import { pickWorkspaceAccess } from "./workspace.js";
+import { pickWorkspaceAccess, memberRole, MEMBER_ROLES } from "./workspace.js";
 import { text, title } from "./args.js";
 import { planeWrite, DANGER, DANGER_NOTE, type PlaneRefusals } from "./write.js";
 
@@ -22,13 +22,6 @@ const GROUP_COLORS: Record<string, string> = { backlog: "#A3A3A3", unstarted: "#
 const SPECIAL = /[&+,:;$^}{*=?@#|'<>.()%!-]/;
 const IDENTIFIER = /^[A-Za-z0-9]{1,12}$/;
 const COLOR = { type: "string", description: "A hex color such as #F59E0B." };
-/** Plane's role numbers, the same in a Plane project and the Plane workspace. */
-export const MEMBER_ROLES: Record<string, number> = { admin: 20, member: 15, guest: 5 };
-export function memberRole(v: unknown): [string, number] {
-  const r = text(v)?.toLowerCase() ?? "member";
-  if (!(r in MEMBER_ROLES)) throw new Error(`role must be one of ${Object.keys(MEMBER_ROLES).join(", ")}`);
-  return [`${r[0]!.toUpperCase()}${r.slice(1)}`, MEMBER_ROLES[r]!];
-}
 const MEMBER_ROLE = (t: PlaneProjectTarget) =>`a Member or Admin of the Plane project ${t.project.identifier}`;
 
 export const projectAdminTools: ToolDefinition[] = [
