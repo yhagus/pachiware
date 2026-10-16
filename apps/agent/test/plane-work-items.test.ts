@@ -240,3 +240,14 @@ discordScenario("Browse: planeProjects, planeProject, planeStates, planeLabels a
   expect(JSON.stringify(await ask(s, "planeMembers", { project: P3 }))).toContain("is not open in this channel");
   expect(s.http.requests.some((r) => r.url.includes(P3))).toBe(false);
 });
+
+discordScenario("with the plane skill on, the agent prompt explains Plane projects and work items and says to look up names before a change", async (s) => {
+  await s.plane();
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const prompt = String(s.model.calls[0]!.find((m) => m.role === "system")?.content);
+  expect(prompt).toContain("Plane project");
+  expect(prompt).toContain("work item");
+  expect(prompt).toMatch(/planeStates[\s\S]*planeLabels[\s\S]*planeMembers/);
+  expect(prompt).toContain("never Tasks");
+});
