@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { api, type Bot, type GitAccount, type Profile, type Tenant } from "@/lib/api";
+import { api, type Bot, type GitAccount, type PlaneAccount, type Profile, type Tenant } from "@/lib/api";
 import { PLATFORMS, emptyValues, platformOf, toInput, valuesOf, type Platform } from "@/lib/platforms";
 import { label } from "@/lib/utils";
 
@@ -76,6 +76,8 @@ export function TenantBots() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [gitAccountIds, setGitAccountIds] = useState<string[]>([]);
   const [gitAccounts, setGitAccounts] = useState<GitAccount[]>([]);
+  const [planeAccountIds, setPlaneAccountIds] = useState<string[]>([]);
+  const [planeAccounts, setPlaneAccounts] = useState<PlaneAccount[]>([]);
   const [deleting, setDeleting] = useState<Bot | null>(null);
   const seq = useRef(0);
 
@@ -94,9 +96,10 @@ export function TenantBots() {
 
   useEffect(() => { api.listProfiles(tenant.id).then((r) => setProfiles(r.profiles)).catch(() => {}); }, [tenant.id]);
   useEffect(() => { api.listGitAccounts(tenant.id).then((r) => setGitAccounts(r.gitAccounts)).catch(() => {}); }, [tenant.id]);
+  useEffect(() => { api.listPlaneAccounts(tenant.id).then((r) => setPlaneAccounts(r.planeAccounts)).catch(() => {}); }, [tenant.id]);
 
   const openEdit = (p: Platform, bot?: Bot) => {
-    setForm(bot ? valuesOf(p, bot) : emptyValues(p)); setName(bot?.name ?? ""); setEnabled(bot?.isEnabled ?? true); setProfileId(bot?.profileId ?? "default"); setGitAccountIds(bot?.gitAccountIds ?? []); setEditing({ platform: p, bot });
+    setForm(bot ? valuesOf(p, bot) : emptyValues(p)); setName(bot?.name ?? ""); setEnabled(bot?.isEnabled ?? true); setProfileId(bot?.profileId ?? "default"); setGitAccountIds(bot?.gitAccountIds ?? []); setPlaneAccountIds(bot?.planeAccountIds ?? []); setEditing({ platform: p, bot });
   };
   const run = async (op: () => Promise<unknown>, ok: string) => {
     try { await op(); toast.success(ok); await load(); return true; } catch (e: any) { toast.error(e.message); return false; }
@@ -106,7 +109,7 @@ export function TenantBots() {
     if (!editing) return;
     const { platform: p, bot } = editing;
     if (!p) return;
-    const body = { name, isEnabled: enabled, profileId: profileId === "default" ? null : profileId, gitAccountIds, ...toInput(p, form) };
+    const body = { name, isEnabled: enabled, profileId: profileId === "default" ? null : profileId, gitAccountIds, planeAccountIds, ...toInput(p, form) };
     const ok = bot ? await run(() => api.updateBot(bot.id, body), "Integration updated") : await run(() => api.createBot(tenant.id, { ...body, platform: p.id }), "Integration created");
     if (ok) setEditing(null);
   };
@@ -197,6 +200,20 @@ export function TenantBots() {
                   </ul>
                 )}
                 <p className="text-xs text-muted-foreground">Attached accounts are off everywhere until you enable them per server under Servers. Removing one also removes its server and channel settings.</p>
+              </fieldset>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">Plane accounts</legend>
+                {planeAccounts.length === 0 ? <p className="text-sm text-muted-foreground">No Plane accounts yet. Add one under Plane accounts.</p> : (
+                  <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+                    {planeAccounts.map((a) => (
+                      <li key={a.id}><label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
+                        <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={planeAccountIds.includes(a.id)}
+                          onChange={(e) => setPlaneAccountIds(e.target.checked ? [...planeAccountIds, a.id] : planeAccountIds.filter((x) => x !== a.id))} />{a.name} · {a.workspaceSlug}
+                      </label></li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-xs text-muted-foreground">Plane stays off in every server until you pick Plane projects for it under Plane access. Removing an account also removes its server and channel settings.</p>
               </fieldset>
               <div className="flex items-center gap-2"><Switch id="ie" checked={enabled} onCheckedChange={setEnabled} /><Label htmlFor="ie">Enabled</Label></div>
               <DialogFooter className="sm:justify-between">
