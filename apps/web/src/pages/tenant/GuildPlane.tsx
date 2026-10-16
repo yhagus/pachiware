@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ALL_PLANE_PROJECTS, type Guild, type GuildPlane, type PlaneProject, type PlaneRule } from "@/lib/api";
-import { planeHost } from "./TenantPlaneAccounts";
+import { planeHost } from "@/lib/plane";
 
 type Account = GuildPlane["accounts"][number];
 type Choice = { on: boolean; all: boolean; ids: string[] };

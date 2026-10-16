@@ -12,9 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type PlaneAccount, type Tenant } from "@/lib/api";
+import { planeHost } from "@/lib/plane";
 
 const EMPTY = { name: "", baseUrl: "", workspaceSlug: "", apiKey: "" };
-export const planeHost = (baseUrl: string | null) => (baseUrl ? new URL(baseUrl).host : "Plane cloud");
 
 export function TenantPlaneAccounts() {
   const tenant = useOutletContext<Tenant>();
