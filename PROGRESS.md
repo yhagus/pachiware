@@ -1010,7 +1010,7 @@ Started from a readiness review (2026-10-15) of the bot as a record keeper peopl
 Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR 0010; glossary term **Database engine**. Integration branch `spec/155-mongodb`, merged into `main` when done (no PR).
 
 - [x] Glossary term and ADR 0010 committed on the integration branch.
-- [ ] Implement the open sub-issues of #155 (#157–#159 were closed and split into #160–#172).
+- [x] Implement the open sub-issues of #155 (#157–#159 were closed and split into #160–#172).
   - [x] #156 merged into `spec/155-mongodb` (17ec3cd): the database engine is locked at setup.
     - `detectEngine()` / `assertDatabaseEngine()` in `packages/db/src/engine.ts` use a table of URL prefixes. An unknown scheme is an error and creates no file; an empty URL means SQLite. `mongodb://` and `mongodb+srv://` fail as "not supported yet" until #168.
     - The lock runs in the `packages/db/src/index.ts` boot block before the driver opens. `runMigrations()` records `databaseEngine` through `recordDatabaseEngine()` in `runtime-store.ts` after a successful migration, only if no engine is recorded yet.
@@ -1087,3 +1087,15 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
       - End to end on the compose replica set: init seeded skills, created the default tenant and recorded `mongodb`; the agent started with healthy health, `mongodb localhost:27017` in infrastructure and a 282624-byte size in stats. The Discord harness ran in-process on MongoDB: a mention answered in a thread, a follow-up without a mention, a Reminder and the Digest posted.
       - Not verified: the Web GUI in a browser; `docker compose --profile mongo up` itself (only with a fake `docker`); a real install. `stop --docker` does not pass `--profile mongo` yet.
       - Verification: `bun test` 810 pass, 232 skip, 0 fail across 139 files; with both test URLs, db tests, `database-engine` and CLI 318 pass, 2 skip (the standalone-MongoDB cases, which need `TEST_MONGODB_STANDALONE_URL`).
+- [x] Code review of `main...spec/155-mongodb` (standards and spec axes), fixed in one pass (747247c).
+  - Glossary: "dialect" no longer names the engine (`activeEngine`, `SqlEngine`, CLI `{ engine }`; `dialect.ts` is now `sqlite-path.ts`). `/api/health` reports `services.databaseEngine` instead of `databaseDialect`.
+  - Comments trimmed to antislop-code; the dead `ON_MONGODB` / `implements` hook removed.
+  - `defaultAgentConfig`, profile defaults and fields, and tenant statuses live once in each repository's `types.ts`; the agent-config contract checks every default.
+  - One MongoDB host pattern and one SQLite prefix list per package; `packages/db/test/engine-urls.test.ts` checks the CLI and db package detect engines alike (unknown schemes excepted).
+  - Clock skew: SQL inserts stamp `createdAt` and `updatedAt` from one host time (tenants, API keys, bots, profiles, agent config, skills, skill switches). Messages keep the database clock so their order holds.
+  - `stop`, `restart`, `uninstall` and `logs --docker` add `--profile mongo` on MongoDB.
+  - Same-tenant rules in the repositories, in a transaction, on every engine: a bot with another tenant's profile is refused ("Profile not found"); `git.setBotAccounts` refuses another tenant's bot ("Bot not found"). Routes already refused both.
+  - `pachiware init` on MongoDB with no terminal and no URL fails without writing `.env`.
+  - The standalone refusal ran green against a throwaway `mongo:8.0` on port 27018.
+  - Kept as decided: the admin tenant DELETE stays a soft delete (`tenants.purge` has no production caller); the small behaviour changes listed per ticket stay; `runtime-config.json`'s `databaseUrl` still beats `.env`, as the README says.
+  - Verification: `bun run typecheck` exits 0; `bun test` 839 pass, 236 skip, 0 fail across 140 files; with both test URLs, db, CLI and `database-engine` tests 351 pass, 2 skip (standalone, needs `TEST_MONGODB_STANDALONE_URL`); contract 90 per engine.
