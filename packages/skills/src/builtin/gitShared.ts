@@ -1,6 +1,6 @@
 import type { SkillContext } from "../types.js";
 import type { GitConn, GitState, ItemKind } from "../git.js";
-import { confirmWrite } from "../writeConfirmation.js";
+import { confirmWrite, DANGER_PREFIX } from "../writeConfirmation.js";
 import { loadGitAccess, pickAccess, connectionOf, repoAllowed, orgAllowed } from "../gitScope.js";
 
 export const str = (v: unknown, name: string) => { if (typeof v !== "string" || !v.trim()) throw new Error(`${name} is required`); return v.trim(); };
@@ -33,12 +33,12 @@ export async function useScope(a: any, ctx: SkillContext, scope: Scope) {
 }
 
 // The Write confirmation helper queues the call; the confirmed re-run re-checks the asker, account, scope and arguments here.
-// `level` "owner" means Trusted members only; it is set per call site and is independent of the tool's declared effect, which only describes the tool.
-export async function guard(tool: string, a: any, ctx: SkillContext, level: "write" | "owner", scope: Scope, prep: (target: string, account: string) => { summary: string; run: (conn: GitConn) => Promise<unknown> }) {
-  return confirmWrite(ctx, { tool, args: a, access: level === "owner" ? "trusted" : "anyone" }, async () => {
+// `level` "trusted" means Trusted members only; it is set per call site, apart from the tool's declared effect.
+export async function guard(tool: string, a: any, ctx: SkillContext, level: "write" | "trusted", scope: Scope, prep: (target: string, account: string) => { summary: string; run: (conn: GitConn) => Promise<unknown> }) {
+  return confirmWrite(ctx, { tool, args: a, access: level === "trusted" ? "trusted" : "anyone" }, async () => {
     const { access, conn, target } = await useScope(a, ctx, scope);
     const p = prep(target, access.account.name);
-    return { summary: `${level === "owner" ? "⚠️ DANGEROUS: " : ""}${p.summary} [account ${access.account.name}]`, run: () => p.run(conn) };
+    return { summary: `${level === "trusted" ? DANGER_PREFIX : ""}${p.summary} [account ${access.account.name}]`, run: () => p.run(conn) };
   });
 }
 export const confirmable = (tool: string, a: any, ctx: SkillContext, prep: (repo: string, account: string) => { summary: string; run: (conn: GitConn) => Promise<unknown> }) =>

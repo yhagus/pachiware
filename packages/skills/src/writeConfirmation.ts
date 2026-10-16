@@ -17,10 +17,12 @@ export interface PreparedWrite<T> { summary: string; run: () => Promise<T> }
 /** The tool result that makes the Discord host post Confirm/Cancel buttons for the asker. */
 export interface PendingWrite { pending: true; confirmationId: string; summary: string; ownConfirmation?: true; note: string }
 
+/** The start of every danger change's summary, git or Plane. */
+export const DANGER_PREFIX = "⚠️ DANGEROUS: ";
+
 /**
- * Write confirmation for a skill that confirms internally (`confirmsInternally`). The first call only describes the change and
- * queues it; the host calls the tool again with ctx.confirmed set once the asker pressed Confirm, so `prepare` re-checks
- * everything before `run`. A Trusted member's thread grant runs it straight away unless it needs its own Confirm.
+ * Queues the change for the asker's Confirm; the confirmed call runs `prepare` again before `run`.
+ * A Trusted member's thread grant runs it at once, unless it needs its own Confirm.
  */
 export async function confirmWrite<T>(ctx: SkillContext, req: WriteRequest, prepare: () => PreparedWrite<T> | Promise<PreparedWrite<T>>): Promise<T | PendingWrite> {
   if (req.access === "trusted" && !isTrustedMember(ctx)) throw new Error("This action is limited to Trusted members (Discord ids in TRUSTED_DISCORD_IDS). Tell the user they are not allowed to request it.");
