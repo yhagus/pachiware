@@ -46,7 +46,7 @@ export interface HealthResponse {
   memory?: { rss: number; heapUsed: number };
   services: {
     database: string;
-    databaseDialect?: string;
+    databaseEngine?: string;
     redis: string;
     discord: { connected: boolean; botTag: string | null; botId: string; tenantId: string; guildCount: number }[];
   };

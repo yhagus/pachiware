@@ -1,13 +1,11 @@
 import { connection } from "./internal.js";
 import type { DatabaseEngine } from "./engine.js";
 
-// The public entry: repositories, domain types and start-up functions. No Drizzle instance, table
-// binding or query operator leaves the package, so code outside it cannot write a query that works
-// on SQL only (#167). The package's own tests reach the raw connection through internal.ts.
+// No Drizzle instance, table or query operator leaves the package, so no outside query can work on SQL only.
 
 export { repositories } from "./internal.js";
 /** The engine of the configured database. */
-export const activeDialect: DatabaseEngine = connection.engine;
+export const activeEngine: DatabaseEngine = connection.engine;
 
 export { runMigrations } from "./migrate.js";
 export { runSeed } from "./seed.js";

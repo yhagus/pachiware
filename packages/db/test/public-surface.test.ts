@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-// The database package hands out repositories, domain types and start-up functions only (#167), so code
+// The database package hands out repositories, domain types and start-up functions only, so code
 // outside it cannot write a query that works on SQL and not on MongoDB.
 
 const workspace = process.cwd();

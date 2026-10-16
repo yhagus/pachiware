@@ -36,9 +36,8 @@ import { createSqlGitRepository } from "./git/sql.js";
 import { createMongoGitRepository } from "./git/mongo.js";
 import type { GitRepository } from "./git/types.js";
 
-// One folder per kind of record: `types.ts` holds its domain types and interface, `sql.ts` serves SQLite
-// and PostgreSQL, and `mongo.ts` serves MongoDB. Its contract suite lives in
-// packages/db/test/contract/<name>.contract.test.ts and runs on every engine through `contract()`.
+// One folder per kind of record: `types.ts` (domain types, interface), `sql.ts` (SQLite, PostgreSQL) and `mongo.ts`.
+// Its contract suite, packages/db/test/contract/<name>.contract.test.ts, runs on every engine.
 export type * from "./tenants/types.js";
 export type * from "./schedules/types.js";
 export type * from "./task-rows/types.js";

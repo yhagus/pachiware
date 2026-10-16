@@ -1,7 +1,10 @@
 import { getRecordedDatabaseEngine } from "./runtime-store.js";
+import { mongoHosts } from "./mongo/connection.js";
 
 /** The Database engine an installation keeps its records in (ADR 0010). */
 export type DatabaseEngine = "sqlite" | "postgres" | "mongodb";
+/** The engines Drizzle serves. */
+export type SqlEngine = Exclude<DatabaseEngine, "mongodb">;
 
 interface EngineUrls {
   name: string;
@@ -39,9 +42,15 @@ export function detectEngine(url: string): DatabaseEngine {
 export function redactedDatabaseHost(url: string): string | null {
   const engine = detectEngine(url);
   if (engine === "sqlite") return null;
-  // A replica set URL lists every member, which URL cannot parse.
-  if (engine === "mongodb") return url.trim().match(/^mongodb(?:\+srv)?:\/\/(?:[^@/?]*@)?([^/?]+)/i)?.[1] ?? null;
+  if (engine === "mongodb") return mongoHosts(url);
   try { return new URL(url.trim()).host || null; } catch { return null; }
+}
+
+/** The file path a SQLite URL names, without its scheme; `//` after the scheme is optional. */
+export function sqlitePathOf(url: string): string {
+  const trimmed = url.trim();
+  const prefix = ENGINES.sqlite.prefixes.find((p) => trimmed.toLowerCase().startsWith(p));
+  return prefix ? trimmed.slice(prefix.length).replace(/^\/\//, "") : trimmed;
 }
 
 /**

@@ -8,9 +8,17 @@ export type MongoConnection = {
   close(): Promise<void>;
 };
 
+// Not parsed with URL: a replica set URL lists several hosts, which URL rejects.
+const MONGODB_URL = /^mongodb(?:\+srv)?:\/\/(?:[^@/?]*@)?([^/?]+)(?:\/([^?]*))?/i;
+
+/** The hosts a MongoDB URL names, without credentials: every replica set member, or the DNS name of `mongodb+srv`. */
+export function mongoHosts(url: string): string | null {
+  return url.trim().match(MONGODB_URL)?.[1] ?? null;
+}
+
 /** The database a MongoDB URL names in its path, or `pachiware` when it names none. */
 export function mongoDatabaseName(url: string): string {
-  const path = url.trim().match(/^mongodb(?:\+srv)?:\/\/[^/?]*\/([^?]*)/i)?.[1];
+  const path = url.trim().match(MONGODB_URL)?.[2];
   return path ? decodeURIComponent(path) : "pachiware";
 }
 

@@ -1,8 +1,6 @@
 import { resolve, isAbsolute, dirname } from "path";
 import { mkdirSync, existsSync } from "fs";
-
-/** The SQL engines Drizzle serves. Which one a URL names is decided by `detectEngine` in engine.ts. */
-export type DbDialect = "sqlite" | "postgres";
+import { sqlitePathOf } from "./engine.js";
 
 /**
  * Resolve a sqlite connection string into an absolute filesystem path and
@@ -12,15 +10,7 @@ export type DbDialect = "sqlite" | "postgres";
  */
 export function resolveSqlitePath(url: string, workspaceRoot?: string): string {
   if (!url) throw new Error("Empty sqlite connection string");
-  let p = url.trim();
-
-  // Strip common URI prefixes
-  if (p.startsWith("sqlite://")) p = p.slice("sqlite://".length);
-  else if (p.startsWith("sqlite3://")) p = p.slice("sqlite3://".length);
-  else if (p.startsWith("sqlite:")) p = p.slice("sqlite:".length);
-  else if (p.startsWith("sqlite3:")) p = p.slice("sqlite3:".length);
-  else if (p.startsWith("file://")) p = p.slice("file://".length);
-  else if (p.startsWith("file:")) p = p.slice("file:".length);
+  const p = sqlitePathOf(url);
 
   if (p === ":memory:" || p === "") {
     return ":memory:";

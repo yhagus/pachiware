@@ -31,9 +31,8 @@ services:
       timeout: 3s
       retries: 5
 
-  # Optional: `docker compose --profile mongo up -d mongo`. MongoDB needs a replica set for
-  # transactions, so this runs a single-node one. Connect with
-  # mongodb://localhost:27017/pachiware?replicaSet=rs0&directConnection=true
+  # Optional, with `--profile mongo`: a single-node replica set, since transactions need one.
+  # Connect with mongodb://localhost:27017/pachiware?replicaSet=rs0&directConnection=true
   mongo:
     image: mongo:8.0
     container_name: pachiware-mongo

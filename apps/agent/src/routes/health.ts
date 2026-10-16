@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { config } from "../config.js";
-import { activeDialect, repositories } from "@pachiware/db";
+import { activeEngine, repositories } from "@pachiware/db";
 import { redis, isRedisConnected } from "../cache/redis.js";
 import { discordBotManager } from "../discord/client.js";
 
@@ -41,7 +41,7 @@ healthRoutes.get("/", async (c) => {
     memory: process.memoryUsage(),
     services: {
       database: dbStatus,
-      databaseDialect: activeDialect,
+      databaseEngine: activeEngine,
       redis: redisStatus,
       discord: discordStatus,
     },

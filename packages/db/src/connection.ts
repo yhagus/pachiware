@@ -1,5 +1,5 @@
-import { resolveSqlitePath, type DbDialect } from "./dialect.js";
-import { detectEngine } from "./engine.js";
+import { resolveSqlitePath } from "./sqlite-path.js";
+import { detectEngine, type SqlEngine } from "./engine.js";
 import { openMongoConnection, type MongoConnection } from "./mongo/connection.js";
 import * as pgSchema from "./schema/pg/index.js";
 import * as sqliteSchema from "./schema/sqlite/index.js";
@@ -7,9 +7,9 @@ import * as sqliteSchema from "./schema/sqlite/index.js";
 /** Both SQL schemas share column names and shapes, so code written against one set of tables runs on either. */
 export type SqlTables = typeof pgSchema;
 
-/** An open SQL database: the Drizzle instance, the raw driver client, and the tables of its dialect. */
+/** An open SQL database: the Drizzle instance, the raw driver client, and the tables of its engine. */
 export type SqlConnection = {
-  engine: DbDialect;
+  engine: SqlEngine;
   db: any;
   client: any;
   tables: SqlTables;

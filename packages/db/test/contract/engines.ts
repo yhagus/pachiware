@@ -26,16 +26,7 @@ type Engine = {
   url(): string | undefined;
   /** Opens an empty, migrated and seeded database. */
   open(url: string): Promise<Fixture>;
-  /** Whether this engine implements the suite's repository yet; every suite when absent. */
-  implements?(suite: string): boolean;
 };
-
-/** Suites whose repositories MongoDB implements. #169–#171 add theirs here as they land. */
-const ON_MONGODB = new Set([
-  "Tenants and API keys", "Platform stats and health", "Agent configuration", "Bots and guild configuration", "Profiles", "Usage events",
-  "Task rows", "Schedules", "Conversations and messages",
-  "Skills", "Availability rules", "Git accounts, scopes and OAuth apps",
-]);
 
 let sqliteDir: string | undefined;
 
@@ -56,7 +47,6 @@ const ENGINES: Engine[] = [
     name: "mongodb",
     url: () => process.env.TEST_MONGODB_URL || undefined,
     open: (url) => openMongo(url),
-    implements: (suite) => ON_MONGODB.has(suite),
   },
 ];
 
@@ -66,7 +56,7 @@ const ENGINES: Engine[] = [
  */
 export function contract(name: string, body: (use: () => EngineUnderTest) => void) {
   for (const engine of ENGINES) {
-    const url = engine.implements?.(name) === false ? undefined : engine.url();
+    const url = engine.url();
     (url ? describe : describe.skip)(`${name} [${engine.name}]`, () => {
       let fixture: Fixture | undefined;
       beforeAll(async () => { fixture = await engine.open(url!); });

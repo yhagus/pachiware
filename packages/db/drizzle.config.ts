@@ -5,7 +5,7 @@ import { resolve } from "path";
 dotenv.config({ path: resolve(__dirname, "../../.env") });
 
 /**
- * Dialect detection mirrors packages/db/src/dialect.ts (kept inline here so
+ * Engine detection mirrors detectEngine in packages/db/src/engine.ts (kept inline here so
  * drizzle-kit CLI doesn't need to load the full runtime module).
  */
 function detectDialect(url: string): "sqlite" | "postgres" {

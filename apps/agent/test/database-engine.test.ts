@@ -143,7 +143,7 @@ describe("admin infrastructure API", () => {
       { method: "GET", path: "/api/health" },
       { method: "GET", path: "/api/admin/stats" },
     ]);
-    expect(JSON.parse(health!.body).services).toMatchObject({ database: "healthy", databaseDialect: "mongodb" });
+    expect(JSON.parse(health!.body).services).toMatchObject({ database: "healthy", databaseEngine: "mongodb" });
     expect(stats!.status, stats!.body).toBe(200);
     expect(JSON.parse(stats!.body)).toMatchObject({ tenants: 0, bots: 0 });
     // Nothing migrated this database, so it may hold no bytes yet; null would mean the size could not be read.

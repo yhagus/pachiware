@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getInfraConfig, saveRedisUrl, getGitAllowedHosts, saveGitAllowedHosts, activeDialect, redactedDatabaseHost } from "@pachiware/db";
+import { getInfraConfig, saveRedisUrl, getGitAllowedHosts, saveGitAllowedHosts, activeEngine, redactedDatabaseHost } from "@pachiware/db";
 import { object } from "../validation.js";
 import { redis, reconnectRedis } from "../../cache/redis.js";
 export const infrastructureRoutes = new Hono();
@@ -28,7 +28,7 @@ infrastructureRoutes.get("/", async (c) => {
   return c.json({
     success: true,
     infrastructure: {
-      databaseEngine: activeDialect,
+      databaseEngine: activeEngine,
       databaseHost: redactedDatabaseHost(infra.databaseUrl),
       redisUrl: maskConnectionUrl(infra.redisUrl),
       rawRedisUrl: infra.redisUrl,
