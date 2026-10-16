@@ -112,6 +112,10 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
     if (!it) return missing();
     if (seg.length === 4) return pick(expandItem(it, expand), fields);
     const of = (list: Obj[]) => list.filter((x) => x.issue === it.id);
+    if (seg.length === 6 && seg[4] === "comments") {
+      const c = of(comments).find((x) => x.id === seg[5]);
+      return !c ? missing() : expand.includes("actor") ? { ...c, actor: userLite(c.actor) } : c;
+    }
     switch (seg[4]) {
       case "comments": return page(of(comments).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).map((c) => (expand.includes("actor") ? { ...c, actor: userLite(c.actor) } : c)), url);
       case "activities": return page(of(activities).sort((a, b) => (a.created_at < b.created_at ? -1 : 1)).map((a) => (expand.includes("actor") ? { ...a, actor: userLite(a.actor) } : a)), url);
@@ -147,13 +151,20 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
       Object.assign(it, settable(body), { updated_at: "2026-10-02T09:00:00.000000Z" });
       return it;
     }
+    if (seg[4] === "comments") {
+      // Like Plane, the comment's actor is the API user, and created_by is taken from the body when sent.
+      if (seg.length === 5 && req.method === "POST") return json(201, api.comment({ issue: it.id, project: p.id, comment_html: body.comment_html ?? "", access: body.access ?? "INTERNAL", actor: "u-bot", created_by: body.created_by ?? "u-bot" }));
+      const c = comments.find((x) => x.id === seg[5] && x.issue === it.id);
+      if (!c) return missing();
+      if (req.method === "PATCH") return Object.assign(c, { comment_html: body.comment_html ?? c.comment_html, edited_at: "2026-10-02T09:00:00.000000Z" });
+    }
     return json(405, { detail: `Method "${req.method}" not allowed.` });
   }
 
   s.http.on(new RegExp(`^[A-Z]+ https://${host.replace(/\./g, "\\.")}/api/v1/`), respond);
 
   const base = (o: Obj) => ({ id: uuid(), created_at: STAMP, updated_at: STAMP, deleted_at: null, ...o });
-  return {
+  const api = {
     writes,
     user(o: Obj): Obj { const u = { avatar: "", avatar_url: null, first_name: "", last_name: "", email: "", ...o }; users.push(u); return u; },
     project(o: Obj, memberIds: string[] = []) {
@@ -172,4 +183,5 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
     attachment(o: Obj) { const a = base({ attributes: { name: "file.txt", type: "text/plain", size: 10 }, asset: "ws-1/abc-file.txt", entity_type: "ISSUE_ATTACHMENT", is_uploaded: true, size: 10, storage_metadata: {}, ...o }); attachments.push(a); return a; },
     relate(itemId: string, rel: Obj) { relations.set(itemId, rel); },
   };
+  return api;
 }

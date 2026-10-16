@@ -4,11 +4,11 @@
  * Markdown and go to Plane as HTML.
  */
 import type { ToolDefinition, ToolPolicy } from "../types.js";
-import { planeRequest, inWorkspace } from "./client.js";
+import { planeRequest, inWorkspace, PlaneError } from "./client.js";
 import { planeHtml } from "./markdown.js";
-import { planeTarget, resolvePlaneProject, type PlaneTarget } from "./projectRef.js";
+import { planeTarget, resolvePlaneProject, UUID, type PlaneTarget } from "./projectRef.js";
 import { resolveWorkItem, workItemKey, workItemPath, projectNames, planeUserName } from "./resolve.js";
-import { planeWrite, originLine } from "./write.js";
+import { planeWrite, originLine, ORIGIN_LINE } from "./write.js";
 import { ACCOUNT, ITEM, PROJECT_OF_ID, PRIORITIES } from "./workItems.js";
 
 type Obj = Record<string, any>;
@@ -47,11 +47,17 @@ export const workItemWriteTools: ToolDefinition[] = [
       addLabels: NAMES("Label"), removeLabels: NAMES("Label"),
       account: ACCOUNT,
     }, required: ["item"] } },
+  { name: "workItemComment", description: `Comments on a work item. The body is Markdown; a line saying who asked from which Discord channel is added at its end.${CONFIRM}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, body: { type: "string", description: "Markdown." }, account: ACCOUNT }, required: ["item", "body"] } },
+  { name: "workItemEditComment", description: `Replaces the text of a comment that this Plane account wrote (see workItemComments for ids). Comments written by people are refused.${CONFIRM}`,
+    parameters: { type: "object", properties: { item: ITEM, project: PROJECT_OF_ID, comment: { type: "string", description: "The comment's id." }, body: { type: "string", description: "The new text, in Markdown." }, account: ACCOUNT }, required: ["item", "comment", "body"] } },
 ];
 
 export const workItemWriteToolPolicy: Record<string, ToolPolicy> = {
   workItemCreate: { effect: "write", group: "Work items" },
   workItemUpdate: { effect: "write", group: "Work items" },
+  workItemComment: { effect: "write", group: "Work items" },
+  workItemEditComment: { effect: "write", group: "Work items" },
 };
 
 const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -77,6 +83,18 @@ function title(v: unknown): string | null {
   return name;
 }
 const resolveAll = (names: string[], one: (name: string) => Promise<Obj>) => Promise.all(names.map((n) => one(n)));
+function markdown(v: unknown, what: string): string {
+  const md = text(v);
+  if (!md) throw new Error(`Pass "${what}", in Markdown.`);
+  return md;
+}
+const clip = (s: string, max = 300) => (s.length > max ? `${s.slice(0, max)}…` : s);
+
+/** The work item a per-item write is about, with its target. */
+async function itemOf(a: Obj, ctx: Parameters<typeof planeTarget>[0]) {
+  const t = await planeTarget(ctx, a);
+  return { t, w: await resolveWorkItem(t, a.item, a.project, { fields: "id,name,sequence_id,project" }) };
+}
 
 /** The assignees Plane dropped from a write without saying so: people who are Guests or no longer in the Plane project. */
 function droppedNote(wanted: Obj[], kept: unknown) {
@@ -131,8 +149,7 @@ export const workItemWriteHandlers = {
     };
   }),
   workItemUpdate: planeWrite("workItemUpdate", async (a, ctx) => {
-    const t = await planeTarget(ctx, a);
-    const w = await resolveWorkItem(t, a.item, a.project, { fields: "id,name,sequence_id,project" });
+    const { t, w } = await itemOf(a, ctx);
     const { body, said, names } = await fields(t, w.project, a);
     const name = title(a.name);
     if (name) { body.name = name; said.push(`title "${name}"`); }
@@ -162,6 +179,41 @@ export const workItemWriteHandlers = {
         }
         const updated = await planeRequest<Obj>(t.conn, workItemPath(t, w), { method: "PATCH", body });
         return { key: w.key, changed: said, ...droppedNote(sets.assignees.add, updated?.assignees) };
+      },
+    };
+  }),
+  workItemComment: planeWrite("workItemComment", async (a, ctx) => {
+    const { t, w } = await itemOf(a, ctx);
+    const body = markdown(a.body, "body");
+    return {
+      t,
+      summary: `Comment on ${w.key} "${w.item.name}": ${clip(body)}`,
+      run: async () => {
+        const c = await planeRequest<Obj>(t.conn, workItemPath(t, w, "comments/"), { method: "POST", body: { comment_html: planeHtml(body) + await originLine(ctx), access: "INTERNAL" } });
+        return { key: w.key, commentId: c?.id };
+      },
+    };
+  }),
+  workItemEditComment: planeWrite("workItemEditComment", async (a, ctx) => {
+    const { t, w } = await itemOf(a, ctx);
+    const id = text(a.comment);
+    if (!id || !UUID.test(id)) throw new Error(`Pass "comment" with the comment's id, as workItemComments lists it.`);
+    const body = markdown(a.body, "body");
+    let old: Obj;
+    try { old = await planeRequest<Obj>(t.conn, workItemPath(t, w, `comments/${id.toLowerCase()}/`), { query: { expand: "actor" } }); }
+    catch (e) { if (e instanceof PlaneError && e.status === 404) throw new Error(`${w.key} has no comment ${id}.`); throw e; }
+    // Plane lets any project member change any comment, so the tool checks the author itself: `actor` is who wrote it.
+    const author = String(old?.actor?.id ?? old?.actor ?? "");
+    const self = t.access.account.planeUserId;
+    if (!self || author !== String(self)) throw new Error(`That comment was written by ${planeUserName(old?.actor)}, not by this account's Plane user, so it cannot be edited. Comment again instead.`);
+    // The comment keeps the line that says who asked for it.
+    const origin = ORIGIN_LINE.exec(String(old.comment_html ?? ""))?.[0] ?? "";
+    return {
+      t,
+      summary: `Edit a comment on ${w.key} "${w.item.name}" to: ${clip(body)}`,
+      run: async () => {
+        await planeRequest(t.conn, workItemPath(t, w, `comments/${id.toLowerCase()}/`), { method: "PATCH", body: { comment_html: planeHtml(body) + origin } });
+        return { key: w.key, commentId: id, edited: true };
       },
     };
   }),

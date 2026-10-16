@@ -106,3 +106,40 @@ discordScenario("workItemUpdate adds or removes one assignee or label and keeps 
   expect(nothing.result.error).toContain("Nothing to change");
   expect(plane.writes.length).toBe(before);
 });
+
+discordScenario("a comment ends with the origin line and a field edit adds none; no write carries created_by", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login" });
+
+  const comment = await ask(s, "workItemComment", { item: "ENG-42", body: "Seen on **Safari** too." });
+  expect(plane.writes).toEqual([]);
+  await s.discord.click(comment.confirmation!, "Confirm");
+  expect(plane.writes.at(-1)).toMatchObject({ method: "POST", path: `projects/${P1}/work-items/${item.id}/comments/` });
+  expect(plane.writes.at(-1)!.body.comment_html).toMatch(/^<p>Seen on <strong>Safari<\/strong> too\.<\/p><p><em>Sent from Discord by Alice in #channel-1 \(thread: workItemComment\)<\/em><\/p>$/);
+
+  const edit = await ask(s, "workItemUpdate", { item: "ENG-42", name: "Fix login on Safari", description: "Only *Safari*." });
+  await s.discord.click(edit.confirmation!, "Confirm");
+  expect(plane.writes.at(-1)!.body).toEqual({ name: "Fix login on Safari", description_html: "<p>Only <em>Safari</em>.</p>" });
+
+  expect(plane.writes.length).toBe(2);
+  for (const write of plane.writes) for (const key of ["created_by", "created_at", "actor"]) expect(write.body).not.toHaveProperty(key);
+});
+
+discordScenario("workItemEditComment edits only a comment the account's Plane user wrote, and keeps its origin line", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login" });
+  const theirs = plane.comment({ issue: item.id, project: P1, actor: w.budi.id, created_by: w.budi.id, comment_html: "<p>I think it is the cookie.</p>" });
+  const ours = plane.comment({ issue: item.id, project: P1, actor: "u-bot", created_by: "u-bot", comment_html: "<p>Seen on Safari.</p><p><em>Sent from Discord by Bob in #channel-1</em></p>" });
+
+  const refused = await ask(s, "workItemEditComment", { item: "ENG-42", comment: theirs.id, body: "It is not the cookie." });
+  expect(refused.result.error).toContain("Budi Santoso (budi)");
+  expect(refused.confirmation).toBeUndefined();
+
+  const edit = await ask(s, "workItemEditComment", { item: "ENG-42", comment: ours.id, body: "Seen on Safari and Firefox." });
+  await s.discord.click(edit.confirmation!, "Confirm");
+  expect(plane.writes).toEqual([{ method: "PATCH", path: `projects/${P1}/work-items/${item.id}/comments/${ours.id}/`, body: { comment_html: "<p>Seen on Safari and Firefox.</p><p><em>Sent from Discord by Bob in #channel-1</em></p>" } }]);
+});
