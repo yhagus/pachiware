@@ -4,6 +4,7 @@ import { loadPlaneAccess, planeConnOf, allowedPlaneProjectIds, PLANE_NOT_ENABLED
 import { cycleTools, cycleHandlers, cycleToolPolicy } from "../plane/cycles.js";
 import { moduleTools, moduleHandlers, moduleToolPolicy } from "../plane/modules.js";
 import { intakeTools, intakeHandlers, intakeToolPolicy } from "../plane/intake.js";
+import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools } from "../plane/workspace.js";
 
 /** Tool groups in display order, as Availability rules and the console show them. Every Plane tool joins one; a group shows once it holds a tool. */
 export const PLANE_GROUPS = ["Browse", "Work items", "Cycles", "Modules", "Intake", "Project admin", "Workspace"];
@@ -16,6 +17,7 @@ export const planeTools: ToolDefinition[] = [
   ...cycleTools,
   ...moduleTools,
   ...intakeTools,
+  ...workspaceTools,
 ];
 
 export const planeToolPolicy: Record<string, ToolPolicy> = {
@@ -23,6 +25,7 @@ export const planeToolPolicy: Record<string, ToolPolicy> = {
   ...cycleToolPolicy,
   ...moduleToolPolicy,
   ...intakeToolPolicy,
+  ...workspaceToolPolicy,
 };
 
 export const planeHandlers: Record<string, ToolHandler> = {
@@ -45,6 +48,7 @@ export const planeHandlers: Record<string, ToolHandler> = {
   ...cycleHandlers,
   ...moduleHandlers,
   ...intakeHandlers,
+  ...workspaceHandlers,
 };
 
 export const planeSkill: SkillModule = {
@@ -55,5 +59,7 @@ export const planeSkill: SkillModule = {
   handlers: planeHandlers,
   capabilities: ["plane"],
   toolPolicy: planeToolPolicy,
+  // Workspace-level tools are offered only where the Plane scope is "all Plane projects".
+  hiddenTools: hiddenWorkspaceTools,
   groups: PLANE_GROUPS.filter((g) => Object.values(planeToolPolicy).some((p) => p.group === g)),
 };

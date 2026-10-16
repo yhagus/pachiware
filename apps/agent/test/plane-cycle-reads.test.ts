@@ -144,3 +144,30 @@ discordScenario("intakeList answers an empty list with a note when the Plane pro
   expect(list.intake).toEqual([]);
   expect(list.note).toBe("Intake is switched off in the Plane project ENG.");
 });
+
+discordScenario("workspace tools are offered only where the scope is all Plane projects, and read the Plane workspace's members and invitations", async (s) => {
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const acc = await s.plane({ projects: ["*"] });
+  s.http.on(`GET ${API}/members/`, () => [{ ...BUDI, role: 15 }, { id: "u-bot", first_name: "Plane", last_name: "Bot", email: "bot@acme.test", avatar: "", avatar_url: null, display_name: "pachibot", role: 20 }]);
+  s.http.on(`GET ${API}/invitations/`, () => [{ id: "inv-1", email: "sari@example.com", role: 5, created_at: "2026-10-10T00:00:00Z", updated_at: "2026-10-10T00:00:00Z", responded_at: null, accepted: false }]);
+
+  const members = await ask(s, "workspaceMembers");
+  expect(members.members).toEqual([{ id: "u-budi", displayName: "budi", name: "Budi Santoso", role: "Member" }, { id: "u-bot", displayName: "pachibot", name: "Plane Bot", role: "Admin" }]);
+  const invitations = await ask(s, "workspaceInvitations");
+  expect(invitations.invitations).toEqual([{ id: "inv-1", email: "sari@example.com", role: "Guest", invitedAt: "2026-10-10T00:00:00Z", accepted: false, respondedAt: null }]);
+  expect(s.model.tools.at(-1)).toEqual(expect.arrayContaining(["workspaceMembers", "workspaceInvitations", "cycleList"]));
+
+  // A channel rule naming one Plane project narrows the scope there: the workspace tools are not offered, and a call is refused.
+  await repositories().plane.replaceScopes(s.tenant.id, s.bot.id, "guild-1", "channel-2", [{ planeAccountId: acc.id, projectIds: [ENG] }]);
+  s.discord.channel("channel-2");
+  const before = s.http.requests.length;
+  let refused: any;
+  s.model.script({ tool: "workspaceMembers" }, (turn) => { refused = turn.toolResults[0]; return "done"; });
+  await s.discord.send(`${s.discord.mention} who is in the Plane workspace?`, { channel: "channel-2" });
+  const offered = s.model.tools.at(-1)!;
+  expect(offered).toContain("cycleList");
+  expect(offered).not.toContain("workspaceMembers");
+  expect(offered).not.toContain("workspaceInvitations");
+  expect(JSON.stringify(refused)).toContain("unavailable here");
+  expect(s.http.requests.length).toBe(before);
+});
