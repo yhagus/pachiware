@@ -18,7 +18,7 @@ type Scenario = { http: { on(match: RegExp, respond: (req: HttpRequest) => unkno
 
 export const STAMP = "2026-10-01T09:00:00.000000Z";
 
-export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } = {}) {
+export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", uploadUrl = "https://plane-uploads.s3.amazonaws.com/uploads" } = {}) {
   const projects: Obj[] = [], states: Obj[] = [], labels: Obj[] = [], users: Obj[] = [], items: Obj[] = [];
   const members = new Map<string, string[]>();
   const comments: Obj[] = [], activities: Obj[] = [], links: Obj[] = [], attachments: Obj[] = [];
@@ -120,7 +120,7 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
       case "comments": return page(of(comments).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).map((c) => (expand.includes("actor") ? { ...c, actor: userLite(c.actor) } : c)), url);
       case "activities": return page(of(activities).sort((a, b) => (a.created_at < b.created_at ? -1 : 1)).map((a) => (expand.includes("actor") ? { ...a, actor: userLite(a.actor) } : a)), url);
       case "links": return page(of(links), url);
-      case "attachments": return of(attachments);
+      case "attachments": return of(attachments).filter((a) => a.is_uploaded);
       case "relations": return { blocking: [], blocked_by: [], duplicate: [], relates_to: [], start_after: [], start_before: [], finish_after: [], finish_before: [], ...relations.get(it.id) };
       default: return html404();
     }
@@ -168,6 +168,17 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
       if (at < 0) return missing();
       if (req.method === "DELETE") { links.splice(at, 1); return new Response(null, { status: 204 }); }
     }
+    if (seg[4] === "attachments") {
+      if (seg.length === 5 && req.method === "POST") {
+        if (!body.name || typeof body.size !== "number") return json(400, { error: "Invalid request.", status: false });
+        const asset = `ws-1/${uuid().slice(-6)}-${body.name}`;
+        const a = api.attachment({ issue: it.id, project: p.id, attributes: { name: body.name, type: body.type, size: body.size }, size: body.size, is_uploaded: false, asset });
+        return { upload_data: { url: uploadUrl, fields: { "Content-Type": body.type, key: asset, policy: "cG9saWN5", "x-amz-signature": "sig" } }, asset_id: a.id, attachment: a, asset_url: `/api/assets/v2/workspaces/${slug}/projects/${p.id}/issues/${it.id}/attachments/${a.id}/` };
+      }
+      const a = attachments.find((x) => x.id === seg[5] && x.issue === it.id);
+      if (!a) return missing();
+      if (req.method === "PATCH") { a.is_uploaded = true; return new Response(null, { status: 204 }); }
+    }
     if (seg[4] === "relations" && seg.length === 5 && req.method === "POST") {
       const rel: Obj = relations.get(it.id) ?? {};
       const others = (body.issues ?? []).map((id: string) => items.find((x) => x.id === id)).filter(Boolean);
@@ -179,6 +190,14 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
   }
 
   s.http.on(new RegExp(`^[A-Z]+ https://${host.replace(/\./g, "\\.")}/api/v1/`), respond);
+  // The presigned upload, at either scheme so a test sees which one was used. Its body is recorded as the form's keys in order and the file.
+  const upload = new URL(uploadUrl);
+  s.http.on(new RegExp(`^POST https?://${upload.host.replace(/\./g, "\\.")}${upload.pathname}$`), async (req) => {
+    const form = req.body as FormData;
+    const file = form.get("file") as File | null;
+    writes.push({ method: "POST", path: req.url, body: { keys: [...form.keys()], file: file && { name: file.name, type: file.type, text: await file.text() } } });
+    return new Response(null, { status: 204 });
+  });
 
   const base = (o: Obj) => ({ id: uuid(), created_at: STAMP, updated_at: STAMP, deleted_at: null, ...o });
   const api = {

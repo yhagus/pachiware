@@ -3,8 +3,8 @@
  * before the change is queued for the asker's Confirm, and again when it runs. Descriptions and comments arrive as
  * Markdown and go to Plane as HTML.
  */
-import type { ToolDefinition, ToolPolicy } from "../types.js";
-import { planeRequest, planeList, inWorkspace, PlaneError } from "./client.js";
+import type { DiscordAttachmentInfo, DiscordMessageInfo, SkillContext, ToolDefinition, ToolPolicy } from "../types.js";
+import { planeRequest, planeList, planeUpload, inWorkspace, PlaneError } from "./client.js";
 import { planeHtml } from "./markdown.js";
 import { planeTarget, resolvePlaneProject, UUID, type PlaneTarget } from "./projectRef.js";
 import { resolveWorkItem, workItemKey, workItemPath, projectNames, planeUserName } from "./resolve.js";
@@ -64,6 +64,13 @@ export const workItemWriteTools: ToolDefinition[] = [
       related: { type: "array", items: { type: "string" }, description: "Keys of the other work items, such as ENG-41." },
       account: ACCOUNT,
     }, required: ["item", "relation", "related"] } },
+  { name: "workItemAttach", description: `Attaches a file someone posted in this channel or thread to a work item, at most 5 MB. Name the message by its id, from a line such as "Alice (message 123): ..." or "[file: report.pdf (message 123)]".${CONFIRM}`,
+    parameters: { type: "object", properties: {
+      item: ITEM, project: PROJECT_OF_ID,
+      messageId: { type: "string", description: "The id of the Discord message holding the file." },
+      name: { type: "string", description: "The file's name, when the message holds more than one." },
+      account: ACCOUNT,
+    }, required: ["item", "messageId"] } },
 ];
 
 export const workItemWriteToolPolicy: Record<string, ToolPolicy> = {
@@ -74,7 +81,41 @@ export const workItemWriteToolPolicy: Record<string, ToolPolicy> = {
   workItemAddLink: { effect: "write", group: "Work items" },
   workItemRemoveLink: { effect: "write", group: "Work items" },
   workItemRelate: { effect: "write", group: "Work items" },
+  workItemAttach: { effect: "write", group: "Work items" },
 };
+
+/** Plane's default FILE_SIZE_LIMIT; its storage refuses a larger file. */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const DOWNLOAD_TIMEOUT_MS = 30_000;
+
+/** The file of a message in this channel, or in the channel a thread sits in, since a file is often posted before the bot's thread starts. */
+async function discordFile(ctx: SkillContext, messageId: unknown, name: unknown): Promise<DiscordAttachmentInfo> {
+  const id = text(messageId);
+  if (!id) throw new Error(`Pass "messageId", the id of the message holding the file.`);
+  if (!ctx.discord || !ctx.channelId) throw new Error("Files can be attached only from a Discord channel.");
+  let message: DiscordMessageInfo | null = null;
+  for (const channelId of new Set([ctx.channelId, ctx.parentChannelId].filter((c): c is string => !!c))) {
+    message = await ctx.discord.fetchMessage({ channelId, messageId: id }).catch(() => null);
+    if (message) break;
+  }
+  if (!message) throw new Error(`Message ${id} was not found in this channel.`);
+  const wanted = text(name)?.toLowerCase();
+  const files = wanted ? message.attachments.filter((a) => a.name.toLowerCase() === wanted) : message.attachments;
+  if (!files.length) throw new Error(wanted ? `Message ${id} has no file named ${name}.` : `Message ${id} has no file.`);
+  if (files.length > 1) throw new Error(`Message ${id} holds several files (${files.map((a) => a.name).join(", ")}); pass "name".`);
+  const file = files[0]!;
+  if (file.size > MAX_ATTACHMENT_BYTES) throw new Error(`${file.name} is ${mb(file.size)}; Plane takes files up to 5 MB.`);
+  return file;
+}
+const mb = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+
+async function download(file: DiscordAttachmentInfo): Promise<Uint8Array> {
+  const res = await fetch(file.url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) }).catch(() => null);
+  if (!res?.ok) throw new Error(`${file.name} could not be downloaded from Discord. Ask for it to be posted again.`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (bytes.byteLength > MAX_ATTACHMENT_BYTES) throw new Error(`${file.name} is ${mb(bytes.byteLength)}; Plane takes files up to 5 MB.`);
+  return bytes;
+}
 
 const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 const isNone = (v: unknown) => text(v)?.toLowerCase() === "none";
@@ -284,6 +325,24 @@ export const workItemWriteHandlers = {
       run: async () => {
         await planeRequest(t.conn, workItemPath(t, w, "relations/"), { method: "POST", body: { relation_type: relation, issues: others.map((o) => o.item.id) } });
         return { key: w.key, relation, related: others.map((o) => o.key), note: RELATE_NOTE };
+      },
+    };
+  }),
+  workItemAttach: planeWrite("workItemAttach", async (a, ctx) => {
+    const { t, w } = await itemOf(a, ctx);
+    const file = await discordFile(ctx, a.messageId, a.name);
+    return {
+      t,
+      summary: `Attach ${file.name} (${mb(file.size)}) to ${w.key} "${w.item.name}"`,
+      run: async () => {
+        const bytes = await download(file);
+        const type = file.contentType?.split(";")[0]?.trim() || "application/octet-stream";
+        const asked = await planeRequest<Obj>(t.conn, workItemPath(t, w, "attachments/"), { method: "POST", body: { name: file.name, type, size: bytes.byteLength } });
+        if (!asked?.upload_data?.url || !asked.asset_id) throw new Error("Plane did not give an upload address for the file.");
+        await planeUpload(t.conn, asked.upload_data, { name: file.name, type, bytes });
+        // Plane lists the attachment only once it is told the upload finished.
+        await planeRequest(t.conn, workItemPath(t, w, `attachments/${asked.asset_id}/`), { method: "PATCH", body: { is_uploaded: true } });
+        return { key: w.key, attachment: { id: asked.asset_id, name: file.name, size: bytes.byteLength } };
       },
     };
   }),

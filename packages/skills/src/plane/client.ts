@@ -134,6 +134,41 @@ export async function planeList<T = any>(conn: PlaneConn, path: string, opts: { 
   return { items, more: true };
 }
 
+/** The presigned POST Plane answers an attachment request with (`upload_data`). */
+export type PlaneUploadData = { url: string; fields: Record<string, string> };
+
+/**
+ * Sends a file to Plane's file storage through a presigned POST: every field, then the file last. The API key is not sent,
+ * since the storage host is S3 or MinIO, not Plane's API. A redirect is refused here too.
+ */
+export async function planeUpload(conn: PlaneConn, upload: PlaneUploadData, file: { name: string; type: string; bytes: Uint8Array }): Promise<void> {
+  const target = uploadTarget(conn, upload.url);
+  const form = new FormData();
+  for (const [k, v] of Object.entries(upload.fields ?? {})) form.append(k, String(v));
+  form.append("file", new Blob([file.bytes as BlobPart], { type: file.type }), file.name);
+  let res: Response;
+  try { res = await fetch(target, { method: "POST", body: form, redirect: "error", signal: AbortSignal.timeout(TIMEOUT_MS) }); }
+  catch (e) { throw new PlaneError(`Could not reach Plane's file storage at ${target.host}: ${(e as Error)?.message ?? e}`, 0); }
+  if (res.status >= 300 && res.status < 400) throw new PlaneError(`Plane's file storage at ${target.host} answered with a redirect, which is refused.`, 0);
+  if (!res.ok) {
+    const code = /<Code>([^<]+)<\/Code>/.exec(await res.text())?.[1];
+    throw new PlaneError(`Plane's file storage refused the upload (${res.status}${code ? ` ${code}` : ""}).`, res.status);
+  }
+}
+
+/**
+ * Where the upload goes. A self-hosted Plane with its own MinIO names its own host, and behind a TLS proxy it says http://,
+ * so its own host takes the base URL's scheme. Any other http:// storage must be on Allowed hosts.
+ */
+function uploadTarget(conn: PlaneConn, raw: string): URL {
+  const base = new URL(conn.baseUrl ?? PLANE_CLOUD_URL);
+  let url: URL;
+  try { url = new URL(raw, base); } catch { throw new PlaneError("Plane answered with an upload address that is not a URL.", 0); }
+  if (url.host === base.host) url.protocol = base.protocol;
+  else if (url.protocol !== "https:" && !(url.protocol === "http:" && isListedHost(url.href))) throw new PlaneError(`Plane's file storage at ${url.host} is not served over https, so the file was not sent. An admin can add its host to Allowed hosts.`, 0);
+  return url;
+}
+
 export type PlaneProject = { id: string; name: string; identifier: string };
 export type PlaneUser = { id: string; name: string };
 

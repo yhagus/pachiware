@@ -1,6 +1,7 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import { fakePlane } from "./support/fakePlane";
+import { attachment } from "./support/images";
 
 // Plane is faked at fetch in the shapes Plane v1.3.1 answers with. The account's Plane user is "u-bot".
 
@@ -174,4 +175,46 @@ discordScenario("links are added and removed by URL; workItemRelate relates work
   await s.discord.click(relate.confirmation!, "Confirm");
   expect(plane.writes.at(-1)).toEqual({ method: "POST", path: `projects/${P1}/work-items/${item.id}/relations/`, body: { relation_type: "blocked_by", issues: [blocker.id, mockups.id] } });
   expect(relate.confirmation!.content).toContain("cannot remove a relation");
+});
+
+discordScenario("workItemAttach uploads a file posted in Discord through Plane's presigned upload, at most 5 MB, after Confirm", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login" });
+  const log = new TextEncoder().encode("ERROR redirect loop\n");
+  const [posted, huge] = s.discord.history([
+    { content: "the log", attachments: [attachment(s, "error.log", log, { contentType: "text/plain" })] },
+    { content: "the dump", attachments: [attachment(s, "heap.bin", null, { contentType: "application/octet-stream", size: 6 * 1024 * 1024 })] },
+  ]);
+
+  const tooBig = await ask(s, "workItemAttach", { item: "ENG-42", messageId: huge!.id });
+  expect(tooBig.result.error).toContain("5 MB");
+  const attach = await ask(s, "workItemAttach", { item: "ENG-42", messageId: posted!.id });
+  expect(attach.result.summary).toContain("error.log");
+  expect(plane.writes).toEqual([]);
+
+  await s.discord.click(attach.confirmation!, "Confirm");
+  const [request, upload, complete] = plane.writes;
+  expect(request).toEqual({ method: "POST", path: `projects/${P1}/work-items/${item.id}/attachments/`, body: { name: "error.log", type: "text/plain", size: log.length } });
+  expect(upload!.method).toBe("POST");
+  expect(upload!.path).toBe("https://plane-uploads.s3.amazonaws.com/uploads");
+  expect(upload!.body.keys).toEqual(["Content-Type", "key", "policy", "x-amz-signature", "file"]);
+  expect(upload!.body.file).toEqual({ name: "error.log", type: expect.stringMatching(/^text\/plain/), text: "ERROR redirect loop\n" });
+  expect(complete).toMatchObject({ method: "PATCH", path: expect.stringMatching(new RegExp(`^projects/${P1}/work-items/${item.id}/attachments/[0-9a-f-]+/$`)) });
+  expect(attach.confirmation!.content).toContain("Completed");
+  expect(attach.confirmation!.content).not.toMatch(/amazonaws|asset/);
+});
+
+discordScenario("on a self-hosted Plane whose file storage answers with its own host over http, the upload goes over https", async (s) => {
+  await s.plane({ projects: ["*"], baseUrl: "https://plane.acme.test" });
+  const plane = fakePlane(s, { host: "plane.acme.test", uploadUrl: "http://plane.acme.test/uploads" });
+  world(plane);
+  plane.item({ project: P1, sequence_id: 42, name: "Fix login" });
+  const [posted] = s.discord.history([{ content: "shot", attachments: [attachment(s, "shot.txt", new TextEncoder().encode("x"), { contentType: "text/plain" })] }]);
+
+  const attach = await ask(s, "workItemAttach", { item: "ENG-42", messageId: posted!.id });
+  await s.discord.click(attach.confirmation!, "Confirm");
+  expect(plane.writes.map((w) => w.path)[1]).toBe("https://plane.acme.test/uploads");
+  expect(attach.confirmation!.content).toContain("Completed");
 });
