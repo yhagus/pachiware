@@ -1118,5 +1118,9 @@ Tickets [#173](https://github.com/yhagus/pachiware/issues/173)–[#177](https://
   - AGENTS.md gains one pointer line beside the tasks.md one, and the `packages/db/` workspace line now names repositories, migrations, engine lock, runtime config, crypto and the contract suites.
   - SQL schema changes are hand-written in `migrate.ts` (`definitions()` plus guarded `ALTER TABLE`); `drizzle-kit generate` plays no part, and there is no `drizzle/` output folder.
   - Verification: `bun run typecheck` exits 0; `bun test` 839 pass, 236 skip, 0 fail across 140 files.
-- [ ] #177 A commit is refused while its message still has merge-conflict comments.
+- [x] #177 A commit is refused while its message still has merge-conflict comments.
+  - `.githooks/commit-msg` (tracked 100755, so `bun install`'s `core.hooksPath` picks it up) refuses a message with a `<commentChar> Conflicts:` line followed by `<commentChar><tab>path` lines, and tells the committer to run `git commit` without `--no-edit`.
+  - Git runs commit-msg before it cleans the message, so the hook only looks when the comment lines will survive: no editor ran (git sets `GIT_EDITOR=:`), or `commit.cleanup` is `whitespace`/`verbatim`. A `--cleanup=` flag on the command line isn't visible to the hook.
+  - Reproduced on git 2.39: merge and cherry-pick conflicts always write the block commented, under `core.commentChar` `;` and `auto` and with `--cleanup=scissors` (below the cut line). No current mode writes it uncommented, so a plain `Conflicts:` line in prose passes.
+  - Tested in `packages/cli/test/commit-msg-hook.test.ts` (next to the `install.sh` tests) against scratch repos with real conflicted and clean merges.
 - [ ] Code review of `main...spec/173-177-test-hardening`, fixed in one pass.
