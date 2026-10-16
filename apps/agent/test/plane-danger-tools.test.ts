@@ -206,6 +206,15 @@ discordScenario("projectMemberAdd adds a Plane workspace member to a Plane proje
 
   const unknown = await ask(s, "projectMemberAdd", { project: "ENG", member: "Joko" });
   expect(unknown.result.error).toContain(`No Plane workspace member matches "Joko"`);
+  // The scope here is one Plane project, so the Plane workspace's member list stays hidden.
+  expect(unknown.result.error).not.toMatch(/budi|sari|rudi|pachibot/i);
+  const several = await ask(s, "projectMemberAdd", { project: "ENG", member: "udi" });
+  expect(several.result.error).toContain("Budi Santoso (budi)");
+  expect(several.result.error).toContain("Rudi Hartono (rudi)");
+  expect(several.result.error).not.toMatch(/sari|pachibot/i);
+  const me = await ask(s, "projectMemberAdd", { project: "ENG", member: "me" });
+  expect(me.result.error).toContain(`Plane does not know who "me" is`);
+  expect(me.result.error).not.toContain("workspaceMembers");
   const listed = await ask(s, "projectMemberAdd", { project: "ENG", member: "rudi" });
   expect(listed.result.error).toContain("Rudi Hartono (rudi) is already listed among the members of ENG");
   expect(listed.result.error).toContain("cannot add a removed member back");

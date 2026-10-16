@@ -310,9 +310,9 @@ export const projectAdminHandlers = {
   projectMemberAdd: planeWrite("projectMemberAdd", async (a, ctx) => {
     const t = await resolvePlaneProject(ctx, a);
     const [roleName, role] = memberRole(a.role);
-    if (typeof a.member === "string" && ME.test(a.member.trim())) throw new Error(`Plane does not know who "${a.member.trim()}" is. Ask the person for their name as workspaceMembers lists it.`);
+    if (typeof a.member === "string" && ME.test(a.member.trim())) throw new Error(`Plane does not know who "${a.member.trim()}" is. Ask the person for the name or username they have in Plane.`);
     const everyone = (await planeRequest<Obj[]>(t.conn, inWorkspace(t.conn, "members/"))) ?? [];
-    const user = pickByName(everyone, a.member, planeUserAliases, "Plane workspace member", planeUserName);
+    const user = pickByName(everyone, a.member, planeUserAliases, "Plane workspace member", planeUserName, { private: true });
     const who = planeUserName(user);
     // Plane's list of a Plane project's members keeps people who were removed, and its API cannot add them back.
     const notAgain = `${who} is already listed among the members of ${t.project.identifier}. Plane lists removed members there too, and its API cannot add a removed member back or change a member's role; that has to be done in Plane itself.`;

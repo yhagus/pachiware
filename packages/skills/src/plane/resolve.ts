@@ -103,16 +103,14 @@ export function matchByName<T>(list: T[], name: string, aliases: (x: T) => strin
 /** Words a person uses for themselves. Plane cannot tell who that is, so a tool asks for the name instead. */
 export const ME = /^(me|myself|i|saya|aku)$/i;
 
-/**
- * The one entry `name` means, for a change: none or several throw a message that lists the choices, so the model asks
- * the person instead of guessing.
- */
-export function pickByName<T>(list: T[], name: unknown, aliases: (x: T) => string[], what: string, show: (x: T) => string): T {
+/** The one entry `name` means; none or several throw with the choices, so the model asks. `private` keeps the full list out of a no-match. */
+export function pickByName<T>(list: T[], name: unknown, aliases: (x: T) => string[], what: string, show: (x: T) => string, options: { private?: boolean } = {}): T {
   const raw = typeof name === "string" ? name.trim() : "";
   if (!raw) throw new Error(`A ${what} name is empty.`);
   const hits = matchByName(list, raw, aliases);
   if (hits.length === 1) return hits[0]!;
   if (hits.length > 1) throw new Error(`"${raw}" could mean several ${what}s: ${hits.map(show).join("; ")}. Ask the person which one they mean.`);
+  if (options.private) throw new Error(`No ${what} matches "${raw}". Ask the person for the name or username they have in Plane.`);
   throw new Error(`No ${what} matches "${raw}". The ${what}s are: ${list.map(show).join("; ") || "none"}.`);
 }
 
