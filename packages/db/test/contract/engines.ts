@@ -7,6 +7,7 @@ import { dataCollections } from "../../src/mongo/connection.ts";
 import { migrateDatabase, SQL_TABLES } from "../../src/migrate.ts";
 import { builtInSkills, seedDatabase } from "../../src/seed.ts";
 import { createRepositories, type Repositories } from "../../src/repositories/index.ts";
+import { requireTestDatabase } from "../test-database.ts";
 
 /** What a contract test sees of one engine: its repositories, plus a probe no repository offers yet. */
 export type EngineUnderTest = {
@@ -22,7 +23,7 @@ type Fixture = { subject: EngineUnderTest; reset(): Promise<void>; close(): Prom
 
 type Engine = {
   name: string;
-  /** The database to run against, or undefined to skip this engine. */
+  /** The database to run against, or undefined to skip this engine. Throws when it is not a test database. */
   url(): string | undefined;
   /** Opens an empty, migrated and seeded database. */
   open(url: string): Promise<Fixture>;
@@ -37,22 +38,28 @@ const ENGINES: Engine[] = [
     open: (url) => openSql(url),
   },
   {
-    // Point it at a database used only for tests: every table in it is dropped.
+    // Every table in this database is dropped.
     name: "postgres",
-    url: () => process.env.TEST_POSTGRES_URL || undefined,
+    url: () => testUrl("TEST_POSTGRES_URL"),
     open: (url) => openSql(url),
   },
   {
-    // A replica set, e.g. the compose `mongo` service; point it at a test database, which is dropped.
+    // A replica set, e.g. the compose `mongo` service. This whole database is dropped.
     name: "mongodb",
-    url: () => process.env.TEST_MONGODB_URL || undefined,
+    url: () => testUrl("TEST_MONGODB_URL"),
     open: (url) => openMongo(url),
   },
 ];
 
+function testUrl(variable: string): string | undefined {
+  const url = process.env[variable];
+  return url ? requireTestDatabase(variable, url) : undefined;
+}
+
 /**
  * Registers one contract suite per engine. SQLite always runs; any other engine runs only when its
- * TEST_*_URL is set and is skipped otherwise. Each test starts from an empty, seeded database.
+ * TEST_*_URL is set and is skipped otherwise. A TEST_*_URL naming a database without `test` in its name
+ * stops the suite here, before anything connects. Each test starts from an empty, seeded database.
  */
 export function contract(name: string, body: (use: () => EngineUnderTest) => void) {
   for (const engine of ENGINES) {
