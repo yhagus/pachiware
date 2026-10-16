@@ -218,3 +218,12 @@ discordScenario("on a self-hosted Plane whose file storage answers with its own 
   expect(plane.writes.map((w) => w.path)[1]).toBe("https://plane.acme.test/uploads");
   expect(attach.confirmation!.content).toContain("Completed");
 });
+
+discordScenario("with the plane skill on, the agent prompt says Plane changes wait for Confirm and that the origin line is added for the model", async (s) => {
+  await s.plane();
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const prompt = String(s.model.calls[0]!.find((m) => m.role === "system")?.content);
+  expect(prompt).toMatch(/Plane changes[^\n]*pending[^\n]*Confirm/);
+  expect(prompt).toMatch(/who asked[^\n]*do not add/i);
+});
