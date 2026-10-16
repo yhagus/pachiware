@@ -512,7 +512,7 @@ export class DiscordBotManager {
       for (const chunk of plan.messages) await send(chunk);
       if (briefed?.written.length && place && target.isSendable()) await showDrafts(runtime.tenantId, target, place, briefed.written);
       if (output.toolCallsExecuted.length && target.isSendable()) {
-        // Git write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.
+        // Write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.
         for (const { result } of output.toolCallsExecuted) {
           const p = result.success ? pendingOf(result.data) : null;
           if (p) await target.send(confirmMessage(p, actor.id));

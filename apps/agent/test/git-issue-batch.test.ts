@@ -108,7 +108,7 @@ discordScenario("an owner's thread grant does not confirm a batch; only the pers
   s.http.on("POST api.github.com/repos/acme/api/issues/3/comments", () => ({ html_url: "https://github.com/acme/api/issues/3#c1" }));
   s.model.script({ tool: "repoComment", args: { repo: "acme/api", number: 3, kind: "issue", body: "Cutting tickets" } }, "ok");
   await s.discord.send(`${s.discord.mention} comment on #3 that we're cutting tickets`);
-  await s.discord.click(s.discord.botMessages.at(-1)!, "Confirm Git changes in this thread");
+  await s.discord.click(s.discord.botMessages.at(-1)!, "Confirm changes in this thread");
   const before = s.http.requests.length;
 
   s.model.script({ tool: "repoCreateIssues", args: { repo: "acme/api", issues: MAP.slice(0, 1) } }, "Queued.");
@@ -116,7 +116,7 @@ discordScenario("an owner's thread grant does not confirm a batch; only the pers
   const confirmation = s.discord.botMessages.at(-1)!;
   expect(s.http.requests.length).toBe(before);
   expect(confirmation.components[0].components.map((b: any) => b.label)).toEqual(["Confirm", "Cancel"]);
-  expect(confirmation.embeds[0].footer.text).toContain("Confirming Git changes for the thread does not cover it.");
+  expect(confirmation.embeds[0].footer.text).toContain("Confirming changes for the thread does not cover it.");
 
   const stranger = await s.discord.click(confirmation, "Confirm", { user: s.discord.bob });
   expect(stranger.responses).toMatchObject([{ kind: "reply", payload: { content: "Only the person who asked for this can confirm or cancel it.", ephemeral: true } }]);

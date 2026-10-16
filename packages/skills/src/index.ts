@@ -20,6 +20,7 @@ export * from "./gitScope.js";
 export * from "./gitConfirm.js";
 export * from "./guardrails.js";
 export * from "./threadConfirmation.js";
+export * from "./writeConfirmation.js";
 export * from "./gitOAuth.js";
 export * from "./registry.js";
 export * from "./availability.js";
