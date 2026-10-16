@@ -7,7 +7,7 @@
 import type { ToolDefinition, ToolPolicy } from "../types.js";
 import { planeRequest, inWorkspace } from "./client.js";
 import { resolvePlaneProject, planeTargetOf, PROJECT_ARGS, type PlaneTarget, type PlaneProjectTarget } from "./projectRef.js";
-import { projectNames, projectStates, projectLabels } from "./resolve.js";
+import { projectNames, projectStates, projectLabels, projectMembers, pickByName, planeUserAliases, planeUserName, ME } from "./resolve.js";
 import { pickWorkspaceAccess } from "./workspace.js";
 import { text, title } from "./args.js";
 import { planeWrite, DANGER, DANGER_NOTE, type PlaneRefusals } from "./write.js";
@@ -22,7 +22,14 @@ const GROUP_COLORS: Record<string, string> = { backlog: "#A3A3A3", unstarted: "#
 const SPECIAL = /[&+,:;$^}{*=?@#|'<>.()%!-]/;
 const IDENTIFIER = /^[A-Za-z0-9]{1,12}$/;
 const COLOR = { type: "string", description: "A hex color such as #F59E0B." };
-const MEMBER_ROLE = (t: PlaneProjectTarget) => `a Member or Admin of the Plane project ${t.project.identifier}`;
+/** Plane's role numbers, the same in a Plane project and the Plane workspace. */
+export const MEMBER_ROLES: Record<string, number> = { admin: 20, member: 15, guest: 5 };
+export function memberRole(v: unknown): [string, number] {
+  const r = text(v)?.toLowerCase() ?? "member";
+  if (!(r in MEMBER_ROLES)) throw new Error(`role must be one of ${Object.keys(MEMBER_ROLES).join(", ")}`);
+  return [`${r[0]!.toUpperCase()}${r.slice(1)}`, MEMBER_ROLES[r]!];
+}
+const MEMBER_ROLE = (t: PlaneProjectTarget) =>`a Member or Admin of the Plane project ${t.project.identifier}`;
 
 export const projectAdminTools: ToolDefinition[] = [
   { name: "projectCreate", description: `Creates a Plane project in the Plane workspace, with cycles and modules switched on unless asked otherwise. Plane refuses a hyphen, dot, parentheses and other punctuation in the name and the identifier.${CONFIRM}`,
@@ -71,6 +78,12 @@ export const projectAdminTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { ...PROJECT_ARGS }, required: ["project"] } },
   { name: "projectDelete", description: `Deletes a Plane project open here for good, with all its work items, cycles, modules and intake. Plane allows it only when the bot's Plane user is an Admin of the Plane project.${DANGER_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS }, required: ["project"] } },
+  { name: "projectMemberAdd", description: `Adds a member of the Plane workspace to a Plane project open here, as Admin, Member or Guest. Plane's API cannot add back someone who was removed from the Plane project, nor change a member's role or remove one; those are done in Plane itself. Plane allows it only when the bot's Plane user is an Admin of the Plane project.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: {
+      ...PROJECT_ARGS,
+      member: { type: "string", description: "The person, named as workspaceMembers lists them." },
+      role: { type: "string", enum: Object.keys(MEMBER_ROLES), description: "Default member." },
+    }, required: ["project", "member"] } },
   { name: "stateDelete", description: `Deletes a state of a Plane project open here. Plane refuses the default state and a state that still holds work items, archived and draft ones included.${DANGER_NOTE}`,
     parameters: { type: "object", properties: { ...PROJECT_ARGS, state: { type: "string", description: "The state's name, as planeStates lists it." } }, required: ["project", "state"] } },
   { name: "labelDelete", description: `Deletes a label of a Plane project open here; work items that carry it lose it.${DANGER_NOTE}`,
@@ -87,6 +100,7 @@ export const projectAdminToolPolicy: Record<string, ToolPolicy> = {
   projectArchive: { effect: "danger", group: "Project admin" },
   projectUnarchive: { effect: "danger", group: "Project admin" },
   projectDelete: { effect: "danger", group: "Project admin" },
+  projectMemberAdd: { effect: "danger", group: "Project admin" },
   stateDelete: { effect: "danger", group: "Project admin" },
   labelDelete: { effect: "danger", group: "Project admin" },
 };
@@ -297,6 +311,27 @@ export const projectAdminHandlers = {
       run: async () => {
         await planeRequest(t.conn, projectPath(t), { method: "DELETE" });
         return { project: { id: t.project.id, identifier: t.project.identifier }, deleted: true };
+      },
+    };
+  }, DANGER),
+  projectMemberAdd: planeWrite("projectMemberAdd", async (a, ctx) => {
+    const t = await resolvePlaneProject(ctx, a);
+    const [roleName, role] = memberRole(a.role);
+    if (typeof a.member === "string" && ME.test(a.member.trim())) throw new Error(`Plane does not know who "${a.member.trim()}" is. Ask the person for their name as workspaceMembers lists it.`);
+    const everyone = (await planeRequest<Obj[]>(t.conn, inWorkspace(t.conn, "members/"))) ?? [];
+    const user = pickByName(everyone, a.member, planeUserAliases, "Plane workspace member", planeUserName);
+    const who = planeUserName(user);
+    // Plane's list of a Plane project's members keeps people who were removed, and its API cannot add them back.
+    const notAgain = `${who} is already listed among the members of ${t.project.identifier}. Plane lists removed members there too, and its API cannot add a removed member back or change a member's role; that has to be done in Plane itself.`;
+    if ((await projectMembers(t, t.project)).some((m) => String(m.id) === String(user.id))) throw new Error(notAgain);
+    return {
+      t, role: ADMIN_ROLE(t),
+      refusals: [[/payload is not valid/, notAgain], [/Member not found in workspace/, `${who} is not a member of the Plane workspace.`]],
+      summary: `Add ${who} to the Plane project ${t.project.identifier} as a ${roleName}`,
+      run: async () => {
+        // Plane answers with the membership's own id, which nothing else in its API shows.
+        const m = await planeRequest<Obj>(t.conn, projectPath(t, "members/"), { method: "POST", body: { member: user.id, role } });
+        return { project: t.project.identifier, member: who, role: roleName, membershipId: m?.id ?? null };
       },
     };
   }, DANGER),

@@ -193,3 +193,31 @@ discordScenario("projectUpdate, projectArchive, projectUnarchive and projectDele
   expect(del.confirmation!.content).toContain("it needs to be an Admin of the Plane project OPS");
   expect(plane.find.project(P2)).toBeDefined();
 });
+
+discordScenario("projectMemberAdd adds a Plane workspace member to a Plane project with a role, and says plainly that Plane cannot add back someone already listed", async (s) => {
+  process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
+  await s.plane({ projects: [P1] });
+  const plane = fakePlane(s);
+  world(plane, 20);
+  const sari = plane.user({ id: "u-sari", first_name: "Sari", last_name: "Dewi", display_name: "sari", email: "sari@acme.test" });
+  const rudi = plane.user({ id: "u-rudi", first_name: "Rudi", last_name: "Hartono", display_name: "rudi", email: "rudi@acme.test" });
+  // Rudi was removed from ENG earlier; Plane still lists him among its members.
+  plane.membersOf(P1).push(rudi.id);
+
+  const unknown = await ask(s, "projectMemberAdd", { project: "ENG", member: "Joko" });
+  expect(unknown.result.error).toContain(`No Plane workspace member matches "Joko"`);
+  const listed = await ask(s, "projectMemberAdd", { project: "ENG", member: "rudi" });
+  expect(listed.result.error).toContain("Rudi Hartono (rudi) is already listed among the members of ENG");
+  expect(listed.result.error).toContain("cannot add a removed member back");
+  const badRole = await ask(s, "projectMemberAdd", { project: "ENG", member: "sari", role: "owner" });
+  expect(badRole.result.error).toContain("role must be one of admin, member, guest");
+  expect(plane.writes).toEqual([]);
+
+  const add = await ask(s, "projectMemberAdd", { project: "ENG", member: "Sari" });
+  expect(add.result.summary).toContain("Add Sari Dewi (sari) to the Plane project ENG as a Member");
+  expect(labels(add.confirmation!)).toEqual(["Confirm", "Cancel"]);
+  await s.discord.click(add.confirmation!, "Confirm");
+  expect(plane.writes).toEqual([{ method: "POST", path: `projects/${P1}/members/`, body: { member: sari.id, role: 15 } }]);
+  expect(plane.membersOf(P1)).toContain(sari.id);
+  expect(add.confirmation!.content).toContain("Completed");
+});
