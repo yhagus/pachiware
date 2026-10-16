@@ -94,6 +94,26 @@ export const gitScopes = sqliteTable("git_scopes", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [uniqueIndex("git_scopes_idx").on(t.botId, t.guildId, t.channelId, t.gitAccountId), foreignKey({ columns: [t.botId, t.gitAccountId], foreignColumns: [botGitAccounts.botId, botGitAccounts.gitAccountId] }).onDelete("cascade")]);
 
+export const planeAccounts = sqliteTable("plane_accounts", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), baseUrl: text("base_url"), workspaceSlug: text("workspace_slug").notNull(), apiKeyEncrypted: text("api_key_encrypted").notNull(),
+  planeUserId: text("plane_user_id").notNull(), planeUserName: text("plane_user_name").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("plane_accounts_tenant_name_idx").on(t.tenantId, t.name), uniqueIndex("plane_accounts_tenant_id_idx").on(t.tenantId, t.id)]);
+
+export const botPlaneAccounts = sqliteTable("bot_plane_accounts", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  botId: text("bot_id").notNull().references(() => bots.id, { onDelete: "cascade" }), planeAccountId: text("plane_account_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("bot_plane_accounts_idx").on(t.botId, t.planeAccountId), foreignKey({ columns: [t.tenantId, t.planeAccountId], foreignColumns: [planeAccounts.tenantId, planeAccounts.id] })]);
+
+export const planeScopes = sqliteTable("plane_scopes", {
+  id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  botId: text("bot_id").notNull(), guildId: text("guild_id").notNull(), channelId: text("channel_id").notNull().default(""), planeAccountId: text("plane_account_id").notNull(),
+  projectIds: text("project_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
+}, (t) => [uniqueIndex("plane_scopes_idx").on(t.botId, t.guildId, t.channelId, t.planeAccountId), foreignKey({ columns: [t.botId, t.planeAccountId], foreignColumns: [botPlaneAccounts.botId, botPlaneAccounts.planeAccountId] }).onDelete("cascade")]);
+
 export const availabilityRules = sqliteTable("availability_rules", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   level: text("level").notNull(), botId: text("bot_id").references(() => bots.id, { onDelete: "cascade" }), guildId: text("guild_id").notNull().default(""), channelId: text("channel_id").notNull().default(""),

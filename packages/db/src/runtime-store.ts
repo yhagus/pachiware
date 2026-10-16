@@ -84,19 +84,26 @@ export function recordDatabaseEngine(engine: string): void {
   if (!getRecordedDatabaseEngine()) mergeRuntimeConfig({ databaseEngine: engine });
 }
 
-/** Hosts self-hosted git accounts may point at (platform-wide). Empty means no restriction. */
-export function getGitAllowedHosts(): string[] {
+/**
+ * Allowed hosts: the self-hosted servers git accounts and Plane accounts may point at (platform-wide). Empty means no restriction.
+ * Kept under the key the git-only list used, `gitAllowedHosts`, so a list saved before the rename keeps working.
+ */
+export function getAllowedHosts(): string[] {
   const hosts = readRuntimeConfig().gitAllowedHosts;
   return Array.isArray(hosts) ? hosts.filter((h): h is string => typeof h === "string") : [];
 }
-export function saveGitAllowedHosts(hosts: string[]): string[] {
+export function saveAllowedHosts(hosts: string[]): string[] {
   mergeRuntimeConfig({ gitAllowedHosts: hosts });
   return hosts;
 }
-export function assertGitHostAllowed(baseUrl: string | null): void {
-  const allowed = getGitAllowedHosts();
-  if (!baseUrl || allowed.length === 0) return;
-  if (!allowed.includes(new URL(baseUrl).host.toLowerCase())) throw new Error(`Host ${new URL(baseUrl).host} is not in the allowed git hosts`);
+/** True when the URL's host (with its port, if any) is listed by name; an empty list lists nothing. */
+export function isListedHost(baseUrl: string): boolean {
+  return getAllowedHosts().includes(new URL(baseUrl).host.toLowerCase());
+}
+/** Throws unless the host is listed, or the list is empty. A null URL is a platform's public host, which the list never limits. */
+export function assertHostAllowed(baseUrl: string | null): void {
+  if (!baseUrl || getAllowedHosts().length === 0) return;
+  if (!isListedHost(baseUrl)) throw new Error(`Host ${new URL(baseUrl).host} is not in Allowed hosts`);
 }
 
 /** The database is never changed at runtime (ADR 0010); only the Redis URL is. */

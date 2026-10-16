@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import { repositories, type GuildConfigInput } from "@pachiware/db";
+import { repositories, type GuildConfigInput, type PlaneScope } from "@pachiware/db";
 import { discordBotManager } from "../../discord/client.js";
 import { loadGuildSettings, saveGuildSettings } from "../../loop/prompt.js";
 import { object, string, stringArray, placeSettings, digestChannels } from "../validation.js";
-import { botFields, assertProfile, assertGitAccounts, botsOut } from "../v1/bots.js";
+import { botFields, assertProfile, assertAccounts, botColumns, saveAccounts, botsOut } from "../v1/bots.js";
 import { botAvailabilityRoutes } from "../availability.js";
 import { botReminderRoutes } from "../reminders.js";
 export const botAdminRoutes = new Hono();
@@ -11,10 +11,9 @@ botAdminRoutes.post("/tenants/:id/bots", async (c) => {
   if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
   const fields = botFields(object(await c.req.json(), "body"), true);
   await assertProfile(c.req.param("id"), fields.profileId);
-  await assertGitAccounts(c.req.param("id"), fields.gitAccountIds);
-  const { gitAccountIds, ...rest } = fields;
-  const bot = await repositories().bots.create({ tenantId: c.req.param("id"), ...rest } as any);
-  if (gitAccountIds) await repositories().git.setBotAccounts(c.req.param("id"), bot.id, gitAccountIds);
+  await assertAccounts(c.req.param("id"), fields);
+  const bot = await repositories().bots.create({ tenantId: c.req.param("id"), ...botColumns(fields) } as any);
+  await saveAccounts(c.req.param("id"), bot.id, fields);
   if (bot.isEnabled) void discordBotManager.startBot(bot.id).catch(() => {});
   return c.json({ success: true, bot: (await botsOut([bot]))[0] }, 201);
 });
@@ -87,6 +86,31 @@ async function putScope(c: any, channelId: string) {
 }
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/git", (c) => putScope(c, ""));
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/channels/:channelId/git", (c) => putScope(c, c.req.param("channelId")!));
+// Plane access per guild (channelId "") and per channel: which attached Plane accounts are on, and which Plane project ids ("*" for all).
+const planeRulesOut = (rows: PlaneScope[], channelId: string) => rows.filter((r) => r.channelId === channelId).map((r) => ({ planeAccountId: r.planeAccountId, projectIds: r.projectIds }));
+async function planeScopeOut(botId: string, guildId: string) {
+  const rows = await repositories().plane.listScopes(botId, guildId);
+  const channels: Record<string, ReturnType<typeof planeRulesOut>> = {};
+  for (const id of new Set(rows.filter((r) => r.channelId).map((r) => r.channelId))) channels[id] = planeRulesOut(rows, id);
+  return { guild: planeRulesOut(rows, ""), channels };
+}
+botAdminRoutes.get("/bots/:botId/guilds/:guildId/plane", async (c) => {
+  const botId = c.req.param("botId")!;
+  const accounts = (await repositories().plane.listBotAccounts(botId)).map(({ id, name, baseUrl, workspaceSlug, planeUserName }) => ({ id, name, baseUrl, workspaceSlug, planeUserName }));
+  return c.json({ success: true, accounts, ...await planeScopeOut(botId, c.req.param("guildId")!) });
+});
+async function putPlaneScope(c: any, channelId: string) {
+  const bot = (await repositories().bots.get(c.req.param("botId")!))!;
+  const body = object(await c.req.json(), "body");
+  if (!Array.isArray(body.rules)) return c.json({ error: "rules must be an array" }, 400);
+  const rules = body.rules.map((r: any) => { const o = object(r, "rule"); return { planeAccountId: string(o.planeAccountId, "planeAccountId")!, projectIds: stringArray(o.projectIds, "projectIds") }; });
+  try { await repositories().plane.replaceScopes(bot.tenantId, bot.id, c.req.param("guildId")!, channelId, rules); }
+  catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  const out = await planeScopeOut(bot.id, c.req.param("guildId")!);
+  return c.json({ success: true, guild: out.guild, rules: channelId ? out.channels[channelId] ?? [] : out.guild });
+}
+botAdminRoutes.put("/bots/:botId/guilds/:guildId/plane", (c) => putPlaneScope(c, ""));
+botAdminRoutes.put("/bots/:botId/guilds/:guildId/channels/:channelId/plane", (c) => putPlaneScope(c, c.req.param("channelId")!));
 botAvailabilityRoutes(botAdminRoutes, "/bots/:botId", "botId");
 botReminderRoutes(botAdminRoutes, "/bots/:botId", "botId");
 // Only conversations the bot itself handled (mentions, DMs, its own threads) are stored.
@@ -106,10 +130,9 @@ botAdminRoutes.patch("/bots/:botId", async (c) => {
   const fields = botFields(object(await c.req.json(), "body"));
   const owner = await repositories().bots.get(c.req.param("botId")!);
   await assertProfile(owner!.tenantId, fields.profileId);
-  await assertGitAccounts(owner!.tenantId, fields.gitAccountIds);
-  const { gitAccountIds, ...rest } = fields;
-  const bot = (await repositories().bots.update(c.req.param("botId"), rest))!;
-  if (gitAccountIds) await repositories().git.setBotAccounts(owner!.tenantId, c.req.param("botId"), gitAccountIds);
+  await assertAccounts(owner!.tenantId, fields);
+  const bot = (await repositories().bots.update(c.req.param("botId"), botColumns(fields)))!;
+  await saveAccounts(owner!.tenantId, c.req.param("botId"), fields);
   if (bot.isEnabled) void discordBotManager.restartBot(bot.id).catch(() => {});
   else await discordBotManager.stopBot(c.req.param("botId"));
   return c.json({ success: true, bot: (await botsOut([bot]))[0] });

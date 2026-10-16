@@ -67,7 +67,7 @@ export interface InfrastructureData {
 }
 export interface ApiKey { id: string; name: string; keyPrefix: string; tenantCount: number; lastUsedAt: string | null; revokedAt: string | null; createdAt: string; }
 export interface Tenant { id: string; name: string; slug: string; status: string; apiKeyId: string | null; createdAt?: string; }
-export interface Bot { id: string; tenantId: string; name: string; platform: string; clientId: string | null; guildIds: string[]; profileId: string | null; gitAccountIds: string[]; isEnabled: boolean; hasToken: boolean; connectionStatus: string; lastError: string | null; lastConnectedAt: string | null; }
+export interface Bot { id: string; tenantId: string; name: string; platform: string; clientId: string | null; guildIds: string[]; profileId: string | null; gitAccountIds: string[]; planeAccountIds: string[]; isEnabled: boolean; hasToken: boolean; connectionStatus: string; lastError: string | null; lastConnectedAt: string | null; }
 export interface GuildChannel { id: string; name: string; type: "text" | "voice" | "announcement" | "stage" | "forum"; category: string | null; }
 export interface Guild { id: string; name: string; icon: string | null; memberCount: number; allowed: boolean; channels: GuildChannel[]; }
 export type Language = "id" | "en";
@@ -79,6 +79,14 @@ export interface DigestChannel { channelId: string; hour: number; }
 export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; }
 export interface GitRule { gitAccountId: string; repoPatterns: string[]; }
 export interface GuildGit { accounts: { id: string; name: string; provider: "github" | "gitlab"; username: string }[]; server: GitRule[]; channels: Record<string, GitRule[]>; }
+/** A Plane scope rule: Plane project ids, or ["*"] for every Plane project of the account. */
+export interface PlaneRule { planeAccountId: string; projectIds: string[]; }
+export interface GuildPlane { accounts: { id: string; name: string; baseUrl: string | null; workspaceSlug: string; planeUserName: string }[]; guild: PlaneRule[]; channels: Record<string, PlaneRule[]>; }
+export const ALL_PLANE_PROJECTS = "*";
+/** The key is never returned: `hasApiKey` says one is saved. `planeUserName` is the Plane user the key acts as. */
+export interface PlaneAccount { id: string; tenantId: string; name: string; baseUrl: string | null; workspaceSlug: string; planeUserId: string; planeUserName: string; hasApiKey: boolean; bots: { id: string; name: string }[]; createdAt: string; }
+export interface PlaneAccountInput { name?: string; baseUrl?: string | null; workspaceSlug?: string; apiKey?: string; }
+export interface PlaneProject { id: string; name: string; identifier: string; }
 export interface Conversation { id: string; channelId: string | null; userId: string | null; createdAt: string; lastMessageAt: string | null; messageCount: number; }
 export interface ChatMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; }
 export interface Profile { id: string; tenantId: string; name: string; provider: "openai" | "anthropic" | "custom"; model: string; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; createdAt: string; }
@@ -129,14 +137,14 @@ export interface Reminder {
   recurrence: "once" | "daily" | "weekly" | "monthly"; weekdays: number[]; dayOfMonth: number | null; timeOfDay: string | null; timezone: string; until: string | null; nextAt: string; lastFiredAt: string | null; createdAt: string;
 }
 export interface GitAccountInput { name?: string; provider?: string; baseUrl?: string | null; token?: string; }
-export interface BotInput { profileId?: string | null; gitAccountIds?: string[]; name?: string; platform?: string; token?: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean; }
+export interface BotInput { profileId?: string | null; gitAccountIds?: string[]; planeAccountIds?: string[]; name?: string; platform?: string; token?: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean; }
 
 export const api = {
   getHealth: () => fetchJSON<HealthResponse>("/api/health"),
   getStats: () => fetchJSON<Stats>("/api/admin/stats"),
   getInfrastructure: () => fetchJSON<{ infrastructure: InfrastructureData }>("/api/admin/infrastructure"),
-  getGitHosts: () => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/git-hosts"),
-  saveGitHosts: (hosts: string[]) => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/git-hosts", json("PUT", { hosts })),
+  getAllowedHosts: () => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/allowed-hosts"),
+  saveAllowedHosts: (hosts: string[]) => fetchJSON<{ hosts: string[] }>("/api/admin/infrastructure/allowed-hosts", json("PUT", { hosts })),
 
   listTenants: () => fetchJSON<{ tenants: Tenant[] }>("/api/admin/tenants"),
   getTenant: (id: string) => fetchJSON<{ tenant: Tenant }>(`/api/admin/tenants/${id}`),
@@ -179,6 +187,11 @@ export const api = {
   createGitOAuthApp: (data: { provider: string; baseUrl?: string; clientId: string; clientSecret: string }) => fetchJSON<{ app: GitOAuthApp }>("/api/admin/git-oauth-apps", json("POST", data)),
   deleteGitOAuthApp: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/git-oauth-apps/${id}`, json("DELETE")),
   deleteGitAccount: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/git-accounts/${id}`, json("DELETE")),
+  listPlaneAccounts: (tenantId: string) => fetchJSON<{ planeAccounts: PlaneAccount[] }>(`/api/admin/tenants/${tenantId}/plane-accounts`),
+  createPlaneAccount: (tenantId: string, data: PlaneAccountInput) => fetchJSON<{ planeAccount: PlaneAccount }>(`/api/admin/tenants/${tenantId}/plane-accounts`, json("POST", data)),
+  updatePlaneAccount: (id: string, data: PlaneAccountInput) => fetchJSON<{ planeAccount: PlaneAccount }>(`/api/admin/plane-accounts/${id}`, json("PATCH", data)),
+  deletePlaneAccount: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/plane-accounts/${id}`, json("DELETE")),
+  listPlaneProjects: (accountId: string) => fetchJSON<{ projects: PlaneProject[] }>(`/api/admin/plane-accounts/${accountId}/projects`),
   deleteProfile: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/profiles/${id}`, json("DELETE")),
   getBot: (id: string) => fetchJSON<{ bot: Bot }>(`/api/admin/bots/${id}`),
   getBotGuilds: (id: string) => fetchJSON<{ connected: boolean; guilds: Guild[] }>(`/api/admin/bots/${id}/guilds`),
@@ -187,6 +200,9 @@ export const api = {
   getGuildGit: (id: string, guildId: string) => fetchJSON<GuildGit>(`/api/admin/bots/${id}/guilds/${guildId}/git`),
   saveGuildGit: (id: string, guildId: string, rules: GitRule[], channelId = "") =>
     fetchJSON<{ server: GitRule[]; rules: GitRule[] }>(`/api/admin/bots/${id}/guilds/${guildId}${channelId ? `/channels/${channelId}` : ""}/git`, json("PUT", { rules })),
+  getGuildPlane: (id: string, guildId: string) => fetchJSON<GuildPlane>(`/api/admin/bots/${id}/guilds/${guildId}/plane`),
+  saveGuildPlane: (id: string, guildId: string, rules: PlaneRule[], channelId = "") =>
+    fetchJSON<{ guild: PlaneRule[]; rules: PlaneRule[] }>(`/api/admin/bots/${id}/guilds/${guildId}${channelId ? `/channels/${channelId}` : ""}/plane`, json("PUT", { rules })),
   listReminders: (id: string) => fetchJSON<{ reminders: Reminder[] }>(`/api/admin/bots/${id}/reminders`),
   cancelReminder: (id: string, reminderId: string) => fetchJSON<{ reminder: Reminder }>(`/api/admin/bots/${id}/reminders/${reminderId}`, json("DELETE")),
   listBotConversations: (id: string, channelId: string) => fetchJSON<{ conversations: Conversation[] }>(`/api/admin/bots/${id}/conversations?channelId=${encodeURIComponent(channelId)}`),

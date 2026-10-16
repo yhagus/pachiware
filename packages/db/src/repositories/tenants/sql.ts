@@ -114,7 +114,7 @@ const defaultTenantSkill = (tenantId: string, skill: { id: string; defaultEnable
 
 /** Every table whose rows belong to a tenant, children before parents. */
 function ownedTables(t: SqlTables): any[] {
-  return [t.messages, t.conversations, t.usageEvents, t.schedules, t.tasks, t.availabilityRules, t.gitScopes, t.botGitAccounts, t.guildConfigs, t.bots, t.gitAccounts, t.profiles, t.tenantSkills, t.agentsConfig];
+  return [t.messages, t.conversations, t.usageEvents, t.schedules, t.tasks, t.availabilityRules, t.gitScopes, t.botGitAccounts, t.planeScopes, t.botPlaneAccounts, t.guildConfigs, t.bots, t.gitAccounts, t.planeAccounts, t.profiles, t.tenantSkills, t.agentsConfig];
 }
 
 function toTenant(row: any): Tenant {

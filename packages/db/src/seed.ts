@@ -192,7 +192,18 @@ export function builtInSkills(): SkillDefinition[] {
     config: {},
   };
 
-  return [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill];
+  // Tool definitions come from the registry (packages/skills/src/builtin/plane.ts). Off by default: it switches on when a Plane account is first attached to a bot.
+  const planeSkill = {
+    id: "plane",
+    name: "Plane",
+    description: "Read and change work items in the Plane projects enabled for this server and channel.",
+    defaultEnabled: false,
+    handlerType: "builtin",
+    toolDefinitions: [],
+    config: {},
+  };
+
+  return [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill];
 }
 
 if (import.meta.main) runSeed().then(() => process.exit(0)).catch(() => { console.error("Seed failed."); process.exit(1); });

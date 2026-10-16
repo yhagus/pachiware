@@ -1,4 +1,4 @@
-import { repositories, patternCovers, assertGitHostAllowed, type GitAccount } from "@pachiware/db";
+import { repositories, patternCovers, assertHostAllowed, type GitAccount } from "@pachiware/db";
 import type { SkillContext } from "./types.js";
 import { getGitToken } from "./gitOAuth.js";
 import type { GitConn } from "./git.js";
@@ -61,6 +61,6 @@ export async function loadGitAccess(ctx: SkillContext & { parentChannelId?: stri
 
 export async function connectionOf(access: GitAccess): Promise<GitConn> {
   const acc = access.account;
-  assertGitHostAllowed(acc.baseUrl); // the allowlist may have changed since the account was saved
+  assertHostAllowed(acc.baseUrl); // the allowlist may have changed since the account was saved
   return { provider: acc.provider as GitConn["provider"], baseUrl: acc.baseUrl, token: await getGitToken(acc as GitAccount), oauth: acc.authType === "oauth" };
 }

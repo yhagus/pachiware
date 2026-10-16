@@ -17,6 +17,8 @@ import { IntegrationAvailability } from "./pages/tenant/IntegrationAvailability"
 import { IntegrationReminders } from "@/pages/tenant/IntegrationReminders";
 import { TenantProfiles } from "@/pages/tenant/TenantProfiles";
 import { TenantGitAccounts } from "@/pages/tenant/TenantGitAccounts";
+import { TenantPlaneAccounts } from "@/pages/tenant/TenantPlaneAccounts";
+import { IntegrationPlaneAccess } from "@/pages/tenant/IntegrationPlaneAccess";
 import { GitRepos, GitRepoDetail } from "@/pages/tenant/GitBrowse";
 import { ApiKeys } from "@/pages/ApiKeys";
 import { Settings } from "@/pages/Settings";
@@ -52,6 +54,7 @@ export default function App() {
             <Route path="integrations" element={<TenantBots />} />
             <Route path="profiles" element={<TenantProfiles />} />
             <Route path="git-accounts" element={<TenantGitAccounts />} />
+            <Route path="plane-accounts" element={<TenantPlaneAccounts />} />
             <Route path="skills" element={<TenantSkills />} />
             <Route path="workspace" element={<TenantWorkspace />} />
             <Route path="settings" element={<TenantSettings />} />
@@ -61,6 +64,7 @@ export default function App() {
               <Route index element={<Navigate to="servers" replace />} />
               <Route path="servers" element={<IntegrationServers />} />
               <Route path="git-access" element={<IntegrationGitAccess />} />
+              <Route path="plane-access" element={<IntegrationPlaneAccess />} />
               <Route path="availability" element={<IntegrationAvailability />} />
               <Route path="reminders" element={<IntegrationReminders />} />
             </Route>
