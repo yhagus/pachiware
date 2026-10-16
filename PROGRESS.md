@@ -1104,7 +1104,10 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
 
 Tickets [#173](https://github.com/yhagus/pachiware/issues/173)–[#177](https://github.com/yhagus/pachiware/issues/177); #175 is blocked by #173 and #174. Integration branch `spec/173-177-test-hardening`, merged into `main` when done (no PR).
 
-- [ ] #173 Contract tests run without a `.env`.
+- [x] #173 Contract tests run without a `.env`.
+  - The shared test preload (`packages/db/test/preload.ts`) sets a fixed `PLATFORM_ENCRYPTION_KEY` with `||=`, so a key from the environment or `.env` wins. The seven contract suites that set and restored the key themselves (availability, bots, conversations, git, profiles, schedules, usage) no longer do. Spawned test processes inherit the key through `process.env`.
+  - `packages/db/test/preload.test.ts` runs a fresh `bun --preload` process in an empty directory: with no key it can encrypt and decrypt, and a key that is already set is kept.
+  - Verification: worktree with no `.env` and no key in the shell; `bun run typecheck` exits 0; `bun test` 841 pass, 236 skip, 0 fail across 141 files.
 - [x] #174 The contract harness refuses a database that isn't a test database.
   - `requireTestDatabase(variable, url)` in `packages/db/test/test-database.ts` throws unless the database name contains `test` (any case). MongoDB reads the name with `mongoDatabaseName`, so a URL without one counts as the default `pachiware` and is refused; PostgreSQL reads the raw path as postgres.js does and refuses an empty one, which the driver would fill from `PGDATABASE` or the user. Query strings, credentials, hosts and `mongodb+srv` never count; the error names the variable and database, never the password.
   - The contract harness checks `TEST_POSTGRES_URL` and `TEST_MONGODB_URL` while registering suites, before any connection. The other tests that drop data on those servers check too: `mongo-migrations.test.ts` and the CLI MongoDB setup test. `database-engine.test.ts` drops nothing and is unchanged; `TEST_MONGODB_STANDALONE_URL` is unchecked because a standalone server is refused before anything is written.
