@@ -7,7 +7,7 @@ import { resolvePlaneProject, projectHead, PROJECT_ARGS, UUID, type PlaneProject
 const R: Effect = "read";
 const MAX_PAGES = 2;
 /** Plane stores the intake status as a number. */
-const STATUS: Record<string, string> = { "-2": "pending", "-1": "rejected", "0": "snoozed", "1": "accepted", "2": "duplicate" };
+export const STATUS: Record<string, string> = { "-2": "pending", "-1": "rejected", "0": "snoozed", "1": "accepted", "2": "duplicate" };
 
 export const intakeTools: ToolDefinition[] = [
   { name: "intakeList", description: "Lists the intake of a Plane project open here: work items waiting for triage, and those accepted, rejected, snoozed or marked duplicate, newest first.",
@@ -21,7 +21,7 @@ export const intakeToolPolicy: Record<string, ToolPolicy> = {
   intakeGet: { effect: R, group: "Intake" },
 };
 
-const intakeOff = (t: PlaneProjectTarget) => `Intake is switched off in the Plane project ${t.project.identifier}.`;
+export const intakeOff = (t: PlaneProjectTarget) => `Intake is switched off in the Plane project ${t.project.identifier}.`;
 
 const intakeView = (t: PlaneProjectTarget, i: any) => {
   const w = i.issue_detail ?? {};
@@ -34,6 +34,24 @@ const intakeView = (t: PlaneProjectTarget, i: any) => {
 
 const listIntake = (t: PlaneProjectTarget, maxPages = MAX_PAGES) => planeList<any>(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/intake-issues/`), { maxPages });
 
+/** An intake item of the Plane project by its work item id or key, as Plane answers it; refused when intake is off. */
+export async function findIntakeItem(t: PlaneProjectTarget, workItem: unknown): Promise<any> {
+  const ref = typeof workItem === "string" ? workItem.trim() : "";
+  if (!ref) throw new Error('Pass "workItem" with the intake item\'s work item id or key (see intakeList).');
+  if (t.project.intake_view === false) throw new Error(intakeOff(t));
+  let item: any;
+  if (UUID.test(ref)) {
+    try { item = await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/intake-issues/${ref.toLowerCase()}/`)); }
+    catch (e) { if (e instanceof PlaneError && e.status === 404) item = null; else throw e; }
+  } else {
+    // Intake items sit in Plane's triage state, which the work-item lookup by key leaves out, so the key is matched in the intake list.
+    const seq = Number(/(\d+)\s*$/.exec(ref)?.[1] ?? NaN);
+    item = (await listIntake(t, 10)).items.find((i) => i.issue_detail?.sequence_id === seq) ?? null;
+  }
+  if (!item) throw new Error(`No intake item "${ref}" in ${t.project.identifier}; see intakeList.`);
+  return item;
+}
+
 export const intakeHandlers: Record<string, ToolHandler> = {
   intakeList: async (args, ctx) => {
     const t = await resolvePlaneProject(ctx, args);
@@ -44,19 +62,7 @@ export const intakeHandlers: Record<string, ToolHandler> = {
   },
   intakeGet: async (args, ctx) => {
     const t = await resolvePlaneProject(ctx, args);
-    const ref = typeof args.workItem === "string" ? args.workItem.trim() : "";
-    if (!ref) throw new Error('Pass "workItem" with the intake item\'s work item id or key (see intakeList).');
-    if (t.project.intake_view === false) throw new Error(intakeOff(t));
-    let item: any;
-    if (UUID.test(ref)) {
-      try { item = await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/intake-issues/${ref}/`)); }
-      catch (e) { if (e instanceof PlaneError && e.status === 404) item = null; else throw e; }
-    } else {
-      // Intake items sit in Plane's triage state, which the work-item lookup by key leaves out, so the key is matched in the intake list.
-      const seq = Number(/(\d+)\s*$/.exec(ref)?.[1] ?? NaN);
-      item = (await listIntake(t, 10)).items.find((i) => i.issue_detail?.sequence_id === seq) ?? null;
-    }
-    if (!item) throw new Error(`No intake item "${ref}" in ${t.project.identifier}; see intakeList.`);
+    const item = await findIntakeItem(t, args.workItem);
     const w = item.issue_detail ?? {};
     return {
       project: projectHead(t.project),
