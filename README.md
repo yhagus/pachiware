@@ -159,3 +159,13 @@ PROGRESS.md       Implementation status and verification results
 ```
 
 Integration documentation is available in the [API Reference](docs/api.md). For development, run repository checks with `bun test`, `bun run typecheck`, and `bun run build`.
+
+### Engine Tests
+
+`bun test` runs the database tests on SQLite only. To run them on PostgreSQL and MongoDB as well, with Docker running:
+
+```bash
+bun run test:engines
+```
+
+It starts the compose `postgres`, `mongo` and `mongo-standalone` services when they are not already answering, creates the `pachiware_test` databases, and runs the `packages/db` and `packages/cli` tests and `apps/agent/test/database-engine.test.ts` on all three engines. The same command runs in CI on every push to `main`. To use other servers, set `TEST_POSTGRES_URL`, `TEST_MONGODB_URL` (a replica set) or `TEST_MONGODB_STANDALONE_URL` yourself. The tests drop everything in those databases, so their names must contain `test`.

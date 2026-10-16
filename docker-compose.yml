@@ -51,6 +51,14 @@ services:
       retries: 20
       start_period: 5s
 
+  # Test only, started by `bun run test:engines`: a standalone MongoDB, which the agent must refuse.
+  mongo-standalone:
+    image: mongo:8.0
+    container_name: pachiware-mongo-standalone
+    profiles: ["test"]
+    ports:
+      - "${MONGO_STANDALONE_PORT:-27018}:27017"
+
 volumes:
   pgdata:
     driver: local

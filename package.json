@@ -18,6 +18,7 @@
     "build": "bun --filter @pachiware/* build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p apps/web",
     "test": "bun test",
+    "test:engines": "bun ./packages/db/test/engines-run.ts",
     "eval": "bun test ./apps/agent/eval/drafts.eval.ts",
     "eval:assistant": "bun test ./apps/agent/eval/assistant.eval.ts"
   },
