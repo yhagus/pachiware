@@ -148,7 +148,7 @@ function markdown(v: unknown, what: string): string {
 const clip = (s: string, max = 300) => (s.length > max ? `${s.slice(0, max)}…` : s);
 
 /** The work item a per-item write is about, with its target. */
-async function itemOf(a: Obj, ctx: Parameters<typeof planeTarget>[0]) {
+async function itemOf(a: Obj, ctx: SkillContext) {
   const t = await planeTarget(ctx, a);
   return { t, w: await resolveWorkItem(t, a.item, a.project, { fields: "id,name,sequence_id,project" }) };
 }
