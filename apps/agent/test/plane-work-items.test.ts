@@ -59,3 +59,45 @@ discordScenario("workItemGet reads a work item by its key, with the description 
   expect(out).not.toContain("plane-key");
   expect(s.http.requests.some((r) => r.url.includes("/work-items/ENG-42/"))).toBe(true);
 });
+
+discordScenario("a work item in a Plane project outside the scope is refused before Plane is asked for it; an id needs its Plane project", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  world(plane);
+  const secret = plane.item({ project: P3, sequence_id: 1, name: "Layoffs plan" });
+  const item = plane.item({ project: P1, sequence_id: 5, name: "Small fix" });
+
+  const refused = await ask(s, "workItemGet", { item: "SEC-1" });
+  expect(JSON.stringify(refused)).toContain(`Plane project \\"SEC\\" is not open in this channel`);
+  const byIdElsewhere = await ask(s, "workItemGet", { item: secret.id, project: "Secret" });
+  expect(JSON.stringify(byIdElsewhere)).toContain("is not open in this channel");
+  expect(s.http.requests.some((r) => r.url.includes("SEC-1") || r.url.includes(secret.id))).toBe(false);
+
+  expect(JSON.stringify(await ask(s, "workItemGet", { item: item.id }))).toContain(`needs \\"project\\"`);
+  expect(await ask(s, "workItemGet", { item: item.id, project: "eng" })).toMatchObject({ key: "ENG-5", name: "Small fix" });
+  expect(JSON.stringify(await ask(s, "workItemGet", { item: "ENG-404" }))).toContain("ENG-404 was not found");
+});
+
+discordScenario("workItemSearch uses Plane's workspace-wide search and drops results outside the scope; an exact key comes first", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  world(plane);
+  plane.item({ project: P3, sequence_id: 42, name: "Login audit (secret)" });
+  plane.item({ project: P2, sequence_id: 42, name: "Login screen mockups" });
+  plane.item({ project: P1, sequence_id: 42, name: "Fix login redirect" });
+  plane.item({ project: P1, sequence_id: 43, name: "Unrelated" });
+
+  const hits = await ask(s, "workItemSearch", { query: "login" });
+  expect(hits.items.map((i: any) => i.key).sort()).toEqual(["DES-42", "ENG-42"]);
+  expect(JSON.stringify(hits)).not.toContain("secret");
+  const search = s.http.requests.find((r) => r.url.includes("/work-items/search/"))!;
+  expect(new URL(search.url).searchParams.get("workspace_search")).toBe("true");
+
+  const byKey = await ask(s, "workItemSearch", { query: "ENG-42" });
+  expect(byKey.items[0]).toMatchObject({ key: "ENG-42", name: "Fix login redirect", project: "ENG" });
+  expect(byKey.items.map((i: any) => i.key)).not.toContain("SEC-42");
+
+  const inDesign = await ask(s, "workItemSearch", { query: "login", project: "DES" });
+  expect(inDesign.items.map((i: any) => i.key)).toEqual(["DES-42"]);
+  expect(JSON.stringify(await ask(s, "workItemSearch", { query: "login", project: "SEC" }))).toContain("is not open in this channel");
+});
