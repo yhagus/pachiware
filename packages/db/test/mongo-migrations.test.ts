@@ -3,9 +3,10 @@ import { openConnection, type MongoConnection } from "../src/connection.ts";
 import { MONGO_MIGRATIONS, migrateMongo } from "../src/mongo/migrate.ts";
 import { createRepositories } from "../src/repositories/index.ts";
 import type { MongoMigration } from "../src/mongo/connection.ts";
+import { requireTestDatabase } from "./test-database.ts";
 
 // Runs against TEST_MONGODB_URL's server, in a database of its own that is dropped before every test.
-const url = process.env.TEST_MONGODB_URL || undefined;
+const url = process.env.TEST_MONGODB_URL ? requireTestDatabase("TEST_MONGODB_URL", process.env.TEST_MONGODB_URL) : undefined;
 const standalone = process.env.TEST_MONGODB_STANDALONE_URL || undefined;
 const opened: MongoConnection[] = [];
 
