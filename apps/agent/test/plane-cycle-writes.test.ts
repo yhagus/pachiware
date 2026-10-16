@@ -139,3 +139,63 @@ discordScenario("cycleTransfer moves the unfinished work items of an ended cycle
   const notArchived = await ask(s, "cycleUnarchive", { project: "ENG", cycle: "Sprint 41" });
   expect(notArchived.result.error).toContain(`No archived cycle "Sprint 41"`);
 });
+
+discordScenario("moduleCreate and moduleUpdate name the lead and members from the Plane project; modules off or a taken name are refused before Confirm", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  plane.module({ project: P1, name: "Billing v1" });
+
+  const create = await ask(s, "moduleCreate", { project: "ENG", name: "Billing v2", description: "Invoices", status: "in-progress", lead: "budi", members: ["Budi"], startDate: "2099-01-01", targetDate: "2099-02-01" });
+  expect(create.result.summary).toContain("Billing v2");
+  expect(create.result.summary).toContain("lead Budi Santoso (budi)");
+  expect(plane.writes).toEqual([]);
+  await s.discord.click(create.confirmation!, "Confirm");
+  expect(plane.writes).toEqual([{ method: "POST", path: `projects/${P1}/modules/`, body: { name: "Billing v2", description: "Invoices", status: "in-progress", lead: w.budi.id, members: [w.budi.id], start_date: "2099-01-01", target_date: "2099-02-01" } }]);
+  const created = (await ask(s, "moduleGet", { project: "ENG", module: "Billing v2" })).result.module;
+
+  const off = await ask(s, "moduleCreate", { project: "OPS", name: "Infra" });
+  expect(off.result.error).toContain("Modules are switched off in the Plane project OPS");
+  const taken = await ask(s, "moduleCreate", { project: "ENG", name: "billing v1" });
+  expect(taken.result.error).toContain(`already has a module named "Billing v1"`);
+  const badStatus = await ask(s, "moduleCreate", { project: "ENG", name: "X", status: "doing" });
+  expect(badStatus.result.error).toContain("status must be one of");
+  expect(plane.writes.length).toBe(1);
+
+  // Plane replaces the whole member set it is sent, and answers a module PATCH without the module's id.
+  const update = await ask(s, "moduleUpdate", { project: "ENG", module: "Billing v2", name: "Billing 2", status: "completed", removeMembers: ["budi"], addMembers: ["pachibot"], targetDate: "none" });
+  await s.discord.click(update.confirmation!, "Confirm");
+  expect(plane.writes.at(-1)).toEqual({ method: "PATCH", path: `projects/${P1}/modules/${created.id}/`, body: { name: "Billing 2", status: "completed", target_date: null, members: ["u-bot"] } });
+  expect(update.confirmation!.content).toContain("Completed");
+  expect(update.confirmation!.content).toContain(created.id);
+});
+
+discordScenario("moduleAddItems keeps work items in their other modules and says so; a module is archived only when completed or cancelled", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  world(plane);
+  const a = plane.item({ project: P1, sequence_id: 41, name: "Invoice PDF" });
+  const b = plane.item({ project: P1, sequence_id: 42, name: "Tax rules" });
+  const v1 = plane.module({ project: P1, name: "Billing v1", status: "completed" }, [a.id]);
+  const v2 = plane.module({ project: P1, name: "Billing v2", status: "planned" });
+
+  const add = await ask(s, "moduleAddItems", { project: "ENG", module: "Billing v2", items: ["ENG-41", "ENG-42"] });
+  expect(add.result.summary).toContain("stays in any other module");
+  await s.discord.click(add.confirmation!, "Confirm");
+  expect(plane.writes).toEqual([{ method: "POST", path: `projects/${P1}/modules/${v2.id}/module-issues/`, body: { issues: [a.id, b.id] } }]);
+  expect(plane.modulesOf(a.id)).toEqual([v1.id, v2.id]);
+
+  const remove = await ask(s, "moduleRemoveItem", { project: "ENG", module: "Billing v1", item: "ENG-41" });
+  await s.discord.click(remove.confirmation!, "Confirm");
+  expect(plane.writes.at(-1)).toEqual({ method: "DELETE", path: `projects/${P1}/modules/${v1.id}/module-issues/${a.id}/`, body: null });
+
+  const planned = await ask(s, "moduleArchive", { project: "ENG", module: "Billing v2" });
+  expect(planned.result.error).toContain("Billing v2 is planned");
+  const archive = await ask(s, "moduleArchive", { project: "ENG", module: "Billing v1" });
+  await s.discord.click(archive.confirmation!, "Confirm");
+  expect(plane.writes.at(-1)).toEqual({ method: "POST", path: `projects/${P1}/modules/${v1.id}/archive/`, body: null });
+  const unarchive = await ask(s, "moduleUnarchive", { project: "ENG", module: "billing v1" });
+  await s.discord.click(unarchive.confirmation!, "Confirm");
+  expect(plane.writes.at(-1)).toEqual({ method: "DELETE", path: `projects/${P1}/archived-modules/${v1.id}/unarchive/`, body: null });
+  expect(plane.find.module(v1.id)!.archived_at).toBeNull();
+});
