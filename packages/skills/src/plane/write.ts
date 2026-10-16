@@ -25,6 +25,11 @@ export interface PlaneChange<T = unknown> { t: PlaneTarget; summary: string; run
 /** `access: "trusted"` and `ownConfirmation: true` are for danger tools. */
 export type PlaneWriteOptions = Pick<WriteRequest, "access" | "ownConfirmation">;
 
+/** What every Plane danger tool passes: only a Trusted member may ask, and only its own Confirm runs it. */
+export const DANGER: PlaneWriteOptions = { access: "trusted", ownConfirmation: true };
+/** The end of every Plane danger tool's description. */
+export const DANGER_NOTE = " Only a Trusted member may ask for it, and it waits for its own Confirm in Discord, which a thread grant does not cover.";
+
 export function planeWrite<T>(tool: string, prepare: (args: Obj, ctx: SkillContext) => Promise<PlaneChange<T>>, options: PlaneWriteOptions = {}): ToolHandler {
   return (args, ctx) => confirmWrite(ctx, { tool, args: args ?? {}, ...options }, async () => {
     const { t, summary, run, refusals = [], role } = await prepare(args ?? {}, ctx);

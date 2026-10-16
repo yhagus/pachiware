@@ -168,12 +168,19 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       Object.assign(it, settable(body), { updated_at: "2026-10-02T09:00:00.000000Z" });
       return it;
     }
+    if (seg.length === 4 && req.method === "DELETE") {
+      // Plane lets only the work item's creator or a project Admin delete it.
+      if (it.created_by !== "u-bot" && !(p.member_role > 15)) return json(403, { error: "Only admin or creator can delete the work item" });
+      items.splice(items.indexOf(it), 1); return noContent();
+    }
     if (seg[4] === "comments") {
       // Like Plane, the comment's actor is the API user, and created_by is taken from the body when sent.
       if (seg.length === 5 && req.method === "POST") return json(201, api.comment({ issue: it.id, project: p.id, comment_html: body.comment_html ?? "", access: body.access ?? "INTERNAL", actor: "u-bot", created_by: body.created_by ?? "u-bot" }));
       const c = comments.find((x) => x.id === seg[5] && x.issue === it.id);
       if (!c) return missing();
       if (req.method === "PATCH") return Object.assign(c, { comment_html: body.comment_html ?? c.comment_html, edited_at: "2026-10-02T09:00:00.000000Z" });
+      // Plane has no author check on a comment delete: any project member may delete any comment.
+      if (req.method === "DELETE") { comments.splice(comments.indexOf(c), 1); return noContent(); }
     }
     if (seg[4] === "links") {
       if (seg.length === 5 && req.method === "POST") {

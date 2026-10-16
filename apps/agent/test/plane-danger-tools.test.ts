@@ -1,0 +1,85 @@
+import { expect } from "bun:test";
+import { discordScenario, type Scenario } from "./support/discordScenario";
+import { fakePlane } from "./support/fakePlane";
+
+// Plane is faked at fetch in the shapes Plane v1.3.1 answers with. The account's Plane user is "u-bot". Alice is the
+// Trusted member in every scenario; Bob is not.
+
+const P1 = "11111111-1111-4111-8111-111111111111", P2 = "22222222-2222-4222-8222-222222222222";
+
+/** ENG is open here, with Budi and the bot as members. */
+function world(plane: ReturnType<typeof fakePlane>, engRole = 15) {
+  const budi = plane.user({ id: "u-budi", first_name: "Budi", last_name: "Santoso", display_name: "budi", email: "budi@acme.test" });
+  plane.user({ id: "u-bot", first_name: "Plane", last_name: "Bot", display_name: "pachibot", email: "bot@acme.test" });
+  const eng = plane.project({ id: P1, name: "Engineering", identifier: "ENG", member_role: engRole }, [budi.id, "u-bot"]);
+  const todo = plane.state({ project: P1, name: "Todo", group: "unstarted", default: true });
+  return { budi, eng, todo };
+}
+
+/** Asks for one tool call and returns its result and the confirmation message the bot posted, if any. */
+async function ask(s: Scenario, tool: string, args: Record<string, unknown>, options: { author?: any; channel?: string } = {}) {
+  let result: any;
+  const before = s.discord.botMessages.length;
+  s.model.script({ tool, args }, (turn: any) => { result = turn.toolResults[0]; return "done"; });
+  await s.discord.send(`${s.discord.mention} ${tool}`, options);
+  const confirmation = s.discord.botMessages.slice(before).find((m) => m.components.length);
+  return { result, confirmation };
+}
+const sent = (plane: ReturnType<typeof fakePlane>) => plane.writes.map((x) => `${x.method} ${x.path}`);
+const labels = (m: { components: any[] }) => m.components.flatMap((row: any) => row.components.map((b: any) => b.label));
+
+discordScenario("workItemDelete is refused for someone who is not a Trusted member before any confirmation, and waits for its own Confirm even under a thread grant", async (s) => {
+  process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
+  await s.plane({ projects: [P1] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login", state: w.todo.id });
+
+  const refused = await ask(s, "workItemDelete", { item: "ENG-42" }, { author: s.discord.bob });
+  expect(refused.result.error).toContain("limited to Trusted members");
+  expect(refused.confirmation).toBeUndefined();
+
+  // Alice grants the thread with an ordinary write first.
+  const comment = await ask(s, "workItemComment", { item: "ENG-42", body: "Looking at it" });
+  await s.discord.click(comment.confirmation!, "Confirm changes in this thread");
+  expect(plane.writes.map((x) => x.method)).toEqual(["POST"]);
+
+  const del = await ask(s, "workItemDelete", { item: "ENG-42" }, { channel: comment.confirmation!.channelId });
+  expect(del.result).toMatchObject({ pending: true, ownConfirmation: true });
+  expect(del.result.summary).toContain(`Delete work item ENG-42 "Fix login"`);
+  expect(labels(del.confirmation!)).toEqual(["Confirm", "Cancel"]);
+  expect(plane.writes.length).toBe(1);
+
+  await s.discord.click(del.confirmation!, "Confirm");
+  expect(sent(plane).at(-1)).toBe(`DELETE projects/${P1}/work-items/${item.id}/`);
+  expect(plane.find.item(item.id)).toBeUndefined();
+  expect(del.confirmation!.content).toContain("Completed");
+});
+
+discordScenario("workItemDeleteComment refuses a comment the account's Plane user did not write, and Plane's refusal to delete another user's work item is reported plainly", async (s) => {
+  process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
+  await s.plane({ projects: [P1] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login", state: w.todo.id });
+  const theirs = plane.comment({ issue: item.id, project: P1, comment_html: "<p>Repro on Safari</p>", actor: w.budi.id, created_by: w.budi.id });
+  const ours = plane.comment({ issue: item.id, project: P1, comment_html: "<p>On it</p>", actor: "u-bot" });
+
+  const refused = await ask(s, "workItemDeleteComment", { item: "ENG-42", comment: theirs.id });
+  expect(refused.result.error).toContain("written by Budi Santoso (budi), not by this account's Plane user");
+  expect(refused.confirmation).toBeUndefined();
+
+  const del = await ask(s, "workItemDeleteComment", { item: "ENG-42", comment: ours.id });
+  expect(del.result.summary).toContain("Delete a comment on ENG-42");
+  expect(labels(del.confirmation!)).toEqual(["Confirm", "Cancel"]);
+  expect(plane.writes).toEqual([]);
+  await s.discord.click(del.confirmation!, "Confirm");
+  expect(sent(plane)).toEqual([`DELETE projects/${P1}/work-items/${item.id}/comments/${ours.id}/`]);
+
+  const budis = plane.item({ project: P1, sequence_id: 43, name: "Budi's item", state: w.todo.id, created_by: w.budi.id });
+  const notCreator = await ask(s, "workItemDelete", { item: "ENG-43" });
+  await s.discord.click(notCreator.confirmation!, "Confirm");
+  expect(notCreator.confirmation!.content).toContain("couldn't complete");
+  expect(notCreator.confirmation!.content).toContain("did not create it and is not an Admin of the Plane project ENG");
+  expect(plane.find.item(budis.id)).toBeDefined();
+});
