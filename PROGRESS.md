@@ -1104,7 +1104,10 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
 
 Tickets [#173](https://github.com/yhagus/pachiware/issues/173)–[#177](https://github.com/yhagus/pachiware/issues/177); #175 is blocked by #173 and #174. Integration branch `spec/173-177-test-hardening`, merged into `main` when done (no PR).
 
-- [ ] #173 Contract tests run without a `.env`.
+- [x] #173 Contract tests run without a `.env`.
+  - The shared test preload (`packages/db/test/preload.ts`) sets a fixed `PLATFORM_ENCRYPTION_KEY` with `||=`, so a key from the environment or `.env` wins. The seven contract suites that set and restored the key themselves (availability, bots, conversations, git, profiles, schedules, usage) no longer do. Spawned test processes inherit the key through `process.env`.
+  - `packages/db/test/preload.test.ts` runs a fresh `bun --preload` process in an empty directory: with no key it can encrypt and decrypt, and a key that is already set is kept.
+  - Verification: worktree with no `.env` and no key in the shell; `bun run typecheck` exits 0; `bun test` 841 pass, 236 skip, 0 fail across 141 files.
 - [ ] #174 The contract harness refuses a database that isn't a test database.
 - [ ] #175 The engine contract suites run on PostgreSQL and MongoDB in CI and with one local command.
 - [ ] #176 A doc for adding records on all three Database engines.

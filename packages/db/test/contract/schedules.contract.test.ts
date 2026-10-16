@@ -1,10 +1,5 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { contract, type EngineUnderTest } from "./engines.ts";
-
-// Every schedule needs a bot, and bot tokens are encrypted at rest; the platform key a developer set is kept.
-const savedKey = process.env.PLATFORM_ENCRYPTION_KEY;
-beforeAll(() => { process.env.PLATFORM_ENCRYPTION_KEY ||= Buffer.alloc(32, 4).toString("base64"); });
-afterAll(() => { if (savedKey === undefined) delete process.env.PLATFORM_ENCRYPTION_KEY; else process.env.PLATFORM_ENCRYPTION_KEY = savedKey; });
 
 async function setup(engine: EngineUnderTest) {
   const tenant = await engine.repos.tenants.create({ name: "Acme", slug: "acme" });

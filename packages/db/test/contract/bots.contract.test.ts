@@ -1,10 +1,5 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { contract } from "./engines.ts";
-
-// Bot tokens are encrypted at rest, so this suite needs a platform key; the one a developer set is kept.
-const savedKey = process.env.PLATFORM_ENCRYPTION_KEY;
-beforeAll(() => { process.env.PLATFORM_ENCRYPTION_KEY ||= Buffer.alloc(32, 4).toString("base64"); });
-afterAll(() => { if (savedKey === undefined) delete process.env.PLATFORM_ENCRYPTION_KEY; else process.env.PLATFORM_ENCRYPTION_KEY = savedKey; });
 
 contract("Bots and guild configuration", (use) => {
   const tenant = (slug: string) => use().repos.tenants.create({ name: slug, slug });
