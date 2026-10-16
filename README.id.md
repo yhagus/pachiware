@@ -159,3 +159,13 @@ PROGRESS.md       Status implementasi dan hasil verifikasi
 ```
 
 Dokumentasi integrasi tersedia di [API Reference](docs/api.md). Untuk pengembangan, pemeriksaan repository dapat dijalankan dengan `bun test`, `bun run typecheck`, dan `bun run build`.
+
+### Tes Engine Database
+
+`bun test` menjalankan tes database di SQLite saja. Untuk menjalankannya juga di PostgreSQL dan MongoDB, dengan Docker menyala:
+
+```bash
+bun run test:engines
+```
+
+Perintah ini menyalakan layanan compose `postgres`, `mongo` dan `mongo-standalone` bila belum menjawab, membuat database `pachiware_test`, lalu menjalankan tes `packages/db`, `packages/cli` dan `apps/agent/test/database-engine.test.ts` di ketiga engine. Perintah yang sama berjalan di CI setiap push ke `main`. Untuk memakai server lain, isi sendiri `TEST_POSTGRES_URL`, `TEST_MONGODB_URL` (replica set) atau `TEST_MONGODB_STANDALONE_URL`. Tes menghapus seluruh isi database tersebut, jadi namanya harus mengandung `test`.
