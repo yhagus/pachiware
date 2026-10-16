@@ -143,9 +143,9 @@ export class AgentReActLoop {
     });
 
     // 5. Retrieve active tools
-    // Availability rules for this place first, then a playbook may close tools in its threads; a call to either is refused even when the model names it anyway.
+    // Availability rules for this place first, then a playbook may close tools in its threads, and a skill may hide tools the place does not support
+    // (see SkillModule.hiddenTools); a call to any of them is refused even when the model names it anyway.
     const closed = closedTools(input.context.playbook);
-    const activeTools = available.tools.filter((t) => !closed.has(t.name));
 
     // 6. Build execution context for tools
     const skillContext: SkillContext = {
@@ -173,6 +173,9 @@ export class AgentReActLoop {
         roleIds: input.context.skillContext?.member?.roleIds ?? [], permissions: input.context.skillContext?.member?.permissions ?? [],
       },
     };
+
+    const hidden = await skillRegistry.hiddenTools(skillContext);
+    const activeTools = available.tools.filter((t) => !closed.has(t.name) && !hidden.has(t.name));
 
     const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;
