@@ -1135,3 +1135,21 @@ Tickets [#173](https://github.com/yhagus/pachiware/issues/173)–[#177](https://
   - Verification: `bun run typecheck` exits 0; `bun test` (test URLs empty, as pre-push runs it) 873 pass, 236 skip, 0 fail across 144 files; `bun run test:engines` against local Docker 387 pass, 0 fail across 27 files.
 - [x] Merged into `main` by fast-forward and pushed; #173–#177 closed with the commit named.
   - The push to `main` is the first run of `.github/workflows/ci.yml`.
+
+## Phase 37 — Plane as a native skill (planning, spec #178)
+
+Planning is done; implementation follows the sub-issues of [#178](https://github.com/yhagus/pachiware/issues/178) in order. Target: Plane's `/api/v1/` REST API at v1.3.1.
+
+- [x] Decided native tooling over Plane's official MCP server (ADR 0011). Its tools bundle read and delete behind an `action` argument, so Effect, Write confirmation and Availability rules cannot tell them apart. Its key reaches every Plane workspace of its user, and self-hosted Plane would need a Python process.
+- [x] Glossary: added Plane account, Plane workspace, Plane project, Work item, Plane scope, Trusted member. Git write confirmation became Write confirmation, and Allowed git hosts became Allowed hosts. Work items and Tasks are never synced.
+- [x] Plane v1.3.1 API inventoried from source. Facts the design depends on: no filters on the work-item list; search covers title and key only; HTML-only descriptions; `assignees`/`labels` replace the whole set; comments editable by any member; `created_by` accepted from the body; 60/min per key; no API for pages, views, notifications, work item types, worklogs or webhooks; estimate routes not mounted.
+- [x] Spec #178 published with a first cut of sub-issues #179–#182. Trusted member reads `TRUSTED_DISCORD_IDS`, falling back to `GIT_OWNER_DISCORD_IDS`.
+- [x] Follow-ups (needs-triage): #183 brief → work items, #184 Digest with work items, #185 Plane webhooks, #186 Discord→Plane member mapping, #187 generic MCP client.
+- [x] Re-sliced with /to-tickets so each ticket fits one context window. The confirmation queue was already skill-neutral; only git's `guard()`, the Discord wording and the owner check were git-only, so that prefactor became #188. #180–#182 closed as superseded. Decided: a thread grant covers every skill's changes in the thread, except danger actions, which keep their own Confirm.
+- [ ] #179 Plane accounts, Plane scope and Allowed hosts (no blockers)
+- [ ] #188 Trusted member and a Write confirmation any skill can use (no blockers)
+- [ ] #189 Plane read tools for work items (blocked by #179)
+- [ ] #190 Plane read tools for cycles, modules, intake and the Plane workspace (blocked by #179)
+- [ ] #191 Plane write tools for work items (blocked by #188, #189)
+- [ ] #192 Plane write tools for cycles, modules, intake and Plane project setup (blocked by #190, #191)
+- [ ] #193 Plane danger tools, limited to Trusted members (blocked by #191, #192)

@@ -13,7 +13,7 @@ The kind of database an installation keeps its records in: SQLite, PostgreSQL, o
 _Avoid_: Driver (the code that talks to it), dialect, backend
 
 **Tenant**:
-An isolated owner of its bots, profiles, git accounts, skills, conversations, and one Workspace. Nothing is shared across tenants.
+An isolated owner of its bots, profiles, git accounts, Plane accounts, skills, conversations, and one Workspace. Nothing is shared across tenants.
 _Avoid_: Organization, customer
 
 **API key**:
@@ -36,9 +36,9 @@ _Avoid_: Repo connection, git integration, git credentials
 The rule that says which of a bot's git accounts, and which repositories of each (wildcard patterns such as `org/*`), are usable in one guild, or in one channel of it. No rule means no git access. A channel rule can only narrow its guild's rule; a thread follows its parent channel.
 _Avoid_: Git permissions, repo ACL
 
-**Git write confirmation**:
-The Confirm/Cancel buttons shown in Discord before any git change (commit, pull request, comment, issue, merge, close). Only the person who asked can press them. Reading never needs it.
-_Avoid_: Approval, git approval
+**Write confirmation**:
+The Confirm/Cancel buttons shown in Discord before any change on a git platform or in Plane (commit, pull request, comment, issue, merge, close, work item). Only the person who asked can press them. Reading never needs it.
+_Avoid_: Approval, git approval, Git write confirmation (its older, git-only name)
 
 **Brief**:
 A short list of points a person writes in chat, each meant to become an issue.
@@ -56,12 +56,36 @@ _Avoid_: Q&A, interview, questionnaire
 The record of a discussion the bot wrote from a channel's or thread's messages: what was decided, what is still open, and who does what next. Its action items can become issue drafts. Minutes someone wrote elsewhere and pasted in are a document, not minutes.
 _Avoid_: Notulen (in English text), summary, recap
 
-**Allowed git hosts**:
-The platform-wide list of self-hosted git servers that git accounts may point at. Empty means unrestricted.
-_Avoid_: Whitelist
+**Trusted member**:
+A Discord user the platform admin listed as allowed to ask for danger actions on a git platform or in Plane. Anyone else is refused before any Write confirmation appears.
+_Avoid_: Owner (reserved for the person who set a Reminder), bot owner, superuser
+
+**Allowed hosts**:
+The platform-wide list of self-hosted servers that git accounts and Plane accounts may point at. Empty means unrestricted.
+_Avoid_: Whitelist, Allowed git hosts (its older, git-only name)
+
+**Plane account**:
+A tenant's credentials for one Plane workspace, on Plane's cloud or a self-hosted Plane. A bot may have many Plane accounts, and several bots may share the same one. Everything done through it is done as the one Plane user it belongs to.
+_Avoid_: Plane integration, Plane connection, Plane token
+
+**Plane workspace**:
+The organization in Plane that a Plane account opens, holding its Plane projects and members. Always named with "Plane" in front.
+_Avoid_: Workspace (reserved for the tenant's own tree of files), organization
+
+**Plane project**:
+A container of work items inside a Plane workspace. It is not a channel and has no tasks. Always named with "Plane" in front.
+_Avoid_: Project (reserved for the work a channel exists for), board
+
+**Work item**:
+A unit of work tracked in a Plane project, with its own state, any number of assignees, and comments. It lives only in Plane; it is never a task and never an issue.
+_Avoid_: Issue (reserved for git platforms), ticket, Task, Plane task
+
+**Plane scope**:
+The rule that says which of a bot's Plane accounts, and which Plane projects of each (or all of them), are usable in one guild, or in one channel of it. No rule means no Plane access. A channel rule can only narrow its guild's rule; a thread follows its parent channel.
+_Avoid_: Plane permissions, project ACL
 
 **Skill**:
-A bundle of tools the agent may call. Enabled or disabled per tenant. The git skill turns on by itself when a git account is first attached to a bot.
+A bundle of tools the agent may call. Enabled or disabled per tenant. The git skill turns on by itself when a git account is first attached to a bot, and the Plane skill when a Plane account is.
 _Avoid_: Plugin, extension
 
 **Availability rule**:
@@ -98,7 +122,7 @@ _Avoid_: Board, workstream, category (a Discord category only groups channels)
 
 **Task**:
 A piece of work a person asked the bot to track, in a channel or privately: a title, at most one assignee, a status, and optionally a due date, a checklist, and progress notes. A cancelled task stays on record as cancelled; it is never active again and is not late.
-_Avoid_: Ticket, issue (reserved for git platforms), todo
+_Avoid_: Ticket, issue (reserved for git platforms), work item (reserved for Plane), todo
 
 **Personal task**:
 A task a person keeps for themselves from a DM with the bot, in no project. Only that person sees it, and its assignee is that person or someone known only by name. It can be moved into a project; a project's task never becomes personal.
@@ -150,13 +174,15 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 
 ## Relationships
 
-- A **Tenant** owns many **Bots**, **Profiles**, and **Git accounts**, and exactly one **Workspace**.
-- A **Bot** has zero or one **Profile** and many **Git accounts**; all must belong to the bot's **Tenant**.
+- A **Tenant** owns many **Bots**, **Profiles**, **Git accounts**, and **Plane accounts**, and exactly one **Workspace**.
+- A **Bot** has zero or one **Profile**, many **Git accounts**, and many **Plane accounts**; all must belong to the bot's **Tenant**.
 - A **Brief** becomes one or more **Issue drafts** through **Clarifying rounds** held in one thread; only its author decides.
 - A **Git scope** narrows a **Bot**'s **Git accounts** per **Guild** and per channel; it can never add an account the bot does not have.
+- A **Plane account** opens exactly one **Plane workspace**. A **Plane scope** narrows a **Bot**'s **Plane accounts**, and their **Plane projects**, per **Guild** and per channel; it can never add an account the bot does not have.
+- A **Work item** belongs to one **Plane project**. **Work items** and **Tasks** are never synced or converted into each other; the **Digest** and **Reminders** read only **Tasks**.
 - A **Playbook** requires some **Skills** and may load other **Playbooks**; it cannot start while a required skill or a loaded playbook is off.
 - A **Playbook thread** belongs to one **Playbook** and one **Bot**; only that bot answers in it.
-- An **Availability rule** narrows **Playbooks** and **Skills** for the tenant and per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too.
+- An **Availability rule** narrows **Playbooks** and **Skills** for the tenant and per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too, and for Plane tools a **Plane scope** must allow the Plane project.
 - A **Task** belongs to one **Project**, which is one channel, unless it is a **Personal task**; it has zero or one **Assignee** and any number of **Progress notes**.
 - A **Reminder** belongs to the person who asked for it and to the channel or DM it will post in; it is not part of any task.
 - A **Digest** is per channel and reads that channel's tasks and their **Due dates**; it never reads another channel.
