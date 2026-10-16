@@ -1,8 +1,6 @@
 #!/bin/sh
-# Refuse a message that still has git's Conflicts block from a conflicted merge.
-# The hook sees the message before git cleans it up, so only look when the comment
-# lines will survive. Git sets GIT_EDITOR=: when no editor ran (--no-edit, -m); by
-# default it strips comments only after an editor. A --cleanup flag isn't visible here.
+# Refuse a message that still has git's Conflicts block. Comment lines survive only when no editor ran
+# (git sets GIT_EDITOR=:) or commit.cleanup keeps them; a --cleanup flag isn't visible here.
 case "$(git config --get commit.cleanup)" in
   strip) exit 0 ;;
   whitespace | verbatim) ;;
@@ -11,7 +9,7 @@ esac
 if awk '
   mark != "" && index($0, mark) == 1 { found = 1; exit }
   { mark = "" }
-  /^[^[:alnum:][:space:]]+ Conflicts:$/ { mark = substr($0, 1, index($0, " ") - 1) "\t" }
+  /^[^A-Za-z0-9 \t]+ Conflicts:$/ { mark = substr($0, 1, index($0, " ") - 1) "\t" }
   END { exit !found }
 ' "$1"; then
   cat >&2 <<'EOF'
