@@ -266,3 +266,33 @@ discordScenario("workspaceInvite and workspaceCancelInvite are offered only wher
   expect(JSON.stringify(refused)).toContain("unavailable here");
   expect(plane.writes.length).toBe(2);
 });
+
+/** Every Plane danger tool #193 asks for; projectMemberRole and projectMemberRemove are not built (see PROGRESS.md). */
+const DANGER_TOOLS = [
+  "workItemDelete", "workItemDeleteComment", "cycleDelete", "moduleDelete", "intakeDelete",
+  "projectUpdate", "projectArchive", "projectUnarchive", "projectDelete", "stateDelete", "labelDelete", "projectMemberAdd",
+  "workspaceInvite", "workspaceCancelInvite",
+];
+
+discordScenario("one Availability rule on the danger effect hides every Plane danger tool and leaves the other Plane changes offered", async (s) => {
+  process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
+  await s.plane({ projects: ["*"] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  plane.item({ project: P1, sequence_id: 42, name: "Fix login", state: w.todo.id });
+
+  s.model.script("hello");
+  await s.discord.send(`${s.discord.mention} hello`);
+  expect(s.model.tools.at(-1)).toEqual(expect.arrayContaining(DANGER_TOOLS));
+  const prompt = String(s.model.calls[0]!.find((m) => m.role === "system")?.content);
+  expect(prompt).toMatch(/Deleting in Plane[^\n]*Trusted members only[^\n]*its own Confirm/);
+
+  await s.availability({ level: "channel", channelId: "channel-1" }, { kind: "effect", name: "danger", value: "off" });
+  const refused = await ask(s, "workItemDelete", { item: "ENG-42" });
+  const offered = s.model.tools.at(-1)!;
+  for (const tool of DANGER_TOOLS) expect(offered).not.toContain(tool);
+  expect(offered).toEqual(expect.arrayContaining(["workItemCreate", "cycleCreate", "projectCreate", "workItemGet"]));
+  expect(JSON.stringify(refused.result)).toContain("unavailable here");
+  expect(refused.confirmation).toBeUndefined();
+  expect(plane.writes).toEqual([]);
+});
