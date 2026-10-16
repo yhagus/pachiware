@@ -141,6 +141,12 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme" } 
       items.push(it);
       return json(201, it);
     }
+    const it = seg[2] === "work-items" ? items.find((x) => x.id === seg[3] && x.project === p.id) : undefined;
+    if (!it) return missing();
+    if (seg.length === 4 && req.method === "PATCH") {
+      Object.assign(it, settable(body), { updated_at: "2026-10-02T09:00:00.000000Z" });
+      return it;
+    }
     return json(405, { detail: `Method "${req.method}" not allowed.` });
   }
 

@@ -62,3 +62,47 @@ discordScenario("workItemCreate changes nothing before Confirm, runs only on the
   expect(confirmation!.content).toContain("ENG-1");
   expect(confirmation!.content).not.toContain("plane-key");
 });
+
+discordScenario("a confirmed write is refused when its Plane project left the scope after it was asked for", async (s) => {
+  const account = await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  world(plane);
+  const { confirmation } = await ask(s, "workItemCreate", { project: "ENG", name: "Rotate keys" });
+
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  await repositories().plane.replaceScopes(s.tenant.id, s.bot.id, s.discord.guildId, "", [{ planeAccountId: account.id, projectIds: [P2] }]);
+  await s.discord.click(confirmation!, "Confirm");
+  expect(confirmation!.content).toContain("couldn't complete");
+  expect(confirmation!.content).toContain("is not open in this channel");
+  expect(plane.writes).toEqual([]);
+});
+
+discordScenario("workItemUpdate adds or removes one assignee or label and keeps the rest; an unclear name or \"me\" is asked about", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login", assignees: [w.budi.id], labels: [w.bug.id] });
+
+  const add = await ask(s, "workItemUpdate", { item: "ENG-42", addAssignees: ["sari"], addLabels: ["ui"] });
+  expect(add.result.summary).toContain("Sari Dewi (sari)");
+  expect(plane.writes).toEqual([]);
+  await s.discord.click(add.confirmation!, "Confirm");
+  expect(plane.writes.at(-1)).toMatchObject({ method: "PATCH", path: `projects/${P1}/work-items/${item.id}/`, body: { assignees: [w.budi.id, w.sari.id], labels: [w.bug.id, w.ui.id] } });
+
+  const remove = await ask(s, "workItemUpdate", { item: "ENG-42", removeAssignees: ["budi"], removeLabels: ["bug"], priority: "urgent" });
+  await s.discord.click(remove.confirmation!, "Confirm");
+  expect(plane.writes.at(-1)!.body).toEqual({ priority: "urgent", assignees: [w.sari.id], labels: [w.ui.id] });
+
+  const before = plane.writes.length;
+  const unclear = await ask(s, "workItemUpdate", { item: "ENG-42", addAssignees: ["sar"] });
+  expect(unclear.result.error).toContain("Sari Dewi (sari)");
+  expect(unclear.result.error).toContain("Sarah Lim (sarah)");
+  expect(unclear.confirmation).toBeUndefined();
+  const me = await ask(s, "workItemUpdate", { item: "ENG-42", addAssignees: ["me"] });
+  expect(me.result.error).toContain(`who "me" is`);
+  const unknown = await ask(s, "workItemUpdate", { item: "ENG-42", state: "Done" });
+  expect(unknown.result.error).toContain(`No state matches "Done"`);
+  const nothing = await ask(s, "workItemUpdate", { item: "ENG-42" });
+  expect(nothing.result.error).toContain("Nothing to change");
+  expect(plane.writes.length).toBe(before);
+});
