@@ -207,3 +207,36 @@ discordScenario("workItemLinks, workItemRelations and workItemAttachments list w
   expect(files.attachments).toEqual([{ id: expect.any(String), name: "screenshot.png", type: "image/png", size: 48213, uploadedAt: expect.any(String) }]);
   expect(JSON.stringify(files)).not.toContain("3f9e");
 });
+
+discordScenario("Browse: planeProjects, planeProject, planeStates, planeLabels and planeMembers, inside the scope only", async (s) => {
+  await s.plane({ projects: [P1, P2] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  plane.label({ project: P1, name: "frontend", parent: w.ui.id });
+  plane.project({ id: "44444444-4444-4444-8444-444444444444", name: "Archived", identifier: "ARC", archived_at: "2026-01-01T00:00:00Z" });
+
+  const projects = await ask(s, "planeProjects", {});
+  expect(projects.projects).toEqual([
+    { id: P1, identifier: "ENG", name: "Engineering", features: { cycles: true, modules: true, intake: false } },
+    { id: P2, identifier: "DES", name: "Design", features: { cycles: true, modules: true, intake: false } },
+  ]);
+
+  expect(await ask(s, "planeProject", { project: "eng" })).toMatchObject({ id: P1, identifier: "ENG", name: "Engineering", features: { cycles: true, modules: true, intake: false }, members: 3, archived: false });
+  expect(JSON.stringify(await ask(s, "planeProject", { project: "SEC" }))).toContain("is not open in this channel");
+
+  expect((await ask(s, "planeStates", { project: "ENG" })).states).toEqual([
+    { id: w.todo.id, name: "Todo", group: "unstarted", default: true },
+    { id: w.doing.id, name: "In Progress", group: "started", default: false },
+    { id: w.done.id, name: "Done", group: "completed", default: false },
+  ]);
+  expect((await ask(s, "planeLabels", { project: "ENG" })).labels).toEqual([
+    { id: w.bug.id, name: "bug" }, { id: w.ui.id, name: "ui" }, { id: expect.any(String), name: "frontend", parent: "ui" },
+  ]);
+  const members = await ask(s, "planeMembers", { project: "Engineering" });
+  expect(members.members).toEqual([
+    { id: "u-budi", name: "Budi Santoso (budi)" }, { id: "u-sari", name: "Sari Dewi (sari)" }, { id: "u-bot", name: "Plane Bot (pachibot)" },
+  ]);
+  expect(JSON.stringify(members)).not.toContain("@acme.test");
+  expect(JSON.stringify(await ask(s, "planeMembers", { project: P3 }))).toContain("is not open in this channel");
+  expect(s.http.requests.some((r) => r.url.includes(P3))).toBe(false);
+});
