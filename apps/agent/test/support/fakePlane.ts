@@ -453,6 +453,13 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
       if (body.name && list.some((y) => y.project === p.id && y.id !== x.id && y.name === body.name)) return json(400, { error: "The payload is not valid" });
       return Object.assign(x, body, { updated_at: "2026-10-02T09:00:00.000000Z" });
     }
+    if (seg.length === 4 && method === "DELETE") {
+      if (isState && x.default) return json(400, { error: "Default state cannot be deleted" });
+      if (isState && items.some((it) => it.state === x.id)) return json(400, { error: "The state is not empty, only empty states can be deleted" });
+      list.splice(list.indexOf(x), 1);
+      if (!isState) for (const it of items) it.labels = it.labels.filter((id: string) => id !== x.id);
+      return noContent();
+    }
     return json(405, { detail: `Method "${method}" not allowed.` });
   }
 

@@ -10,7 +10,7 @@ import { resolvePlaneProject, planeTargetOf, PROJECT_ARGS, type PlaneProjectTarg
 import { projectNames, projectStates, projectLabels } from "./resolve.js";
 import { pickWorkspaceAccess } from "./workspace.js";
 import { text, title } from "./args.js";
-import { planeWrite } from "./write.js";
+import { planeWrite, DANGER, DANGER_NOTE } from "./write.js";
 
 type Obj = Record<string, any>;
 
@@ -55,6 +55,10 @@ export const projectAdminTools: ToolDefinition[] = [
       label: { type: "string", description: "The label's current name, as planeLabels lists it." },
       name: { type: "string", description: "New name." }, color: COLOR, description: { type: "string" },
     }, required: ["project", "label"] } },
+  { name: "stateDelete", description: `Deletes a state of a Plane project open here. Plane refuses the default state and a state that still holds work items, archived and draft ones included.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { ...PROJECT_ARGS, state: { type: "string", description: "The state's name, as planeStates lists it." } }, required: ["project", "state"] } },
+  { name: "labelDelete", description: `Deletes a label of a Plane project open here; work items that carry it lose it.${DANGER_NOTE}`,
+    parameters: { type: "object", properties: { ...PROJECT_ARGS, label: { type: "string", description: "The label's name, as planeLabels lists it." } }, required: ["project", "label"] } },
 ];
 
 export const projectAdminToolPolicy: Record<string, ToolPolicy> = {
@@ -63,6 +67,8 @@ export const projectAdminToolPolicy: Record<string, ToolPolicy> = {
   stateUpdate: { effect: "write", group: "Project admin" },
   labelCreate: { effect: "write", group: "Project admin" },
   labelUpdate: { effect: "write", group: "Project admin" },
+  stateDelete: { effect: "danger", group: "Project admin" },
+  labelDelete: { effect: "danger", group: "Project admin" },
 };
 
 function color(v: unknown): string | undefined {
@@ -199,4 +205,33 @@ export const projectAdminHandlers = {
       },
     };
   }),
+  stateDelete: planeWrite("stateDelete", async (a, ctx) => {
+    const t = await resolvePlaneProject(ctx, a);
+    const state = await projectNames(t, t.project).state(a.state);
+    if (state.default) throw new Error(`${state.name} is the default state of ${t.project.identifier}, which Plane does not let anyone delete. Make another state the default in Plane first.`);
+    return {
+      t, role: MEMBER_ROLE(t),
+      refusals: [
+        [/state is not empty/, `The state ${state.name} still holds work items (archived and draft ones count too), so Plane kept it. Move them to another state first.`],
+        [/Default state cannot be deleted/, `${state.name} is the default state of ${t.project.identifier}, so Plane kept it.`],
+      ],
+      summary: `Delete the state ${state.name} (group ${state.group}) from ${t.project.identifier}`,
+      run: async () => {
+        await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/states/${state.id}/`), { method: "DELETE" });
+        return { state: { id: state.id, name: state.name }, deleted: true };
+      },
+    };
+  }, DANGER),
+  labelDelete: planeWrite("labelDelete", async (a, ctx) => {
+    const t = await resolvePlaneProject(ctx, a);
+    const label = await projectNames(t, t.project).label(a.label);
+    return {
+      t, role: MEMBER_ROLE(t),
+      summary: `Delete the label ${label.name} from ${t.project.identifier}; work items that carry it lose it`,
+      run: async () => {
+        await planeRequest(t.conn, inWorkspace(t.conn, `projects/${t.project.id}/labels/${label.id}/`), { method: "DELETE" });
+        return { label: { id: label.id, name: label.name }, deleted: true };
+      },
+    };
+  }, DANGER),
 };

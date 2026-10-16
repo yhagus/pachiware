@@ -124,3 +124,31 @@ discordScenario("cycleDelete, moduleDelete and intakeDelete run after their own 
   expect(plane.find.intake(pending.issue)).toBeUndefined();
   expect(plane.find.item(pending.issue)).toBeUndefined();
 });
+
+discordScenario("stateDelete refuses the default state before Confirm and reports Plane's refusal of a state that still holds work items; labelDelete removes a label", async (s) => {
+  process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
+  await s.plane({ projects: [P1] });
+  const plane = fakePlane(s);
+  const w = world(plane);
+  const doing = plane.state({ project: P1, name: "In Progress", group: "started" });
+  const review = plane.state({ project: P1, name: "In Review", group: "started" });
+  plane.item({ project: P1, sequence_id: 42, name: "Fix login", state: doing.id });
+  const bug = plane.label({ project: P1, name: "bug" });
+
+  const def = await ask(s, "stateDelete", { project: "ENG", state: "todo" });
+  expect(def.result.error).toContain("Todo is the default state of ENG");
+  expect(def.confirmation).toBeUndefined();
+
+  const busy = await ask(s, "stateDelete", { project: "ENG", state: "in progress" });
+  const empty = await ask(s, "stateDelete", { project: "ENG", state: "In Review" });
+  const label = await ask(s, "labelDelete", { project: "ENG", label: "BUG" });
+  expect(label.result.summary).toContain("Delete the label bug from ENG");
+  expect(plane.writes).toEqual([]);
+  for (const r of [busy, empty, label]) await s.discord.click(r.confirmation!, "Confirm");
+  expect(sent(plane)).toEqual([`DELETE projects/${P1}/states/${doing.id}/`, `DELETE projects/${P1}/states/${review.id}/`, `DELETE projects/${P1}/labels/${bug.id}/`]);
+  expect(busy.confirmation!.content).toContain("The state In Progress still holds work items");
+  expect(plane.find.state(P1, "In Progress")).toBeDefined();
+  expect(plane.find.state(P1, "In Review")).toBeUndefined();
+  expect(plane.find.label(P1, "bug")).toBeUndefined();
+  expect(plane.find.state(P1, w.todo.name)).toBeDefined();
+});
