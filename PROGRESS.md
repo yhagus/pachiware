@@ -1107,6 +1107,10 @@ Tickets [#173](https://github.com/yhagus/pachiware/issues/173)–[#177](https://
 - [ ] #173 Contract tests run without a `.env`.
 - [ ] #174 The contract harness refuses a database that isn't a test database.
 - [ ] #175 The engine contract suites run on PostgreSQL and MongoDB in CI and with one local command.
-- [ ] #176 A doc for adding records on all three Database engines.
+- [x] #176 A doc for adding records on all three Database engines.
+  - `docs/agents/database-engines.md`: code map, Profiles as the worked example (pointing at its files), steps for a method, a kind of record and a field, the rules (UUID ids, `Date` dates, MongoDB documents mirroring SQL rows, numbered idempotent steps, transactions for same-tenant and cascade rules, the `public-surface.test.ts` guard), and how the contract suites run per engine.
+  - AGENTS.md gains one pointer line beside the tasks.md one, and the `packages/db/` workspace line now names repositories, migrations, engine lock, runtime config, crypto and the contract suites.
+  - SQL schema changes are hand-written in `migrate.ts` (`definitions()` plus guarded `ALTER TABLE`); `drizzle-kit generate` plays no part, and there is no `drizzle/` output folder.
+  - Verification: `bun run typecheck` exits 0; `bun test` 839 pass, 236 skip, 0 fail across 140 files.
 - [ ] #177 A commit is refused while its message still has merge-conflict comments.
 - [ ] Code review of `main...spec/173-177-test-hardening`, fixed in one pass.
