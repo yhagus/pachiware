@@ -26,12 +26,14 @@ To prevent context window overflow, broken builds, or lost progress across multi
 apps/agent/      # Bun + Hono + discord.js backend, agent loop, scheduler; tests in apps/agent/test, eval in apps/agent/eval
 apps/web/        # Vite + React admin GUI (own tsconfig)
 packages/cli/    # `pachiware` CLI (install.sh at the root installs servers)
-packages/db/     # schema, migrations, default persona
+packages/db/     # repositories (SQL and MongoDB), migrations, engine lock, runtime config, crypto, default persona; contract suites in packages/db/test/contract
 packages/skills/ # built-in agent skills and the Workspace store
 docs/            # adr/, agents/, research/, api.md
 ```
 
 Working on Tasks, Assignees, Progress notes, task lists, the Digest or Reminders with tasks: read `docs/agents/tasks.md` first.
+
+Adding or changing records, a repository method, a field, or a migration on any Database engine: read `docs/agents/database-engines.md` first.
 
 
 <!-- antislop:start -->
