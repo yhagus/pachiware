@@ -93,7 +93,7 @@
         "drizzle-orm": "^0.39.3",
         "exceljs": "^4.4.0",
         "mammoth": "^1.13.0",
-        "marked": "18.0.14",
+        "marked": "^18.0.14",
         "turndown": "^7.2.4",
         "unpdf": "^1.8.1",
       },

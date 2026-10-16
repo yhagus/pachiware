@@ -1,6 +1,6 @@
 /** Read tools for the modules of a Plane project: moduleList, moduleGet, moduleItems. */
 import type { Effect, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
-import { planeList, planeRequest, inWorkspace } from "./client.js";
+import { planeList, planeRequest, inWorkspace, PlaneError } from "./client.js";
 import { resolvePlaneProject, projectHead, PROJECT_ARGS, UUID, type PlaneProjectTarget } from "./projectRef.js";
 import { listWorkItemsIn } from "./items.js";
 
@@ -27,14 +27,17 @@ const moduleView = (m: any) => ({
   workItems: { total: m.total_issues, backlog: m.backlog_issues, unstarted: m.unstarted_issues, started: m.started_issues, completed: m.completed_issues, cancelled: m.cancelled_issues },
 });
 
-const modulesOff = (t: PlaneProjectTarget) => t.project.module_view === false ? { note: `Modules are switched off in the Plane project ${t.project.identifier}.` } : {};
+export const modulesOff = (t: PlaneProjectTarget) => t.project.module_view === false ? { note: `Modules are switched off in the Plane project ${t.project.identifier}.` } : {};
 
-/** A module named by id, or by its name among the project's modules; the full module as Plane answers it. */
-async function findModule(t: PlaneProjectTarget, ref: unknown): Promise<any> {
+/** A module named by id, or by its name among the project's modules; the full module as Plane answers it. Archived modules are not found. */
+export async function findModule(t: PlaneProjectTarget, ref: unknown): Promise<any> {
   const name = typeof ref === "string" ? ref.trim() : "";
   if (!name) throw new Error('Pass "module" with a module id or name (see moduleList).');
   const { conn, project } = t;
-  if (UUID.test(name)) return planeRequest(conn, inWorkspace(conn, `projects/${project.id}/modules/${name}/`));
+  if (UUID.test(name)) {
+    try { return await planeRequest(conn, inWorkspace(conn, `projects/${project.id}/modules/${name.toLowerCase()}/`)); }
+    catch (e) { if (e instanceof PlaneError && e.status === 404) throw new Error(`No module ${name} in ${project.identifier}, or it is archived; see moduleList.`); throw e; }
+  }
   const { items } = await planeList<any>(conn, inWorkspace(conn, `projects/${project.id}/modules/`));
   const hit = items.find((m) => String(m.name ?? "").toLowerCase() === name.toLowerCase());
   if (!hit) throw new Error(`No module named "${name}" in ${project.identifier}; see moduleList.`);

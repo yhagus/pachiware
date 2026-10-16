@@ -1,6 +1,6 @@
 /** Read tools for the cycles of a Plane project: cycleList, cycleGet, cycleItems. */
 import type { Effect, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
-import { planeList, planeRequest, inWorkspace } from "./client.js";
+import { planeList, planeRequest, inWorkspace, PlaneError } from "./client.js";
 import { resolvePlaneProject, projectHead, PROJECT_ARGS, UUID, type PlaneProjectTarget } from "./projectRef.js";
 import { listWorkItemsIn } from "./items.js";
 
@@ -28,14 +28,17 @@ const cycleView = (c: any) => ({
   workItems: { total: c.total_issues, backlog: c.backlog_issues, unstarted: c.unstarted_issues, started: c.started_issues, completed: c.completed_issues, cancelled: c.cancelled_issues },
 });
 
-const cyclesOff = (t: PlaneProjectTarget) => t.project.cycle_view === false ? { note: `Cycles are switched off in the Plane project ${t.project.identifier}.` } : {};
+export const cyclesOff = (t: PlaneProjectTarget) => t.project.cycle_view === false ? { note: `Cycles are switched off in the Plane project ${t.project.identifier}.` } : {};
 
-/** A cycle named by id, or by its name among the project's cycles; the full cycle as Plane answers it. */
-async function findCycle(t: PlaneProjectTarget, ref: unknown): Promise<any> {
+/** A cycle named by id, or by its name among the project's cycles; the full cycle as Plane answers it. Archived cycles are not found. */
+export async function findCycle(t: PlaneProjectTarget, ref: unknown): Promise<any> {
   const name = typeof ref === "string" ? ref.trim() : "";
   if (!name) throw new Error('Pass "cycle" with a cycle id or name (see cycleList).');
   const { conn, project } = t;
-  if (UUID.test(name)) return planeRequest(conn, inWorkspace(conn, `projects/${project.id}/cycles/${name}/`));
+  if (UUID.test(name)) {
+    try { return await planeRequest(conn, inWorkspace(conn, `projects/${project.id}/cycles/${name.toLowerCase()}/`)); }
+    catch (e) { if (e instanceof PlaneError && e.status === 404) throw new Error(`No cycle ${name} in ${project.identifier}, or it is archived; see cycleList.`); throw e; }
+  }
   const { items } = await planeList<any>(conn, inWorkspace(conn, `projects/${project.id}/cycles/`), { query: { cycle_view: "all" } });
   const hits = items.filter((c) => String(c.name ?? "").toLowerCase() === name.toLowerCase());
   if (hits.length === 1) return hits[0];

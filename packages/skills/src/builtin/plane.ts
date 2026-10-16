@@ -5,6 +5,7 @@ import { browseTools, browseHandlers, browseToolPolicy } from "../plane/browse.j
 import { workItemTools, workItemHandlers, workItemToolPolicy } from "../plane/workItems.js";
 import { workItemWriteTools, workItemWriteHandlers, workItemWriteToolPolicy } from "../plane/workItemWrites.js";
 import { cycleTools, cycleHandlers, cycleToolPolicy } from "../plane/cycles.js";
+import { cycleWriteTools, cycleWriteHandlers, cycleWriteToolPolicy } from "../plane/cycleWrites.js";
 import { moduleTools, moduleHandlers, moduleToolPolicy } from "../plane/modules.js";
 import { intakeTools, intakeHandlers, intakeToolPolicy } from "../plane/intake.js";
 import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools } from "../plane/workspace.js";
@@ -21,6 +22,7 @@ export const planeTools: ToolDefinition[] = [
   ...workItemTools,
   ...workItemWriteTools,
   ...cycleTools,
+  ...cycleWriteTools,
   ...moduleTools,
   ...intakeTools,
   ...workspaceTools,
@@ -32,6 +34,7 @@ export const planeToolPolicy: Record<string, ToolPolicy> = {
   ...workItemToolPolicy,
   ...workItemWriteToolPolicy,
   ...cycleToolPolicy,
+  ...cycleWriteToolPolicy,
   ...moduleToolPolicy,
   ...intakeToolPolicy,
   ...workspaceToolPolicy,
@@ -58,6 +61,7 @@ export const planeHandlers: Record<string, ToolHandler> = {
   ...workItemHandlers,
   ...workItemWriteHandlers,
   ...cycleHandlers,
+  ...cycleWriteHandlers,
   ...moduleHandlers,
   ...intakeHandlers,
   ...workspaceHandlers,
