@@ -1099,3 +1099,14 @@ Spec [#155](https://github.com/yhagus/pachiware/issues/155); decision record ADR
   - The standalone refusal ran green against a throwaway `mongo:8.0` on port 27018.
   - Kept as decided: the admin tenant DELETE stays a soft delete (`tenants.purge` has no production caller); the small behaviour changes listed per ticket stay; `runtime-config.json`'s `databaseUrl` still beats `.env`, as the README says.
   - Verification: `bun run typecheck` exits 0; `bun test` 839 pass, 236 skip, 0 fail across 140 files; with both test URLs, db, CLI and `database-engine` tests 351 pass, 2 skip (standalone, needs `TEST_MONGODB_STANDALONE_URL`); contract 90 per engine.
+
+## Phase 36 — Test and tooling hardening after spec #155 (#173–#177)
+
+Tickets [#173](https://github.com/yhagus/pachiware/issues/173)–[#177](https://github.com/yhagus/pachiware/issues/177); #175 is blocked by #173 and #174. Integration branch `spec/173-177-test-hardening`, merged into `main` when done (no PR).
+
+- [ ] #173 Contract tests run without a `.env`.
+- [ ] #174 The contract harness refuses a database that isn't a test database.
+- [ ] #175 The engine contract suites run on PostgreSQL and MongoDB in CI and with one local command.
+- [ ] #176 A doc for adding records on all three Database engines.
+- [ ] #177 A commit is refused while its message still has merge-conflict comments.
+- [ ] Code review of `main...spec/173-177-test-hardening`, fixed in one pass.
