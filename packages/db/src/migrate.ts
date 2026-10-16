@@ -5,7 +5,7 @@ import { DEFAULT_SYSTEM_PROMPT, OLD_DEFAULT_PROMPTS } from "./persona.js";
 import { recordDatabaseEngine } from "./runtime-store.js";
 import { migrateMongo } from "./mongo/migrate.js";
 
-export const SQL_TABLES = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "availability_rules", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events", "schedules"] as const;
+export const SQL_TABLES = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "plane_accounts", "bot_plane_accounts", "plane_scopes", "availability_rules", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events", "schedules"] as const;
 
 function definitions(pg: boolean): Record<string, string> {
   const time = pg ? "TIMESTAMPTZ" : "INTEGER";
@@ -27,6 +27,9 @@ function definitions(pg: boolean): Record<string, string> {
     guild_configs: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, guild_id TEXT NOT NULL, system_prompt TEXT, use_threads ${bool} NOT NULL DEFAULT ${yes}, always_channel_ids ${json} NOT NULL DEFAULT '[]', timezone TEXT, language TEXT, digest_channels ${json} NOT NULL DEFAULT '[]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id)`,
     bot_git_accounts: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, git_account_id TEXT NOT NULL, created_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,git_account_id), FOREIGN KEY(tenant_id,git_account_id) REFERENCES git_accounts(tenant_id,id)`,
     git_scopes: `id ${id}, ${tenant}, bot_id TEXT NOT NULL, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL DEFAULT '', git_account_id TEXT NOT NULL, repo_patterns ${json} NOT NULL DEFAULT '["*"]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id,channel_id,git_account_id), FOREIGN KEY(bot_id,git_account_id) REFERENCES bot_git_accounts(bot_id,git_account_id) ON DELETE CASCADE`,
+    plane_accounts: `id ${id}, ${tenant}, name TEXT NOT NULL, base_url TEXT, workspace_slug TEXT NOT NULL, api_key_encrypted TEXT NOT NULL, plane_user_id TEXT NOT NULL, plane_user_name TEXT NOT NULL, ${dates}, UNIQUE(tenant_id,name), UNIQUE(tenant_id,id)`,
+    bot_plane_accounts: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, plane_account_id TEXT NOT NULL, created_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,plane_account_id), FOREIGN KEY(tenant_id,plane_account_id) REFERENCES plane_accounts(tenant_id,id)`,
+    plane_scopes: `id ${id}, ${tenant}, bot_id TEXT NOT NULL, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL DEFAULT '', plane_account_id TEXT NOT NULL, project_ids ${json} NOT NULL DEFAULT '[]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id,channel_id,plane_account_id), FOREIGN KEY(bot_id,plane_account_id) REFERENCES bot_plane_accounts(bot_id,plane_account_id) ON DELETE CASCADE`,
     availability_rules: `id ${id}, ${tenant}, level TEXT NOT NULL, bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE, guild_id TEXT NOT NULL DEFAULT '', channel_id TEXT NOT NULL DEFAULT '', target_kind TEXT NOT NULL, target_name TEXT NOT NULL, value TEXT NOT NULL, updated_at ${time} NOT NULL DEFAULT ${now}`,
     agents_config: `tenant_id TEXT PRIMARY KEY NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL DEFAULT 'Pachiware Agent', system_prompt TEXT NOT NULL DEFAULT '${DEFAULT_SYSTEM_PROMPT.replace(/'/g, "''")}', default_provider TEXT NOT NULL DEFAULT 'openai', default_model TEXT NOT NULL DEFAULT 'gpt-4o', temperature REAL NOT NULL DEFAULT 0.2, max_tokens INTEGER NOT NULL DEFAULT 4096, openai_api_key_encrypted TEXT, openai_base_url TEXT, openai_model TEXT, anthropic_api_key_encrypted TEXT, anthropic_base_url TEXT, anthropic_model TEXT, custom_api_key_encrypted TEXT, custom_base_url TEXT, custom_model TEXT, timezone TEXT NOT NULL DEFAULT 'Asia/Jakarta', language TEXT NOT NULL DEFAULT 'id', settings ${json} NOT NULL DEFAULT '{}', updated_at ${time} NOT NULL DEFAULT ${now}`,
     skills: `id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, default_enabled ${bool} NOT NULL DEFAULT ${yes}, tool_definitions ${json} NOT NULL DEFAULT '[]', handler_type TEXT NOT NULL DEFAULT 'builtin', config ${json} NOT NULL DEFAULT '{}', ${dates}`,
@@ -117,7 +120,7 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   let tenantId = tenants[0]?.id;
   const insert = async (table: string, row: Record<string, any>) => {
     const entries = Object.entries(row).filter(([, v]) => v !== undefined);
-    const jsonFields = new Set(["platform_metadata", "scopes", "guild_ids", "settings", "repo_patterns", "tool_definitions", "config", "metadata", "tool_calls"]);
+    const jsonFields = new Set(["platform_metadata", "scopes", "guild_ids", "settings", "repo_patterns", "project_ids", "tool_definitions", "config", "metadata", "tool_calls"]);
     const params = entries.map(([key, value]) => pg && jsonFields.has(key) && value !== null && typeof value !== "string" ? JSON.stringify(value) : value);
     await exec(`INSERT INTO ${table} (${entries.map(([k]) => k).join(",")}) VALUES (${entries.map((_, i) => pg ? `$${i + 1}` : "?").join(",")})`, params);
   };
