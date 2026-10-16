@@ -10,7 +10,7 @@ type LinkDoc = { _id: string; tenantId: string; botId: string; gitAccountId: str
 type ScopeDoc = Omit<GitScope, "id"> & { _id: string };
 type OAuthAppDoc = Omit<GitOAuthApp, "id"> & { _id: string };
 /** The fields of a bot this repository reads; the bots repository owns the collection. */
-type BotDoc = { _id: string; name: string; connectionStatus: string };
+type BotDoc = { _id: string; tenantId: string; name: string; connectionStatus: string };
 
 export const gitMigrations: MongoMigration[] = [
   {
@@ -84,6 +84,7 @@ export function createMongoGitRepository(connection: MongoConnection): GitReposi
       const want = [...new Set(ids)];
       const added = await inTransaction(connection, async (session) => {
         // Checked inside the transaction, so an account deleted meanwhile cannot be linked.
+        if (!await bots.findOne({ _id: botId, tenantId }, { session, projection: { _id: 1 } })) throw new Error("Bot not found");
         if (!await ownsAll(tenantId, want, session)) throw new Error("Git account not found");
         const have = (await links.find({ botId }, { session, projection: { gitAccountId: 1 } }).toArray()).map((l) => l.gitAccountId);
         const drop = have.filter((id) => !want.includes(id));

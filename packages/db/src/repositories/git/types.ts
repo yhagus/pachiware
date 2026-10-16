@@ -45,8 +45,8 @@ export interface GitRepository {
   ownsAccounts(tenantId: string, ids: string[]): Promise<boolean>;
 
   /**
-   * Replaces the accounts a bot holds. Every account must belong to the tenant, or it rejects with "Git account not found"
-   * and nothing changes. Unlinking an account removes its Git scopes on that bot; linking one switches the git skill on for the tenant.
+   * Replaces the accounts a bot holds, all or nothing. The bot and every account must belong to the tenant ("Bot not found", "Git account not found").
+   * Unlinking an account removes its Git scopes on that bot; linking one switches the git skill on for the tenant.
    */
   setBotAccounts(tenantId: string, botId: string, accountIds: string[]): Promise<void>;
   /** The accounts a bot holds, oldest first. */
@@ -59,9 +59,8 @@ export interface GitRepository {
   /** The Git scopes of a bot in one server: its server rules (channelId "") and every channel rule. */
   listScopes(botId: string, guildId: string): Promise<GitScope[]>;
   /**
-   * Replaces the rules of one scope; channelId "" is the server level. Patterns are stored trimmed, lowercased and deduplicated.
-   * Each rule must name a different account the bot holds. A channel rule needs a server rule for its account and may only
-   * narrow it; replacing server rules narrows or removes the channel rules beneath them.
+   * Replaces the rules of one scope (channelId "" is the server level); each names a different account the bot holds.
+   * A channel rule may only narrow its account's server rule, and replacing server rules narrows or removes those beneath.
    */
   replaceScopes(tenantId: string, botId: string, guildId: string, channelId: string, rules: GitScopeRule[]): Promise<void>;
 

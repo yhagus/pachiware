@@ -30,16 +30,16 @@ export function createMongoBotRepository(connection: MongoConnection): BotReposi
   const bots = db.collection<BotDoc>("bots");
   const guilds = db.collection<GuildConfigDoc>("guild_configs");
   const tenants = db.collection<{ _id: string; status: string }>("tenants");
-  const profiles = db.collection<{ _id: string }>("profiles");
+  const profiles = db.collection<{ _id: string; tenantId: string }>("profiles");
   const doc = (id: string, tenantId?: string) => bots.findOne({ _id: id, ...live, ...(tenantId ? { tenantId } : {}) });
   const withToken = (found: BotDoc): BotWithToken => ({ bot: toBot(found), token: decryptSecret(found.tokenEncrypted) });
   const requireToken = (token: string | undefined) => {
     if (!token?.trim()) throw new Error("Bot token is required");
     return encryptSecret(token.trim());
   };
-  // SQL's foreign key: the profile must exist. Another tenant's profile is stored but never answers (profiles.getForBot).
-  const assertProfile = async (profileId: string | null | undefined, session: ClientSession) => {
-    if (profileId && !(await profiles.findOne({ _id: profileId }, { session, projection: { _id: 1 } }))) throw new Error("Profile not found");
+  /** A bot may only answer with a profile of its own tenant. */
+  const requireProfile = async (tenantId: string, profileId: string | null | undefined, session: ClientSession) => {
+    if (profileId && !(await profiles.findOne({ _id: profileId, tenantId }, { session, projection: { _id: 1 } }))) throw new Error("Profile not found");
   };
 
   const repository: BotRepository = {
@@ -54,7 +54,7 @@ export function createMongoBotRepository(connection: MongoConnection): BotReposi
       };
       await inTransaction(connection, async (session) => {
         if (!(await tenants.findOne({ _id: input.tenantId, status: { $ne: "deleted" } }, { session, projection: { _id: 1 } }))) throw new Error("Tenant not found");
-        await assertProfile(created.profileId, session);
+        await requireProfile(created.tenantId, created.profileId, session);
         await bots.insertOne(created, { session });
       });
       return toBot(created);
@@ -93,9 +93,12 @@ export function createMongoBotRepository(connection: MongoConnection): BotReposi
     async update(id, { token, ...input }) {
       const values: Partial<BotDoc> = { ...defined(input), updatedAt: new Date() };
       if (token !== undefined) values.tokenEncrypted = requireToken(token);
-      const changed = await inTransaction(connection, async (session) => {
-        await assertProfile(values.profileId, session);
-        return bots.findOneAndUpdate({ _id: id, ...live }, { $set: values }, { returnDocument: "after", session });
+      const write = (session?: ClientSession) => bots.findOneAndUpdate({ _id: id, ...live }, { $set: values }, { returnDocument: "after", session });
+      const changed = !values.profileId ? await write() : await inTransaction(connection, async (session) => {
+        const bot = await bots.findOne({ _id: id, ...live }, { session, projection: { tenantId: 1 } });
+        if (!bot) return null;
+        await requireProfile(bot.tenantId, values.profileId, session);
+        return write(session);
       });
       return changed ? toBot(changed) : null;
     },

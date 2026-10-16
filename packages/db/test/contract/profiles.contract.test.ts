@@ -55,8 +55,6 @@ contract("Profiles", (use) => {
     expect(await profiles.getForBot(acme.id, bot)).toEqual(own);
     expect(await profiles.getForBot(other.id, bot)).toBeNull();
     expect(await profiles.getForBot(acme.id, (await use().repos.bots.create({ tenantId: acme.id, token: "token", profileId: null })).id)).toBeNull();
-    const foreign = await profiles.create(other.id, { name: "Foreign", provider: "openai", model: "b" });
-    expect(await profiles.getForBot(acme.id, (await use().repos.bots.create({ tenantId: acme.id, token: "token", profileId: foreign.id })).id)).toBeNull();
 
     expect(await profiles.remove(own.id)).toBe(true);
     expect(await profiles.remove(own.id)).toBe(false);

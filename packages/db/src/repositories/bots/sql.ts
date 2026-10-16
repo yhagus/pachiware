@@ -2,11 +2,19 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import type { SqlConnection } from "../../connection.js";
 import { decryptSecret, encryptSecret } from "../../crypto.js";
+import { sqlTransaction } from "../sql-transaction.js";
 import type { Bot, BotRepository, BotWithToken, GuildConfig } from "./types.js";
 
 /** Bots and guild configuration on SQLite and PostgreSQL. */
-export function createSqlBotRepository({ db, tables: t }: SqlConnection): BotRepository {
+export function createSqlBotRepository(connection: SqlConnection): BotRepository {
+  const { db, tables: t } = connection;
   const live = ne(t.bots.connectionStatus, "deleted");
+  /** A bot may only answer with a profile of its own tenant. */
+  function* requireProfile(tx: any, tenantId: string, profileId: string | null | undefined): Generator<any, void, any> {
+    if (!profileId) return;
+    const [found] = yield tx.select({ id: t.profiles.id }).from(t.profiles).where(and(eq(t.profiles.id, profileId), eq(t.profiles.tenantId, tenantId))).limit(1);
+    if (!found) throw new Error("Profile not found");
+  }
   const row = async (id: string, tenantId?: string) => {
     const [found] = await db.select().from(t.bots).where(and(eq(t.bots.id, id), live, tenantId ? eq(t.bots.tenantId, tenantId) : undefined)).limit(1);
     return found ?? null;
@@ -19,12 +27,16 @@ export function createSqlBotRepository({ db, tables: t }: SqlConnection): BotRep
 
   const repository: BotRepository = {
     async create({ token, ...input }) {
-      const [tenant] = await db.select({ id: t.tenants.id }).from(t.tenants).where(and(eq(t.tenants.id, input.tenantId), ne(t.tenants.status, "deleted"))).limit(1);
-      if (!tenant) throw new Error("Tenant not found");
-      const tokenEncrypted = requireToken(token);
-      if (input.platform && input.platform !== "discord") throw new Error("Unsupported bot platform");
-      const [created] = await db.insert(t.bots).values({ id: randomUUID(), ...input, tokenEncrypted }).returning();
-      return toBot(created);
+      const now = new Date();
+      return toBot(await sqlTransaction(connection, function* (tx) {
+        const [tenant] = yield tx.select({ id: t.tenants.id }).from(t.tenants).where(and(eq(t.tenants.id, input.tenantId), ne(t.tenants.status, "deleted"))).limit(1);
+        if (!tenant) throw new Error("Tenant not found");
+        const tokenEncrypted = requireToken(token);
+        if (input.platform && input.platform !== "discord") throw new Error("Unsupported bot platform");
+        yield* requireProfile(tx, input.tenantId, input.profileId);
+        const [created] = yield tx.insert(t.bots).values({ id: randomUUID(), ...input, tokenEncrypted, createdAt: now, updatedAt: now }).returning();
+        return created;
+      }));
     },
     async get(id, tenantId) {
       const found = await row(id, tenantId);
@@ -62,7 +74,13 @@ export function createSqlBotRepository({ db, tables: t }: SqlConnection): BotRep
     async update(id, { token, ...input }) {
       const values: Record<string, any> = { ...input, updatedAt: new Date() };
       if (token !== undefined) values.tokenEncrypted = requireToken(token);
-      const [changed] = await db.update(t.bots).set(values).where(and(eq(t.bots.id, id), live)).returning();
+      const write = (store: any) => store.update(t.bots).set(values).where(and(eq(t.bots.id, id), live)).returning();
+      const [changed] = !values.profileId ? await write(db) : await sqlTransaction(connection, function* (tx) {
+        const [bot] = yield tx.select({ tenantId: t.bots.tenantId }).from(t.bots).where(and(eq(t.bots.id, id), live)).limit(1);
+        if (!bot) return [];
+        yield* requireProfile(tx, bot.tenantId, values.profileId);
+        return yield write(tx);
+      });
       return changed ? toBot(changed) : null;
     },
     async remove(id) {

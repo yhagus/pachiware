@@ -4,6 +4,7 @@ import type { SqlConnection } from "../../connection.js";
 import type { GitAccount, GitOAuthApp, GitRepository, GitScope } from "./types.js";
 import { checkScopeRules, narrowChannelRule } from "./rules.js";
 import { createSqlSkillRepository } from "../skills/sql.js";
+import { sqlTransaction } from "../sql-transaction.js";
 
 /** Git accounts, bot links, Git scopes and git OAuth apps on SQLite and PostgreSQL. */
 export function createSqlGitRepository(connection: SqlConnection): GitRepository {
@@ -49,19 +50,23 @@ export function createSqlGitRepository(connection: SqlConnection): GitRepository
 
     async setBotAccounts(tenantId, botId, ids) {
       const want = [...new Set(ids)];
-      if (!await ownsAll(tenantId, want)) throw new Error("Git account not found");
-      const have: string[] = (await db.select({ id: t.botGitAccounts.gitAccountId }).from(t.botGitAccounts).where(eq(t.botGitAccounts.botId, botId))).map((r: any) => r.id as string);
-      const drop = have.filter((id) => !want.includes(id));
-      if (drop.length) {
-        // SQLite connections may run with foreign keys off, so the scopes go explicitly.
-        await db.delete(t.gitScopes).where(and(eq(t.gitScopes.botId, botId), inArray(t.gitScopes.gitAccountId, drop)));
-        await db.delete(t.botGitAccounts).where(and(eq(t.botGitAccounts.botId, botId), inArray(t.botGitAccounts.gitAccountId, drop)));
-      }
-      const add = want.filter((id) => !have.includes(id));
-      if (add.length) {
-        await db.insert(t.botGitAccounts).values(add.map((gitAccountId) => ({ id: randomUUID(), tenantId, botId, gitAccountId, createdAt: new Date() })));
-        await enableGitSkill(tenantId);
-      }
+      const added = await sqlTransaction(connection, function* (tx) {
+        const [bot] = yield tx.select({ id: t.bots.id }).from(t.bots).where(and(eq(t.bots.id, botId), eq(t.bots.tenantId, tenantId))).limit(1);
+        if (!bot) throw new Error("Bot not found");
+        const owned = want.length ? yield tx.select({ id: t.gitAccounts.id }).from(t.gitAccounts).where(and(eq(t.gitAccounts.tenantId, tenantId), inArray(t.gitAccounts.id, want))) : [];
+        if (owned.length !== want.length) throw new Error("Git account not found");
+        const have: string[] = (yield tx.select({ id: t.botGitAccounts.gitAccountId }).from(t.botGitAccounts).where(eq(t.botGitAccounts.botId, botId))).map((r: any) => r.id);
+        const drop = have.filter((id) => !want.includes(id));
+        if (drop.length) {
+          // SQLite connections may run with foreign keys off, so the scopes go explicitly.
+          yield tx.delete(t.gitScopes).where(and(eq(t.gitScopes.botId, botId), inArray(t.gitScopes.gitAccountId, drop)));
+          yield tx.delete(t.botGitAccounts).where(and(eq(t.botGitAccounts.botId, botId), inArray(t.botGitAccounts.gitAccountId, drop)));
+        }
+        const add = want.filter((id) => !have.includes(id));
+        if (add.length) yield tx.insert(t.botGitAccounts).values(add.map((gitAccountId) => ({ id: randomUUID(), tenantId, botId, gitAccountId, createdAt: new Date() })));
+        return add.length > 0;
+      });
+      if (added) await enableGitSkill(tenantId);
     },
     async listBotAccounts(botId) {
       const rows = await db.select({ acc: t.gitAccounts }).from(t.botGitAccounts).innerJoin(t.gitAccounts, eq(t.gitAccounts.id, t.botGitAccounts.gitAccountId))

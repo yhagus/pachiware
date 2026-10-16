@@ -42,6 +42,19 @@ contract("Bots and guild configuration", (use) => {
     expect(await bots.listForTenant(acme.id)).toEqual([bot]);
   });
 
+  test("a bot cannot use a profile of another tenant", async () => {
+    const { bots, profiles } = use().repos;
+    const [acme, other] = [await tenant("acme"), await tenant("other")];
+    const mine = await profiles.create(acme.id, { name: "Mine", provider: "openai", model: "a" });
+    const theirs = await profiles.create(other.id, { name: "Theirs", provider: "openai", model: "b" });
+    await expect(bots.create({ tenantId: acme.id, token: "t", profileId: theirs.id })).rejects.toThrow("Profile not found");
+    expect(await bots.listForTenant(acme.id)).toEqual([]);
+    const bot = await bots.create({ tenantId: acme.id, token: "t", profileId: mine.id });
+    await expect(bots.update(bot.id, { profileId: theirs.id, name: "Renamed" })).rejects.toThrow("Profile not found");
+    expect(await bots.get(bot.id)).toEqual(bot);
+    expect((await bots.update(bot.id, { profileId: null }))?.profileId).toBeNull();
+  });
+
   test("a bot is read only within its own tenant when one is named", async () => {
     const { bots } = use().repos;
     const [a, b] = [await tenant("a"), await tenant("b")];

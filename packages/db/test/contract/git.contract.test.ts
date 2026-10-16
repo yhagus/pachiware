@@ -121,6 +121,17 @@ contract("Git accounts, scopes and OAuth apps", (use) => {
     expect(await git.ownsAccounts(a.id, [])).toBe(true);
   });
 
+  test("accounts are set only on a bot of the same tenant", async () => {
+    const { git } = use().repos;
+    const [a, b] = [await tenant("a"), await tenant("b")];
+    const mine = await account(a.id, "mine");
+    const theirBot = await newBot(b.id);
+    await expect(git.setBotAccounts(a.id, theirBot, [mine.id])).rejects.toThrow("Bot not found");
+    await expect(git.setBotAccounts(a.id, "missing", [])).rejects.toThrow("Bot not found");
+    expect(await git.listBotAccounts(theirBot)).toEqual([]);
+    expect(await git.botsByAccount(a.id)).toEqual({});
+  });
+
   test("the bots using each account leave out deleted bots and other tenants", async () => {
     const { git } = use().repos;
     const [a, b] = [await tenant("a"), await tenant("b")];
