@@ -41,7 +41,7 @@ test("a danger effect does not make a git tool owner-only: owner-only stays exac
         }
         for (const [name, args] of [["repoDelete", { repo: "acme/api" }], ["repoTransfer", { repo: "acme/api", target: "x" }], ["repoSecrets", { repo: "acme/api", action: "set", name: "S", value: "v" }]]) {
           const res = await run(name, args);
-          assert(!res.success && /limited to the bot's owners/.test(res.error), name + " accepted from a non-owner: " + JSON.stringify(res));
+          assert(!res.success && /limited to Trusted members/.test(res.error), name + " accepted from a non-owner: " + JSON.stringify(res));
           assert(pendingOf((await run(name, args, "owner")).data), name + " not queued for the owner");
         }
         assert(calls.every((c) => c.startsWith("GET")), "a change reached the provider before Confirm: " + calls);

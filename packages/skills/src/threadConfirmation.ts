@@ -15,10 +15,17 @@ export function threadConfirmationKey(ctx: ThreadConfirmationContext): string | 
   return [ctx.tenantId, ctx.botId, ctx.guildId, ctx.channelId, ctx.parentChannelId ?? ""].map((v) => encodeURIComponent(v)).join("\u001f");
 }
 
-/** Owners are configured by the host deployment, not by model-supplied data. */
-export function isGitWriteConfirmationOwner(ctx: Pick<ThreadConfirmationContext, "userId">): boolean {
+const idsIn = (list: string | undefined) => (list ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+
+/**
+ * Trusted members are configured by the host deployment, not by model-supplied data. A blank TRUSTED_DISCORD_IDS
+ * counts as unset, so installations that only have GIT_OWNER_DISCORD_IDS keep their list. Empty means nobody.
+ */
+// ponytail: env list for now; move to a per-bot list in the console when deployments need different Trusted members.
+export function isTrustedMember(ctx: Pick<ThreadConfirmationContext, "userId">): boolean {
   if (!ctx.userId) return false;
-  return (process.env.GIT_OWNER_DISCORD_IDS ?? "").split(",").map((id) => id.trim()).filter(Boolean).includes(ctx.userId);
+  const trusted = idsIn(process.env.TRUSTED_DISCORD_IDS);
+  return (trusted.length ? trusted : idsIn(process.env.GIT_OWNER_DISCORD_IDS)).includes(ctx.userId);
 }
 
 export function hasThreadConfirmation(ctx: ThreadConfirmationContext): boolean {
@@ -26,9 +33,9 @@ export function hasThreadConfirmation(ctx: ThreadConfirmationContext): boolean {
   return key !== null && active.has(key);
 }
 
-/** Only an owner can create a grant, and an incomplete context cannot be granted. */
+/** Only a Trusted member can create a grant, and an incomplete context cannot be granted. */
 export function grantThreadConfirmation(ctx: ThreadConfirmationContext): boolean {
-  if (!isGitWriteConfirmationOwner(ctx)) return false;
+  if (!isTrustedMember(ctx)) return false;
   const key = threadConfirmationKey(ctx);
   if (!key) return false;
   active.add(key);

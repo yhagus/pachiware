@@ -11,7 +11,7 @@ discordScenario("one confirmation from the author creates every draft on GitHub,
   s.http.on("POST api.github.com/repos/acme/api/issues/3/comments", () => ({ html_url: "https://github.com/acme/api/issues/3#c1" }));
   s.model.script({ tool: "repoComment", args: { repo: "acme/api", number: 3, kind: "issue", body: "Drafting follow-ups" } }, "ok");
   await s.discord.send("comment on #3 that we're drafting follow-ups", { channel: thread });
-  await s.discord.click(s.discord.botMessages.at(-1)!, "Confirm Git changes in this thread");
+  await s.discord.click(s.discord.botMessages.at(-1)!, "Confirm changes in this thread");
   expect(s.http.requests.filter((r) => r.method === "POST").map((r) => r.url)).toEqual(["https://api.github.com/repos/acme/api/issues/3/comments"]);
 
   let issue = 100;

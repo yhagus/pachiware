@@ -1,5 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
-import { skillRegistry, peekAction, dropAction, takeExpired, payloadIntact, audit, redact, grantThreadConfirmation, isGitWriteConfirmationOwner, availabilityPlace, textIn, replyLanguage, type SkillContext, type ToolResult } from "@pachiware/skills";
+import { skillRegistry, peekAction, dropAction, takeExpired, payloadIntact, audit, redact, grantThreadConfirmation, isTrustedMember, availabilityPlace, textIn, replyLanguage, type SkillContext, type ToolResult } from "@pachiware/skills";
 
 const PREFIX = "gitconfirm";
 type Pending = { confirmationId: string; summary: string; ownConfirmation?: boolean };
@@ -10,11 +10,11 @@ export const pendingOf = (data: any): Pending | null =>
 /** An action with its own confirmation offers no thread grant: only its asker's Confirm runs it. */
 export function confirmMessage(p: Pending, userId: string) {
   const embed = new EmbedBuilder().setTitle("Sensitive action waiting").setColor(0xfee75c).setDescription(p.summary.slice(0, 4000))
-    .setFooter({ text: p.ownConfirmation ? "Only the person who asked can confirm this. Confirming Git changes for the thread does not cover it. Expires in 10 minutes." : "Confirm this action, or confirm sensitive Git changes for this thread. Expires in 10 minutes." });
+    .setFooter({ text: p.ownConfirmation ? "Only the person who asked can confirm this. Confirming changes for the thread does not cover it. Expires in 10 minutes." : "Confirm this action, or confirm changes for this thread. Expires in 10 minutes." });
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(`${PREFIX}:ok:${p.confirmationId}`).setLabel("Confirm").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`${PREFIX}:no:${p.confirmationId}`).setLabel("Cancel").setStyle(ButtonStyle.Secondary),
-    ...(p.ownConfirmation ? [] : [new ButtonBuilder().setCustomId(`${PREFIX}:grant:${p.confirmationId}`).setLabel("Confirm Git changes in this thread").setStyle(ButtonStyle.Primary)]),
+    ...(p.ownConfirmation ? [] : [new ButtonBuilder().setCustomId(`${PREFIX}:grant:${p.confirmationId}`).setLabel("Confirm changes in this thread").setStyle(ButtonStyle.Primary)]),
   );
   return { content: `<@${userId}>`, embeds: [embed], components: [row], allowedMentions: { users: [userId] } };
 }
@@ -58,12 +58,12 @@ export async function handleConfirmButton(i: ButtonLike, botId: string, discordF
   if (prefix !== PREFIX || !id) return false;
   const action = peekAction(id);
   if (!action || action.botId !== botId) { const expired = takeExpired(id); if (expired) await audit(actionContext(expired), "thread_confirmation_expired", { tool: expired.tool, confirmationId: id }); await i.update({ content: "That request has expired. Ask again if you still want it.", components: [] }); return true; }
-  if (verb === "grant" && action.ownConfirmation) { await i.reply({ content: "This action needs its own Confirm; confirming Git changes for the thread does not cover it.", ephemeral: true }); return true; }
+  if (verb === "grant" && action.ownConfirmation) { await i.reply({ content: "This action needs its own Confirm; confirming changes for the thread does not cover it.", ephemeral: true }); return true; }
   if (verb === "grant") {
     if ((i.channelId && i.channelId !== action.channelId) || (i.guildId && i.guildId !== action.guildId)) {
       await i.reply({ content: "This confirmation belongs to a different conversation. Ask again in the current thread.", ephemeral: true }); return true;
     }
-    if (!isGitWriteConfirmationOwner({ userId: i.user.id })) { await audit(actionContext(action), "thread_confirmation_denied", { tool: action.tool, reason: "not_owner" }); await i.reply({ content: "Only a configured owner can confirm sensitive Git changes for this thread.", ephemeral: true }); return true; }
+    if (!isTrustedMember({ userId: i.user.id })) { await audit(actionContext(action), "thread_confirmation_denied", { tool: action.tool, reason: "not_trusted_member" }); await i.reply({ content: "Only a Trusted member can confirm changes for this thread.", ephemeral: true }); return true; }
     if (!payloadIntact(action)) { await audit(actionContext(action), "thread_confirmation_denied", { tool: action.tool, reason: "payload_changed" }); await i.update({ content: "The request changed before confirmation. Ask again in this thread.", components: [] }); return true; }
     if (await refusedAsOff(i, action)) return true;
     if (!grantThreadConfirmation(actionContext(action, { userId: i.user.id }))) { await audit(actionContext(action), "thread_confirmation_denied", { tool: action.tool, reason: "context_mismatch" }); await i.reply({ content: "This confirmation belongs to a different conversation. Ask again in the current thread.", ephemeral: true }); return true; }
@@ -73,7 +73,7 @@ export async function handleConfirmButton(i: ButtonLike, botId: string, discordF
     const result = await skillRegistry.executeTool({ id: `confirm-${id}`, name: action.tool, arguments: action.args },
       actionContext(action, { discord: discordFor?.(action.guildId) as any, confirmed: true }));
     const detail = redact(result.success ? JSON.stringify(result.data) : String(result.error)).slice(0, 1500);
-    await i.update({ content: result.success ? `Git write confirmation enabled for this thread.\n${resultText(action.summary, true, detail)}` : `Thread-wide Git write confirmation was enabled, but the action failed.\n${resultText(action.summary, false, detail)}`, components: [] });
+    await i.update({ content: result.success ? `Changes in this thread are confirmed from now on.\n${resultText(action.summary, true, detail)}` : `Changes in this thread are confirmed from now on, but this action failed.\n${resultText(action.summary, false, detail)}`, components: [] });
     return true;
   }
   if (i.user.id !== action.userId) { await i.reply({ content: "Only the person who asked for this can confirm or cancel it.", ephemeral: true }); return true; }

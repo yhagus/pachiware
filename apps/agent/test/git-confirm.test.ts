@@ -76,7 +76,7 @@ test("git write tools queue, only the asker can confirm, confirm runs once, canc
         const deniedGrant = await click("grant", grantQueued.confirmationId, "alice");
         assert(deniedGrant.replies.length === 1 && deniedGrant.updates.length === 0 && calls.length === n, "non-owner grant was accepted");
         const granted = await click("grant", grantQueued.confirmationId, "owner");
-        assert(granted.updates.length === 1 && granted.updates[0].content.includes("Git write confirmation enabled for this thread"), "owner grant did not execute waiting action");
+        assert(granted.updates.length === 1 && granted.updates[0].content.includes("Changes in this thread are confirmed from now on"), "owner grant did not execute waiting action");
         const beforeGrantedFollowup = calls.length;
         const followup = await run("repoComment", { repo: "acme/api", number: 8, kind: "issue", body: "already approved" });
         assert(followup.success && !pendingOf(followup.data) && calls.length === beforeGrantedFollowup + 1, "thread grant did not apply to follow-up action");
