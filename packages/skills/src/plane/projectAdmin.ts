@@ -84,18 +84,18 @@ export const projectAdminTools: ToolDefinition[] = [
 ];
 
 export const projectAdminToolPolicy: Record<string, ToolPolicy> = {
-  projectCreate: { effect: "write", group: "Project admin" },
-  stateCreate: { effect: "write", group: "Project admin" },
-  stateUpdate: { effect: "write", group: "Project admin" },
-  labelCreate: { effect: "write", group: "Project admin" },
-  labelUpdate: { effect: "write", group: "Project admin" },
-  projectUpdate: { effect: "danger", group: "Project admin" },
-  projectArchive: { effect: "danger", group: "Project admin" },
-  projectUnarchive: { effect: "danger", group: "Project admin" },
-  projectDelete: { effect: "danger", group: "Project admin" },
-  projectMemberAdd: { effect: "danger", group: "Project admin" },
-  stateDelete: { effect: "danger", group: "Project admin" },
-  labelDelete: { effect: "danger", group: "Project admin" },
+  projectCreate: { effect: "write", group: "Plane project admin" },
+  stateCreate: { effect: "write", group: "Plane project admin" },
+  stateUpdate: { effect: "write", group: "Plane project admin" },
+  labelCreate: { effect: "write", group: "Plane project admin" },
+  labelUpdate: { effect: "write", group: "Plane project admin" },
+  projectUpdate: { effect: "danger", group: "Plane project admin" },
+  projectArchive: { effect: "danger", group: "Plane project admin" },
+  projectUnarchive: { effect: "danger", group: "Plane project admin" },
+  projectDelete: { effect: "danger", group: "Plane project admin" },
+  projectMemberAdd: { effect: "danger", group: "Plane project admin" },
+  stateDelete: { effect: "danger", group: "Plane project admin" },
+  labelDelete: { effect: "danger", group: "Plane project admin" },
 };
 
 function color(v: unknown): string | undefined {

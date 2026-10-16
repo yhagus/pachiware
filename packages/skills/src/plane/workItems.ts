@@ -12,7 +12,7 @@ import { resolveWorkItem, workItemPath, workItemKey, planeUserName, planeUserAli
 type Obj = Record<string, any>;
 
 export const ACCOUNT = { type: "string", description: "Plane account name; needed only when several are available (see planeAccounts)." };
-export const ITEM = { type: "string", description: "Work item key such as ENG-42, or its id (then pass project too)." };
+export const ITEM = { type: "string", description: "Work item key such as ENG-42, or its id (then pass \"project\" too)." };
 export const PROJECT_OF_ID = { type: "string", description: "Plane project id, identifier or name; needed only when item is an id." };
 
 const STATE_GROUPS = ["backlog", "unstarted", "started", "completed", "cancelled"];
@@ -240,7 +240,7 @@ export const workItemHandlers: Record<string, ToolHandler> = {
     matched.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
     const notes = [
       ...(capped.length ? [`read only the ${LIST_PAGES * LIST_PAGE} most recently changed work items of ${capped.join(", ")}`] : []),
-      ...(open.length > read.length ? [`read ${read.length} of ${open.length} Plane projects (${open.slice(read.length).map((p) => p.identifier).join(", ")} not read); name a project to read it`] : []),
+      ...(open.length > read.length ? [`read ${read.length} of ${open.length} Plane projects (${open.slice(read.length).map((p) => p.identifier).join(", ")} not read); name a Plane project to read it`] : []),
     ];
     return {
       items: matched.slice(0, limit).map((it) => ({

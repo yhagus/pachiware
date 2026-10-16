@@ -14,7 +14,7 @@ import { projectAdminTools, projectAdminHandlers, projectAdminToolPolicy } from 
 import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools } from "../plane/workspace.js";
 
 /** Tool groups in display order, as Availability rules and the console show them. Every Plane tool joins one; a group shows once it holds a tool. */
-export const PLANE_GROUPS = ["Browse", "Work items", "Cycles", "Modules", "Intake", "Project admin", "Workspace"];
+export const PLANE_GROUPS = ["Browse", "Work items", "Cycles", "Modules", "Intake", "Plane project admin", "Plane workspace"];
 
 const R: Effect = "read";
 

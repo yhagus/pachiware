@@ -45,11 +45,11 @@ const WORKSPACE_ADMIN = "an Admin of the Plane workspace";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const workspaceTools: ToolDefinition[] = [
-  { name: "workspaceMembers", description: "Lists the members of the Plane workspace with their workspace role (Admin, Member or Guest).",
+  { name: "workspaceMembers", description: "Lists the members of the Plane workspace with their Plane workspace role (Admin, Member or Guest).",
     parameters: { type: "object", properties: { ...ACCOUNT_ARG } } },
-  { name: "workspaceInvitations", description: "Lists the invitations to the Plane workspace: email, role, and whether each was accepted. Plane allows this only when the bot's Plane user is a workspace Admin.",
+  { name: "workspaceInvitations", description: "Lists the invitations to the Plane workspace: email, role, and whether each was accepted. Plane allows this only when the bot's Plane user is an Admin of the Plane workspace.",
     parameters: { type: "object", properties: { ...ACCOUNT_ARG } } },
-  { name: "workspaceInvite", description: `Invites an email address to the Plane workspace as Admin, Member or Guest. Plane records the invitation but sends no email: the person joins by signing up or logging in to Plane with that address. Plane allows it only when the bot's Plane user is a workspace Admin.${DANGER_NOTE}`,
+  { name: "workspaceInvite", description: `Invites an email address to the Plane workspace as Admin, Member or Guest. Plane records the invitation but sends no email: the person joins by signing up or logging in to Plane with that address. Plane allows it only when the bot's Plane user is an Admin of the Plane workspace.${DANGER_NOTE}`,
     parameters: { type: "object", properties: {
       email: { type: "string", description: "The email address to invite." },
       role: { type: "string", enum: Object.keys(MEMBER_ROLES), description: "Default member." },
@@ -63,10 +63,10 @@ export const workspaceTools: ToolDefinition[] = [
 ];
 
 export const workspaceToolPolicy: Record<string, ToolPolicy> = {
-  workspaceMembers: { effect: R, group: "Workspace" },
-  workspaceInvitations: { effect: R, group: "Workspace" },
-  workspaceInvite: { effect: "danger", group: "Workspace" },
-  workspaceCancelInvite: { effect: "danger", group: "Workspace" },
+  workspaceMembers: { effect: R, group: "Plane workspace" },
+  workspaceInvitations: { effect: R, group: "Plane workspace" },
+  workspaceInvite: { effect: "danger", group: "Plane workspace" },
+  workspaceCancelInvite: { effect: "danger", group: "Plane workspace" },
 };
 
 /** The Plane workspace's invitations; Plane shows them only to a workspace Admin, which the refusal names. */

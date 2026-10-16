@@ -194,7 +194,7 @@ export async function verifyPlaneAccount(conn: PlaneConn): Promise<{ user: Plane
   try { projects = await listPlaneProjects(conn); }
   catch (e) {
     // A wrong slug, or a user who is not a member of the Plane workspace, is a 403; the key itself passed users/me/.
-    if (e instanceof PlaneError && (e.status === 403 || e.status === 404)) throw new Error(`Plane refused the workspace "${conn.workspaceSlug}". Check the slug in the workspace's URL, and that the key's user is a member.`);
+    if (e instanceof PlaneError && (e.status === 403 || e.status === 404)) throw new Error(`Plane refused the Plane workspace "${conn.workspaceSlug}". Check the slug in the Plane workspace's URL, and that the key's user is a member of it.`);
     throw e;
   }
   const display = me.display_name || [me.first_name, me.last_name].filter(Boolean).join(" ") || "Plane user";
