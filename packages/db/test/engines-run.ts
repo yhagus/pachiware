@@ -98,6 +98,11 @@ async function ensurePostgresDatabase(url: string) {
 }
 
 if (import.meta.main) {
+  // Every engine test file shares one PostgreSQL and one MongoDB test database, so parallel workers trip over each other.
+  if (process.argv.some((arg) => arg.startsWith("--parallel"))) {
+    console.error("test:engines runs its files one at a time: they share one test database per engine. Drop --parallel.");
+    process.exit(1);
+  }
   const targets = engineTargets(process.env);
   for (const target of targets) await ensureServing(target);
   await ensurePostgresDatabase(targets.find((target) => target.kind === "postgres")!.url);

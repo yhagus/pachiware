@@ -158,11 +158,11 @@ packages/cli/     Setup dan pengelolaan layanan
 PROGRESS.md       Status implementasi dan hasil verifikasi
 ```
 
-Dokumentasi integrasi tersedia di [API Reference](docs/api.md). Untuk pengembangan, pemeriksaan repository dapat dijalankan dengan `bun test`, `bun run typecheck`, dan `bun run build`.
+Dokumentasi integrasi tersedia di [API Reference](docs/api.md). Untuk pengembangan, pemeriksaan repository dapat dijalankan dengan `bun run test`, `bun run typecheck`, dan `bun run build`.
 
 ### Tes Engine Database
 
-`bun test` menjalankan tes database di SQLite saja. Untuk menjalankannya juga di PostgreSQL dan MongoDB, dengan Docker menyala:
+`bun run test` menjalankan tes database di SQLite saja. Untuk menjalankannya juga di PostgreSQL dan MongoDB, dengan Docker menyala:
 
 ```bash
 bun run test:engines

@@ -14,7 +14,8 @@ To prevent context window overflow, broken builds, or lost progress across multi
    - Update `PROGRESS.md` **at the end of every task or phase** before concluding your response.
 2. **Modular & Incremental Development:**
    - Execute phase-by-phase. Never generate the entire codebase in a single step.
-   - A step is complete when `bun run typecheck` exits 0 and `bun test` passes. Git hooks in `.githooks/` run them on commit and push (`bun install` wires them).
+   - A step is complete when `bun run typecheck` exits 0 and `bun run test` passes. Git hooks in `.githooks/` run them on commit and push (`bun install` wires them).
+   - **Tautological tests are considered harmful.** A test takes its expected value from an independent source of truth: a known-good literal, a worked example, the spec. A test that recomputes the expected value the way the code does, or asserts a constant against itself, passes by construction; rewrite it against an independent source or delete it.
 3. **Transparent State Logging:**
    - Document architectural decisions or blocking issues under the relevant phase in `PROGRESS.md`.
 

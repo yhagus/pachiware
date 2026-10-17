@@ -169,11 +169,11 @@ packages/cli/     Setup and service management
 PROGRESS.md       Implementation status and verification results
 ```
 
-Integration documentation is available in the [API Reference](docs/api.md). For development, run repository checks with `bun test`, `bun run typecheck`, and `bun run build`.
+Integration documentation is available in the [API Reference](docs/api.md). For development, run repository checks with `bun run test`, `bun run typecheck`, and `bun run build`.
 
 ### Engine Tests
 
-`bun test` runs the database tests on SQLite only. To run them on PostgreSQL and MongoDB as well, with Docker running:
+`bun run test` runs the database tests on SQLite only. To run them on PostgreSQL and MongoDB as well, with Docker running:
 
 ```bash
 bun run test:engines

@@ -1,3 +1,3 @@
 #!/bin/sh
-# Contract suites run on SQLite only here; PostgreSQL and MongoDB runs stay opt-in.
-bun run typecheck && TEST_POSTGRES_URL= TEST_MONGODB_URL= TEST_MONGODB_STANDALONE_URL= bun test
+# `bun run test` runs the contract suites on SQLite only, in parallel; PostgreSQL and MongoDB runs stay opt-in.
+bun run typecheck && bun run test

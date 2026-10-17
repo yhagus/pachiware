@@ -24,7 +24,7 @@ jobs:
         run: bun run typecheck
 
       - name: Test suite (SQLite)
-        run: bun test
+        run: bun run test
 
       # Starts the compose postgres, mongo (single-node replica set) and mongo-standalone services, creates the
       # pachiware_test databases, and runs the db, CLI and agent start-up engine tests with every TEST_*_URL set.
