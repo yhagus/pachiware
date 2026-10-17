@@ -1,7 +1,7 @@
 import { extractText, getDocumentProxy } from "unpdf";
-import mammoth from "mammoth";
-import ExcelJS from "exceljs";
+import type { Cell, Row } from "exceljs";
 import { MAX_FILE_BYTES } from "./store.js";
+// mammoth and exceljs load on first use: together they add ~140 ms to every process start.
 
 export const MAX_TEXT_BYTES = 200 * 1024;
 // Caps the wait, not the parse: pdf.js keeps working on the main thread, but the turn moves on.
@@ -35,20 +35,25 @@ async function fromPdf(bytes: Uint8Array) {
   return (await extractText(doc, { mergePages: false })).text.join("\n\n");
 }
 
-const fromDocx = async (bytes: Uint8Array) => (await mammoth.extractRawText({ buffer: Buffer.from(bytes) })).value;
+async function fromDocx(bytes: Uint8Array) {
+  const { default: mammoth } = await import("mammoth");
+  return (await mammoth.extractRawText({ buffer: Buffer.from(bytes) })).value;
+}
 
 /** Each sheet as a heading and a Markdown table whose header is the sheet's first row; empty sheets are left out. */
 async function fromXlsx(bytes: Uint8Array) {
+  const { default: ExcelJS } = await import("exceljs");
+  const formula = ExcelJS.ValueType.Formula;
   const book = new ExcelJS.Workbook();
   await book.xlsx.load(new Uint8Array(bytes).buffer);
   const sheets: string[] = [];
   let size = 0;
   for (const sheet of book.worksheets) {
-    const rows: ExcelJS.Row[] = [];
+    const rows: Row[] = [];
     let first = Infinity, last = 0;
     sheet.eachRow((row) => { rows.push(row); row.eachCell((cell) => { first = Math.min(first, Number(cell.col)); last = Math.max(last, Number(cell.col)); }); });
     if (!rows.length) continue;
-    const line = (row: ExcelJS.Row) => `| ${Array.from({ length: last - first + 1 }, (_, i) => cellText(row.getCell(first + i))).join(" | ")} |`;
+    const line = (row: Row) => `| ${Array.from({ length: last - first + 1 }, (_, i) => cellText(row.getCell(first + i), formula)).join(" | ")} |`;
     const lines = [`## ${sheet.name}`, "", line(rows[0]!), `|${" --- |".repeat(last - first + 1)}`];
     // Stops once past the cap, so a huge sheet is not turned into text only to be clipped.
     for (const row of rows.slice(1)) { if (size > MAX_TEXT_BYTES) break; const l = line(row); lines.push(l); size += l.length; }
@@ -69,11 +74,11 @@ const TYPES: Record<string, { read: (bytes: Uint8Array) => Promise<string>; bina
 };
 
 /** What a cell shows: a formula's cached result, a date as ISO; pipes and line breaks escaped for the table. */
-function cellText(cell: ExcelJS.Cell) {
-  const value = cell.type === ExcelJS.ValueType.Formula ? cell.result ?? `=${cell.formula}` : cell.value;
+function cellText(cell: Cell, formula: Cell["type"]) {
+  const value = cell.type === formula ? cell.result ?? `=${cell.formula}` : cell.value;
   // A date cell holds its wall-clock time as UTC; read in the server's zone it can fall on another day.
   const text = value === null || value === undefined ? "" : value instanceof Date ? value.toISOString().replace(/T00:00:00\.000Z$/, "").replace(/^(.{10})T(.{8}).*/, "$1 $2")
-    : typeof value === "object" && "error" in value ? value.error : cell.type === ExcelJS.ValueType.Formula ? String(value) : cell.text;
+    : typeof value === "object" && "error" in value ? value.error : cell.type === formula ? String(value) : cell.text;
   return text.replace(/\r?\n/g, " ").replace(/\|/g, "\\|").trim();
 }
 

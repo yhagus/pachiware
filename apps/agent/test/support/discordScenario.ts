@@ -131,7 +131,7 @@ export interface Scenario {
 
 /** Registers a test that runs `body` against a fresh bot in a subprocess. */
 export function discordScenario(name: string, body: (s: Scenario) => Promise<void>, timeout = 20000) {
-  if (SELECTED === undefined) { const file = callerFile(); test(name, () => runInSubprocess(file, name), timeout); return; }
+  if (SELECTED === undefined) { const file = callerFile(); test.concurrent(name, () => runInSubprocess(file, name), timeout); return; }
   if (SELECTED === name) test(name, async () => {
     const s = await createScenario();
     try { await body(s); await s.settle(); } finally { await s.close(); }
@@ -144,16 +144,18 @@ function callerFile() {
   return frame;
 }
 
-function runInSubprocess(file: string, name: string) {
+async function runInSubprocess(file: string, name: string) {
   const dir = mkdtempSync(join(tmpdir(), "pachiware-scenario-"));
   try {
-    const run = Bun.spawnSync({
+    const run = Bun.spawn({
       cmd: ["bun", "test", file, "-t", name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")],
       cwd: ROOT,
       env: { ...process.env, PACHIWARE_SCENARIO: name, DATABASE_URL: `sqlite:${join(dir, "scenario.db")}`, WORKSPACE_DIR: join(dir, "workspace"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"), PLATFORM_ADMIN_KEY: "scenario", NODE_ENV: "test" },
+      stdout: "pipe", stderr: "pipe",
     });
-    const output = new TextDecoder().decode(run.stderr) + new TextDecoder().decode(run.stdout);
-    expect(run.exitCode, output).toBe(0);
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
+    const output = stderr + stdout;
+    expect(exitCode, output).toBe(0);
     expect(output, "the scenario did not run").toMatch(/\b1 pass\b/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
