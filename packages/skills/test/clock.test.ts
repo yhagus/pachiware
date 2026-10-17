@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { describeTime, hhmm, isoInZone, offsetText, wallClock, wallToInstant, zoneOffset, zonedTime } from "../src/clock";
+import { describeTime, hhmm, isoInZone, offsetText, wallClock, zoneOffset, zonedTime } from "../src/clock";
 
 const at = Date.parse("2026-03-06T02:30:00Z");
 
@@ -21,9 +21,9 @@ describe("zone helpers", () => {
     expect(describeTime("Asia/Jakarta", at)).toBe("Friday, 6 March 2026, 09:30 Asia/Jakarta (UTC+07:00)");
   });
 
-  test("zonedTime reads a wall-clock string through wallToInstant and rejects times that do not exist", () => {
+  test("zonedTime reads a wall-clock string in a zone and rejects times that do not exist", () => {
     expect(zonedTime("Asia/Jakarta", "2026-03-06T09:30")).toBe(at);
-    expect(zonedTime("Asia/Jakarta", "2026-03-06T09:30:00")).toBe(wallToInstant("Asia/Jakarta", { year: 2026, month: 3, day: 6, hour: 9, minute: 30 }));
+    expect(zonedTime("Asia/Jakarta", "2026-03-06T09:30:00")).toBe(at);
     expect(zonedTime("UTC", "2026-02-30T00:00")).toBeNull();
     expect(zonedTime("UTC", "2026-03-06T24:00")).toBeNull();
     expect(zonedTime("UTC", "6 March")).toBeNull();
