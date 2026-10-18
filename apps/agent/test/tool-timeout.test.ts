@@ -136,8 +136,9 @@ afterEach(async () => {
 discordScenario("past the turn's deadline the next tool call is not run and the turn ends with a summary of what was done", async (s) => {
   await s.guildSettings({ language: "en", useThreads: false });
   let saved = false;
-  await slowSkill(s, { slowLookup: () => new Promise((resolve) => setTimeout(() => resolve({ venue: "Hall B" }), 150)), slowSave: async () => { saved = true; return { saved: true }; } });
-  await deadline(80);
+  // The lookup outlasts the deadline by a wide margin, so a loaded machine cannot reach the deadline before the first model call.
+  await slowSkill(s, { slowLookup: () => new Promise((resolve) => setTimeout(() => resolve({ venue: "Hall B" }), 1500)), slowSave: async () => { saved = true; return { saved: true }; } });
+  await deadline(600);
   let asked: any[] = [];
   s.model.script([{ tool: "slowLookup", args: {} }, { tool: "slowSave", args: { text: "Hall B" } }], (turn) => { asked = turn.messages; return "I found Hall B but ran out of time before saving it."; });
   await s.discord.send(`${s.discord.mention} look up the venue and save it`);
