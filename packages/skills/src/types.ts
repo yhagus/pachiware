@@ -168,6 +168,7 @@ export interface ToolPolicy {
   /** One of the skill's groups; set for every tool of a skill that declares groups. */ group?: string;
   /** The playbook this tool serves; it is available exactly when that playbook is. */ playbook?: string;
   /** Replaces the skill's requiredPermissions for this tool; empty means anyone may ask. */ requiredPermissions?: string[];
+  /** Administration (settings, members, secrets, transfer…): off for the tenant until a tenant rule says on, so its schema is not sent on every call (#251, ADR 0005). */ defaultOff?: true;
 }
 
 export interface SkillContext {
@@ -240,5 +241,5 @@ export interface SkillModule {
   hiddenReason?: (ctx: SkillContext, tool: string) => Promise<string>;
 }
 
-export interface CatalogueTool { name: string; description: string; effect?: Effect; group?: string; playbook?: string }
+export interface CatalogueTool { name: string; description: string; effect?: Effect; group?: string; playbook?: string; defaultOff?: true }
 export interface CatalogueSkill { id: string; name: string; description: string; groups: string[]; tools: CatalogueTool[] }

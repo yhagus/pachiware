@@ -92,6 +92,8 @@ export interface Scenario {
   scheduler: { tick(): Promise<void> };
   /** Writes an availability rule as the admin API does and returns once commands are re-registered; `botId` defaults to this bot and the guild to "guild-1". */
   availability(at: { level: "tenant" | "bot" | "guild" | "channel"; botId?: string; guildId?: string; channelId?: string }, rule: { kind: string; name: string; value: string }): Promise<void>;
+  /** Switches on at the tenant every administration tool that starts off (#251), or only `names`, for scenarios about those tools. */
+  adminTools(names?: string[]): Promise<void>;
   /** Paths are tenant-relative, e.g. "guilds/guild-1/channels/channel-1/brief.md". */
   workspace: { read(path: string): Promise<string | null>; write(path: string, content: string): Promise<void>; list(path: string): Promise<string[]>; /** Every file below a folder, at any depth. */ files(path: string): Promise<string[]>; remove(path: string): Promise<void> };
   discord: {
@@ -495,6 +497,10 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     availability: async ({ level, botId = bot.id, guildId = GUILD.id, channelId }, rule) => {
       await setAvailabilityRule({ tenantId: tenant.id, level, botId, guildId, channelId }, rule as any, skillRegistry.getAllSkills());
       await settle();
+    },
+    adminTools: async (names) => {
+      const admin = skillRegistry.getAllSkills().flatMap((sk) => Object.entries(sk.toolPolicy ?? {}).filter(([, p]) => p.defaultOff).map(([name]) => name));
+      for (const name of names ?? admin) await setAvailabilityRule({ tenantId: tenant.id, level: "tenant" }, { kind: "tool", name, value: "on" }, skillRegistry.getAllSkills());
     },
     workspace: {
       read: async (path) => (await workspaceStore().read(tenant.id, path))?.content ?? null,

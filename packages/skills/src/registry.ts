@@ -81,7 +81,7 @@ export class SkillRegistry {
   public catalogue(): CatalogueSkill[] {
     return this.getAllSkills().map((s) => ({
       id: s.id, name: s.name, description: s.description, groups: s.groups ?? [],
-      tools: s.tools.map((t) => { const p = s.toolPolicy?.[t.name]; return { name: t.name, description: t.description, effect: p?.effect, ...(p?.group ? { group: p.group } : {}), ...(p?.playbook ? { playbook: p.playbook } : {}) }; }),
+      tools: s.tools.map((t) => { const p = s.toolPolicy?.[t.name]; return { name: t.name, description: t.description, effect: p?.effect, ...(p?.group ? { group: p.group } : {}), ...(p?.playbook ? { playbook: p.playbook } : {}), ...(p?.defaultOff ? { defaultOff: true as const } : {}) }; }),
     }));
   }
 

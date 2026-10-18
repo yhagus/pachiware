@@ -89,10 +89,14 @@ function Playbooks({ playbooks, off, on, skillName, onChange }: { playbooks: Pla
   );
 }
 
-/** `off` is null until the tenant's rules load; playbook tools follow their playbook and get no switch. A tool whose effect is off cannot be switched on here. */
-function Tools({ skill, off, onChange }: { skill: TenantSkill; off: Off | null; onChange: (tool: SkillTool, on: boolean) => void }) {
+/**
+ * `off` is null until the tenant's rules load; playbook tools follow their playbook and get no switch. A tool whose effect is off cannot be switched on here.
+ * An administration tool starts off and is on only with a tenant `on` rule.
+ */
+function Tools({ skill, off, on, onChange }: { skill: TenantSkill; off: Off | null; on: On | null; onChange: (tool: SkillTool, on: boolean) => void }) {
   const effectOff = (t: SkillTool) => !!off?.has(targetKey("effect", t.effect));
-  const offCount = off ? skill.tools.filter((t: SkillTool) => off.has(targetKey("tool", t.name)) || effectOff(t)).length : 0;
+  const isOn = (t: SkillTool) => !effectOff(t) && (t.defaultOff ? !!on?.has(targetKey("tool", t.name)) : !off?.has(targetKey("tool", t.name)));
+  const offCount = off ? skill.tools.filter((t: SkillTool) => !t.playbook && !isOn(t)).length : 0;
   return (
     <details className="group border-t">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
@@ -111,9 +115,10 @@ function Tools({ skill, off, onChange }: { skill: TenantSkill; off: Off | null; 
                     <div className="break-all font-mono text-sm">{t.name}</div>
                     <div className="text-xs text-muted-foreground">{t.description}</div>
                     {effectOff(t) && <div className="text-xs font-medium">Off: {EFFECTS[t.effect].label} tools are switched off above.</div>}
+                    {t.defaultOff && !effectOff(t) && <div className="text-xs text-muted-foreground">Administration: off until you switch it on here, so the model is not sent it on every call.</div>}
                   </div>
                   <Badge variant={EFFECTS[t.effect].variant}>{EFFECTS[t.effect].label}</Badge>
-                  {!t.playbook && <Switch checked={!off?.has(targetKey("tool", t.name)) && !effectOff(t)} disabled={!off || effectOff(t)} onCheckedChange={(v: boolean) => onChange(t, v)} aria-label={`${t.name} available`} />}
+                  {!t.playbook && <Switch checked={isOn(t)} disabled={!off || effectOff(t)} onCheckedChange={(v: boolean) => onChange(t, v)} aria-label={`${t.name} available`} />}
                 </li>
               ))}
             </ul>
@@ -142,15 +147,15 @@ export function TenantSkills() {
       .catch((e: Error) => toast.error(`Tool and playbook switches unavailable: ${e.message}`));
   }, [tenant.id]);
 
-  // A default-off playbook is switched on with a tenant `on` rule and back off by clearing it; an `on` replaces any `off` rule it had.
-  const switchDefaultOff = (name: string, v: boolean) => {
-    const k = targetKey("playbook", name);
+  // A default-off playbook or tool is switched on with a tenant `on` rule and back off by clearing it; an `on` replaces any `off` rule it had.
+  const switchDefaultOff = (kind: "playbook" | "tool", name: string, v: boolean) => {
+    const k = targetKey(kind, name);
     const set = (x: boolean) => {
       setOn((o) => { const next = new Set(o); if (x) next.add(k); else next.delete(k); return next; });
       if (x) setOff((o) => { const next = new Set(o); next.delete(k); return next; });
     };
     set(v);
-    (v ? api.setAvailability({ tenantId: tenant.id }, { kind: "playbook", name, value: "on" }) : api.clearAvailability({ tenantId: tenant.id }, "playbook", name))
+    (v ? api.setAvailability({ tenantId: tenant.id }, { kind, name, value: "on" }) : api.clearAvailability({ tenantId: tenant.id }, kind, name))
       .catch((e: Error) => { set(!v); toast.error(e.message); });
   };
 
@@ -174,7 +179,7 @@ export function TenantSkills() {
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">Skills the assistant may use for this tenant. A disabled skill's tools are hidden from the model. A tool switched off here is hidden from every bot of this tenant; playbook tools follow their playbook.</p>
       <Effects off={off} onChange={(e, on) => switchRule("effect", e, on)} />
-      {playbooks.length > 0 && <Playbooks playbooks={playbooks} off={off} on={on} skillName={skillName} onChange={(p, v) => (p.defaultOff ? switchDefaultOff(p.name, v) : switchRule("playbook", p.name, v))} />}
+      {playbooks.length > 0 && <Playbooks playbooks={playbooks} off={off} on={on} skillName={skillName} onChange={(p, v) => (p.defaultOff ? switchDefaultOff("playbook", p.name, v) : switchRule("playbook", p.name, v))} />}
       {list.map((s) => (
         <Card key={s.id} className="py-0">
           <CardContent className="px-0">
@@ -185,7 +190,7 @@ export function TenantSkills() {
               </div>
               <Switch checked={s.isEnabled} onCheckedChange={(v: boolean) => switchSkill(s, v)} aria-label={`${s.name} enabled`} />
             </div>
-            {s.tools.length > 0 && <Tools skill={s} off={off} onChange={(t, on) => switchRule("tool", t.name, on)} />}
+            {s.tools.length > 0 && <Tools skill={s} off={off} on={on} onChange={(t, v) => (t.defaultOff ? switchDefaultOff("tool", t.name, v) : switchRule("tool", t.name, v))} />}
           </CardContent>
         </Card>
       ))}

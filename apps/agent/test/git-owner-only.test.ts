@@ -21,6 +21,9 @@ test("a danger effect does not make a git tool owner-only: owner-only stays exac
         const { pendingOf } = await imp("apps/agent/src/discord/gitConfirm.ts");
         const t = await repositories().tenants.create({ name: "T", slug: "t" });
         await repositories().skills.setEnabled(t.id, "git_repositories", true);
+        // The administration tools under test start off (#251): switched on at the tenant.
+        const { setAvailabilityRule } = await imp("packages/skills/src/availability.ts");
+        for (const s of skillRegistry.getAllSkills()) for (const [name, p] of Object.entries(s.toolPolicy ?? {})) if (p.defaultOff) await setAvailabilityRule({ tenantId: t.id, level: "tenant" }, { kind: "tool", name, value: "on" }, skillRegistry.getAllSkills());
         const acc = await repositories().git.createAccount({ tenantId: t.id, name: "work", provider: "github", username: "octo", tokenEncrypted: encryptSecret("tok") });
         const bot = await repositories().bots.create({ tenantId: t.id, token: "x", isEnabled: false });
         await repositories().git.setBotAccounts(t.id, bot.id, [acc.id]);

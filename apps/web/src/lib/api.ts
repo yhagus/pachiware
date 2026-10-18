@@ -109,7 +109,7 @@ export interface GitOAuthApp { id: string; provider: "github" | "gitlab"; baseUr
 export interface WorkspaceEntry { path: string; type: "file" | "dir"; size?: number; readOnly?: boolean; overridden?: boolean }
 export type ToolEffect = "read" | "write" | "danger";
 /** `group` is one of the skill's `groups`; `playbook` marks a tool that only serves that playbook. */
-export interface SkillTool { name: string; description: string; effect: ToolEffect; group?: string; playbook?: string; }
+export interface SkillTool { name: string; description: string; effect: ToolEffect; group?: string; playbook?: string; defaultOff?: boolean; }
 export interface TenantSkill { id: string; name: string; description: string; groups: string[]; tools: SkillTool[]; toolCount: number; isEnabled: boolean; }
 export type AvailabilityKind = "playbook" | "skill" | "tool" | "effect";
 export type AvailabilityValue = "off" | "opt_in" | "on";

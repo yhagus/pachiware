@@ -62,6 +62,7 @@ discordScenario("danger off in a guild removes every danger tool in its channels
 });
 
 discordScenario("a multi-action git tool tagged danger is gone when danger is off, and git reads and writes stay", async (s) => {
+  await s.adminTools();
   await s.git({ repos: ["acme/*"] });
   s.model.script("ok", "ok");
   await s.discord.send(`${s.discord.mention} list the repo secrets`);

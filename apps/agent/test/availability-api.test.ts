@@ -16,7 +16,10 @@ function run(body: string) {
     const app = createServer();
     // Imported built-ins start off at the tenant, so every level inherits them; these tests look past them.
     const importedOff = new Set((await imp("packages/skills/src/playbooks.ts")).builtinPlaybooks().filter((p) => p.defaultOff).map((p) => p.name));
-    const own = (inherited) => inherited.filter((e) => !(e.kind === "playbook" && importedOff.has(e.name)));
+    // Administration tools start off at the tenant too (#251).
+    const { skillRegistry } = await imp("packages/skills/src/registry.ts");
+    const adminOff = new Set(skillRegistry.getAllSkills().flatMap((s) => Object.entries(s.toolPolicy ?? {}).filter(([, p]) => p.defaultOff).map(([name]) => name)));
+    const own = (inherited) => inherited.filter((e) => !(e.kind === "playbook" && importedOff.has(e.name)) && !(e.kind === "tool" && adminOff.has(e.name)));
     const call = async (method, path, headers, body) => { const r = await app.request(path, { method, headers, body: body && JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => null) }; };
     ${body}
     console.log(JSON.stringify({ ok: true }));`;

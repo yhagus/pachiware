@@ -26,6 +26,7 @@ async function ask(s: Scenario, tool: string, args: Record<string, unknown>) {
 }
 
 discordScenario("intakeCreate adds to the intake after Confirm with Markdown as HTML and an origin line; intake switched off is refused", async (s) => {
+  await s.adminTools();
   await s.plane({ projects: [P1, P2] });
   const plane = fakePlane(s);
   world(plane);
@@ -47,6 +48,7 @@ discordScenario("intakeCreate adds to the intake after Confirm with Markdown as 
 });
 
 discordScenario("intakeTriage by a Plane user who is not a project Admin reports the role problem, since Plane answers 200 and changes nothing", async (s) => {
+  await s.adminTools();
   await s.plane({ projects: [P1, P2] });
   const plane = fakePlane(s);
   world(plane, 15);
@@ -63,6 +65,7 @@ discordScenario("intakeTriage by a Plane user who is not a project Admin reports
 });
 
 discordScenario("intakeTriage accepts, snoozes until a date, and marks a duplicate of a work item, when the bot's Plane user is a project Admin", async (s) => {
+  await s.adminTools();
   await s.plane({ projects: [P1, P2] });
   const plane = fakePlane(s);
   const w = world(plane, 20);
@@ -93,6 +96,7 @@ discordScenario("intakeTriage accepts, snoozes until a date, and marks a duplica
 });
 
 discordScenario("projectCreate is offered only where the scope is all Plane projects, and creates a Plane project with cycles and modules on", async (s) => {
+  await s.adminTools();
   const { repositories } = await import("../../../packages/db/src/index.ts");
   const account = await s.plane({ projects: ["*"] });
   const plane = fakePlane(s);
@@ -130,6 +134,7 @@ discordScenario("projectCreate is offered only where the scope is all Plane proj
 });
 
 discordScenario("stateCreate, stateUpdate, labelCreate and labelUpdate change a Plane project's states and labels after Confirm; a taken name is refused first", async (s) => {
+  await s.adminTools();
   await s.plane({ projects: [P1, P2] });
   const plane = fakePlane(s);
   const w = world(plane);

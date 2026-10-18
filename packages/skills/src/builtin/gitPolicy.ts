@@ -32,8 +32,12 @@ const declared: Record<string, [Effect, string]> = {
   orgList: [R, "Org"], orgMembers: [R, "Org"], orgTeams: [R, "Org"], orgCreateGroup: [D, "Org"], orgManageTeam: [D, "Org"],
 };
 
+/** Administration an admin assistant rarely needs: off for the tenant until it is switched on (#251). */
+const ADMIN_GROUPS = new Set(["Repo admin", "Org"]);
+const ADMIN_TOOLS = new Set(["repoVariables", "repoSecrets", "repoRunners", "repoPackages", "repoSchedules", "repoSnippets", "repoWriteDefaultBranch"]);
+
 export const gitToolPolicy: Record<string, ToolPolicy> = {
-  ...Object.fromEntries(Object.entries(declared).map(([tool, [effect, group]]) => [tool, { effect, group }])),
+  ...Object.fromEntries(Object.entries(declared).map(([tool, [effect, group]]) => [tool, { effect, group, ...(ADMIN_GROUPS.has(group) || ADMIN_TOOLS.has(tool) ? { defaultOff: true as const } : {}) }])),
   briefRepositories: { effect: R, group: "Browse", playbook: ISSUE_DRAFT_PLAYBOOK },
   briefRead: { effect: R, group: "Browse", playbook: ISSUE_DRAFT_PLAYBOOK, metered: true },
   createBriefIssues: { effect: W, group: "Issues & PRs", playbook: ISSUE_DRAFT_PLAYBOOK },

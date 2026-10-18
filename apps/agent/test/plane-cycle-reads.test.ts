@@ -146,6 +146,7 @@ discordScenario("intakeList answers an empty list with a note when the Plane pro
 });
 
 discordScenario("workspace tools are offered only where the scope is all Plane projects, and read the Plane workspace's members and invitations", async (s) => {
+  await s.adminTools();
   const { repositories } = await import("../../../packages/db/src/index.ts");
   const acc = await s.plane({ projects: ["*"] });
   s.http.on(`GET ${API}/members/`, () => [{ ...BUDI, role: 15 }, { id: "u-bot", first_name: "Plane", last_name: "Bot", email: "bot@acme.test", avatar: "", avatar_url: null, display_name: "pachibot", role: 20 }]);

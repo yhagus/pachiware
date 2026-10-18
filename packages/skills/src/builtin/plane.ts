@@ -34,7 +34,12 @@ export const planeTools: ToolDefinition[] = [
   ...workspaceTools,
 ];
 
-export const planeToolPolicy: Record<string, PlaneToolPolicy> = {
+/** Plane project and Plane workspace administration: off for the tenant until it is switched on (#251). */
+const ADMIN_GROUPS = new Set(["Plane project admin", "Plane workspace"]);
+const withAdminOff = (policy: Record<string, PlaneToolPolicy>) =>
+  Object.fromEntries(Object.entries(policy).map(([tool, p]) => [tool, ADMIN_GROUPS.has(p.group ?? "") ? { ...p, defaultOff: true as const } : p]));
+
+export const planeToolPolicy: Record<string, PlaneToolPolicy> = withAdminOff({
   planeAccounts: { effect: READ, group: "Browse" },
   ...browseToolPolicy,
   ...workItemToolPolicy,
@@ -47,7 +52,7 @@ export const planeToolPolicy: Record<string, PlaneToolPolicy> = {
   ...intakeWriteToolPolicy,
   ...projectAdminToolPolicy,
   ...workspaceToolPolicy,
-};
+});
 
 export const planeHandlers: Record<string, ToolHandler> = {
   planeAccounts: async (_a, ctx) => {

@@ -53,6 +53,7 @@ discordScenario("Confirm on a git tool available here but no longer in the git s
 });
 
 discordScenario("a danger git tool still needs an owner to ask and a Confirm click before it reaches the provider", async (s) => {
+  await s.adminTools();
   process.env.GIT_OWNER_DISCORD_IDS = s.discord.alice.id;
   await s.git({ repos: ["acme/*"] });
   s.http.on("DELETE api.github.com/repos/acme/api", () => ({}));

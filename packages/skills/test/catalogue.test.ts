@@ -43,3 +43,12 @@ describe("tool catalogue", () => {
     expect(tool("repoList").description).toMatch(/^Lists repositories/);
   });
 });
+
+test("on at the tenant is allowed for an administration tool that starts off, and refused for a tool that is on anyway", async () => {
+  const { ruleProblem } = await import("../src/availability.js");
+  const { skillRegistry } = await import("../src/registry.js");
+  const skills = skillRegistry.getAllSkills(), tenant = { tenantId: "t", level: "tenant" as const };
+  expect(ruleProblem(tenant, { kind: "tool", name: "repoSecrets", value: "on" }, skills)).toBeNull();
+  expect(ruleProblem(tenant, { kind: "tool", name: "workspaceInvite", value: "on" }, skills)).toBeNull();
+  expect(ruleProblem(tenant, { kind: "tool", name: "repoList", value: "on" }, skills)).toBe("on at the tenant is only for a playbook or a tool that starts off (default: off); everything else is on unless a rule turns it off");
+});

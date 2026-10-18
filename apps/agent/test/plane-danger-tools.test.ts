@@ -126,6 +126,7 @@ discordScenario("cycleDelete, moduleDelete and intakeDelete run after their own 
 });
 
 discordScenario("stateDelete refuses the default state before Confirm and reports Plane's refusal of a state that still holds work items; labelDelete removes a label", async (s) => {
+  await s.adminTools();
   process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
   await s.plane({ projects: [P1] });
   const plane = fakePlane(s);
@@ -154,6 +155,7 @@ discordScenario("stateDelete refuses the default state before Confirm and report
 });
 
 discordScenario("projectUpdate, projectArchive, projectUnarchive and projectDelete change a Plane project open here after their own Confirm", async (s) => {
+  await s.adminTools();
   process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
   await s.plane({ projects: [P1, P2] });
   const plane = fakePlane(s);
@@ -195,6 +197,7 @@ discordScenario("projectUpdate, projectArchive, projectUnarchive and projectDele
 });
 
 discordScenario("projectMemberAdd adds a Plane workspace member to a Plane project with a role, and says plainly that Plane cannot add back someone already listed", async (s) => {
+  await s.adminTools();
   process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
   await s.plane({ projects: [P1] });
   const plane = fakePlane(s);
@@ -232,6 +235,7 @@ discordScenario("projectMemberAdd adds a Plane workspace member to a Plane proje
 });
 
 discordScenario("workspaceInvite and workspaceCancelInvite are offered only where the scope is all Plane projects, and change invitations after their own Confirm", async (s) => {
+  await s.adminTools();
   process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
   const { repositories } = await import("../../../packages/db/src/index.ts");
   const account = await s.plane({ projects: ["*"] });
@@ -284,6 +288,7 @@ const DANGER_TOOLS = [
 ];
 
 discordScenario("one Availability rule on the danger effect hides every Plane danger tool and leaves the other Plane changes offered", async (s) => {
+  await s.adminTools();
   process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
   await s.plane({ projects: ["*"] });
   const plane = fakePlane(s);
