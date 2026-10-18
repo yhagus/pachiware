@@ -270,4 +270,26 @@ describe("SQLite tenancy migration", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+  test("adds doc sources to existing guild settings, none mirrored", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-doc-sources-"));
+    const database = join(directory, "doc-sources.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
+        await runMigrations();
+        queryClient.exec("ALTER TABLE guild_configs DROP COLUMN doc_sources");
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
+        queryClient.exec("INSERT INTO bots (id,tenant_id,token_encrypted) VALUES ('b1','t1','x')");
+        queryClient.exec("INSERT INTO guild_configs (id,tenant_id,bot_id,guild_id,daily_log_channels) VALUES ('g1','t1','b1','guild-1','[{\\"channelId\\":\\"c1\\",\\"backfill\\":false}]')");
+        await runMigrations();
+        await runMigrations();
+        console.log(JSON.stringify(queryClient.query("SELECT id, daily_log_channels AS logs, doc_sources AS sources FROM guild_configs").all()));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual([{ id: "g1", logs: '[{"channelId":"c1","backfill":false}]', sources: "[]" }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

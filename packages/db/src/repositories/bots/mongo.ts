@@ -116,7 +116,7 @@ export function createMongoBotRepository(connection: MongoConnection): BotReposi
     },
     async saveGuildConfig(tenantId, botId, guildId, input) {
       const values = { ...defined(input), updatedAt: new Date() };
-      const defaults = { systemPrompt: null, useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [], dailyLogChannels: [] };
+      const defaults = { systemPrompt: null, useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [], dailyLogChannels: [], docSources: [] };
       const onInsert = { _id: randomUUID(), tenantId, ...Object.fromEntries(Object.entries(defaults).filter(([field]) => !(field in values))) };
       const saved = await inTransaction(connection, async (session) => {
         // SQL's foreign key: the bot must exist.
@@ -149,6 +149,6 @@ function toBot(doc: BotDoc): Bot {
 function toGuildConfig(doc: GuildConfigDoc): GuildConfig {
   return {
     id: doc._id, tenantId: doc.tenantId, botId: doc.botId, guildId: doc.guildId, systemPrompt: doc.systemPrompt ?? null, useThreads: Boolean(doc.useThreads),
-    alwaysChannelIds: doc.alwaysChannelIds ?? [], timezone: doc.timezone ?? null, language: doc.language ?? null, digestChannels: doc.digestChannels ?? [], dailyLogChannels: doc.dailyLogChannels ?? [], updatedAt: doc.updatedAt,
+    alwaysChannelIds: doc.alwaysChannelIds ?? [], timezone: doc.timezone ?? null, language: doc.language ?? null, digestChannels: doc.digestChannels ?? [], dailyLogChannels: doc.dailyLogChannels ?? [], docSources: doc.docSources ?? [], updatedAt: doc.updatedAt,
   };
 }

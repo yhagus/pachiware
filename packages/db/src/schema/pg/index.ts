@@ -1,7 +1,7 @@
 import { pgTable, text, timestamp, boolean, jsonb, integer, real, index, uniqueIndex, foreignKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
-import type { DigestChannel, DailyLogChannel } from "../types.js";
+import type { DigestChannel, DailyLogChannel, DocSource } from "../types.js";
 import type { ScheduleKind } from "../../repositories/schedules/types.js";
 
 /**
@@ -64,6 +64,7 @@ export const guildConfigs = pgTable("guild_configs", {
   timezone: text("timezone"), language: text("language").$type<"id" | "en">(),
   digestChannels: jsonb("digest_channels").$type<DigestChannel[]>().notNull().default([]),
   dailyLogChannels: jsonb("daily_log_channels").$type<DailyLogChannel[]>().notNull().default([]),
+  docSources: jsonb("doc_sources").$type<DocSource[]>().notNull().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 

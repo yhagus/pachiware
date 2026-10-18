@@ -119,6 +119,6 @@ function toBot(row: any): Bot {
 function toGuildConfig(row: any): GuildConfig {
   return {
     id: row.id, tenantId: row.tenantId, botId: row.botId, guildId: row.guildId, systemPrompt: row.systemPrompt ?? null, useThreads: Boolean(row.useThreads),
-    alwaysChannelIds: row.alwaysChannelIds ?? [], timezone: row.timezone ?? null, language: row.language ?? null, digestChannels: row.digestChannels ?? [], dailyLogChannels: row.dailyLogChannels ?? [], updatedAt: row.updatedAt,
+    alwaysChannelIds: row.alwaysChannelIds ?? [], timezone: row.timezone ?? null, language: row.language ?? null, digestChannels: row.digestChannels ?? [], dailyLogChannels: row.dailyLogChannels ?? [], docSources: row.docSources ?? [], updatedAt: row.updatedAt,
   };
 }

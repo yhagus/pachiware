@@ -133,7 +133,7 @@ contract("Bots and guild configuration", (use) => {
     const bot = await bots.create({ tenantId: acme.id, token: "t" });
     expect(await bots.getGuildConfig(bot.id, "g1")).toBeNull();
     const created = await bots.saveGuildConfig(acme.id, bot.id, "g1", { systemPrompt: "Be brief", digestChannels: [{ channelId: "c1", hour: 9 }] });
-    expect(created).toMatchObject({ tenantId: acme.id, botId: bot.id, guildId: "g1", systemPrompt: "Be brief", useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [{ channelId: "c1", hour: 9 }], dailyLogChannels: [] });
+    expect(created).toMatchObject({ tenantId: acme.id, botId: bot.id, guildId: "g1", systemPrompt: "Be brief", useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [{ channelId: "c1", hour: 9 }], dailyLogChannels: [], docSources: [] });
     expect(created.updatedAt).toBeInstanceOf(Date);
     expect(await bots.getGuildConfig(bot.id, "g1")).toEqual(created);
 
@@ -143,6 +143,10 @@ contract("Bots and guild configuration", (use) => {
     const logged = await bots.saveGuildConfig(acme.id, bot.id, "g1", { dailyLogChannels: [{ channelId: "c3", backfill: false }, { channelId: "c1", backfill: true }] });
     expect(logged).toMatchObject({ id: created.id, useThreads: false, digestChannels: [{ channelId: "c1", hour: 9 }], dailyLogChannels: [{ channelId: "c3", backfill: false }, { channelId: "c1", backfill: true }] });
     expect(await bots.getGuildConfig(bot.id, "g1")).toEqual(logged);
+    expect(logged.docSources).toEqual([]);
+    const sourced = await bots.saveGuildConfig(acme.id, bot.id, "g1", { docSources: [{ channelId: "c3", repo: "acme/api", paths: ["README.md", "docs/**"] }, { channelId: "c1", repo: "acme/web", account: "work", paths: ["adr/*.md"] }] });
+    expect(sourced).toMatchObject({ id: created.id, dailyLogChannels: [{ channelId: "c3", backfill: false }, { channelId: "c1", backfill: true }], docSources: [{ channelId: "c3", repo: "acme/api", paths: ["README.md", "docs/**"] }, { channelId: "c1", repo: "acme/web", account: "work", paths: ["adr/*.md"] }] });
+    expect(await bots.getGuildConfig(bot.id, "g1")).toEqual(sourced);
     expect(await bots.getGuildConfig(bot.id, "g2")).toBeNull();
   });
 

@@ -2,7 +2,7 @@ import { sqliteTable, text, integer, real, index, uniqueIndex, foreignKey } from
 import { sql } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 import { randomUUID } from "crypto";
-import type { DigestChannel, DailyLogChannel } from "../types.js";
+import type { DigestChannel, DailyLogChannel, DocSource } from "../types.js";
 import type { ScheduleKind } from "../../repositories/schedules/types.js";
 
 /**
@@ -80,6 +80,7 @@ export const guildConfigs = sqliteTable("guild_configs", {
   timezone: text("timezone"), language: text("language").$type<"id" | "en">(),
   digestChannels: text("digest_channels", { mode: "json" }).$type<DigestChannel[]>().notNull().default([]),
   dailyLogChannels: text("daily_log_channels", { mode: "json" }).$type<DailyLogChannel[]>().notNull().default([]),
+  docSources: text("doc_sources", { mode: "json" }).$type<DocSource[]>().notNull().default([]),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 
