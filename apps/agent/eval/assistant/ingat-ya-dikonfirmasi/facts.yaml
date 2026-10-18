@@ -1,0 +1,13 @@
+# An explicit "ingat ya" beside another request: the Memory line is kept, and the reply's one line says it was, since it was asked
+# for. Issue #243 showed this on the held-out tiga-alat-sekaligus; the persona and the remember tool are tuned against this brief.
+language: id
+area: loop
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - Kirim invoice ke Toko Merdeka tercatat sebagai tugas Bob, jatuh tempo Jumat 16 Oktober 2026
+  - Balasan bot menyebut bahwa rapat mingguan yang pindah ke Kamis jam 10 sudah diingat
+turns:
+  - tasks:
+      - { title: invoice, assignedTo: Bob, dueAt: "2026-10-16" }
+    memory:
+      channel: { has: [Kamis jam 10] }

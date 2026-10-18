@@ -41,6 +41,17 @@ discordScenario("forget removes the lines matching case-insensitively and report
   expect(await s.workspace.read(CHANNEL_MEMORY)).toBe("- 2026-10-02 (Alice): Standup is at 09:30");
 });
 
+discordScenario("remember and forget without a level act on this channel's Memory (#243)", async (s) => {
+  s.model.script({ tool: "remember", args: { text: "Sponsor utama kita Kopi Senja" } }, (turn) => `kept in ${turn.toolResults[0].level}`);
+  await s.discord.send(`${s.discord.mention} ingat ya sponsor utama kita Kopi Senja`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("kept in channel");
+  expect(await s.workspace.read(CHANNEL_MEMORY)).toMatch(/^- \d{4}-\d{2}-\d{2} \(Alice\): Sponsor utama kita Kopi Senja$/);
+
+  s.model.script({ tool: "forget", args: { match: "kopi senja" } }, (turn) => `removed ${turn.toolResults[0].removed}`);
+  await s.discord.send(`${s.discord.mention} lupakan soal Kopi Senja`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe("removed 1");
+});
+
 discordScenario("in a DM both levels mean the person's own Memory", async (s) => {
   s.discord.channel("dm-alice", { dm: true });
   s.model.script({ tool: "remember", args: { level: "guild", text: "Alice reads mail at 8" } }, (turn) => `kept in ${turn.toolResults[0].level}`);

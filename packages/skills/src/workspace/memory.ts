@@ -25,8 +25,12 @@ export async function loadMemory(ctx: Where): Promise<{ level: MemoryLevel; text
   return out;
 }
 
-/** The Memory the agent may change from here: "guild" or "channel" in a guild; in a DM either name means the person's own folder. */
+/**
+ * The Memory the agent may change from here: "guild" or "channel" in a guild, "channel" when none is named (#243: a model that
+ * leaves it out meant this place, and an error made it keep nothing); in a DM either name means the person's own folder.
+ */
 export function memoryLevel(ctx: Where, requested: unknown): MemoryLevel {
+  if (requested === undefined || requested === null || requested === "") requested = "channel";
   if (requested !== "guild" && requested !== "channel") throw new Error('level must be "channel" or "guild"');
   const roots = visibleRoots(ctx);
   if (roots.dm) return "dm";

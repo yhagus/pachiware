@@ -77,6 +77,18 @@ discordScenario("dry run: remember-forget keeps a channel line, a server line wi
   expect(output.turns[2].state.memory).toEqual({ channel: [], guild: ["- 2026-10-14 (Alice): Releases go out on Thursdays"] });
 });
 
+discordScenario("dry run: ingat-ya-dikonfirmasi files the Task, keeps the Memory line without a level, and says it was kept", async (s) => {
+  s.model.script(
+    [
+      { tool: "createTask", args: { title: "Kirim invoice ke Toko Merdeka", assignedTo: "Bob", dueAt: "2026-10-16" } },
+      { tool: "remember", args: { text: "Rapat mingguan pindah ke Kamis jam 10" } },
+    ],
+    "Dicatat: kirim invoice ke Toko Merdeka untuk Bob, jatuh tempo Jumat 16 Oktober. Saya ingat juga: rapat mingguan pindah ke Kamis jam 10.",
+  );
+  const output = await dryRun(s, "ingat-ya-dikonfirmasi");
+  expect(output.turns[0].state.memory.channel).toEqual(["- 2026-10-14 (Alice): Rapat mingguan pindah ke Kamis jam 10"]);
+});
+
 discordScenario("dry run: file-search files the PDF with its text and finds the budget line", async (s) => {
   s.model.script(
     "Filed as q3-report.pdf under files/, with its text beside it.",

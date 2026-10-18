@@ -1,0 +1,39 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "ingat-ya-dikonfirmasi",
+  "turns": [
+    {
+      "n": 1,
+      "message": "catat tugas buat Bob: kirim invoice ke Toko Merdeka tenggat Jumat. terus ingat ya, rapat mingguan kita pindah ke Kamis jam 10",
+      "replies": [
+        "Dicatat: kirim invoice ke Toko Merdeka untuk Bob, jatuh tempo Jumat 16 Oktober. Saya ingat juga: rapat mingguan pindah ke Kamis jam 10."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Kirim invoice ke Toko Merdeka",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [
+            "- 2026-10-14 (Alice): Rapat mingguan pindah ke Kamis jam 10"
+          ],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}
