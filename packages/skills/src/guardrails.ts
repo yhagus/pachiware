@@ -4,6 +4,7 @@ import type { SkillContext, SkillModule, SkillScope, ToolCall, ToolPolicy } from
 import { hasThreadConfirmation } from "./threadConfirmation.js";
 import { hasPermission } from "./permissions.js";
 import { replyLanguage, textIn, type Language } from "./language.js";
+import { isFiller } from "./workspace/terms.js";
 
 /**
  * observe: nothing is refused, would-be refusals are only logged.
@@ -66,6 +67,34 @@ const INJECTION = [
 ];
 export const looksLikeInjection = (text: string) => INJECTION.some((r) => r.test(text));
 
+/** The phrases of `text` that try to rewrite the rules or pull out hidden material, each as written and where it starts. */
+export const injectionPhrases = (text: string) =>
+  INJECTION.flatMap((r) => [...text.matchAll(new RegExp(r.source, `${r.flags}g`))].map((m) => ({ text: m[0], at: m.index! })));
+
+/** Words that only carry an injection along ("please", "now", "rules"), beside the words that carry no topic at all. */
+const CARRIER = new Set("tolong please pls plz now sekarang lalu kemudian terus then rule rules aturan prompt prompts instruksi instruction instructions perintah everything semuanya punya anda unrestricted unfiltered ai bot answer anything apapun jawab".split(" "));
+const QUOTES = /["“”`]|(?:^|\s)['‘]|['’](?=\s|$|[.,!?])/g;
+
+/** Whether the phrase at `at` sits between quotation marks on its own line, as text someone is talking about. */
+function quoted(text: string, at: number, length: number) {
+  const start = text.lastIndexOf("\n", at) + 1, end = text.indexOf("\n", at + length);
+  const before = text.slice(start, at).match(QUOTES)?.length ?? 0, after = text.slice(at + length, end < 0 ? undefined : end).match(QUOTES)?.length ?? 0;
+  return before % 2 === 1 && after > 0;
+}
+
+/**
+ * Whether a turn is nothing but an attempt to change the rules: every phrase stands unquoted, and without them and the speakers'
+ * names fewer than three words with a topic are left. Anything more is a request that quotes such text (#255).
+ */
+function onlyInjection(text: string, phrases: { text: string; at: number }[]) {
+  if (phrases.some((p) => quoted(text, p.at, p.text.length))) return false;
+  let rest = text;
+  for (const p of phrases) rest = rest.split(p.text).join(" ");
+  rest = rest.split("\n").map((line) => line.replace(/^[^\n:]{1,60}?:\s/, "")).join(" ");
+  const words = rest.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words.filter((w) => w.length > 1 && !isFiller(w) && !CARRIER.has(w)).length < 3;
+}
+
 const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE/i;
 const SECRET_PATTERNS = [/\bsk-[A-Za-z0-9_-]{16,}/g, /\bgh[pousr]_[A-Za-z0-9]{20,}/g, /\bglpat-[A-Za-z0-9_-]{16,}/g, /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, /\b[MNO][A-Za-z\d_-]{23,25}\.[\w-]{6}\.[\w-]{27,}/g, /\b(Bearer|Basic) [A-Za-z0-9._~+/=-]{16,}/g];
 const PATHS = /(?:\/(?:Users|home|root|var|opt|app|srv|etc|tmp|usr)\/[^\s"'`)\]},:;]+|[A-Za-z]:\\(?:Users|Windows|Program Files)[^\s"'`)\]},:;]*)/g;
@@ -101,9 +130,15 @@ export const GuardrailService = {
   /** A confirmed action needs a Discord channel for its Confirm button. */
   denyNoConfirmer: (language?: Language) => deny("confirmation_required", textIn(language).guardNoConfirmer),
 
-  /** Runs before the ReAct loop on the assembled turn: refuses rule-rewriting messages, never long ones. Whether a skill can serve the request is the model's call, from the prompt. */
-  classify(message: string, language: Language = replyLanguage(message)): { kind: RequestKind; decision: GuardrailDecision } {
-    if (looksLikeInjection(message)) return { kind: "conversation", decision: this.denyPromptInjection(language) };
+  /**
+   * Runs before the ReAct loop on the assembled turn: refuses a turn that is nothing but an attempt to rewrite the rules, never a long one.
+   * A request that only quotes such text is let through with the phrases in `quoted`, for the loop to mark as data.
+   * Whether a skill can serve the request is the model's call, from the prompt.
+   */
+  classify(message: string, language: Language = replyLanguage(message)): { kind: RequestKind; decision: GuardrailDecision; quoted?: string[] } {
+    const phrases = injectionPhrases(message);
+    if (phrases.length && onlyInjection(message, phrases)) return { kind: "conversation", decision: this.denyPromptInjection(language) };
+    if (phrases.length) return { kind: DISCOVERY.test(message) ? "capability_discovery" : "conversation", decision: this.allowConversation(), quoted: [...new Set(phrases.map((p) => p.text))] };
     if (DISCOVERY.test(message)) return { kind: "capability_discovery", decision: this.allowConversation() };
     return { kind: "conversation", decision: this.allowConversation() };
   },

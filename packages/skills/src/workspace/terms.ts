@@ -21,6 +21,9 @@ const FILLER = new Set([
   "talked", "discussed", "mentioned",
 ]);
 
+/** Whether `word` (lower case) carries no topic, such as "yang" or "the". */
+export const isFiller = (word: string) => FILLER.has(word);
+
 /** A word of letters and digits, with inner marks kept ("inv-00042", "2.4", "on-call"). */
 const WORD = /[\p{L}\p{N}]+(?:[-._'’][\p{L}\p{N}]+)*/gu;
 const PART = /[\p{L}\p{N}]+/gu;
