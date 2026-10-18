@@ -91,9 +91,9 @@ export interface PlaneAccountInput { name?: string; baseUrl?: string | null; wor
 export interface PlaneProject { id: string; name: string; identifier: string; }
 export interface Conversation { id: string; channelId: string | null; userId: string | null; createdAt: string; lastMessageAt: string | null; messageCount: number; }
 export interface ChatMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; }
-export interface Profile { id: string; tenantId: string; name: string; provider: "openai" | "anthropic" | "custom"; model: string; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; createdAt: string; }
+export interface Profile { id: string; tenantId: string; name: string; provider: "openai" | "anthropic" | "custom"; model: string; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; fallbackProfileId: string | null; createdAt: string; }
 export type ApiFormat = "chat_completions" | "responses" | "messages";
-export interface ProfileInput { name?: string; provider?: string; model?: string; baseUrl?: string | null; apiKey?: string | null; acceptsImages?: boolean; apiFormat?: ApiFormat; }
+export interface ProfileInput { name?: string; provider?: string; model?: string; baseUrl?: string | null; apiKey?: string | null; acceptsImages?: boolean; apiFormat?: ApiFormat; fallbackProfileId?: string | null; }
 export type CheckStatus = "ok" | "warning" | "failed" | "skipped";
 export interface ProfileCheck { status: CheckStatus; message: string; reply?: string; }
 export interface ProfileChecks { url: ProfileCheck; key: ProfileCheck; model: ProfileCheck; text: ProfileCheck; image: ProfileCheck; }

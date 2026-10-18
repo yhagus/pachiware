@@ -169,6 +169,34 @@ describe("SQLite tenancy migration", () => {
     }
   });
 
+  test("adds the fallback to existing profiles, empty, and clears it when the fallback is deleted", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-fallback-"));
+    const database = join(directory, "fallback.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
+        await runMigrations();
+        queryClient.exec("ALTER TABLE profiles DROP COLUMN fallback_profile_id");
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
+        queryClient.exec("INSERT INTO profiles (id,tenant_id,name,provider,model) VALUES ('p1','t1','Old','openai','gpt-x'),('p2','t1','Backup','openai','gpt-y')");
+        await runMigrations();
+        await runMigrations();
+        const before = queryClient.query("SELECT id, fallback_profile_id AS fallback FROM profiles ORDER BY id").all();
+        queryClient.exec("UPDATE profiles SET fallback_profile_id = 'p2' WHERE id = 'p1'");
+        queryClient.exec("DELETE FROM profiles WHERE id = 'p2'");
+        console.log(JSON.stringify({ before, after: queryClient.query("SELECT id, fallback_profile_id AS fallback FROM profiles").all() }));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual({
+        before: [{ id: "p1", fallback: null }, { id: "p2", fallback: null }],
+        after: [{ id: "p1", fallback: null }],
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("upgrades per-tenant API keys to global keys, linking each tenant to its first live key", () => {
     const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-keys-"));
     const database = join(directory, "keys.db");

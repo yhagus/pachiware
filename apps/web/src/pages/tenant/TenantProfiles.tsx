@@ -29,7 +29,8 @@ export const profileLabel = (p: Pick<Profile, "provider" | "apiFormat">) =>
   p.provider === "custom" ? `${providerName(p.provider)} · ${API_FORMATS.find((f) => f.id === p.apiFormat)?.name ?? p.apiFormat}` : providerName(p.provider);
 const DEFAULT_URL: Record<string, string> = { openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1" };
 const MODEL_HINT: Record<string, string> = { openai: "gpt-4o", anthropic: "claude-sonnet-5-5", custom: "Model name from your provider" };
-const EMPTY = { name: "", provider: "openai", apiFormat: "chat_completions" as ApiFormat, model: "", baseUrl: "", apiKey: "", acceptsImages: false };
+const NO_FALLBACK = "none";
+const EMPTY = { name: "", provider: "openai", apiFormat: "chat_completions" as ApiFormat, model: "", baseUrl: "", apiKey: "", acceptsImages: false, fallbackProfileId: NO_FALLBACK };
 
 export function TenantProfiles() {
   const tenant = useOutletContext<Tenant>();
@@ -46,7 +47,7 @@ export function TenantProfiles() {
   useEffect(() => { void load(); }, [load]);
 
   const open = (p: Profile | "new") => {
-    setForm(p === "new" ? EMPTY : { name: p.name, provider: p.provider, apiFormat: p.apiFormat, model: p.model, baseUrl: p.baseUrl ?? "", apiKey: "", acceptsImages: p.acceptsImages });
+    setForm(p === "new" ? EMPTY : { name: p.name, provider: p.provider, apiFormat: p.apiFormat, model: p.model, baseUrl: p.baseUrl ?? "", apiKey: "", acceptsImages: p.acceptsImages, fallbackProfileId: p.fallbackProfileId ?? NO_FALLBACK });
     setModels([]); setProbe(null); setEditing(p);
   };
   // A Test result describes the connection it ran with, so changing that connection clears it.
@@ -66,7 +67,7 @@ export function TenantProfiles() {
   };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    const body = { name: form.name.trim(), provider: form.provider, apiFormat: form.apiFormat, model: form.model.trim(), baseUrl: form.baseUrl.trim() || null, acceptsImages: form.acceptsImages, ...(form.apiKey ? { apiKey: form.apiKey.trim() } : {}) };
+    const body = { name: form.name.trim(), provider: form.provider, apiFormat: form.apiFormat, model: form.model.trim(), baseUrl: form.baseUrl.trim() || null, acceptsImages: form.acceptsImages, fallbackProfileId: form.fallbackProfileId === NO_FALLBACK ? null : form.fallbackProfileId, ...(form.apiKey ? { apiKey: form.apiKey.trim() } : {}) };
     try {
       if (editing === "new") await api.createProfile(tenant.id, body); else await api.updateProfile((editing as Profile).id, body);
       toast.success(editing === "new" ? "Profile created" : "Profile updated"); setEditing(null); await load();
@@ -76,6 +77,8 @@ export function TenantProfiles() {
     try { await api.deleteProfile(p.id); toast.success("Profile deleted"); await load(); } catch (e: any) { toast.error(e.message); }
   };
   const custom = form.provider === "custom";
+  const nameOf = (id: string | null) => profiles?.find((p) => p.id === id)?.name;
+  const fallbackChoices = (profiles ?? []).filter((p) => editing === "new" || p.id !== editing?.id);
 
   return (
     <div className="space-y-5">
@@ -98,6 +101,7 @@ export function TenantProfiles() {
                     {!p.hasApiKey && <Badge variant="outline">No key</Badge>}
                   </div>
                   <code className="truncate font-mono text-xs">{p.model}</code>
+                  {p.fallbackProfileId && <div className="truncate text-xs text-muted-foreground">Falls back to {nameOf(p.fallbackProfileId) ?? "a removed profile"}</div>}
                   <div className="mt-auto flex justify-end border-t pt-3">
                     <IconButton label="Playground" onClick={() => setTrying(p)}><FlaskConical /></IconButton>
                     <IconButton label="Edit" onClick={() => open(p)}><Pencil /></IconButton>
@@ -141,6 +145,15 @@ export function TenantProfiles() {
               </div>
               <Switch id="pi" checked={form.acceptsImages} onCheckedChange={(v) => setForm({ ...form, acceptsImages: v })} />
             </div>
+            <div className="space-y-2"><Label htmlFor="pfb">Fallback profile</Label>
+              <Select value={form.fallbackProfileId} onValueChange={(v) => setForm({ ...form, fallbackProfileId: v })}>
+                <SelectTrigger id="pfb" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_FALLBACK}>None</SelectItem>
+                  {fallbackChoices.map((p) => <SelectItem key={p.id} value={p.id}>{p.name} <span className="text-xs text-muted-foreground">{profileLabel(p)} · {p.model}</span></SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Answers when this profile's provider fails. It may have its own fallback; one request reaches at most three profiles.</p></div>
             {probe && <ProfileChecklist checks={probe} />}
             <DialogFooter>
               <Button type="button" variant="outline" disabled={testing || !form.model.trim() || (custom && !form.baseUrl.trim())} onClick={runTest}>{testing ? "Testing…" : "Test"}</Button>
