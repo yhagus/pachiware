@@ -38,8 +38,10 @@ export type ModelTurn = { messages: ChatMessage[]; toolResults: any[] };
 export type ToolCallStep = { tool: string; args?: Record<string, unknown> };
 /** The provider failed: the router's fallback answer, as a real outage would produce. */
 export type ErrorStep = { error: string };
+/** The answer hit the output limit: its text, or its tool calls, cut off where the model stopped. */
+export type CutStep = { cut: string | ToolCallStep | ToolCallStep[] };
 /** A function step may be async, to change state while the model call is in flight. */
-export type ModelStep = string | ToolCallStep | ToolCallStep[] | ErrorStep | ((turn: ModelTurn) => ModelStep | Promise<ModelStep>);
+export type ModelStep = string | ToolCallStep | ToolCallStep[] | ErrorStep | CutStep | ((turn: ModelTurn) => ModelStep | Promise<ModelStep>);
 export type HttpRequest = { method: string; url: string; body: any };
 
 export type Payload = { content?: string; embeds?: any[]; components?: any[]; files?: any[] };
@@ -380,6 +382,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     if (typeof step === "function") return toResponse(await step(turn), turn);
     if (typeof step === "string") return { content: step, toolCalls: [], finishReason: "stop" };
     if ("error" in step) return { content: step.error, toolCalls: [], finishReason: "error" };
+    if ("cut" in step) return { ...(await toResponse(step.cut, turn)), finishReason: "length" };
     const list = Array.isArray(step) ? step : [step];
     return { content: null, finishReason: "tool_calls", toolCalls: list.map((c) => ({ id: `call-${++callId}`, name: c.tool, arguments: c.args ?? {} })) };
   };
