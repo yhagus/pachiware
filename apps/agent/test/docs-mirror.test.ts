@@ -60,6 +60,7 @@ discordScenario("saving a doc source mirrors the matching text files as Document
   s.http.on("GET api.github.com/user/repos", () => [{ full_name: "acme/api", owner: { login: "acme" }, private: true, default_branch: "main", updated_at: "2026-03-01T00:00:00Z", html_url: "https://github.com/acme/api" }]);
   s.http.on("GET api.github.com/search/issues", () => ({ total_count: 0, items: [] }));
   s.http.on("GET api.github.com/repos/acme/api/commits", () => []);
+  s.http.on("GET api.github.com/search/commits", () => ({ total_count: 0, items: [] }));
   let result: any;
   s.model.script({ tool: "recall", args: { queries: ["rilis", "jadwal rilis"] } }, (turn) => { result = turn.toolResults[0]; return "done"; });
   await s.discord.send(`${s.discord.mention} how do we do a rilis?`);

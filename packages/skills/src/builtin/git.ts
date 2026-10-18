@@ -1,5 +1,5 @@
 import type { SkillModule, SkillContext, ToolDefinition } from "../types.js";
-import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, browseCommits, getMergeRequest, readFile, writeFile, openPullRequest, commentOn, createIssue, linkIssues, subIssue, mergeMergeRequest, closeItem, browsePipelines, pipelineJobs, jobLog, retryPipeline, createBranch, browseTags, browseReleases, getCommit, compareRefs, getIssue, itemComments, searchCode, searchWork, type WorkHit, updateMergeRequest, reopenItem, reviewMergeRequest, requestReviewers, mergeRequestDiff, repoChecks, rebaseMergeRequest, updateIssue, assignItem, listLabels, setLabels, lockItem, editComment, deleteComment, createRepo, updateRepoSettings, renameRepo, archiveRepo, deleteRepo, forkRepo, transferRepo, deleteBranch, protectBranch, getBranchProtection, createTag, deleteTag, createRelease, deleteRelease, deleteFile, moveFile, commitFiles, commitToDefaultBranch, runPipeline, cancelPipeline, listArtifacts, downloadArtifact, schedules, variables, secrets, runners, member, invitations, deployKeys, webhooks, securityAlerts, orgList, orgMembers, orgTeams, createGroup, manageTeam, wiki, snippets, packages, notifications, stats, type GitState, type GitConn, type ItemKind } from "../git.js";
+import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, browseCommits, getMergeRequest, readFile, writeFile, openPullRequest, commentOn, createIssue, linkIssues, subIssue, mergeMergeRequest, closeItem, browsePipelines, pipelineJobs, jobLog, retryPipeline, createBranch, browseTags, browseReleases, getCommit, compareRefs, getIssue, itemComments, searchCode, searchWork, rankWork, type WorkHit, updateMergeRequest, reopenItem, reviewMergeRequest, requestReviewers, mergeRequestDiff, repoChecks, rebaseMergeRequest, updateIssue, assignItem, listLabels, setLabels, lockItem, editComment, deleteComment, createRepo, updateRepoSettings, renameRepo, archiveRepo, deleteRepo, forkRepo, transferRepo, deleteBranch, protectBranch, getBranchProtection, createTag, deleteTag, createRelease, deleteRelease, deleteFile, moveFile, commitFiles, commitToDefaultBranch, runPipeline, cancelPipeline, listArtifacts, downloadArtifact, schedules, variables, secrets, runners, member, invitations, deployKeys, webhooks, securityAlerts, orgList, orgMembers, orgTeams, createGroup, manageTeam, wiki, snippets, packages, notifications, stats, type GitState, type GitConn, type ItemKind } from "../git.js";
 import { GIT_NOT_ENABLED, loadGitAccess, pickAccess, connectionOf, repoAllowed, type GitAccess } from "../gitScope.js";
 import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, state, num, str, kindOf, clip, confirmable, guard, labelsP, labelsOf } from "./gitShared.js";
 import { briefGroundingTools, briefGroundingHandlers } from "./briefGrounding.js";
@@ -9,6 +9,7 @@ import { playbookDocumentTools, playbookDocumentHandlers } from "./playbookDocum
 import { issueBatchTools, issueBatchHandlers } from "./issueBatch.js";
 import { gitToolPolicy, GIT_GROUPS } from "./gitPolicy.js";
 import { wordingsOf } from "../workspace/search.js";
+import { queriesTerms } from "../workspace/terms.js";
 
 export const gitTools: ToolDefinition[] = [
   { name: "gitAccounts", description: "Lists the git accounts you may use in this channel, with the repository patterns each is limited to. Call it first when unsure which account to use.",
@@ -95,7 +96,7 @@ export const gitTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { account: acct, repo: repoP, number: { type: "number" } }, required: ["repo", "number"] } },
   { name: "repoComments", description: "Lists comments on an issue or pull/merge request, oldest first.",
     parameters: { type: "object", properties: { account: acct, repo: repoP, number: numberP, kind: kindP, page: pageP }, required: ["repo", "number", "kind"] } },
-  { name: "repoSearchWork", description: "Finds issues, pull/merge requests (merged, open or closed) and recent commits about a piece of work, newest first, in one repository or, without repo, in every repository open here. Use it for \"is it done?\": a merged pull request or a matching commit means it was done in code.",
+  { name: "repoSearchWork", description: "Finds issues, pull/merge requests (merged, open or closed) and commits about a piece of work, best match first (newest first among equals), in one repository or, without repo, in every repository open here. Use it for \"is it done?\": a merged pull request or a matching commit means it was done in code.",
     parameters: { type: "object", properties: { account: acct, repo: { ...repoP, description: "Search only this repository; omit for every repository open here" },
       queries: { type: "array", items: { type: "string" }, description: "Several wordings of the work (up to 5), such as Indonesian and English variants" }, query: { type: "string", description: "One wording, when there is only one" } } } },
   { name: "repoSearchCode", description: "Searches file contents in a repository.",
@@ -204,7 +205,9 @@ export const gitRepositorySkill: SkillModule = {
       }
       const items: WorkHit[] = [];
       for (const t of targets) items.push(...await searchWork(t.conn, t.repo, queries));
-      items.sort((x, y) => (Date.parse(y.date ?? "") || 0) - (Date.parse(x.date ?? "") || 0));
+      // Across repositories as within one: best match first, the date breaking ties (#247).
+      const ranked = rankWork(items, queriesTerms(queries));
+      items.splice(0, items.length, ...ranked);
       const left = open - targets.length;
       return { searched: targets.map((t) => t.repo), items, ...(left > 0 ? { notSearched: `${left} more repositories open here were not searched; pass repo to search one of them.` } : {}) };
     },

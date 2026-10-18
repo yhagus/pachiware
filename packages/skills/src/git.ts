@@ -1,4 +1,4 @@
-import { holdsQuery, queriesTerms } from "./workspace/terms.js";
+import { fileWords, holdsQuery, isFiller, matchWords, queriesTerms, scoreOf } from "./workspace/terms.js";
 
 export type GitProvider = "github" | "gitlab";
 export const GIT_PROVIDERS: GitProvider[] = ["github", "gitlab"];
@@ -585,37 +585,70 @@ export async function searchIssues(c: GitConn, repo: string, query: string, page
 }
 /** One issue, pull/merge request or commit that may answer "is it done?". A pull request's state is merged, open or closed; a commit's is committed. */
 export interface WorkHit { repo: string; kind: "issue" | "pull_request" | "commit"; number?: number; sha?: string; title: string; state: string; date: string | null; url: string }
-const RECENT_COMMITS = 100;
+const RECENT_COMMITS = 100, COMMIT_PAGES = 3, PER_QUERY = 20;
+/** Fewer issues and pull requests than this widen the search to any of the wordings' words, at most MAX_OR_WORDS of them (GitHub allows five OR). */
+const FEW = 5, MAX_OR_WORDS = 6;
 /**
- * Issues and pull/merge requests of every state that the provider's search matches to one of `queries`, plus those of the
- * latest 100 commits on the default branch whose message holds every term of one of them (`holdsQuery`). Newest first.
+ * Issues and pull/merge requests of every state that the provider's search matches to one of `queries`, plus the commits whose message
+ * holds every term of one of them (`holdsQuery`): the latest 100 on the default branch (300 on GitLab), and on GitHub also its commit
+ * search, so work of any age is found. Best match first (#247): ranked by how well the title holds the queries' words, as kept files are
+ * (`scoreOf`, the title as the name, rare words weighing more), the date breaking ties.
  */
 export async function searchWork(c: GitConn, repo: string, queries: string[]): Promise<WorkHit[]> {
   const gh = c.provider === "github", ref = repoRef(c, repo), hits = new Map<string, WorkHit>();
   const add = (h: WorkHit) => { if (!hits.has(h.url)) hits.set(h.url, h); };
+  const commit = (r: any) => {
+    const message = String((gh ? r.commit?.message : r.message ?? r.title) ?? "");
+    return { message, hit: { repo, kind: "commit" as const, sha: String(r.sha ?? r.id).slice(0, 10), title: message.split("\n")[0]!, state: "committed", date: (gh ? r.commit?.author?.date : r.created_at) ?? null, url: r.html_url ?? r.web_url } };
+  };
+  const wanted = queriesTerms(queries);
   for (const q of queries) {
     if (gh) {
-      const rows: any[] = (await call(c, `/search/issues?per_page=20&q=${encodeURIComponent(`${q} repo:${repo}`)}`))?.items ?? [];
+      const rows: any[] = (await call(c, `/search/issues?per_page=${PER_QUERY}&q=${encodeURIComponent(`${q} repo:${repo}`)}`))?.items ?? [];
       for (const r of rows) {
         const mergedAt = r.pull_request?.merged_at ?? null;
         add({ repo, kind: r.pull_request ? "pull_request" : "issue", number: r.number, title: r.title, state: mergedAt ? "merged" : r.state, date: mergedAt ?? r.closed_at ?? r.updated_at ?? null, url: r.html_url });
       }
+      // The commit search reaches work of any age, by the words as written; a server without it (an older GitHub Enterprise) has only the latest commits below.
+      const found = await call(c, `/search/commits?per_page=${PER_QUERY}&q=${encodeURIComponent(`${q} repo:${repo}`)}`).catch(() => null);
+      for (const r of (found?.items ?? []) as any[]) { const { message, hit } = commit(r); if (holdsQuery(wanted, message)) add(hit); }
     } else {
-      const search = `state=all&per_page=20&search=${encodeURIComponent(q)}`;
+      const search = `state=all&per_page=${PER_QUERY}&search=${encodeURIComponent(q)}`;
       for (const r of ((await call(c, `${ref}/merge_requests?${search}`)) ?? []) as any[])
         add({ repo, kind: "pull_request", number: r.iid, title: r.title, state: normState(r.state), date: r.merged_at ?? r.closed_at ?? r.updated_at ?? null, url: r.web_url });
       for (const r of ((await call(c, `${ref}/issues?${search}`)) ?? []) as any[])
         add({ repo, kind: "issue", number: r.iid, title: r.title, state: normState(r.state), date: r.closed_at ?? r.updated_at ?? null, url: r.web_url });
     }
   }
-  const wanted = queriesTerms(queries);
-  const commits: any[] = (await call(c, `${ref}/${gh ? "commits" : "repository/commits"}?per_page=${RECENT_COMMITS}`)) ?? [];
-  for (const r of commits) {
-    const message = String((gh ? r.commit?.message : r.message ?? r.title) ?? "");
-    if (!holdsQuery(wanted, message)) continue;
-    add({ repo, kind: "commit", sha: String(r.sha ?? r.id).slice(0, 10), title: message.split("\n")[0]!, state: "committed", date: (gh ? r.commit?.author?.date : r.created_at) ?? null, url: r.html_url ?? r.web_url });
+  // GitHub's search wants every word of a wording; when that finds little, one search for any of their words widens it, and the ranking below
+  // puts the titles that hold most of them first (#247).
+  const work = () => [...hits.values()].filter((h) => h.kind !== "commit").length;
+  const words = [...new Set(queries.flatMap((q) => q.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length > 2 && !isFiller(w)))].slice(0, MAX_OR_WORDS);
+  if (gh && work() < FEW && words.length > 1) {
+    const rows: any[] = (await call(c, `/search/issues?per_page=${PER_QUERY}&q=${encodeURIComponent(`${words.join(" OR ")} repo:${repo}`)}`).catch(() => null))?.items ?? [];
+    for (const r of rows) {
+      const mergedAt = r.pull_request?.merged_at ?? null;
+      add({ repo, kind: r.pull_request ? "pull_request" : "issue", number: r.number, title: r.title, state: mergedAt ? "merged" : r.state, date: mergedAt ?? r.closed_at ?? r.updated_at ?? null, url: r.html_url });
+    }
   }
-  return [...hits.values()].sort((a, b) => (Date.parse(b.date ?? "") || 0) - (Date.parse(a.date ?? "") || 0));
+  // The latest commits are matched here too, with stems and the work vocabulary, so a message in the other language still matches.
+  for (let page = 1; page <= (gh ? 1 : COMMIT_PAGES); page++) {
+    const commits: any[] = (await call(c, `${ref}/${gh ? "commits" : "repository/commits"}?per_page=${RECENT_COMMITS}${page > 1 ? `&page=${page}` : ""}`)) ?? [];
+    for (const r of commits) { const { message, hit } = commit(r); if (holdsQuery(wanted, message)) add(hit); }
+    if (commits.length < RECENT_COMMITS) break;
+  }
+  return rankWork([...hits.values()], wanted);
+}
+
+/** Work hits best match first: BM25 of each title against the queries, rare title words weighing more; newer first on a tie. */
+export function rankWork(hits: WorkHit[], queries: string[][]): WorkHit[] {
+  const terms = [...new Set(queries.flat())], none = fileWords("");
+  const matched = hits.map((h) => ({ h, m: matchWords(terms, h.title, none) }));
+  const df = (t: string) => matched.filter((x) => x.m?.held.includes(t)).length;
+  const idf = (t: string) => Math.log(1 + (hits.length - df(t) + 0.5) / (df(t) + 0.5));
+  const date = (h: WorkHit) => Date.parse(h.date ?? "") || 0;
+  return matched.map((x) => ({ h: x.h, score: x.m ? scoreOf(x.m, queries, idf, 1) : 0 }))
+    .sort((a, b) => b.score - a.score || date(b.h) - date(a.h)).map((x) => x.h);
 }
 /** A link to `path` as it was at commit `sha`, so it keeps showing what was read. */
 export function blobUrl(c: GitConn, repo: string, sha: string, path: string) {

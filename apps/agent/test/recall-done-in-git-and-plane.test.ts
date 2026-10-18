@@ -26,10 +26,13 @@ function github(s: Scenario) {
       { number: 80, title: "Audio normalization for podcast exports", state: "open", html_url: "https://github.com/acme/api/issues/80", updated_at: "2026-10-01T09:00:00Z", closed_at: null },
     ] };
   });
-  s.http.on("GET api.github.com/repos/acme/api/commits", () => [
+  const COMMITS = [
     { sha: "abc1234567890", commit: { message: "Add audio normalization step\n\nRuns ffmpeg loudnorm.", author: { name: "Bob", date: "2026-10-11T08:00:00Z" } }, html_url: "https://github.com/acme/api/commit/abc1234567890" },
     { sha: "def1234567890", commit: { message: "Fix typo in README", author: { name: "Bob", date: "2026-10-11T07:00:00Z" } }, html_url: "https://github.com/acme/api/commit/def1234567890" },
-  ]);
+  ];
+  s.http.on("GET api.github.com/repos/acme/api/commits", () => COMMITS);
+  // GitHub's commit search: a commit whose message holds the query's words.
+  s.http.on("GET api.github.com/search/commits", (req) => { const words = (new URL(req.url).searchParams.get("q") ?? "").toLowerCase().split(/\s+/).filter((w) => w && !w.includes(":")); return { total_count: 0, items: COMMITS.filter((c) => words.every((w) => c.commit.message.toLowerCase().includes(w))) }; });
 }
 
 discordScenario("a merged pull request in a repository the Git scope opens is reported as merged with its link; a repository outside the scope is never searched or named", async (s) => {

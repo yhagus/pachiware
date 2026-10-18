@@ -125,8 +125,10 @@ async function seedGit(s: Scenario, git: SeedGit) {
   s.http.on("GET api.github.com/user/repos", () => repos.map((r) => ({ full_name: r, owner: { login: r.split("/")[0] }, private: true, default_branch: "main", updated_at: "2026-10-01T00:00:00Z", html_url: `https://github.com/${r}` })));
   s.http.on("GET api.github.com/search/issues", (req) => {
     const terms = (new URL(req.url).searchParams.get("q") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
-    const repo = terms.find((t) => t.startsWith("repo:"))?.slice(5), words = terms.filter((t) => !t.includes(":"));
-    const hit = (item: { repo: string; title: string }) => (!repo || item.repo === repo) && words.every((w) => item.title.toLowerCase().includes(w));
+    const repo = terms.find((t) => t.startsWith("repo:"))?.slice(5);
+    // "a OR b" matches a title holding any of the words, as GitHub's search does; otherwise every word.
+    const any = terms.includes("or"), words = terms.filter((t) => !t.includes(":") && t !== "or");
+    const hit = (item: { repo: string; title: string }) => (!repo || item.repo === repo) && words[any ? "some" : "every"]((w) => item.title.toLowerCase().includes(w));
     const items = [
       ...prs.filter(hit).map((p) => ({
         number: p.number, title: p.title, state: p.mergedAt || p.closedAt ? "closed" : "open", html_url: pullUrl(p), updated_at: p.mergedAt ?? p.closedAt ?? now(), closed_at: p.mergedAt ?? p.closedAt ?? null,
@@ -144,6 +146,14 @@ async function seedGit(s: Scenario, git: SeedGit) {
       sha: c.sha, html_url: commitUrl(r, c.sha), commit: { message: c.message, author: { name: "gema", date: c.date } },
     })));
   }
+  // GitHub's commit search: every word of the query in a commit's message, within the `repo:` named.
+  s.http.on("GET api.github.com/search/commits", (req) => {
+    const terms = (new URL(req.url).searchParams.get("q") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+    const repo = terms.find((t) => t.startsWith("repo:"))?.slice(5), words = terms.filter((t) => !t.includes(":"));
+    const items = commits.filter((c) => (!repo || c.repo === repo) && words.every((w) => c.message.toLowerCase().includes(w)))
+      .map((c) => ({ sha: c.sha, html_url: commitUrl(c.repo, c.sha), commit: { message: c.message, author: { name: "gema", date: c.date } } }));
+    return { total_count: items.length, items };
+  });
 }
 
 async function attachmentsOf(s: Scenario, fixture: AssistantFixture) {

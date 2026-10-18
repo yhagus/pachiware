@@ -23,6 +23,7 @@ async function setUp(s: Scenario) {
       pull_request: { merged_at: "2026-10-12T09:00:00Z", html_url: "https://github.com/acme/api/pull/88" } },
   ] }));
   s.http.on("GET api.github.com/repos/acme/api/commits", () => []);
+  s.http.on("GET api.github.com/search/commits", () => ({ total_count: 0, items: [] }));
 }
 const RECALL = { tool: "recall", args: { queries: ["normalisasi audio", "audio normalization"] } };
 const denied = async (s: Scenario) => {

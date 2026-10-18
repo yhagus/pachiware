@@ -75,10 +75,13 @@ discordScenario("a commit message and a Work item title in Indonesian are found 
   await s.git({ provider: "github", repos: ["acme/*"] });
   s.http.on("GET api.github.com/user/repos", () => [{ full_name: "acme/api", owner: { login: "acme" }, private: true, default_branch: "main", updated_at: "2026-10-10T00:00:00Z", html_url: "https://github.com/acme/api" }]);
   s.http.on("GET api.github.com/search/issues", () => ({ total_count: 0, items: [] }));
-  s.http.on("GET api.github.com/repos/acme/api/commits", () => [
+  const COMMITS_ID = [
     { sha: "abc1234567890", commit: { message: "Tambah normalisasi audio di pipeline ekspor", author: { name: "Bob", date: "2026-10-11T08:00:00Z" } }, html_url: "https://github.com/acme/api/commit/abc1234567890" },
     { sha: "def1234567890", commit: { message: "Perbaiki audio interface driver", author: { name: "Bob", date: "2026-10-11T07:00:00Z" } }, html_url: "https://github.com/acme/api/commit/def1234567890" },
-  ]);
+  ];
+  s.http.on("GET api.github.com/repos/acme/api/commits", () => COMMITS_ID);
+  // GitHub's commit search: a commit whose message holds the query's words.
+  s.http.on("GET api.github.com/search/commits", (req) => { const words = (new URL(req.url).searchParams.get("q") ?? "").toLowerCase().split(/\s+/).filter((w) => w && !w.includes(":")); return { total_count: 0, items: COMMITS_ID.filter((c) => words.every((w) => c.commit.message.toLowerCase().includes(w))) }; });
   const ENG = "11111111-1111-4111-8111-111111111111";
   await s.plane({ projects: [ENG] });
   const plane = fakePlane(s);

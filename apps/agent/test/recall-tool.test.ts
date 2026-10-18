@@ -31,6 +31,7 @@ async function github(s: Scenario) {
       pull_request: { merged_at: "2026-10-12T09:00:00Z", html_url: "https://github.com/acme/api/pull/88" } },
   ] } : { total_count: 0, items: [] }));
   s.http.on("GET api.github.com/repos/acme/api/commits", () => []);
+  s.http.on("GET api.github.com/search/commits", () => ({ total_count: 0, items: [] }));
 }
 async function plane(s: Scenario) {
   await s.plane({ projects: [ENG] });
@@ -107,6 +108,7 @@ discordScenario("a pull request or issue closed is labelled with the day it clos
     { number: 60, title: "Audio normalization for podcasts", state: "open", html_url: "https://github.com/acme/api/issues/60", updated_at: "2026-10-13T09:00:00Z" },
   ] }));
   s.http.on("GET api.github.com/repos/acme/api/commits", () => []);
+  s.http.on("GET api.github.com/search/commits", () => ({ total_count: 0, items: [] }));
   const [result] = await recall(s, [QUERIES]);
   // 20:00 UTC on 1 October is 03:00 on 2 October in Jakarta.
   expect(result.work.map((w: any) => w.label).sort()).toEqual([
