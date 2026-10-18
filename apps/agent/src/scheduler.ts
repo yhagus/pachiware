@@ -2,8 +2,7 @@ import { repositories, type Schedule } from "@pachiware/db";
 import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, readGroups, MAX_SCOPED, workspaceStore, taskLine, isOpen, scopeSources, tasksIn, inScope, groupTasks, type DiscordClientAdapter, type TaskSource, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines, syncDigestSchedules } from "./digest.js";
-import { dayBefore } from "./discord/dailyLog.js";
-import { writeMissingDays, daysBefore, daysFrom, syncDailyLogSchedules, CATCH_UP_DAYS } from "./discord/dailyLogDays.js";
+import { writeOwedDays, syncDailyLogSchedules } from "./discord/dailyLogDays.js";
 import type { DiscordBotManager } from "./discord/client.js";
 
 export const SCHEDULER_INTERVAL_MS = 60_000;
@@ -40,23 +39,13 @@ async function pass(manager: DiscordBotManager, at: number) {
 async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
   const client = manager.clientOf(row.botId);
   if (!client) return;
-  if (row.kind === "daily-log") { await dailyLog(manager, row, at); await moveOn(row, at, new Date(at)); return; }
+  // A daily-log row moves on even when a day fails, since a failing row would end as done; its `lastFiredAt` keeps that day owed instead.
+  if (row.kind === "daily-log") { await moveOn(row, at, row.guildId ? await writeOwedDays(manager, { ...row, guildId: row.guildId }, at) : new Date(at)); return; }
   const late = at - row.nextAt.getTime();
   if (late > LATE_LIMIT_MS) { await moveOn(row, at, null); return; }
   try { await post(client, manager.adapterOf(row.botId, row.guildId ?? undefined), row, at, late > LATE_NOTE_MS); }
   catch (error: any) { await failed(row, error?.message || String(error)); return; }
   await moveOn(row, at, new Date(at));
-}
-
-/**
- * Writes the Daily logs from the day before the row came due up to yesterday, the last CATCH_UP_DAYS at most, and posts nothing.
- * The row moves on even when a day fails, since a failing row would end as done; the next start's catch-up writes that day.
- */
-async function dailyLog(manager: DiscordBotManager, row: Schedule, at: number) {
-  if (!row.guildId) return;
-  const recent = daysBefore(row.timezone, at, CATCH_UP_DAYS);
-  const days = daysFrom(dayBefore(row.timezone, row.nextAt.getTime()), recent.at(-1)!).filter((day) => day >= recent[0]!);
-  await writeMissingDays(manager, { tenantId: row.tenantId, botId: row.botId, guildId: row.guildId, channelId: row.channelId, timezone: row.timezone }, days);
 }
 
 /** A Reminder is the one message that pings: the owner and the people named when it was made; a late one says when it was due, in the row's zone. A Digest pings nobody and is skipped on a day with nothing to report. */

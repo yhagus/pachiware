@@ -27,6 +27,7 @@ export type Schedule = {
   timezone: string;
   until: Date | null;
   nextAt: Date;
+  /** A `daily-log` row's day still owed starts here: after a day failed, this is the start of that day, not when the row last ran. */
   lastFiredAt: Date | null;
   status: ScheduleStatus;
   /** Posting failures since the last success. */

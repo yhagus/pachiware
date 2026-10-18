@@ -1,12 +1,12 @@
-import { repositories, type DailyLogChannel } from "@pachiware/db";
+import { repositories, type DailyLogChannel, type Schedule } from "@pachiware/db";
 import { now, addDays, textIn, type Language } from "@pachiware/skills";
 import { syncDailyRows, type GuildPlace } from "../digest.js";
-import { writeDailyLog, dayBefore, type DailyLogResult } from "./dailyLog.js";
+import { writeDailyLog, dayBefore, daySpan, type DailyLogResult } from "./dailyLog.js";
 import type { DiscordBotManager } from "./client.js";
 
 /** Turning Daily logs on with the backfill tick writes this many days before today. */
 export const BACKFILL_DAYS = 30;
-/** Nights missed while the bot was down are written on start, this many days back at most. */
+/** Days a `daily-log` row still owes (nights missed while the bot was down, days whose write failed) are written this many days back at most. */
 export const CATCH_UP_DAYS = 7;
 /** When a channel's Daily log of the day before is written, in the place's zone. */
 export const DAILY_LOG_TIME = "00:30";
@@ -78,12 +78,30 @@ export function startDailyLogs(manager: Manager & Pick<DiscordBotManager, "backg
   }
 }
 
-/** On start: every channel this bot keeps Daily logs of gets the missing days of the last week written. */
+/**
+ * The first day a `daily-log` row still owes: the day its last run ended on, or, before any run, the day before it first came due.
+ * Every day before it was handled: written, already there, without talk, or refused because an Availability rule turned the playbook off then.
+ */
+const owedFrom = (row: Schedule) => (row.lastFiredAt ? addDays(dayBefore(row.timezone, row.lastFiredAt.getTime()), 1) : dayBefore(row.timezone, row.nextAt.getTime()));
+
+/**
+ * Writes the Daily logs `row` still owes at `at`, up to yesterday and the last CATCH_UP_DAYS at most, and posts nothing.
+ * Resolves to the row's next `lastFiredAt`: `at` when every day was handled, else the start of the first day still owed, so the next run or start writes it.
+ * A day refused because the playbook was off counts as handled, so lifting the rule later never writes the nights it covered.
+ */
+export async function writeOwedDays(manager: Manager, row: Schedule & { guildId: string }, at: number): Promise<Date> {
+  const recent = daysBefore(row.timezone, at, CATCH_UP_DAYS);
+  const days = daysFrom(owedFrom(row), recent.at(-1)!).filter((day) => day >= recent[0]!);
+  const place = { tenantId: row.tenantId, botId: row.botId, guildId: row.guildId, channelId: row.channelId, timezone: row.timezone };
+  const results = days.length ? await writeMissingDays(manager, place, days) : [];
+  const owed = days.find((_, i) => results[i] === undefined || results[i] === "failed");
+  return owed ? new Date(daySpan(row.timezone, owed).since) : new Date(at);
+}
+
+/** On start: every channel this bot keeps Daily logs of gets the days its row still owes written. */
 export async function catchUpDailyLogs(manager: Manager, botId: string) {
-  const rows = await repositories().schedules.list({ botId, kind: "daily-log", status: "active" });
-  for (const row of rows) {
-    if (!row.guildId) continue;
-    const place = { tenantId: row.tenantId, botId, guildId: row.guildId, channelId: row.channelId, timezone: row.timezone };
-    await writeMissingDays(manager, place, daysBefore(row.timezone, now(), CATCH_UP_DAYS));
+  const { schedules } = repositories();
+  for (const row of await schedules.list({ botId, kind: "daily-log", status: "active" })) {
+    if (row.guildId) await schedules.update(row.id, { lastFiredAt: await writeOwedDays(manager, { ...row, guildId: row.guildId }, now()) });
   }
 }

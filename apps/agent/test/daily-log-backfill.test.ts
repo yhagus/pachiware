@@ -129,3 +129,50 @@ discordScenario("a start catches up 7 days at most: talk older than that stays w
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-04.md`, `${FOLDER}/2026-03-10.md`]);
   expect(s.model.calls).toHaveLength(2);
 });
+
+discordScenario("nights an Availability rule turned the playbook off stay without a Daily log after the rule is lifted; a night missed while down is still written", async (s) => {
+  const { alice } = s.discord;
+  s.clock.set("2026-03-04T20:00:00+07:00");
+  await s.guildSettings({ dailyLogChannels: [{ channelId: "channel-1", backfill: false }] });
+  s.discord.history([
+    { content: "Thursday talk", author: alice, at: jakarta("2026-03-05T12:00:00") },
+    { content: "Friday talk", author: alice, at: jakarta("2026-03-06T12:00:00") },
+    { content: "Saturday talk", author: alice, at: jakarta("2026-03-07T12:00:00") },
+  ]);
+  await s.availability({ level: "channel", channelId: "channel-1" }, { kind: "playbook", name: "daily-log", value: "off" });
+
+  s.clock.set("2026-03-06T00:30:00+07:00");
+  await s.scheduler.tick();
+  s.clock.set("2026-03-07T00:30:00+07:00");
+  await s.scheduler.tick();
+  expect(await s.workspace.list(FOLDER)).toEqual([]);
+
+  expect((await s.admin("DELETE", `/api/admin/bots/${s.bot.id}/guilds/guild-1/channels/channel-1/availability?kind=playbook&name=daily-log`)).status).toBeLessThan(300);
+  s.model.script(log("Saturday"));
+  s.clock.set("2026-03-08T09:00:00+07:00");
+  await s.restart();
+  await s.scheduler.tick();
+
+  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-07.md`]);
+  expect(await s.workspace.read(`${FOLDER}/2026-03-07.md`)).toContain("Topics: Saturday");
+  expect(s.model.calls).toHaveLength(1);
+});
+
+discordScenario("a day whose nightly write failed is written on the next start", async (s) => {
+  const { alice } = s.discord;
+  s.clock.set("2026-03-04T20:00:00+07:00");
+  await s.guildSettings({ dailyLogChannels: [{ channelId: "channel-1", backfill: false }] });
+  s.discord.history([{ content: "Thursday talk", author: alice, at: jakarta("2026-03-05T12:00:00") }]);
+  s.model.script("I cannot summarize this.");
+
+  s.clock.set("2026-03-06T00:30:00+07:00");
+  await s.scheduler.tick();
+  expect(await s.workspace.list(FOLDER)).toEqual([]);
+
+  s.model.script(log("Thursday"));
+  s.clock.set("2026-03-06T09:00:00+07:00");
+  await s.restart();
+
+  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-05.md`]);
+  expect(s.model.calls).toHaveLength(2);
+});
