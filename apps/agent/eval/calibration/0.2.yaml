@@ -1,0 +1,7 @@
+# Human grades for rubric 0.2, both the issue-draft and the daily-behaviour rubric (each item names its run). README.md, "Calibrating the judge by hand".
+# One item per criterion a person graded from a run's trial files, before reading the judge's verdict:
+#   - { run: assistant-2026-10-20T01-00-00-000Z, trial: deepseek--minutes-from-talk--1, turn: 1, criterion: supported, human: yes }
+#   - { run: assistant-2026-10-20T01-00-00-000Z, trial: deepseek--minutes-from-talk--1, criterion: fact 2, human: no, note: the owner is never named }
+# `run` is the folder under results/, `trial` a file under its trials/ without .json. `criterion` is `fact <n>` (the nth must-cover fact) or
+# `question <n>` (an issue-draft run's nth question), without a turn; `behaviour` or `supported` with its `turn`; or `invented` with the draft's number as `turn`.
+[]

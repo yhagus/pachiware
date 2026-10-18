@@ -9,7 +9,7 @@ import type { AssistantResult, AssistantState, AssistantTurn } from "./assistant
 import { bullets, COVERAGE_BAR, grade, type Ask, type DraftVerdict, type Graded } from "./judge";
 
 /** Bump on any change to this rubric's text or pass rule; separate from the issue-draft rubric, which it leaves untouched. */
-export const ASSISTANT_RUBRIC_VERSION = "0.1";
+export const ASSISTANT_RUBRIC_VERSION = "0.2";
 
 const SYSTEM = `You grade the replies of a Discord bot that works as a server's administrative assistant: it keeps tasks, Memory lines, filed documents and Reminders. Rubric ${ASSISTANT_RUBRIC_VERSION}.
 You answer exactly one question about one item. Judge only from the conversation, the reference facts and the recorded state shown; do not assume anything about the bot or the server yourself.
@@ -25,7 +25,7 @@ const stateText = (s: AssistantState) => [
   `Channel Memory: ${s.memory.channel.length ? "" : "empty"}`, ...s.memory.channel.map((l) => `  ${l}`),
   `Server Memory: ${s.memory.guild.length ? "" : "empty"}`, ...s.memory.guild.map((l) => `  ${l}`),
   `Files under files/: ${s.files.join(", ") || "none"}`,
-  `Reminders: ${s.reminders.length ? "" : "none"}`, ...s.reminders.map((r) => `- ${r.recurrence}${r.weekdays.length ? ` on weekdays ${r.weekdays.join(",")} (0 = Sunday)` : ""}${r.timeOfDay ? ` at ${r.timeOfDay}` : ""} ${r.timezone}, next ${r.nextAt}, ${r.status}, pings ${r.mentions.join(", ") || "the owner only"}: ${r.text}`),
+  `Reminders: ${s.reminders.length ? "" : "none"}`, ...s.reminders.map((r) => `- ${r.recurrence}${r.weekdays.length ? ` on weekdays ${r.weekdays.join(",")} (0 = Sunday)` : ""}${r.timeOfDay ? ` at ${r.timeOfDay}` : ""} ${r.timezone}, next ${r.nextAt}, ${r.status}, pings ${r.mentions.length ? `the owner and ${r.mentions.join(", ")}` : "the owner only"}: ${r.text}`),
   ...(s.kept?.length ? ["Minutes, Daily logs, Notes and Decisions the bot wrote:", ...s.kept.map((k) => `#### ${k.path}\n${k.text}`)] : []),
 ].join("\n");
 
