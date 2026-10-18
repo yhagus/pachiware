@@ -1,11 +1,12 @@
-import { repositories, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type GuildConfigInput } from "@pachiware/db";
+import { repositories, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type DailyLogChannel, type GuildConfigInput } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { skillRegistry, loadMemory, loadTasks, readInFull, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, isOpen, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
+import { skillRegistry, configuredLanguage, textIn, loadMemory, loadTasks, readInFull, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, isOpen, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
 import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
-import { syncDigestSchedules } from "../digest.js";
+import { syncDigestSchedules, syncDailyLogSchedules } from "../digest.js";
+import type { DiscordBotManager } from "../discord/client.js";
 
-export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[] };
-const guildDefaults: GuildSettings = { systemPrompt: null, useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [] };
+export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; dailyLogChannels: DailyLogChannel[] };
+const guildDefaults: GuildSettings = { systemPrompt: null, useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [], dailyLogChannels: [] };
 export const guildCacheKey = (tenantId: string, botId: string, guildId: string) => tenantKey(tenantId, `guild:${botId}:${guildId}`);
 
 export async function loadGuildSettings(tenantId: string, botId: string, guildId: string): Promise<GuildSettings> {
@@ -13,19 +14,48 @@ export async function loadGuildSettings(tenantId: string, botId: string, guildId
   const cached = await CacheService.get<GuildSettings>(key);
   if (cached) return cached;
   const row = await repositories().bots.getGuildConfig(botId, guildId);
-  const settings = row ? { systemPrompt: row.systemPrompt, useThreads: row.useThreads, alwaysChannelIds: row.alwaysChannelIds, timezone: row.timezone ?? null, language: row.language ?? null, digestChannels: row.digestChannels ?? [] } : guildDefaults;
+  const settings = row ? { systemPrompt: row.systemPrompt, useThreads: row.useThreads, alwaysChannelIds: row.alwaysChannelIds, timezone: row.timezone ?? null, language: row.language ?? null, digestChannels: row.digestChannels ?? [], dailyLogChannels: row.dailyLogChannels ?? [] } : guildDefaults;
   await CacheService.set(key, settings, 120);
   return settings;
 }
 
-/** The one way to change a guild's settings: writes the row, drops the cache, and keeps the Digest schedule rows in step with `digestChannels` and the zone. */
-export async function saveGuildSettings(tenantId: string, botId: string, guildId: string, input: GuildConfigInput): Promise<GuildSettings> {
+/** Refuses turning Daily logs on for a channel another bot of the tenant already logs. */
+export class DailyLogTaken extends Error {}
+
+/**
+ * The one way to change a guild's settings: writes the row, drops the cache, and keeps the Digest and Daily log schedule rows in step with the zone,
+ * `digestChannels` and `dailyLogChannels`. A channel another bot of the tenant already logs throws `DailyLogTaken` before anything is written.
+ * With `manager`, each channel whose Daily logs were just turned on gets one notice from this bot, in the place's language; a save that changes nothing posts none.
+ */
+export async function saveGuildSettings(tenantId: string, botId: string, guildId: string, input: GuildConfigInput, manager?: Pick<DiscordBotManager, "clientOf">): Promise<GuildSettings> {
+  const before = await loadGuildSettings(tenantId, botId, guildId);
+  if (input.dailyLogChannels) await assertDailyLogsFree(tenantId, botId, input.dailyLogChannels.map((e) => e.channelId));
   await repositories().bots.saveGuildConfig(tenantId, botId, guildId, input);
   await CacheService.del(guildCacheKey(tenantId, botId, guildId));
   const settings = await loadGuildSettings(tenantId, botId, guildId);
   const agent = await repositories().agentConfig.get(tenantId);
-  await syncDigestSchedules({ tenantId, botId, guildId, timezone: configuredTimezone(settings, agent) }, settings.digestChannels);
+  const where = { tenantId, botId, guildId, timezone: configuredTimezone(settings, agent) };
+  await syncDigestSchedules(where, settings.digestChannels);
+  await syncDailyLogSchedules(where, settings.dailyLogChannels);
+  const turnedOn = settings.dailyLogChannels.filter((e) => !before.dailyLogChannels.some((b) => b.channelId === e.channelId));
+  const client: any = turnedOn.length ? manager?.clientOf(botId) : null;
+  const notice = textIn(configuredLanguage(settings, agent)).dailyLogNotice;
+  // The setting is saved even when the bot is offline or cannot post there; the notice is not retried.
+  for (const { channelId } of client ? turnedOn : []) {
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (channel?.isTextBased?.()) await channel.send({ content: notice, allowedMentions: { parse: [] } }).catch(() => {});
+  }
   return settings;
+}
+
+async function assertDailyLogsFree(tenantId: string, botId: string, channelIds: string[]) {
+  const { bots } = repositories();
+  const live = new Map((await bots.listForTenant(tenantId)).filter((b) => b.id !== botId).map((b) => [b.id, b.name]));
+  for (const guild of await bots.listGuildConfigs(tenantId)) {
+    const keeper = live.get(guild.botId);
+    const taken = keeper && guild.dailyLogChannels.find((e) => channelIds.includes(e.channelId));
+    if (taken) throw new DailyLogTaken(`${keeper} already keeps Daily logs of channel ${taken.channelId}.`);
+  }
 }
 
 export interface PromptContext {

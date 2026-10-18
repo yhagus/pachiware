@@ -1,6 +1,6 @@
 /** Domain types and the repository interface for Bots and their guild configuration. Every engine implements it. */
 
-import type { DigestChannel } from "../../schema/types.js";
+import type { DigestChannel, DailyLogChannel } from "../../schema/types.js";
 
 /** A bot as the platform shows it. Its token is kept encrypted and only read back through `getWithToken`. */
 export type Bot = {
@@ -41,10 +41,12 @@ export type GuildConfig = {
   timezone: string | null;
   language: "id" | "en" | null;
   digestChannels: DigestChannel[];
+  /** The channels this bot writes Daily logs of, in the order saved. */
+  dailyLogChannels: DailyLogChannel[];
   updatedAt: Date;
 };
 
-export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: DigestChannel[] };
+export type GuildConfigInput = { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: DigestChannel[]; dailyLogChannels?: DailyLogChannel[] };
 
 export interface BotRepository {
   /** Creates a bot of a tenant that is not deleted, its token encrypted. A missing tenant or token, a platform other than Discord, or a profile of another tenant throws. */

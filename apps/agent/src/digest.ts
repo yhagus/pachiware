@@ -1,37 +1,48 @@
-import { repositories, type DigestChannel, type Schedule } from "@pachiware/db";
+import { repositories, type DigestChannel, type DailyLogChannel, type Schedule } from "@pachiware/db";
 import { now, nextOccurrence, wallClock, hhmm, loadTasks, readInFull, workspaceStore, dueMoment, taskLine, isOpen, type Strings } from "@pachiware/skills";
 
 const hourText = (hour: number) => hhmm(hour, 0);
 const DAY_MS = 24 * 60 * 60_000;
 
-/** After the tenant's zone changed: the guilds without a zone of their own follow it, so their Digest rows move with it. */
-export async function syncTenantDigestSchedules(tenantId: string, timezone: string) {
+/** When a channel's Daily log of the day before is written, in the place's zone. */
+export const DAILY_LOG_TIME = "00:30";
+
+type Place = { tenantId: string; botId: string; guildId: string; timezone: string };
+
+/** After the tenant's zone changed: the guilds without a zone of their own follow it, so their Digest and Daily log rows move with it. */
+export async function syncTenantSchedules(tenantId: string, timezone: string) {
   const guilds = (await repositories().bots.listGuildConfigs(tenantId)).filter((guild) => guild.timezone === null);
-  for (const guild of guilds) if (guild.digestChannels.length) await syncDigestSchedules({ tenantId, botId: guild.botId, guildId: guild.guildId, timezone }, guild.digestChannels);
+  for (const guild of guilds) {
+    const where = { tenantId, botId: guild.botId, guildId: guild.guildId, timezone };
+    if (guild.digestChannels.length) await syncDigestSchedules(where, guild.digestChannels);
+    if (guild.dailyLogChannels.length) await syncDailyLogSchedules(where, guild.dailyLogChannels);
+  }
 }
 
+/** One active `digest` row per opted-in channel of the guild, daily at its hour in `timezone`; rows of channels no longer listed are cancelled. */
+export const syncDigestSchedules = (where: Place, entries: DigestChannel[]) => syncDailyRows("digest", where, new Map(entries.map((e) => [e.channelId, hourText(e.hour)])));
+
 /**
- * One active `digest` row per opted-in channel of the guild, daily at its hour in `timezone`; rows of channels no longer listed are cancelled.
- * A row whose hour and zone already match is left alone, so an unrelated settings save never moves a Digest.
+ * One active `daily-log` row per channel with Daily logs, daily at 00:30 in `timezone`, with no owner and no text: the row says only which bot
+ * writes which channel's Daily log and when; whether to backfill stays on the guild settings. Rows of channels turned off are cancelled.
  */
-export async function syncDigestSchedules(where: { tenantId: string; botId: string; guildId: string; timezone: string }, entries: DigestChannel[]) {
+export const syncDailyLogSchedules = (where: Place, entries: DailyLogChannel[]) => syncDailyRows("daily-log", where, new Map(entries.map((e) => [e.channelId, DAILY_LOG_TIME])));
+
+/** A row whose time and zone already match is left alone, so an unrelated settings save never moves it. */
+async function syncDailyRows(kind: "digest" | "daily-log", where: Place, wanted: Map<string, string>) {
   const { schedules } = repositories();
-  const active = await schedules.list({ botId: where.botId, guildId: where.guildId, kind: "digest", status: "active" });
-  const wanted = new Map(entries.map((e) => [e.channelId, e]));
+  const active = await schedules.list({ botId: where.botId, guildId: where.guildId, kind, status: "active" });
   const at = now();
+  const nextAt = (timeOfDay: string) => new Date(nextOccurrence({ recurrence: "daily", weekdays: [], dayOfMonth: null, timeOfDay, timezone: where.timezone, until: null }, at)!);
   for (const row of active) {
-    const entry = wanted.get(row.channelId);
-    if (!entry) { await schedules.update(row.id, { status: "cancelled" }); continue; }
+    const timeOfDay = wanted.get(row.channelId);
+    if (!timeOfDay) { await schedules.update(row.id, { status: "cancelled" }); continue; }
     wanted.delete(row.channelId);
-    const timeOfDay = hourText(entry.hour);
     if (row.timeOfDay === timeOfDay && row.timezone === where.timezone) continue;
-    const next = nextOccurrence({ recurrence: "daily", weekdays: [], dayOfMonth: null, timeOfDay, timezone: where.timezone, until: null }, at)!;
-    await schedules.update(row.id, { timeOfDay, timezone: where.timezone, nextAt: new Date(next), attempts: 0, error: null });
+    await schedules.update(row.id, { timeOfDay, timezone: where.timezone, nextAt: nextAt(timeOfDay), attempts: 0, error: null });
   }
-  for (const entry of wanted.values()) {
-    const timeOfDay = hourText(entry.hour);
-    const next = nextOccurrence({ recurrence: "daily", weekdays: [], dayOfMonth: null, timeOfDay, timezone: where.timezone, until: null }, at)!;
-    await schedules.create({ tenantId: where.tenantId, botId: where.botId, kind: "digest", guildId: where.guildId, channelId: entry.channelId, recurrence: "daily", timeOfDay, timezone: where.timezone, nextAt: new Date(next) });
+  for (const [channelId, timeOfDay] of wanted) {
+    await schedules.create({ tenantId: where.tenantId, botId: where.botId, kind, guildId: where.guildId, channelId, recurrence: "daily", timeOfDay, timezone: where.timezone, nextAt: nextAt(timeOfDay) });
   }
 }
 
