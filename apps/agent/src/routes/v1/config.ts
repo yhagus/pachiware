@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { repositories, encryptSecret, decryptSecret } from "@pachiware/db";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
-import { syncTenantDigestSchedules } from "../../digest.js";
+import { syncTenantSchedules } from "../../digest.js";
 import { LLMRouter } from "../../llm/router.js";
 import { isProvider } from "../../llm/providers.js";
 import { maskConfig, object, placeSettings } from "../validation.js";
@@ -43,7 +43,7 @@ configRoutes.put("/", async (c) => {
   }
   const row = await repositories().agentConfig.update(c.get("tenantId"), values);
   await CacheService.del(tenantKey(c.get("tenantId"), "agent:config"));
-  if (row && values.timezone) await syncTenantDigestSchedules(c.get("tenantId"), row.timezone);
+  if (row && values.timezone) await syncTenantSchedules(c.get("tenantId"), row.timezone);
   return c.json({ success: true, message: "Configuration updated.", config: maskConfig(row) });
 });
 configRoutes.post("/test/llm", async (c) => {

@@ -2,7 +2,7 @@ import { sqliteTable, text, integer, real, index, uniqueIndex, foreignKey } from
 import { sql } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 import { randomUUID } from "crypto";
-import type { DigestChannel } from "../types.js";
+import type { DigestChannel, DailyLogChannel } from "../types.js";
 
 /**
  * SQLite mirror of the PostgreSQL schema.
@@ -78,6 +78,7 @@ export const guildConfigs = sqliteTable("guild_configs", {
   systemPrompt: text("system_prompt"), useThreads: integer("use_threads", { mode: "boolean" }).notNull().default(true), alwaysChannelIds: text("always_channel_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
   timezone: text("timezone"), language: text("language").$type<"id" | "en">(),
   digestChannels: text("digest_channels", { mode: "json" }).$type<DigestChannel[]>().notNull().default([]),
+  dailyLogChannels: text("daily_log_channels", { mode: "json" }).$type<DailyLogChannel[]>().notNull().default([]),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 
@@ -123,7 +124,7 @@ export const availabilityRules = sqliteTable("availability_rules", {
 
 export const schedules = sqliteTable("schedules", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id").notNull(),
-  kind: text("kind").$type<"reminder" | "digest">().notNull().default("reminder"), guildId: text("guild_id"), channelId: text("channel_id").notNull(),
+  kind: text("kind").$type<"reminder" | "digest" | "daily-log">().notNull().default("reminder"), guildId: text("guild_id"), channelId: text("channel_id").notNull(),
   ownerId: text("owner_id"), ownerName: text("owner_name"), text: text("text").notNull().default(""), withTasks: integer("with_tasks", { mode: "boolean" }).notNull().default(false),
   mentions: text("mentions", { mode: "json" }).$type<string[]>().notNull().default([]),
   recurrence: text("recurrence").$type<"once" | "daily" | "weekly" | "monthly">().notNull().default("once"), weekdays: text("weekdays", { mode: "json" }).$type<number[]>().notNull().default([]), dayOfMonth: integer("day_of_month"),

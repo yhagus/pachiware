@@ -1,7 +1,7 @@
 import { pgTable, text, timestamp, boolean, jsonb, integer, real, index, uniqueIndex, foreignKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
-import type { DigestChannel } from "../types.js";
+import type { DigestChannel, DailyLogChannel } from "../types.js";
 
 /**
  * Agents Configuration Table
@@ -62,6 +62,7 @@ export const guildConfigs = pgTable("guild_configs", {
   systemPrompt: text("system_prompt"), useThreads: boolean("use_threads").notNull().default(true), alwaysChannelIds: jsonb("always_channel_ids").$type<string[]>().notNull().default([]),
   timezone: text("timezone"), language: text("language").$type<"id" | "en">(),
   digestChannels: jsonb("digest_channels").$type<DigestChannel[]>().notNull().default([]),
+  dailyLogChannels: jsonb("daily_log_channels").$type<DailyLogChannel[]>().notNull().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("guild_configs_bot_guild_idx").on(t.botId, t.guildId)]);
 
@@ -109,7 +110,7 @@ export const availabilityRules = pgTable("availability_rules", {
 /** A Reminder or Digest run the scheduler polls by (status, next_at); the row holds the whole recurrence, never a cron string (ADR 0006). */
 export const schedules = pgTable("schedules", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id").notNull(),
-  kind: text("kind").$type<"reminder" | "digest">().notNull().default("reminder"), guildId: text("guild_id"), channelId: text("channel_id").notNull(),
+  kind: text("kind").$type<"reminder" | "digest" | "daily-log">().notNull().default("reminder"), guildId: text("guild_id"), channelId: text("channel_id").notNull(),
   ownerId: text("owner_id"), ownerName: text("owner_name"), text: text("text").notNull().default(""), withTasks: boolean("with_tasks").notNull().default(false),
   mentions: jsonb("mentions").$type<string[]>().notNull().default([]),
   recurrence: text("recurrence").$type<"once" | "daily" | "weekly" | "monthly">().notNull().default("once"), weekdays: jsonb("weekdays").$type<number[]>().notNull().default([]), dayOfMonth: integer("day_of_month"),
