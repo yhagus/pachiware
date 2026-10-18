@@ -119,6 +119,22 @@ describe("code checks on one run", () => {
     ]);
   });
 
+  test("a reply may link the seeded talk, must link the seeded messages the facts name, and what the bot wrote must hold the given phrases", () => {
+    const f: AssistantFixture = { ...fixture, facts: { ...fixture.facts, turns: [{ cites: [1], kept: ["Rp 49.000"] }, {}] } };
+    const talk = ["https://discord.com/channels/guild-1/channel-1/7001", "https://discord.com/channels/guild-1/channel-1/7002"];
+    const minutes = { path: "minutes/2026-10-14-harga-paket.md", text: "# Harga paket\n\n## Diputuskan\n1. Paket dasar Rp 49.000 [↗](https://discord.com/channels/guild-1/channel-1/7002)" };
+    const run = (reply: string, kept = [minutes]): AssistantOutput => ({ ...withTurn(1, { replies: [reply], state: { ...state([venue]), kept } }), seeded: talk });
+    expect(checks(run("Decided: the basic plan costs Rp 49.000 [↗](https://discord.com/channels/guild-1/channel-1/7002)"), f)).toEqual([]);
+    expect(checks(run("Decided: the basic plan costs Rp 49.000 [↗](https://discord.com/channels/guild-1/channel-1/7001)", []), f)).toEqual([
+      '1 kept: No Minutes or Daily log the bot wrote holds "Rp 49.000"; it wrote none.',
+      "1 citations: The reply does not link seeded message 1, https://discord.com/channels/guild-1/channel-1/7002.",
+    ]);
+    expect(checks({ ...run("See https://discord.com/channels/guild-1/channel-1/7002"), seeded: undefined }, f)).toEqual([
+      "1 citations: The reply does not link seeded message 1, which was never posted.",
+      "1 citations: The reply links https://discord.com/channels/guild-1/channel-1/7002, which nothing seeded holds.",
+    ]);
+  });
+
   test("a run with fewer turns than the facts fails every missing turn", () => {
     expect(checks({ ...output, turns: output.turns.slice(0, 1) })).toEqual(["2 reply: The bot did not reply."]);
   });
@@ -134,7 +150,8 @@ describe("fixtures and recorded runs", () => {
     for (const name of ["task-casual-indonesian", "task-casual-english", "due-dates-relative", "status-by-title", "remember-forget", "file-search", "reminder-weekly",
       "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels", "bulk-cancel",
       "decision-other-channel", "action-items-across-meetings", "nothing-found", "private-channel-dm", "minutes-as-document",
-      "recall-asked-in-indonesian", "recall-asked-in-english", "recall-decision-replaced", "recall-done-other-channel", "recall-done-pull-request"]) expect(names).toContain(name);
+      "recall-asked-in-indonesian", "recall-asked-in-english", "recall-decision-replaced", "recall-done-other-channel", "recall-done-pull-request",
+      "minutes-from-talk", "member-joins-thread"]) expect(names).toContain(name);
     expect(new Set(fixtures.map((f) => f.facts.language))).toEqual(new Set(["en", "id"]));
     for (const f of fixtures) {
       expect(f.facts.mustCover.length).toBeGreaterThan(0);
@@ -154,6 +171,38 @@ describe("fixtures and recorded runs", () => {
     expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: clock is not a time");
     writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: tasks\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}, {}, {}]\n");
     expect(loadAssistantFixtures(tmp)[0]!.messages).toEqual(["note this", "and that", "and this"]);
+  });
+
+  test("a follow-up block may name the member who speaks it, or several who each send one line of a burst", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "catat tugas: pesan katering");
+    const blocks = (followUps: string, turns: number) => {
+      writeFileSync(join(tmp, "x", "follow-ups.md"), followUps);
+      writeFileSync(join(tmp, "x", "facts.yaml"), `language: id\narea: group\nclock: 2026-10-14T02:00:00Z\nmembers: [{ id: user-dewi, name: Dewi Anggraini }]\nmustCover: [m]\nturns: [${Array(turns).fill("{}").join(", ")}]\n`);
+      return () => loadAssistantFixtures(tmp)[0]!;
+    };
+    expect(blocks("@Bob: aku yang ambil\n---\n@Bob+@Dewi Anggraini:\nname tag 50 buah\noke\n---\nsudah?", 4)()).toMatchObject({
+      messages: ["catat tugas: pesan katering", "aku yang ambil", "name tag 50 buah\noke", "sudah?"],
+      authors: [["Alice"], ["Bob"], ["Bob", "Dewi Anggraini"], ["Alice"]],
+    });
+    expect(blocks("@Carol: aku yang ambil", 2)).toThrow("Fixture x: follow-up 1 is spoken by Carol, who is no member");
+    expect(blocks("@Bob+@Dewi Anggraini: satu\ndua\ntiga", 2)).toThrow("Fixture x: follow-up 1 is a burst of 2 people but has 3 lines");
+  });
+
+  test("seeded talk names its members, lists its messages oldest first before the clock, and replies only to an earlier one", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "notulen");
+    const talk = (messages: string) => { writeFileSync(join(tmp, "x", "facts.yaml"), `language: id\narea: capture\nclock: 2026-10-14T02:00:00Z\nmembers: [{ id: user-dewi, name: Dewi }]\nmustCover: [m]\nturns: [{}]\nseed: { messages: ${messages} }\n`); return () => loadAssistantFixtures(tmp)[0]!.facts.seed; };
+    const ok = "[{ channel: '#general', author: Dewi, text: harga paket?, at: 40 }, { channel: general, author: Bob, text: 49 ribu, at: '2026-10-14T08:30:00+07:00', replyTo: 0 }]";
+    expect(talk(ok)()).toEqual({ messages: [{ channel: "#general", author: "Dewi", text: "harga paket?", at: 40 }, { channel: "general", author: "Bob", text: "49 ribu", at: "2026-10-14T08:30:00+07:00", replyTo: 0 }] });
+    expect(talk("[{ author: Carol, text: halo, at: 40 }]")).toThrow("Fixture x: seed.messages[0] is from Carol, who is no member");
+    expect(talk("[{ author: Bob, text: halo, at: 40, replyTo: 1 }, { author: Dewi, text: ya, at: 30 }]")).toThrow("Fixture x: seed.messages[0] replies to 1, which is no earlier seeded message");
+    expect(talk("[{ author: Bob, text: halo, at: 40 }, { author: Dewi, text: ya, at: 30, replyTo: 0, channel: ops }]")).toThrow("Fixture x: seed.messages[1] replies to 0, in another channel");
+    expect(talk("[{ author: Bob, text: halo, at: 30 }, { author: Dewi, text: ya, at: 40 }]")).toThrow("Fixture x: seed.messages are listed oldest first, none after the clock");
+    expect(talk("[{ author: Bob, text: halo, at: '2026-10-14T09:30:00+07:00' }]")).toThrow("Fixture x: seed.messages are listed oldest first, none after the clock");
+    expect(talk("[{ author: Bob, text: halo, at: soon }]")).toThrow("Fixture x: seed.messages[0] needs a text and an at, an ISO time or minutes before the clock");
   });
 
   test("a fixture without an area of the Rapor is refused", () => {

@@ -128,10 +128,24 @@ test("the report of the recorded runs, every criterion judged yes, opens with th
   expect(md).toContain([
     "| Area | Weight | Score | Briefs | Holdout score |",
     "|---|---|---|---|---|",
-    "| capture | 20 | 100.0 | 2 |  |",
+    "| capture | 20 | 100.0 | 3 |  |",
     "| recall | 25 | 100.0 | 11 |  |",
     "| tasks | 20 | 100.0 | 12 |  |",
-    "| group | 10 |  | 0 |  |",
+    "| group | 10 | 100.0 | 1 |  |",
     "| loop | 15 | 100.0 | 1 |  |",
   ].join("\n"));
+});
+
+test("the judge reads another member's turn under their name, a burst line by line, and the Minutes the bot wrote", async () => {
+  const graded = async (name: string) => {
+    const brief = fixtures.find((f) => f.name === name)!, run: AssistantOutput = JSON.parse(readFileSync(join(EVAL_DIR, "recorded", "assistant", `${name}.json`), "utf8"));
+    const { ask, prompts } = scriptedJudge([]);
+    await gradeAssistantWithJudge(gradeAssistantRun(run, brief), brief, ask);
+    return prompts.map((p) => p.user);
+  };
+  const thread = await graded("member-joins-thread");
+  expect(thread.some((p) => p.includes("### Turn 2\nBob: tambahin satu lagi buat aku ya: cetak name tag peserta\nBot: "))).toBe(true);
+  expect(thread.some((p) => p.includes("### Turn 3\nBob: name tag-nya dicetak 60 buah ya\nAuthor: oke Bob, makasih\nBot: "))).toBe(true);
+  const minutes = await graded("minutes-from-talk");
+  expect(minutes.find((p) => p.includes("Recorded state after turn 1"))).toContain("Minutes and Daily logs the bot wrote:\n#### minutes/2026-10-14-harga-paket.md\n# Harga paket");
 });

@@ -1,0 +1,42 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "minutes-from-talk",
+  "seeded": [
+    "https://discord.com/channels/guild-1/channel-1/1559737506201600000",
+    "https://discord.com/channels/guild-1/channel-1/1559738764492800000",
+    "https://discord.com/channels/guild-1/channel-1/1559740022784000000",
+    "https://discord.com/channels/guild-1/channel-1/1559741281075200000",
+    "https://discord.com/channels/guild-1/channel-1/1559742539366400000"
+  ],
+  "turns": [
+    {
+      "n": 1,
+      "message": "notulen",
+      "replies": [
+        "Harga paket\n\n<t:1791940800:f> – <t:1791942000:f> · 5 pesan\nParticipants: Dewi, Bob, Alice\n\n**Decided**\n1. Paket dasar Rp 49.000 per bulan [↗](https://discord.com/channels/guild-1/channel-1/1559740022784000000)\n\n**Still open**\n2. Harga paket pro belum diputuskan [↗](https://discord.com/channels/guild-1/channel-1/1559742539366400000)\n\n**Action items**\n3. **Dewi**: Memperbarui halaman harga (due Jumat) [↗](https://discord.com/channels/guild-1/channel-1/1559741281075200000)"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": [],
+        "kept": [
+          {
+            "path": "minutes/2026-10-14-harga-paket.md",
+            "text": "# Harga paket\n\n2026-10-14 01:20 – 2026-10-14 01:40 UTC · 5 pesan\nParticipants: Dewi, Bob, Alice\n\n## Decided\n1. Paket dasar Rp 49.000 per bulan [↗](https://discord.com/channels/guild-1/channel-1/1559740022784000000)\n\n## Still open\n2. Harga paket pro belum diputuskan [↗](https://discord.com/channels/guild-1/channel-1/1559742539366400000)\n\n## Action items\n3. **Dewi**: Memperbarui halaman harga (due Jumat) [↗](https://discord.com/channels/guild-1/channel-1/1559741281075200000)"
+          }
+        ]
+      }
+    }
+  ],
+  "posts": []
+}

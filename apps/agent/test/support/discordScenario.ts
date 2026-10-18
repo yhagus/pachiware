@@ -58,7 +58,7 @@ export interface FakeChannel { id: string; guildId: string | null; parentId: str
 export type ChannelOptions = { thread?: boolean; parentId?: string; ownerId?: string; dm?: boolean; private?: boolean; members?: string[]; guild?: string };
 /** A message written before the bot was listening; `at` is its creation time in ms. */
 /** `webhook` posts it as a webhook or integration does: a bot author with a `webhookId`. */
-export type PastMessage = { content: string; author?: FakeUser & { bot?: boolean }; at?: number; attachments?: any[]; embeds?: any[]; webhook?: boolean };
+export type PastMessage = { content: string; author?: FakeUser & { bot?: boolean }; at?: number; attachments?: any[]; embeds?: any[]; webhook?: boolean; /** The earlier message it replies to. */ replyTo?: FakeMessage };
 /** A button click or context-menu command as the bot received it, with every response it made. */
 export interface FakeInteraction { responses: { kind: "reply" | "update" | "deferReply" | "deferUpdate" | "editReply" | "followUp"; payload: any }[] }
 /** Another bot of the scenario's tenant, running in the same guild beside the default one. */
@@ -523,7 +523,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       },
       channel: (id, options) => makeChannel(id, options),
       history: (messages, { channel } = {}) => messages.map((m) => {
-        const message: any = post(channelOf(channel), { ...(m.author ?? alice), bot: !!m.author?.bot || !!m.webhook }, { content: m.content, embeds: m.embeds }, { attachments: m.attachments, at: m.at });
+        const message: any = post(channelOf(channel), { ...(m.author ?? alice), bot: !!m.author?.bot || !!m.webhook }, { content: m.content, embeds: m.embeds }, { attachments: m.attachments, at: m.at, reference: m.replyTo?.id });
         if (m.webhook) message.webhookId = `webhook-${message.author.id}`;
         return message;
       }),

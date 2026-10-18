@@ -12,6 +12,7 @@ briefs:
   # capture
   - file-search
   - minutes-as-document
+  - minutes-from-talk
   # recall
   - action-items-across-meetings
   - decision-other-channel
@@ -37,6 +38,8 @@ briefs:
   - task-casual-english
   - task-casual-indonesian
   - task-reference-ambiguous
+  # group
+  - member-joins-thread
   # loop
   - remember-forget
 holdout: []

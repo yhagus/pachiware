@@ -341,6 +341,46 @@ discordScenario("dry run: recall-among-distractors finds the one MP3 bitrate Dec
   expect(output.turns[0].replies).toEqual(["MP3 exports use 192 kbps: Settled: MP3 exports use a constant 192 kbps bitrate; WAV and FLAC stay lossless. #audio · Keputusan 2026-09-16"]);
 });
 
+/** The number the transcript of the last request gives the line holding `phrase`. */
+const numberOf = (turn: { messages: { role: string; content: unknown }[] }, phrase: string) => Number(contextLines(turn, /^\[\d+\] .*$/gm).find((l) => l.includes(phrase))?.match(/^\[(\d+)\]/)?.[1]);
+
+discordScenario("dry run: minutes-from-talk writes Minutes of the seeded talk on \"notulen\", each item linking the message it rests on", async (s) => {
+  s.model.script((turn) => JSON.stringify({
+    title: "Harga paket",
+    decided: [{ text: "Paket dasar Rp 49.000 per bulan", ref: numberOf(turn, "sepakat ya") }],
+    open: [{ text: "Harga paket pro belum diputuskan", ref: numberOf(turn, "Paket pro gimana") }],
+    actions: [{ owner: "Dewi", task: "Memperbarui halaman harga", due: "Jumat", ref: numberOf(turn, "halaman harga") }],
+  }));
+  const output = await dryRun(s, "minutes-from-talk");
+  const read = String(s.model.calls[0]!.findLast((m) => m.role === "user")!.content);
+  expect(read).toMatch(/^\[1\] .* Dewi: Harga paket dasar mau kita pasang berapa\?/m);
+  expect(read).toMatch(/^\[2\] .* Bob \(reply to \[1\]\): Aku pilih 49 ribu/m);
+  const [, , decided, action, open] = output.seeded;
+  expect(output.turns[0].state.kept).toHaveLength(1);
+  const [minutes] = output.turns[0].state.kept;
+  expect(minutes.path).toBe("minutes/2026-10-14-harga-paket.md");
+  expect(minutes.text).toContain(`1. Paket dasar Rp 49.000 per bulan [↗](${decided})`);
+  expect(minutes.text).toContain(`2. Harga paket pro belum diputuskan [↗](${open})`);
+  expect(minutes.text).toContain(`3. **Dewi**: Memperbarui halaman harga`);
+  expect(minutes.text).toContain(`[↗](${action})`);
+  expect(output.turns[0].replies[0]).toContain(`Paket dasar Rp 49.000 per bulan [↗](${decided})`);
+});
+
+discordScenario("dry run: member-joins-thread files Bob's task as his, then answers his line of a burst and leaves Alice's alone", async (s) => {
+  s.model.script(
+    { tool: "createTask", args: { title: "Pesan katering untuk gathering", dueAt: "2026-10-16" } }, "Dicatat: pesan katering untuk gathering, jatuh tempo Jumat 16 Oktober.",
+    { tool: "createTask", args: { title: "Cetak name tag peserta", assignedTo: "Bob" } }, "Dicatat untuk Bob: cetak name tag peserta.",
+    (turn) => ({ tool: "addProgressNote", args: { taskId: contextLines(turn, /^pending \| .*Cetak name tag peserta$/gm)[0]!.split(" | ")[3], text: "Dicetak 60 buah" } }),
+    "Dicatat di tugas cetak name tag peserta: dicetak 60 buah.",
+  );
+  const output = await dryRun(s, "member-joins-thread");
+  expect(output.turns.map((t: any) => t.authors)).toEqual([undefined, ["Bob"], ["Bob", "Alice"]]);
+  const tags = (n: number) => output.turns[n].state.tasks.find((t: any) => t.title === "Cetak name tag peserta");
+  expect(tags(1)).toMatchObject({ assignedTo: "Bob", createdByName: "Bob" });
+  expect(tags(2).notes).toEqual(["- 2026-10-14 Bob: Dicetak 60 buah"]);
+  expect(output.turns[2].replies).toEqual(["Dicatat di tugas cetak name tag peserta: dicetak 60 buah."]);
+});
+
 discordScenario("dry run: a judge over HTTP grades a daily-behaviour trial, and the report reads per turn", async (s) => {
   const { runAssistantTrial } = await import(`${EVAL()}/assistantRun.ts`);
   const { loadAssistantFixtures } = await import(`${EVAL()}/assistantFixtures.ts`);
