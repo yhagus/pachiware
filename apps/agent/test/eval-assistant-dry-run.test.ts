@@ -306,6 +306,19 @@ discordScenario("dry run: recall-done-other-channel finds the Minutes here and t
   ].join("\n")]);
 });
 
+discordScenario("dry run: recall-daily-log-only finds the #podcast Daily log by its English keywords, though the talk was Indonesian", async (s) => {
+  s.model.script(
+    { tool: "searchFiles", args: { queries: ["podcast hosting", "hosting podcast", "podcast host"] } },
+    (turn) => {
+      const [log] = turn.toolResults[0].groups;
+      const day = log.matches[0].path.split("/").pop().slice(0, 10);
+      return `Decided: ${log.channel}, ${day} (Daily log): the podcast moves from Anchor to Transistor after episode 45. Who moves the RSS feed was still open.`;
+    },
+  );
+  const output = await dryRun(s, "recall-daily-log-only");
+  expect(output.turns[0].replies).toEqual(["Decided: #podcast, 2026-10-09 (Daily log): the podcast moves from Anchor to Transistor after episode 45. Who moves the RSS feed was still open."]);
+});
+
 discordScenario("dry run: recall-done-pull-request finds no kept material or Task, and the merged pull request in a repository open here", async (s) => {
   const queries = ["podcast audio normalization", "normalize podcast audio", "normalisasi audio podcast"];
   s.model.script(

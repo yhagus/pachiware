@@ -64,6 +64,17 @@ discordScenario("the persona searches kept material with Indonesian, English and
   expect(section).toMatch(/replaced/i);
 });
 
+discordScenario("the persona opens a Daily log item's linked message for the exact wording and reports a deleted one as gone", async (s) => {
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const persona = systemPrompt(s.model.calls[0]!).split("### Policy")[0]!;
+  const line = persona.split("\n").find((l) => l.includes("readMessage"));
+  expect(line).toContain("Daily log");
+  expect(line).toMatch(/exact wording/i);
+  expect(line).toMatch(/deleted/i);
+  expect(line).toMatch(/never guess/i);
+});
+
 discordScenario("a question about channels reaches the model when the Discord skill is off, instead of a regex refusal", async (s) => {
   const { repositories } = await import("../../../packages/db/src/index.ts");
   await repositories().skills.setEnabled(s.tenant.id, "discord_management", false);

@@ -15,6 +15,7 @@ import {
   type DiscordMemberInfo,
   type DiscordMessageInfo,
   type Language,
+  type LinkedMessage,
   type PostAccess,
   listOf,
   now as clockNow,
@@ -395,16 +396,30 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     return { messages, cut };
   }
 
+  async readLinkedMessage(args: { channelId: string; messageId: string; requesterId: string; language?: Language }): Promise<LinkedMessage> {
+    const channel: any = await this.client.channels.fetch(args.channelId).catch(() => null);
+    if (!channel) return { gone: true };
+    if (!channel.guild || channel.isDMBased?.()) refuseUnless({ ok: false, who: "dm" }, args.language);
+    // readChannelHistory's check for the asker; the bot only needs to read, since nothing is posted.
+    const [member, me] = await Promise.all([args.requesterId, this.client.user?.id ?? ""].map((id) => this.memberOf(channel.guild, id)));
+    const missingFor = (who: unknown): string[] => (who && channel.permissionsFor(who)?.missing(READ_HISTORY)) ?? READ_HISTORY;
+    const requesterMissing = missingFor(member);
+    if (requesterMissing.length || !(await this.inThread(channel, args.requesterId))) refuseUnless({ ok: false, who: "requester", missing: requesterMissing }, args.language);
+    const botMissing = missingFor(me);
+    if (botMissing.length) refuseUnless({ ok: false, who: "bot", missing: botMissing }, args.language);
+    const found = await channel.messages.fetch(args.messageId).catch(() => null);
+    if (!found) return { gone: true };
+    const m = historyMessage(found, this.client.user?.id);
+    return {
+      channelId: m.channelId, author: m.speaker, at: `${stamp(m.at)} UTC`, text: m.text, files: m.attachments,
+      place: { public: this.everyoneViews(channel), parentId: channel.isThread?.() ? channel.parentId : null, privateThread: channel.type === ChannelType.PrivateThread },
+    };
+  }
+
   async readChannelHistory(args: { channelId: string; requesterId: string; since?: string; limit?: number; language?: Language }, now = clockNow()): Promise<ChannelHistory> {
     const t = textIn(args.language);
     if (!(await this.client.channels.fetch(args.channelId).catch(() => null))) throw new Error(t.historyNoChannel);
-    const access = await this.historyAccess(args.channelId, args.requesterId);
-    if (!access.ok) {
-      if (access.who === "dm") throw new Error(t.historyDm);
-      const names = listOf(access.missing.map(permissionName), args.language);
-      if (access.who === "requester") throw new Error(access.missing.length ? t.historyNeedPermission(names) : t.historyNotMember);
-      throw new Error(t.historyBotMissing(names, access.missing.length > 1));
-    }
+    refuseUnless(await this.historyAccess(args.channelId, args.requesterId), args.language);
     const since = args.since === undefined ? undefined : Date.parse(args.since);
     if (since !== undefined && Number.isNaN(since)) throw new Error("since must be an ISO 8601 date-time");
     const most = HISTORY_PAGE * HISTORY_PAGES;
@@ -417,6 +432,16 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
       : cut ? t.minutesCutHours(HISTORY_SPAN_MS / 3600_000, when(cut.keptFrom)) : undefined;
     return { channelId: args.channelId, count: kept.length, from: kept[0] ? stamp(kept[0].at) : null, to: kept.at(-1) ? stamp(kept.at(-1)!.at) : null, transcript: transcript(kept), ...(note ? { note } : {}) };
   }
+}
+
+/** Throws readChannelHistory's refusal, in `language`, unless `access` is ok. */
+function refuseUnless(access: HistoryAccess, language?: Language) {
+  if (access.ok) return;
+  const t = textIn(language);
+  if (access.who === "dm") throw new Error(t.historyDm);
+  const names = listOf(access.missing.map(permissionName), language);
+  if (access.who === "requester") throw new Error(access.missing.length ? t.historyNeedPermission(names) : t.historyNotMember);
+  throw new Error(t.historyBotMissing(names, access.missing.length > 1));
 }
 
 /** The lowest message id Discord could give at `at`: the time since Discord's epoch (2015) in the id's top bits. */

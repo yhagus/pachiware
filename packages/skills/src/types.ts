@@ -92,6 +92,11 @@ export interface DiscordClientAdapter {
   sendMessage(args: { channelId: string; content: string }): Promise<{ id: string; channelId: string; url: string }>;
   /** One message of a channel with its attachments' metadata; null when the channel or the message is unknown. */
   fetchMessage(args: { channelId: string; messageId: string }): Promise<DiscordMessageInfo | null>;
+  /**
+   * One message of a guild channel or thread, after the asker passes readChannelHistory's check (View Channel and Read Message History,
+   * membership of a private thread); throws that refusal. `gone` when the channel or the message no longer exists.
+   */
+  readLinkedMessage(args: { channelId: string; messageId: string; requesterId: string; language?: Language }): Promise<LinkedMessage>;
   /** A channel's last 24 hours after the access check minutes use; throws the refusal text when the asker or the bot may not read it. */
   readChannelHistory(args: {
     channelId: string;
@@ -103,6 +108,15 @@ export interface DiscordClientAdapter {
     language?: Language;
   }): Promise<ChannelHistory>;
 }
+
+/**
+ * A message opened from its link: speaker, UTC time, text and attachment placeholders, and the place it sits in, which the Source rules
+ * read: whether it is a Public channel, the parent when it is a thread, and whether that thread is private.
+ */
+export type LinkedMessage = { gone: true } | {
+  gone?: false; channelId: string; author: string; at: string; text: string; files: string[];
+  place: { public: boolean; parentId: string | null; privateThread: boolean };
+};
 
 /** Numbered lines "[n] YYYY-MM-DD HH:MM Speaker: text", oldest first, in the shape minutes read; `note` says what was cut. */
 export interface ChannelHistory {

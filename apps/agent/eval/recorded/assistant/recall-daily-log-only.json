@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "recall-daily-log-only",
+  "turns": [
+    {
+      "n": 1,
+      "message": "Did we ever settle where the podcast will be hosted after Anchor?",
+      "replies": [
+        "Decided: #podcast, 2026-10-09 (Daily log): the podcast moves from Anchor to Transistor after episode 45. Who moves the RSS feed was still open."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

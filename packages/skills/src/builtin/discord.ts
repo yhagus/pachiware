@@ -1,5 +1,6 @@
 import type { SkillModule, SkillContext, PostAccess } from "../types.js";
 import { listOf, replyLanguage, textIn } from "../language.js";
+import { jumpLink } from "../playbooks.js";
 import { permissionName } from "../permissions.js";
 
 /** "<#123>" or "123" → "123". */
@@ -15,6 +16,12 @@ async function assertCanPost(args: { channelId: string; content: string }, ctx: 
   if (access.who === "unknown") throw new Error(t.postNoChannel);
   if (access.who === "requester") throw new Error(t.postNeedView);
   throw new Error(t.postBotMissing(listOf(access.missing.map(permissionName), language), access.missing.length > 1));
+}
+
+/** "https://discord.com/channels/<guild>/<channel>/<message>" → its three ids; null for anything else, a DM's "@me" link included. */
+function messageLink(link: unknown) {
+  const found = /^<?https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/([\w-]+)\/([\w-]+)\/([\w-]+)\/?>?$/.exec(String(link ?? "").trim());
+  return found && found[1] !== "@me" ? { guildId: found[1]!, channelId: found[2]!, messageId: found[3]! } : null;
 }
 
 const MEMBER_LIMIT_DEFAULT = 10, MEMBER_LIMIT_MAX = 50;
@@ -34,6 +41,7 @@ export const discordManagementSkill: SkillModule = {
     pinMessage: { effect: "write", requiresConfirmation: false, requiredPermissions: ["ManageMessages"] },
     listMembers: { effect: "read" },
     readChannelHistory: { effect: "read" },
+    readMessage: { effect: "read" },
     sendMessage: { effect: "write", requiresConfirmation: true, requiredPermissions: [] },
   },
   checks: {
@@ -142,6 +150,17 @@ export const discordManagementSkill: SkillModule = {
           since: { type: "string", description: "Only messages at or after this ISO 8601 date-time; never earlier than 24 hours ago" },
           limit: { type: "number", description: "Keep only the latest N messages (default and maximum 500)" },
         },
+      },
+    },
+    {
+      name: "readMessage",
+      description: "Opens one Discord message from its link, such as a link in a Daily log or Minutes item, for the exact wording: speaker, time and text. Any age; says when the message was deleted. Only channels the person asking can read themselves.",
+      parameters: {
+        type: "object",
+        properties: {
+          link: { type: "string", description: "The message link, https://discord.com/channels/<server>/<channel>/<message>" },
+        },
+        required: ["link"],
       },
     },
   ],
@@ -277,6 +296,25 @@ export const discordManagementSkill: SkillModule = {
       if (!channelId) throw new Error("Name a channel to read: this conversation is not in one.");
       if (!context.discord || !context.userId) throw new Error("Channel history can only be read from Discord.");
       return context.discord.readChannelHistory({ channelId, requesterId: context.userId, since: args.since, limit: args.limit, language: context.language });
+    },
+
+    /** Reaches what readChannelHistory would, at any age, then applies the Source rules: shown when it is in a Public channel or this Project. */
+    readMessage: async (args: { link: string }, context: SkillContext) => {
+      const t = textIn(context.language);
+      const target = messageLink(args.link);
+      if (!target) throw new Error(t.messageNoLink);
+      if (!context.discord || !context.userId) throw new Error("Messages can only be opened from Discord.");
+      if (target.guildId !== context.guildId) throw new Error(t.messageOtherServer);
+      const found = await context.discord.readLinkedMessage({ ...target, requesterId: context.userId, language: context.language });
+      const link = jumpLink(target.guildId, target.channelId, target.messageId);
+      if (found.gone) return { link, gone: true, note: t.messageGone };
+      const { place, files, ...message } = found;
+      const project = context.parentChannelId ?? context.channelId;
+      // A private thread of this channel is shown in the channel and its public threads, never inside another private thread.
+      const ownProject = message.channelId === context.channelId || message.channelId === project
+        || (place.parentId === project && (!place.privateThread || !context.privateThread));
+      if (!place.public && !ownProject) throw new Error(t.messageNotShownHere);
+      return { link, ...message, ...(files.length ? { files } : {}) };
     },
   },
 };

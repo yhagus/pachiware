@@ -166,6 +166,11 @@ const en = {
   historyNeedPermission: (names: string) => `You need ${names} in that channel to read its history, so I won't read it for you.`,
   historyNotMember: "That is a private thread you are not a member of, so I won't read its history.",
   historyBotMissing: (names: string, many: boolean) => `I can't read that channel because I'm missing the ${names} permission${many ? "s" : ""} there. A server admin can grant ${many ? "them" : "it"}.`,
+  // readMessage
+  messageNoLink: "Give a Discord message link: https://discord.com/channels/<server>/<channel>/<message>.",
+  messageOtherServer: "That link points to another server; I only open messages of this server here.",
+  messageGone: "That message is no longer in Discord: it was deleted. Say so, and do not guess what it said.",
+  messageNotShownHere: "That message is in a channel whose messages cannot be shown here. Do not say what or where it is; suggest asking in a DM instead.",
   // saveAttachment
   saveNoMessage: "I can't find that message in this channel.",
   saveNoFile: "That message has no file attached.",
@@ -316,6 +321,10 @@ const id: typeof en = {
   historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,
   historyNotMember: "Itu thread privat dan kamu bukan anggotanya, jadi riwayatnya tidak saya baca.",
   historyBotMissing: (names) => `Saya tidak bisa membaca channel itu karena tidak punya izin ${names} di sana. Admin server bisa memberikannya.`,
+  messageNoLink: "Berikan tautan pesan Discord: https://discord.com/channels/<server>/<channel>/<message>.",
+  messageOtherServer: "Tautan itu menuju server lain; di sini saya hanya membuka pesan server ini.",
+  messageGone: "Pesan itu sudah tidak ada di Discord: sudah dihapus. Katakan begitu, dan jangan menebak isinya.",
+  messageNotShownHere: "Pesan itu ada di channel yang pesannya tidak bisa ditampilkan di sini. Jangan sebut apa atau di mana; sarankan bertanya lewat DM.",
   saveNoMessage: "Pesan itu tidak ketemu di channel ini.",
   saveNoFile: "Pesan itu tidak punya lampiran file.",
   saveWhich: (names) => `Pesan itu punya beberapa file: ${names.join(", ")}. Sebutkan yang mana.`,

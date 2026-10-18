@@ -1,0 +1,41 @@
+# Talk nobody asked to keep: only the Daily log the server wrote of #podcast (a Public channel) on 9 October 2026 holds it.
+# No Minutes, Decision or Note mentions it, and the talk was in Indonesian. Spec #195, stories 16, 18, 36, 43; ticket #206.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  files:
+    - channel: podcast
+      path: daily-logs/2026-10-09.md
+      content: |
+        ---
+        kind: "daily-log"
+        guildId: "guild-1"
+        channelId: "podcast"
+        channel: "podcast"
+        day: "2026-10-09"
+        timezone: "Asia/Jakarta"
+        topics: ["Pindah hosting podcast"]
+        keywords: ["pindah hosting podcast","Transistor","Anchor","podcast hosting move","podcast host"]
+        ---
+        # Daily log #podcast, 2026-10-09
+
+        Topics: Pindah hosting podcast
+        Keywords: pindah hosting podcast, Transistor, Anchor, podcast hosting move, podcast host
+        14 messages from Bob, Dewi
+
+        ## Topik
+        1. Pindah hosting podcast: pindah hosting podcast, Transistor, Anchor, podcast hosting move, podcast host [↗](https://discord.com/channels/guild-1/podcast/7101) [↗](https://discord.com/channels/guild-1/podcast/7104)
+
+        ## Diputuskan
+        2. Podcast pindah dari Anchor ke Transistor setelah episode 45 [↗](https://discord.com/channels/guild-1/podcast/7104) [↗](https://discord.com/channels/guild-1/podcast/7106)
+
+        ## Masih terbuka
+        3. Siapa yang memindahkan feed RSS [↗](https://discord.com/channels/guild-1/podcast/7108)
+
+        ## Siapa mengerjakan apa
+        4. **Bob**: Bandingkan harga Transistor dan Buzzsprout (tenggat Jumat) [↗](https://discord.com/channels/guild-1/podcast/7110)
+mustCover:
+  - Yes; it was settled in #podcast on 9 October 2026, recorded in that day's Daily log, that the podcast moves from Anchor to Transistor after episode 45
+  - Who moves the RSS feed was still open that day
+turns:
+  - replyContains: ["#podcast", "2026-10-09", "Transistor"]
