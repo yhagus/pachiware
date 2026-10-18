@@ -93,11 +93,11 @@ export async function useLiveProfile(s: Scenario, profile: EvalProfile) {
   s.http.passthrough(`POST ${providerBaseUrl(profile.provider, profile.baseUrl)}/`);
 }
 
-/** Tokens, model calls and provider latency from the tenant's usage events so far. */
+/** Tokens (prompt, completion, and prompt tokens served from the provider's cache), model calls and provider latency from the tenant's usage events so far. */
 export async function usageOf(s: Scenario): Promise<Omit<TrialUsage, "ms">> {
   const { repositories } = await db();
   const rows: any[] = await repositories().usage.list({ tenantId: s.tenant.id, type: "llm_tokens" });
-  return rows.reduce((t, r) => ({ prompt: t.prompt + (r.promptTokens ?? 0), completion: t.completion + (r.completionTokens ?? 0), calls: t.calls + 1, latencyMs: t.latencyMs + (r.metadata?.latencyMs ?? 0) }), { prompt: 0, completion: 0, calls: 0, latencyMs: 0 });
+  return rows.reduce((t, r) => ({ prompt: t.prompt + (r.promptTokens ?? 0), completion: t.completion + (r.completionTokens ?? 0), cached: t.cached + (r.metadata?.cachedTokens ?? 0), calls: t.calls + 1, latencyMs: t.latencyMs + (r.metadata?.latencyMs ?? 0) }), { prompt: 0, completion: 0, cached: 0, calls: 0, latencyMs: 0 });
 }
 
 export function gradeRun(output: EvalOutput, fixture: Fixture, pin: PinnedRepo): EvalResult {

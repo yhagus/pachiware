@@ -12,7 +12,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadAssistantFixtures, type AssistantFixture } from "./assistantFixtures";
+import { loadEveryAssistantFixture, type AssistantFixture } from "./assistantFixtures";
 import { gradeAssistantWithJudge, type AssistantJudged } from "./assistantJudge";
 import type { TrialResult } from "./compare";
 import type { Ask, Verdict } from "./judge";
@@ -26,7 +26,7 @@ const PROMPTS = "judge-prompts.jsonl";
 const TURN = /Look only at (the bot's replies in )?turn (\d+)\./;
 
 /** Every question of the run's trials that can change a verdict, each once. */
-export async function judgePrompts(runDir: string, fixtures: AssistantFixture[] = loadAssistantFixtures()): Promise<JudgePrompt[]> {
+export async function judgePrompts(runDir: string, fixtures: AssistantFixture[] = loadEveryAssistantFixture()): Promise<JudgePrompt[]> {
   const byName = new Map(fixtures.map((f) => [f.name, f])), out = new Map<string, JudgePrompt>();
   for (const file of readdirSync(join(runDir, "trials")).filter((f) => f.endsWith(".json")).sort()) {
     const trial = JSON.parse(readFileSync(join(runDir, "trials", file), "utf8")) as TrialResult;

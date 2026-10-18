@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { summarize, type ProfileInfo, type TrialResult } from "./compare";
+import { costOf, summarize, type ProfileInfo, type TrialResult } from "./compare";
 import type { Exam } from "./scorecard";
 
 export interface RunMeta {
@@ -9,6 +9,8 @@ export interface RunMeta {
   judge: { provider: string; model: string }; rubricVersion: string; trials: number;
   /** The pinned repository, issue-draft runs only. */
   repo?: string; commit?: string;
+  /** Daily-behaviour runs: the exam whose briefs ran, "lived-in" for the lived-in sessions; the Rapor's briefs when absent. */
+  exam?: "rapor" | "lived-in";
   startedAt: string; profiles: ProfileInfo[];
 }
 
@@ -29,19 +31,23 @@ const WORDING = {
   },
 };
 
-const RAPOR_RULE = "The Rapor is out of 100. An area scores the mean of its exam briefs' scores, held-out briefs included; the total is the mean of the areas that ran, weighted as `scorecard.yaml` says. Holdout score is the mean of the area's held-out briefs alone, which nothing is ever tuned to.";
+const raporRule = (name: string) => `The ${name === "Rapor" ? "Rapor" : `${name} score`} is out of 100. An area scores the mean of its exam briefs' scores, held-out briefs included; the total is the mean of the areas that ran, weighted as \`scorecard.yaml\` says. Holdout score is the mean of the area's held-out briefs alone, which nothing is ever tuned to.`;
 const hundred = (x: number | null) => (x === null ? "" : (x * 100).toFixed(1));
+const RETRIEVAL_RULE = "Retrieval scores what each turn's searches showed against the sources its facts name as gold. Recall@5 is the share of gold sources found among the first 5 of their part (kept files, Tasks, git work); MRR is the mean reciprocal rank of the first gold source found within 10. Turns, then trials, then briefs are averaged; briefs without gold are left out.";
+const COST_RULE = "Tokens in are prompt tokens, with those served from the provider's prompt cache in brackets; model latency is the summed provider latency of every model call, wall time the whole trial. Cost needs a `price` on the profile; cached tokens are priced at `cachedInput` when it is given.";
+const seconds = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
+const dollars = (x: number | null) => (x === null ? "" : `$${x.toFixed(4)}`);
 
 /** Writes `report.json` (everything) and `report.md` (a summary to read) into `dir`; with the exam, a daily-behaviour report opens with the Rapor. */
 export function writeReport(dir: string, meta: RunMeta, trials: TrialResult[], exam?: Exam) {
   mkdirSync(dir, { recursive: true });
-  const summary = summarize(trials, meta.profiles, exam), words = WORDING[meta.kind ?? "drafts"];
+  const summary = summarize(trials, meta.profiles, exam), words = WORDING[meta.kind ?? "drafts"], examName = exam?.name ?? "Rapor";
   writeFileSync(join(dir, "report.json"), `${JSON.stringify({ ...meta, summary, results: trials }, null, 2)}\n`);
   const briefs = [...new Set(trials.map((t) => t.result.fixture))].sort();
   const run = `Judge: ${meta.judge.provider} / ${meta.judge.model}. Rubric ${meta.rubricVersion}. ${meta.trials} ${meta.trials === 1 ? "trial" : "trials"} per brief.${meta.repo && meta.commit ? ` Repository: ${meta.repo} at \`${meta.commit.slice(0, 7)}\`.` : ""}`;
   const md = [
     ...(exam ? [
-      `# Rapor v${exam.version}: ${summary.profiles.map((p) => `${p.rapor!.total === null ? "none" : hundred(p.rapor!.total)} (${p.name})`).join(", ")}`,
+      `# ${examName} v${exam.version}: ${summary.profiles.map((p) => `${p.rapor!.total === null ? "none" : hundred(p.rapor!.total)} (${p.name})`).join(", ")}`,
       "",
       `${words.title}, ${meta.startedAt}. ${run}`,
     ] : [`# ${words.title}, ${meta.startedAt}`, "", run]),
@@ -61,14 +67,46 @@ export function writeReport(dir: string, meta: RunMeta, trials: TrialResult[], e
       "|---|---|---|---|",
       ...summary.pairs.map((d) => `| ${d.b} vs ${d.a} | ${d.n} | ${signed(d.mean)} | ${d.se === null ? "" : fixed(d.se)} |`),
     ] : []),
-    ...(exam ? ["", RAPOR_RULE, ...summary.profiles.flatMap((p) => [
+    ...(exam ? ["", raporRule(examName), ...summary.profiles.flatMap((p) => [
       "",
-      `## Rapor per area: ${p.name}`,
+      `## ${examName} per area: ${p.name}`,
       "",
       "| Area | Weight | Score | Briefs | Holdout score |",
       "|---|---|---|---|---|",
       ...p.rapor!.areas.map((a) => `| ${a.area} | ${a.weight} | ${hundred(a.score)} | ${a.briefs} | ${hundred(a.holdoutScore)} |`),
     ])] : []),
+    ...(summary.profiles.some((p) => p.retrieval) ? [
+      "",
+      "## Retrieval",
+      "",
+      RETRIEVAL_RULE,
+      "",
+      "| Profile | Recall@5 | MRR | Briefs with gold |",
+      "|---|---|---|---|",
+      ...summary.profiles.map((p) => `| ${p.name} | ${p.retrieval ? fixed(p.retrieval.recallAt5) : ""} | ${p.retrieval ? fixed(p.retrieval.mrr) : ""} | ${Object.keys(p.retrieval?.briefs ?? {}).length} |`),
+      "",
+      `| Brief | ${summary.profiles.map((p) => `${p.name} recall@5 | ${p.name} MRR`).join(" | ")} |`,
+      `|---|${summary.profiles.map(() => "---|---|").join("")}`,
+      ...[...new Set(summary.profiles.flatMap((p) => Object.keys(p.retrieval?.briefs ?? {})))].sort().map((b) => `| ${b} | ${summary.profiles.map((p) => {
+        const r = p.retrieval?.briefs[b];
+        return r ? `${fixed(r.recallAt5)} | ${fixed(r.mrr)}` : " | ";
+      }).join(" | ")} |`),
+    ] : []),
+    "",
+    "## Cost and latency",
+    "",
+    COST_RULE,
+    "",
+    "| Profile | Trials | Tokens in (cached) / out | Model calls | Model latency | Wall time | Cost |",
+    "|---|---|---|---|---|---|---|",
+    ...summary.profiles.map((p) => `| ${p.name} | ${p.totals.trials} | ${p.totals.prompt} (${p.totals.cached}) / ${p.totals.completion} | ${p.totals.calls} | ${seconds(p.totals.latencyMs)} | ${seconds(p.totals.ms)} | ${dollars(p.totals.cost)} |`),
+    "",
+    "| Profile | Brief | Trial | Tokens in (cached) / out | Model calls | Model latency | Wall time | Cost |",
+    "|---|---|---|---|---|---|---|---|",
+    ...[...trials].sort((x, y) => x.profile.localeCompare(y.profile) || x.result.fixture.localeCompare(y.result.fixture) || x.trial - y.trial).map((t) => {
+      const p = meta.profiles.find((q) => q.name === t.profile), u = t.usage;
+      return `| ${t.profile} | ${t.result.fixture} | ${t.trial} | ${u.prompt} (${u.cached ?? 0}) / ${u.completion} | ${u.calls} | ${seconds(u.latencyMs)} | ${seconds(u.ms)} | ${dollars(p?.price ? costOf(u, p.price, p.provider) : null)} |`;
+    }),
     "",
     "## Score per brief",
     "",

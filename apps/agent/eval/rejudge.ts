@@ -7,7 +7,7 @@
  */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { loadAssistantFixtures, type AssistantFixture } from "./assistantFixtures";
+import { LIVED_IN_DIR, loadAssistantFixtures, loadEveryAssistantFixture, type AssistantFixture } from "./assistantFixtures";
 import { agreementText, loadCalibration } from "./calibration";
 import { ASSISTANT_RUBRIC_VERSION, gradeAssistantWithJudge, type AssistantJudged } from "./assistantJudge";
 import { gradeAssistantRun, type AssistantOutput, type AssistantResult } from "./assistantRun";
@@ -16,7 +16,7 @@ import { loadFixtures } from "./fixtures";
 import { assertJudgeOutside, gradeWithJudge, judgeFromEnv, judgeOverHttp, RUBRIC_VERSION, type Ask, type JudgedResult } from "./judge";
 import { writeReport, type RunMeta } from "./report";
 import { EVAL_DIR } from "./repository";
-import { loadExam } from "./scorecard";
+import { loadExam, loadLivedInExam } from "./scorecard";
 
 /** A daily-behaviour trial's output graded by code again, against the fixture as it is now. */
 export function recheck(result: AssistantResult, fixture: AssistantFixture): AssistantResult {
@@ -29,7 +29,7 @@ export async function rejudge(runDir: string, ask: Ask, judge: RunMeta["judge"],
   const meta = JSON.parse(readFileSync(join(runDir, "report.json"), "utf8")) as RunMeta;
   assertJudgeOutside(judge, meta.profiles);
   const assistant = meta.kind === "assistant", version = assistant ? ASSISTANT_RUBRIC_VERSION : RUBRIC_VERSION;
-  const briefs = assistant ? loadAssistantFixtures() : loadFixtures(), fixtures = new Map<string, any>(briefs.map((f) => [f.name, f]));
+  const briefs = assistant ? loadEveryAssistantFixture() : loadFixtures(), fixtures = new Map<string, any>(briefs.map((f) => [f.name, f]));
   const out = join(runDir, `rejudged-${version}`);
   mkdirSync(join(out, "trials"), { recursive: true });
   const trials: TrialResult[] = [], byName = new Map<string, TrialResult["result"]>();
@@ -47,7 +47,8 @@ export async function rejudge(runDir: string, ask: Ask, judge: RunMeta["judge"],
     trials.push(again);
     byName.set(file.slice(0, -".json".length), result);
   }
-  writeReport(out, { ...meta, judge, rubricVersion: version }, trials, assistant ? loadExam(briefs as AssistantFixture[]) : undefined);
+  const exam = !assistant ? undefined : meta.exam === "lived-in" ? loadLivedInExam(loadAssistantFixtures(LIVED_IN_DIR)) : loadExam(loadAssistantFixtures());
+  writeReport(out, { ...meta, judge, rubricVersion: version }, trials, exam);
   const agreement = agreementText(version, basename(runDir), byName, loadCalibration(version, calibration));
   if (agreement) writeFileSync(join(out, "agreement.md"), `${agreement}\n`);
   return { dir: out, agreement };

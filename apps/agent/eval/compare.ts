@@ -1,8 +1,9 @@
 /**
  * Comparing profiles: every profile runs the same briefs for k trials. A trial scores the share of its
  * drafts that pass; trials are averaged per brief, and profiles are compared as paired per-brief differences with a
- * standard error. pass^k counts briefs where every trial passed. Cost and latency come from the usage events.
- * Against the exam (`scorecard.ts`), a daily-behaviour run also scores the Rapor: per area and as one weighted total.
+ * standard error. pass^k counts briefs where every trial passed. Cost and latency come from the usage events, per trial and in total.
+ * Against the exam (`scorecard.ts`), a daily-behaviour run also scores the Rapor: per area and as one weighted total. A run whose briefs
+ * name gold sources also reports retrieval, recall@5 and MRR (`retrieval.ts`), averaged per brief, then over briefs.
  */
 import { AREAS, type Area } from "./assistantFixtures";
 import type { AssistantJudged } from "./assistantJudge";
@@ -14,14 +15,16 @@ export type ScoredResult = JudgedResult | AssistantJudged;
 
 export interface TrialUsage {
   prompt: number; completion: number;
+  /** Prompt tokens the provider served from its cache; absent in runs recorded before it was kept. */
+  cached?: number;
   /** Model calls, and the summed provider latency over them. */
   calls: number; latencyMs: number;
   /** Wall time of the whole trial. */
   ms: number;
 }
 export interface TrialResult { profile: string; trial: number; result: ScoredResult; usage: TrialUsage }
-/** USD per million tokens. */
-export interface Price { input: number; output: number }
+/** USD per million tokens; `cachedInput` prices prompt tokens served from the provider's cache, at the input price when left out. */
+export interface Price { input: number; output: number; cachedInput?: number }
 export interface ProfileInfo { name: string; provider: string; model: string; price?: Price }
 
 export interface ProfileSummary extends ProfileInfo {
@@ -35,6 +38,10 @@ export interface ProfileSummary extends ProfileInfo {
   costPerRun: number | null;
   latencyPerCallMs: number | null;
   secondsPerRun: number;
+  /** Summed over every trial of the profile; `cost` is null without a price. */
+  totals: { trials: number; prompt: number; cached: number; completion: number; calls: number; latencyMs: number; ms: number; cost: number | null };
+  /** Only when some trial's facts name gold sources: means over the briefs that do, and per brief. */
+  retrieval?: { recallAt5: number; mrr: number; briefs: Record<string, { recallAt5: number; mrr: number }> };
   /** Daily-behaviour runs scored against the exam only. */
   rapor?: Rapor;
 }
@@ -53,6 +60,15 @@ export interface Summary { profiles: ProfileSummary[]; pairs: ({ a: string; b: s
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+
+/**
+ * What a trial cost in USD. Anthropic reports prompt tokens without the ones read from its cache; the other providers count cache hits
+ * inside prompt tokens, so they come off before the input price applies.
+ */
+export function costOf(usage: Pick<TrialUsage, "prompt" | "completion" | "cached">, price: Price, provider: string): number {
+  const cached = usage.cached ?? 0, uncached = provider === "anthropic" ? usage.prompt : Math.max(0, usage.prompt - cached);
+  return (uncached * price.input + cached * (price.cachedInput ?? price.input) + usage.completion * price.output) / 1e6;
+}
 
 export const trialScore = (r: ScoredResult) => (r.verdicts.length ? r.verdicts.filter((v) => v.passed).length / r.verdicts.length : 0);
 
@@ -89,6 +105,11 @@ export function summarize(trials: TrialResult[], profiles: ProfileInfo[], exam?:
     const calls = sum(own.map((t) => t.usage.calls));
     const tokens = { prompt: mean(own.map((t) => t.usage.prompt)), completion: mean(own.map((t) => t.usage.completion)) };
     const briefScores = Object.fromEntries([...briefs].map(([name, ts]) => [name, mean(ts.map((t) => trialScore(t.result)))]));
+    const costs = p.price ? own.map((t) => costOf(t.usage, p.price!, p.provider)) : null;
+    const retrieved = [...briefs].flatMap(([name, ts]) => {
+      const scored = ts.map((t) => (t.result as { retrieval?: { recallAt5: number; mrr: number } }).retrieval).filter((r) => r !== undefined);
+      return scored.length ? [[name, { recallAt5: mean(scored.map((r) => r.recallAt5)), mrr: mean(scored.map((r) => r.mrr)) }] as const] : [];
+    });
     return {
       ...p,
       briefScores,
@@ -99,9 +120,14 @@ export function summarize(trials: TrialResult[], profiles: ProfileInfo[], exam?:
       coverage: perBrief((t) => t.result.coverage),
       questionRate: rates.length ? mean(rates.map(mean)) : null,
       tokens,
-      costPerRun: p.price ? (tokens.prompt * p.price.input + tokens.completion * p.price.output) / 1e6 : null,
+      costPerRun: costs ? mean(costs) : null,
       latencyPerCallMs: calls ? sum(own.map((t) => t.usage.latencyMs)) / calls : null,
       secondsPerRun: mean(own.map((t) => t.usage.ms)) / 1000,
+      totals: {
+        trials: own.length, prompt: sum(own.map((t) => t.usage.prompt)), cached: sum(own.map((t) => t.usage.cached ?? 0)), completion: sum(own.map((t) => t.usage.completion)),
+        calls, latencyMs: sum(own.map((t) => t.usage.latencyMs)), ms: sum(own.map((t) => t.usage.ms)), cost: costs ? sum(costs) : null,
+      },
+      ...(retrieved.length && { retrieval: { recallAt5: mean(retrieved.map(([, r]) => r.recallAt5)), mrr: mean(retrieved.map(([, r]) => r.mrr)), briefs: Object.fromEntries(retrieved) } }),
     };
   });
   const pairs = summaries.flatMap((a, i) => summaries.slice(i + 1).map((b) => ({ a: a.name, b: b.name, ...pairedDifference(new Map(Object.entries(a.briefScores)), new Map(Object.entries(b.briefScores))) })));

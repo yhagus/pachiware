@@ -1,7 +1,8 @@
 /**
  * Live daily-behaviour eval: every compared profile runs every brief under assistant/ EVAL_TRIALS times (default 3)
  * through the real bot against the fixed clock, and a pinned judge grades each trial. Run it with `bun run eval:assistant`;
- * README.md in this folder lists the env. Plain `bun test` never picks up `*.eval.ts`.
+ * README.md in this folder lists the env. Plain `bun test` never picks up `*.eval.ts`. EVAL_EXAM=1 runs only the Rapor's briefs,
+ * EVAL_EXAM=lived-in the lived-in exam's sessions (lived-in/sessions/) against its own scorecard.
  * Reports land in apps/agent/eval/results/<run>/ as report.json and report.md, plus one JSON per trial.
  */
 import { afterAll, expect, test } from "bun:test";
@@ -9,13 +10,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import { providerBaseUrl } from "../src/llm/providers";
 import { discordScenario } from "../test/support/discordScenario";
-import { loadAssistantFixtures } from "./assistantFixtures";
+import { LIVED_IN_DIR, loadAssistantFixtures } from "./assistantFixtures";
 import { ASSISTANT_RUBRIC_VERSION } from "./assistantJudge";
 import { assertJudgeOutside, judgeFromEnv, judgeOverHttp, offlineAsk } from "./judge";
 import { profilesFromEnv } from "./profiles";
 import { EVAL_DIR } from "./repository";
 import { writeReport } from "./report";
-import { loadExam } from "./scorecard";
+import { loadExam, loadLivedInExam } from "./scorecard";
 
 const env = process.env;
 const PER_TRIAL_MS = 10 * 60_000;
@@ -24,7 +25,9 @@ if (env.EVAL_LIVE !== "1") test.skip("the live eval runs only with EVAL_LIVE=1",
 else {
   const judge = judgeFromEnv(), profiles = profilesFromEnv();
   assertJudgeOutside(judge, profiles);
-  const exam = loadExam();
+  const livedIn = env.EVAL_EXAM === "lived-in";
+  if (env.EVAL_EXAM && !["1", "rapor", "lived-in"].includes(env.EVAL_EXAM)) throw new Error(`EVAL_EXAM is 1 (the Rapor) or lived-in, not ${env.EVAL_EXAM}.`);
+  const exam = livedIn ? loadLivedInExam() : loadExam();
   const trials = Number(env.EVAL_TRIALS || 3);
   if (!Number.isInteger(trials) || trials < 1) throw new Error(`EVAL_TRIALS is a whole number of at least 1, not ${env.EVAL_TRIALS}.`);
   // The parent process names the run; each trial's subprocess inherits it.
@@ -33,8 +36,8 @@ else {
   const runDir = env.EVAL_RUN_DIR, trialsDir = join(runDir, "trials");
   const fileOf = (profile: string, fixture: string, trial: number) => join(trialsDir, `${profile.replace(/[^\w.-]/g, "_")}--${fixture}--${trial}.json`);
 
-  // EVAL_EXAM=1 runs only the Rapor's exam; the other briefs are regressions.
-  const briefs = loadAssistantFixtures().filter((f) => env.EVAL_EXAM !== "1" || exam.briefs.includes(f.name)), offline = judge.provider === "offline";
+  // EVAL_EXAM=1 runs only the Rapor's exam; the other briefs are regressions. EVAL_EXAM=lived-in runs the lived-in sessions instead.
+  const briefs = (livedIn ? loadAssistantFixtures(LIVED_IN_DIR) : loadAssistantFixtures()).filter((f) => !env.EVAL_EXAM || exam.briefs.includes(f.name)), offline = judge.provider === "offline";
   for (const profile of profiles) for (const fixture of briefs) for (let trial = 1; trial <= trials; trial++) {
     discordScenario(`${profile.name}: ${fixture.name}, trial ${trial}`, async (s) => {
       const { runAssistantTrial } = await import("./assistantRun");
@@ -54,7 +57,7 @@ else {
   if (!env.PACHIWARE_SCENARIO) afterAll(() => {
     const results = existsSync(trialsDir) ? readdirSync(trialsDir).filter((f) => f.endsWith(".json")).sort().map((f) => JSON.parse(readFileSync(join(trialsDir, f), "utf8"))) : [];
     writeReport(runDir, {
-      kind: "assistant", judge: { provider: judge.provider, model: judge.model }, rubricVersion: ASSISTANT_RUBRIC_VERSION, trials, startedAt: env.EVAL_STARTED_AT!,
+      kind: "assistant", ...(livedIn ? { exam: "lived-in" as const } : {}), judge: { provider: judge.provider, model: judge.model }, rubricVersion: ASSISTANT_RUBRIC_VERSION, trials, startedAt: env.EVAL_STARTED_AT!,
       profiles: profiles.map(({ name, provider, model, price }) => ({ name, provider, model, ...(price ? { price } : {}) })),
     }, results, exam);
     console.log(`Eval report: ${join(runDir, "report.md")}`);

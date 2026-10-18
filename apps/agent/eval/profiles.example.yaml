@@ -1,6 +1,7 @@
 # Profiles a live eval compares. Copy to profiles.yaml (gitignored) and run with EVAL_PROFILES=apps/agent/eval/profiles.yaml.
 # Keys stay in env: apiKeyEnv names the variable holding each profile's key.
-# price is USD per million input and output tokens; leave it out and the report shows no cost for that profile.
+# price is USD per million tokens: input, output, and optionally cachedInput for prompt tokens the provider served from its prompt
+# cache (priced as input when left out). Leave price out and the report shows no cost for that profile.
 # acceptsImages lets the screenshot fixture reach the model; leave it false for a text-only model.
 profiles:
   - name: gpt-mini
@@ -8,7 +9,7 @@ profiles:
     model: gpt-5-mini
     apiKeyEnv: OPENAI_API_KEY
     acceptsImages: true
-    price: { input: 0, output: 0 } # fill in from the provider's price list
+    price: { input: 0, output: 0, cachedInput: 0 } # fill in from the provider's price list
   - name: claude-sonnet
     provider: anthropic
     model: claude-sonnet-5-5

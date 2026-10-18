@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pairedDifference, summarize, type TrialResult } from "../eval/compare";
+import { costOf, pairedDifference, summarize, type TrialResult } from "../eval/compare";
 import type { Exam } from "../eval/scorecard";
 import { profilesFromEnv } from "../eval/profiles";
 import { writeReport } from "../eval/report";
@@ -66,6 +66,26 @@ describe("summarize", () => {
     expect(cheap.secondsPerRun).toBe(2);
   });
 
+  test("sums tokens, model calls, latency, wall time and cost over every trial of a profile", () => {
+    const cheap = summary.profiles.find((p) => p.name === "cheap")!, strong = summary.profiles.find((p) => p.name === "strong")!;
+    // cheap: six trials of 1000 in and 200 out, one 1-second call, 2 seconds each, $0.0018 each.
+    expect(cheap.totals).toEqual({ trials: 6, prompt: 6000, cached: 0, completion: 1200, calls: 6, latencyMs: 6000, ms: 12000, cost: expect.closeTo(0.0108, 8) });
+    // strong: one trial of two calls in 4 seconds, five of one call in 1 second; no price.
+    expect(strong.totals).toMatchObject({ trials: 6, calls: 7, latencyMs: 9000, cost: null });
+    expect(cheap.retrieval).toBeUndefined();
+  });
+
+  test("prices cached prompt tokens apart: inside the prompt count for OpenAI-style providers, beside it for Anthropic", () => {
+    const usage = { prompt: 1000, cached: 400, completion: 200 }, price = { input: 1, output: 4, cachedInput: 0.1 };
+    // 600 uncached at $1/M, 400 cached at $0.10/M, 200 out at $4/M: 600 + 40 + 800 = 1440 millionths.
+    expect(costOf(usage, price, "openai")).toBeCloseTo(0.00144, 8);
+    // Anthropic's 1000 prompt tokens leave the 400 cache reads out: 1000 + 40 + 800.
+    expect(costOf(usage, price, "anthropic")).toBeCloseTo(0.00184, 8);
+    // Without a cached price, cached tokens cost what input does: 600 + 400 + 800.
+    expect(costOf(usage, { input: 1, output: 4 }, "custom")).toBeCloseTo(0.0018, 8);
+    expect(costOf({ prompt: 1000, completion: 200 }, price, "openai")).toBeCloseTo(0.0018, 8);
+  });
+
   test("pairs every profile with each later one", () => {
     expect(summary.pairs).toHaveLength(1);
     expect(summary.pairs[0]).toMatchObject({ a: "cheap", b: "strong", n: 2 });
@@ -90,6 +110,15 @@ describe("summarize", () => {
     expect(md).toContain("- Trial 3: no draft was posted.");
     expect(md).not.toContain("Trial 2, draft 1");
     expect(md).not.toContain("Rapor");
+    expect(md).toContain([
+      "| Profile | Trials | Tokens in (cached) / out | Model calls | Model latency | Wall time | Cost |",
+      "|---|---|---|---|---|---|---|",
+      "| cheap | 6 | 6000 (0) / 1200 | 6 | 6.0 s | 12.0 s | $0.0108 |",
+      "| strong | 6 | 6000 (0) / 1200 | 7 | 9.0 s | 12.0 s |  |",
+    ].join("\n"));
+    expect(md).toContain("| cheap | brief-a | 1 | 1000 (0) / 200 | 1 | 1.0 s | 2.0 s | $0.0018 |");
+    expect(md).toContain("| strong | brief-a | 1 | 1000 (0) / 200 | 2 | 4.0 s | 2.0 s |  |");
+    expect(md).not.toContain("## Retrieval");
   });
 });
 
@@ -146,6 +175,41 @@ describe("the Rapor", () => {
   });
 });
 
+describe("retrieval in the report", () => {
+  /** A trial whose turns all pass, with the retrieval its graded result carries. */
+  const scored = (profile: string, fixture: string, n: number, retrieval?: { recallAt5: number; mrr: number }): TrialResult => {
+    const t = trial(profile, fixture, n, [true]);
+    return { ...t, result: { ...t.result, ...(retrieval && { retrieval: { turns: [], ...retrieval } }) } as TrialResult["result"] };
+  };
+  const trials = [
+    scored("p", "a", 1, { recallAt5: 1, mrr: 1 }), scored("p", "a", 2, { recallAt5: 0.5, mrr: 0.5 }),
+    scored("p", "b", 1, { recallAt5: 0, mrr: 0.25 }), scored("p", "c", 1),
+  ];
+  const profiles = [{ name: "p", provider: "openai", model: "m-p" }];
+
+  test("averages trials per brief, then the briefs that name gold, and the report shows both", () => {
+    const [p] = summarize(trials, profiles).profiles;
+    // a: recall (1 + 0.5) / 2 = 0.75, MRR 0.75; b: 0 and 0.25; c names no gold. Over a and b: recall 0.375, MRR 0.5.
+    expect(p!.retrieval).toEqual({ recallAt5: 0.375, mrr: 0.5, briefs: { a: { recallAt5: 0.75, mrr: 0.75 }, b: { recallAt5: 0, mrr: 0.25 } } });
+    const dir = mkdtempSync(join(tmpdir(), "eval-retrieval-"));
+    writeReport(dir, { kind: "assistant", judge: { provider: "anthropic", model: "claude-judge" }, rubricVersion: "0.2", trials: 2, startedAt: "2026-10-19T00:00:00.000Z", profiles }, trials);
+    const md = readFileSync(join(dir, "report.md"), "utf8");
+    expect(md).toContain(["| Profile | Recall@5 | MRR | Briefs with gold |", "|---|---|---|---|", "| p | 0.38 | 0.50 | 2 |"].join("\n"));
+    expect(md).toContain(["| Brief | p recall@5 | p MRR |", "|---|---|---|", "| a | 0.75 | 0.75 |", "| b | 0.00 | 0.25 |"].join("\n"));
+  });
+
+  test("an exam with a name heads the report with it", () => {
+    const exam: Exam = { name: "Lived-in", version: "1", weights: { capture: 10, recall: 50, tasks: 20, group: 10, loop: 10 }, briefs: ["a", "b"], holdout: ["b"], areas: { a: "recall", b: "recall", c: "tasks" } };
+    const dir = mkdtempSync(join(tmpdir(), "eval-lived-in-report-"));
+    writeReport(dir, { kind: "assistant", exam: "lived-in", judge: { provider: "anthropic", model: "claude-judge" }, rubricVersion: "0.2", trials: 2, startedAt: "2026-10-19T00:00:00.000Z", profiles }, trials, exam);
+    const md = readFileSync(join(dir, "report.md"), "utf8");
+    expect(md).toStartWith("# Lived-in v1: 100.0 (p)\n");
+    expect(md).toContain("## Lived-in per area: p");
+    expect(md).toContain("The Lived-in score is out of 100.");
+    expect(JSON.parse(readFileSync(join(dir, "report.json"), "utf8")).exam).toBe("lived-in");
+  });
+});
+
 describe("profilesFromEnv", () => {
   test("reads compared profiles from the file EVAL_PROFILES names, with each key from the env variable it points at", () => {
     const dir = mkdtempSync(join(tmpdir(), "eval-profiles-"));
@@ -156,7 +220,7 @@ describe("profilesFromEnv", () => {
       "    provider: openai",
       "    model: gpt-mini",
       "    apiKeyEnv: OPENAI_KEY",
-      "    price: { input: 0.25, output: 2 }",
+      "    price: { input: 0.25, output: 2, cachedInput: 0.025 }",
       "  - name: claude",
       "    provider: anthropic",
       "    model: claude-sonnet-5-5",
@@ -164,12 +228,14 @@ describe("profilesFromEnv", () => {
       "    acceptsImages: true",
     ].join("\n"));
     expect(profilesFromEnv({ EVAL_PROFILES: file, OPENAI_KEY: "o", ANTHROPIC_KEY: "a" })).toEqual([
-      { name: "cheap", provider: "openai", model: "gpt-mini", baseUrl: null, apiKey: "o", acceptsImages: false, price: { input: 0.25, output: 2 } },
+      { name: "cheap", provider: "openai", model: "gpt-mini", baseUrl: null, apiKey: "o", acceptsImages: false, price: { input: 0.25, output: 2, cachedInput: 0.025 } },
       { name: "claude", provider: "anthropic", model: "claude-sonnet-5-5", baseUrl: null, apiKey: "a", acceptsImages: true },
     ]);
     expect(() => profilesFromEnv({ EVAL_PROFILES: file, OPENAI_KEY: "o" })).toThrow("Profile claude reads its key from ANTHROPIC_KEY, which is not set.");
     writeFileSync(file, "profiles:\n  - { name: a, provider: openai, model: m, apiKeyEnv: K }\n  - { name: a, provider: openai, model: n, apiKeyEnv: K }\n");
     expect(() => profilesFromEnv({ EVAL_PROFILES: file, K: "k" })).toThrow("Two profiles are named a.");
+    writeFileSync(file, "profiles:\n  - { name: a, provider: openai, model: m, apiKeyEnv: K, price: { input: 1 } }\n");
+    expect(() => profilesFromEnv({ EVAL_PROFILES: file, K: "k" })).toThrow("Profile a: price gives input, output and optionally cachedInput, each USD per million tokens.");
   });
 
   test("the committed example file loads", () => {

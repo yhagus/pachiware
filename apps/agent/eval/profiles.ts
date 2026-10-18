@@ -21,6 +21,13 @@ function checked(p: Omit<EvalProfile, "apiKey"> & { apiKey?: string }, keyFrom: 
   return p as EvalProfile;
 }
 
+/** USD per million tokens: `input`, `output`, and optionally `cachedInput` for prompt tokens served from the provider's cache. */
+function priceOf(raw: any, name: string): Price {
+  const price: Price = { input: Number(raw.input), output: Number(raw.output), ...(raw.cachedInput !== undefined ? { cachedInput: Number(raw.cachedInput) } : {}) };
+  if (Object.values(price).some((v) => !Number.isFinite(v) || v < 0)) throw new Error(`Profile ${name}: price gives input, output and optionally cachedInput, each USD per million tokens.`);
+  return price;
+}
+
 export function profilesFromEnv(env: Record<string, string | undefined> = process.env): EvalProfile[] {
   if (!env.EVAL_PROFILES) {
     if (!env.EVAL_MODEL) throw new Error("Set EVAL_PROFILES to a profiles file, or EVAL_MODEL and EVAL_API_KEY for one profile.");
@@ -30,7 +37,7 @@ export function profilesFromEnv(env: Record<string, string | undefined> = proces
   if (!Array.isArray(raw?.profiles) || !raw.profiles.length) throw new Error(`${env.EVAL_PROFILES} lists no profiles.`);
   const profiles = raw.profiles.map((p: any) => checked({
     name: String(p.name ?? ""), provider: p.provider, model: String(p.model ?? ""), baseUrl: p.baseUrl || null, apiKey: env[p.apiKeyEnv], acceptsImages: p.acceptsImages === true,
-    ...(p.price ? { price: { input: Number(p.price.input), output: Number(p.price.output) } } : {}),
+    ...(p.price ? { price: priceOf(p.price, String(p.name ?? "")) } : {}),
   }, p.apiKeyEnv));
   const names = profiles.map((p: EvalProfile) => p.name), twice = names.find((n: string, i: number) => names.indexOf(n) !== i);
   if (twice) throw new Error(`Two profiles are named ${twice}.`);
