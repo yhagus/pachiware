@@ -26,6 +26,10 @@ export interface DailyLogRun {
 export type DailyLogResult = "written" | "exists" | "empty" | "off" | "failed";
 
 const DAY_MS = 24 * 3600_000;
+/** Messages one model call reads; a busier day is read in parts and the parts joined. */
+const PART = 500;
+/** The most messages of one day read at all; past it the latest are kept and the file says where reading stopped. */
+const DAY_LIMIT = 5_000;
 const date = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10);
 /** The date of the day before the one `at` falls on in `zone`. */
 export const dayBefore = (zone: string, at: number) => { const w = wallClock(zone, at); return date(w.year, w.month, w.day - 1); };
@@ -49,16 +53,23 @@ export async function writeDailyLog(run: DailyLogRun): Promise<DailyLogResult> {
   if ((await skillRegistry.availableAt(place, playbooks)).playbookCause(DAILY_LOG_PLAYBOOK)) return "off";
   const playbook = await loadPlaybook(run.tenantId, DAILY_LOG_PLAYBOOK);
   if (!playbook) return "off";
-  const { messages, cut } = await run.adapter.readSpan(run.channelId, daySpan(run.timezone, run.day));
+  const { messages, cut } = await run.adapter.readSpan(run.channelId, daySpan(run.timezone, run.day), DAY_LIMIT);
   if (!messages.length) return "empty";
-  const links = messages.map((m) => jumpLink(run.guildId, m.channelId, m.id));
-  const corpus = messages.map((m) => `${m.speaker}\n${m.text}`).join("\n");
-  const content = await botCompletion(run.tenantId, run.botId)({
-    system: systemPrompt(playbook),
-    user: `Messages of #${run.channelName} on ${run.day}, oldest first${cut ? `; only the last ${messages.length} were read, everything before ${stamp(cut.keptFrom)} UTC was left out` : ""}:\n${asUntrusted("discord:history", transcript(messages))}`,
-  });
-  const log = content === null ? null : parseDailyLog(content, links, corpus);
-  if (!log) return "failed";
+  const complete = botCompletion(run.tenantId, run.botId), count = Math.ceil(messages.length / PART);
+  const parts: DailyLog[] = [];
+  for (let from = 0; from < messages.length; from += PART) {
+    const part = messages.slice(from, from + PART);
+    const which = count > 1 ? `, part ${from / PART + 1} of ${count} (messages ${from + 1}-${from + part.length} of ${messages.length})` : "";
+    const content = await complete({
+      system: systemPrompt(playbook),
+      user: `Messages of #${run.channelName} on ${run.day}, oldest first${which}${cut ? `; only the last ${messages.length} were read, everything before ${stamp(cut.keptFrom)} UTC was left out` : ""}:\n${asUntrusted("discord:history", transcript(part))}`,
+    });
+    const links = part.map((m) => jumpLink(run.guildId, m.channelId, m.id));
+    const log = content === null ? null : parseDailyLog(content, links, part.map((m) => `${m.speaker}\n${m.text}`).join("\n"));
+    if (!log) return "failed";
+    parts.push(log);
+  }
+  const log = joinParts(parts);
   const header = { count: messages.length, participants: [...new Set(messages.map((m) => m.speaker))], cut };
   await store.write(run.tenantId, path, recordText(run, header, log));
   return "written";
@@ -93,6 +104,17 @@ export function parseDailyLog(content: string | null, links: string[], corpus: s
   const labels = { ...LABELS };
   for (const key of Object.keys(LABELS) as (keyof Labels)[]) { const v = clean(raw.labels?.[key]); if (v && v.length <= 40) labels[key] = v; }
   return { topics, decided: items(raw.decided), open: items(raw.open), next, labels };
+}
+
+/** One Daily log from its parts: a topic named in several parts appears once, with every part's keywords and links. Labels come from the first part. */
+export function joinParts(parts: DailyLog[]): DailyLog {
+  const topics = new Map<string, Topic>();
+  const union = (a: string[], b: string[]) => [...new Set([...a, ...b])];
+  for (const t of parts.flatMap((p) => p.topics)) {
+    const key = t.name.toLowerCase(), seen = topics.get(key);
+    topics.set(key, seen ? { name: seen.name, keywords: { id: union(seen.keywords.id, t.keywords.id), en: union(seen.keywords.en, t.keywords.en) }, links: union(seen.links, t.links) } : t);
+  }
+  return { topics: [...topics.values()], decided: parts.flatMap((p) => p.decided), open: parts.flatMap((p) => p.open), next: parts.flatMap((p) => p.next), labels: parts[0]!.labels };
 }
 
 type Header = { count: number; participants: string[]; cut: HistoryCut | null };
