@@ -1,30 +1,43 @@
-import { expect } from "bun:test";
+import { afterEach, expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 
 // A tool call that hangs gives up at the ceiling instead of holding the turn (#220). The ceiling is 90 s; scenarios shorten it.
 
 const NEVER = new Promise<never>(() => {});
 
-/** A test skill whose tools answer only when the scenario says so: `slowLookup` reads, `slowSave` writes without asking for a Confirm. */
+/**
+ * A test skill whose tools answer only when the scenario says so: `slowLookup` reads, `slowSave` writes without asking for a Confirm,
+ * and `slowChain` runs three `slowLookup`s one after another as nested calls, the way recall runs its parts.
+ */
 async function slowSkill(s: Scenario, answers: { slowLookup?: () => Promise<unknown>; slowSave?: () => Promise<unknown> }) {
   const { skillRegistry } = await import("@pachiware/skills");
   const { repositories } = await import("../../../packages/db/src/index.ts");
   const text = { type: "object" as const, properties: { text: { type: "string" } } };
   const skill = {
     id: "test_slow", name: "Slow", description: "Tools that take their time.", confirmsInternally: true,
-    tools: ["slowLookup", "slowSave"].map((name) => ({ name, description: name, parameters: text })),
-    toolPolicy: { slowLookup: { effect: "read" as const }, slowSave: { effect: "write" as const } },
-    handlers: { slowLookup: () => (answers.slowLookup ?? (() => NEVER))(), slowSave: () => (answers.slowSave ?? (() => NEVER))() },
+    tools: ["slowLookup", "slowSave", "slowChain"].map((name) => ({ name, description: name, parameters: text })),
+    toolPolicy: { slowLookup: { effect: "read" as const }, slowSave: { effect: "write" as const }, slowChain: { effect: "read" as const } },
+    handlers: {
+      slowLookup: () => (answers.slowLookup ?? (() => NEVER))(), slowSave: () => (answers.slowSave ?? (() => NEVER))(),
+      slowChain: async (_args: unknown, ctx: any) => { for (let i = 0; i < 3; i++) await ctx.tools.run("slowLookup", {}); return { parts: 3 }; },
+    },
   };
   skillRegistry.registerSkill(skill as any);
   await repositories().skills.register({ id: skill.id, name: skill.name, description: skill.description, defaultEnabled: false, toolDefinitions: skill.tools, handlerType: "builtin", config: {} });
   await repositories().skills.enable(s.tenant.id, skill.id);
 }
 
+let shipped: number | undefined;
 async function ceiling(ms: number) {
-  const { toolPolicy } = await import("../src/loop/react.ts");
-  toolPolicy.timeoutMs = ms;
+  const { toolTimeout } = await import("../src/loop/react.ts");
+  shipped ??= toolTimeout.ms;
+  toolTimeout.ms = ms;
 }
+afterEach(async () => {
+  if (shipped === undefined) return;
+  (await import("../src/loop/react.ts")).toolTimeout.ms = shipped;
+  shipped = undefined;
+});
 
 const timeouts = async (s: Scenario) => {
   const { repositories } = await import("@pachiware/db");
@@ -93,4 +106,15 @@ discordScenario("a recall part that hangs is reported under unavailable with the
   expect(result.unavailable).toMatchObject({ git: "The tool did not answer in time. A change may or may not have happened: check before trying again." });
   expect(result.kept.map((k: any) => k.path)).toEqual([expect.stringContaining("2026-10-01-loudness.md")]);
   expect(await timeouts(s)).toEqual([expect.objectContaining({ kind: "limit", reason: "tool_timeout", tool: "repoSearchWork" })]);
+});
+
+discordScenario("a call running nested calls one after another gives up at twice the ceiling, however many nested calls it starts", async (s) => {
+  await s.guildSettings({ language: "en", useThreads: false });
+  await slowSkill(s, {});
+  // Three hung nested calls of 60 ms each would hold the chain for 180 ms; it is cut at 120 ms.
+  await ceiling(60);
+  let seen: any;
+  s.model.script({ tool: "slowChain", args: {} }, (turn) => { seen = turn.toolResults[0]; return "gave up"; });
+  await s.discord.send(`${s.discord.mention} look everything up`);
+  expect(seen).toEqual({ error: "The tool did not answer in time. A change may or may not have happened: check before trying again." });
 });

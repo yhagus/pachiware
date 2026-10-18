@@ -39,18 +39,21 @@ const FIELDS = ["name", "provider", "model", "baseUrl", "apiKeyEncrypted", "acce
 /** The profile fields an input gives; an undefined one is left out, so it keeps the stored value. */
 export const definedProfileFields = (input: Record<string, any>) => Object.fromEntries(FIELDS.filter((f) => input[f] !== undefined).map((f) => [f, input[f]]));
 
+/** A fallback the caller may not set; its message says why. */
+export class FallbackRefused extends Error {}
+
 /**
  * Refuses a fallback that is not one of the tenant's profiles (given as ids and their fallbacks), the profile itself,
  * or one whose chain leads back to the profile. `profileId` is null for a profile not yet created.
  */
 export function requireFallback(tenantProfiles: { id: string; fallbackProfileId: string | null }[], profileId: string | null, fallbackId: string | null | undefined) {
   if (!fallbackId) return;
-  if (fallbackId === profileId) throw new Error("A profile cannot fall back to itself");
+  if (fallbackId === profileId) throw new FallbackRefused("A profile cannot fall back to itself");
   const next = new Map(tenantProfiles.map((p) => [p.id, p.fallbackProfileId]));
-  if (!next.has(fallbackId)) throw new Error("Fallback profile not found");
+  if (!next.has(fallbackId)) throw new FallbackRefused("Fallback profile not found");
   const seen = new Set<string>();
   for (let at: string | null | undefined = fallbackId; at && !seen.has(at); at = next.get(at)) {
-    if (at === profileId) throw new Error("Fallback chain would loop");
+    if (at === profileId) throw new FallbackRefused("Fallback chain would loop");
     seen.add(at);
   }
 }

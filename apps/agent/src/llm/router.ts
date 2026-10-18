@@ -123,14 +123,14 @@ export class LLMRouter {
     }
     const provider = options.provider || dbConfig.defaultProvider;
     const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature ?? DEFAULT_TEMPERATURE, maxTokens: options.maxTokens ?? dbConfig.maxTokens, language: configuredLanguage({ language: options.language }, dbConfig) };
-    const call = (list: ChatMessage[]) => {
+    const call = (list: ChatMessage[], opts: LLMRequestOptions = resolved) => {
       switch (provider) {
-        case "anthropic": return this.callAnthropic(list, resolved, dbConfig);
+        case "anthropic": return this.callAnthropic(list, opts, dbConfig);
         case "custom":
-          if (format === "messages") return this.callAnthropic(list, resolved, { ...dbConfig, anthropicApiKey: dbConfig.customApiKey, anthropicBaseUrl: dbConfig.customBaseUrl, anthropicModel: dbConfig.customModel }, "custom");
-          if (format === "responses") return this.callResponses(list, resolved, dbConfig);
-          return this.callCustomOpenAI(list, resolved, dbConfig);
-        case "openai": return this.callOpenAI(list, resolved, dbConfig);
+          if (format === "messages") return this.callAnthropic(list, opts, { ...dbConfig, anthropicApiKey: dbConfig.customApiKey, anthropicBaseUrl: dbConfig.customBaseUrl, anthropicModel: dbConfig.customModel }, "custom");
+          if (format === "responses") return this.callResponses(list, opts, dbConfig);
+          return this.callCustomOpenAI(list, opts, dbConfig);
+        case "openai": return this.callOpenAI(list, opts, dbConfig);
         default: throw new Error("Unsupported tenant LLM provider");
       }
     };
@@ -139,6 +139,12 @@ export class LLMRouter {
     if (response.httpStatus === 400 && hasImages(messages)) {
       const retry = await call(withoutImages(messages));
       if (retry.finishReason !== "error") response = { ...retry, imagesRejected: true };
+    }
+    // A 400 on a request with tool_choice is most likely a server that does not support it: the same Profile is asked once more
+    // without tools before the request counts as failed and moves to a fallback.
+    if (response.httpStatus === 400 && resolved.toolChoice) {
+      const { tools: _tools, toolChoice: _choice, ...bare } = resolved;
+      response = await call(messages, bare);
     }
     return { response, provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel };
   }

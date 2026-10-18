@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { repositories, encryptSecret, decryptSecret, type NewProfile, type ProfileUpdate } from "@pachiware/db";
+import { repositories, encryptSecret, decryptSecret, FallbackRefused, type NewProfile, type ProfileUpdate } from "@pachiware/db";
 import { object, string } from "../validation.js";
 import { checkProfile, modelIds, sendToProfile } from "../../llm/probe.js";
 import { apiFormatOf, formatHeaders, isApiFormat, isProvider, providerBaseUrl, API_FORMAT_ERROR, PROVIDER_ERROR } from "../../llm/providers.js";
@@ -36,11 +36,10 @@ function fields(body: Record<string, any>, creating: boolean): ProfileUpdate {
   return out;
 }
 
-const FALLBACK_REFUSALS = new Set(["Fallback profile not found", "A profile cannot fall back to itself", "Fallback chain would loop"]);
 /** A refused fallback is the caller's mistake, so it answers 400 with the repository's message. */
 async function refusingFallback<T>(write: () => Promise<T>): Promise<T> {
   try { return await write(); } catch (err: any) {
-    if (FALLBACK_REFUSALS.has(err?.message)) throw new HTTPException(400, { message: err.message });
+    if (err instanceof FallbackRefused) throw new HTTPException(400, { message: err.message });
     throw err;
   }
 }

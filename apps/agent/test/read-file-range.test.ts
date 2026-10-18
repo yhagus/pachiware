@@ -42,17 +42,19 @@ discordScenario("a large file read without a range returns its first lines withi
     (turn) => {
       const [head, next] = turn.toolResults.slice(-2);
       const shown = head.content.split("\n").filter(Boolean);
-      return [JSON.stringify(head.content).length <= 10_000, head.totalLines, shown[0], shown.length + 1 === head.nextLine, next.lines[0].text, typeof head.version].join(" | ");
+      return [head.totalLines, shown.length, shown[0], shown.at(-1), head.nextLine, next.lines[0].text, typeof head.version].join(" | ");
     },
   );
   await s.discord.send(`${s.discord.mention} what is in the log?`);
-  const reply = s.discord.botMessages.at(-1)!.content.split(" | ");
-  expect(reply[0]).toBe("true");
-  expect(reply[1]).toBe("2000");
-  expect(reply[2]).toBe(`Entry 1: "quoted" notes from the long log, kept for the record.`);
-  expect(reply[3]).toBe("true");
-  expect(reply[4]).toMatch(/^Entry \d+: "quoted" notes from the long log, kept for the record\.$/);
-  expect(reply[5]).toBe("string");
+  // Lines 1-146 are 9,968 characters as JSON; line 147 would pass 10,000.
+  expect(s.discord.botMessages.at(-1)!.content.split(" | ")).toEqual([
+    "2000", "146",
+    `Entry 1: "quoted" notes from the long log, kept for the record.`,
+    `Entry 146: "quoted" notes from the long log, kept for the record.`,
+    "147",
+    `Entry 147: "quoted" notes from the long log, kept for the record.`,
+    "string",
+  ]);
 });
 
 discordScenario("a reversed or out-of-range line range is refused with a clear message", async (s) => {
@@ -65,12 +67,12 @@ discordScenario("a reversed or out-of-range line range is refused with a clear m
   expect(s.discord.botMessages.at(-1)?.content).toBe("toLine 1 is before fromLine 3. / fromLine 9 is past the end: the file has 3 lines. / fromLine must be a line number, 1 or more.");
 });
 
-discordScenario("a range past the end of the file stops at its last line", async (s) => {
+discordScenario("a range whose toLine is past the end of the file is refused with a clear message", async (s) => {
   await s.workspace.write("guilds/guild-1/channels/channel-1/notes/short.md", "one\ntwo\nthree\n");
   s.model.script(
-    { tool: "readFile", args: { path: "channel/notes/short.md", fromLine: 2, toLine: 50 } },
-    (turn) => JSON.stringify(turn.toolResults[0].lines) + ` ${turn.toolResults[0].toLine}/${turn.toolResults[0].totalLines} ${turn.toolResults[0].nextLine}`,
+    [{ tool: "readFile", args: { path: "channel/notes/short.md", fromLine: 2, toLine: 50 } }, { tool: "readFile", args: { path: "channel/notes/short.md", fromLine: 2, toLine: 3 } }],
+    (turn) => `${turn.toolResults[0].error} / ${JSON.stringify(turn.toolResults[1].lines)}`,
   );
   await s.discord.send(`${s.discord.mention} read it`);
-  expect(s.discord.botMessages.at(-1)?.content).toBe(`[{"line":2,"text":"two"},{"line":3,"text":"three"}] 3/3 undefined`);
+  expect(s.discord.botMessages.at(-1)?.content).toBe(`toLine 50 is past the end: the file has 3 lines. / [{"line":2,"text":"two"},{"line":3,"text":"three"}]`);
 });

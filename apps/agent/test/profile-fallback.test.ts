@@ -85,6 +85,29 @@ discordScenario("a fallback that does not accept images gets the request without
   expect(s.discord.botMessages.at(-1)?.content).toBe("Check the auth service logs.\nThis profile rejected the image; an admin can turn image input off for it.");
 });
 
+discordScenario("a Profile that refuses tool_choice on the budget's last call answers that call without tools, before its fallback is tried", async (s) => {
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  await repositories().agentConfig.update(s.tenant.id, { settings: { maxReActIterations: 1 } });
+  await s.guildSettings({ useThreads: false, language: "en" });
+  const backup = await profile(s, { name: "Backup", provider: "anthropic", model: "claude-haiku-5-5" });
+  const main = await profile(s, { name: "Main", provider: "openai", model: "gpt-main", fallbackProfileId: backup.id });
+  await answerWith(s, main.id);
+  s.http.on("POST api.openai.com/v1/chat/completions", (req) => {
+    if (req.body.tool_choice) return Response.json({ error: { message: "tool_choice is not supported" } }, { status: 400 });
+    if (req.body.tools) return { choices: [{ message: { content: null, tool_calls: [{ id: "call-1", type: "function", function: { name: "listTasks", arguments: "{}" } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } };
+    return openAIReply("Listed the tasks; nothing is open.");
+  });
+  s.http.on("POST api.anthropic.com/v1/messages", () => anthropicReply("The backup answered."));
+
+  await s.discord.send(`${s.discord.mention} what is open?`);
+
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Listed the tasks; nothing is open.");
+  expect(hits(s, "api.anthropic.com")).toBe(0);
+  const lastToOpenAI = s.http.requests.filter((r) => r.url.includes("api.openai.com")).at(-1)!;
+  expect(lastToOpenAI.body.tools).toBeUndefined();
+  expect(lastToOpenAI.body.tool_choice).toBeUndefined();
+});
+
 discordScenario("the admin API sets and clears a fallback, and refuses a cycle, the profile itself and another tenant's Profile", async (s) => {
   const a = await profile(s, { name: "A", provider: "openai", model: "a" });
   const b = await profile(s, { name: "B", provider: "openai", model: "b", fallbackProfileId: a.id });

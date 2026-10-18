@@ -7,7 +7,7 @@ import { definedProfileFields, PROFILE_DEFAULTS, requireFallback, type Profile, 
 /** Profiles on SQLite and PostgreSQL. */
 export function createSqlProfileRepository(connection: SqlConnection): ProfileRepository {
   const { db, tables: t } = connection;
-  const chain = (tx: any, tenantId: string) => tx.select({ id: t.profiles.id, fallbackProfileId: t.profiles.fallbackProfileId }).from(t.profiles).where(eq(t.profiles.tenantId, tenantId));
+  const tenantFallbacks = (tx: any, tenantId: string) => tx.select({ id: t.profiles.id, fallbackProfileId: t.profiles.fallbackProfileId }).from(t.profiles).where(eq(t.profiles.tenantId, tenantId));
   const one = async (where: any) => {
     const [row] = await db.select().from(t.profiles).where(where).limit(1);
     return row ? toProfile(row) : null;
@@ -20,7 +20,7 @@ export function createSqlProfileRepository(connection: SqlConnection): ProfileRe
     async create(tenantId, input) {
       const now = new Date();
       return toProfile(await sqlTransaction(connection, function* (tx) {
-        if (input.fallbackProfileId) requireFallback(yield chain(tx, tenantId), null, input.fallbackProfileId);
+        requireFallback(yield tenantFallbacks(tx, tenantId), null, input.fallbackProfileId);
         const [row] = yield tx.insert(t.profiles).values({ ...PROFILE_DEFAULTS, ...definedProfileFields(input), id: randomUUID(), tenantId, createdAt: now, updatedAt: now }).returning();
         return row;
       }));
@@ -37,7 +37,7 @@ export function createSqlProfileRepository(connection: SqlConnection): ProfileRe
         if (input.fallbackProfileId) {
           const [found] = yield tx.select({ tenantId: t.profiles.tenantId }).from(t.profiles).where(eq(t.profiles.id, id)).limit(1);
           if (!found) return null;
-          requireFallback(yield chain(tx, found.tenantId), id, input.fallbackProfileId);
+          requireFallback(yield tenantFallbacks(tx, found.tenantId), id, input.fallbackProfileId);
         }
         const [changed] = yield tx.update(t.profiles).set({ ...definedProfileFields(input), updatedAt: new Date() }).where(eq(t.profiles.id, id)).returning();
         return changed ?? null;

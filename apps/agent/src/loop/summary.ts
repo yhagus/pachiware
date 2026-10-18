@@ -1,7 +1,7 @@
 import { repositories, type Message } from "@pachiware/db";
 import { redact } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
-import { historyOffset } from "./history.js";
+import { historyWindow } from "./history.js";
 import type { ChatMessage } from "../llm/types.js";
 import { patchConversationMetadata, summaryOf, type ConversationSummary } from "./conversationMetadata.js";
 
@@ -26,7 +26,7 @@ const line = (m: Message) => {
  */
 export async function rollSummary(o: { tenantId: string; botId?: string; conversationId: string; windowOffset: number }) {
   const { conversations } = repositories();
-  const offset = historyOffset(await conversations.countMessages(o.tenantId, o.conversationId));
+  const { offset } = await historyWindow(o.tenantId, o.conversationId);
   if (offset <= o.windowOffset) return;
   const conversation = await conversations.get(o.tenantId, o.conversationId);
   if (!conversation) return;

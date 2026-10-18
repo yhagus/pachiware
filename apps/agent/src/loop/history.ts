@@ -1,3 +1,5 @@
+import { repositories, type Message } from "@pachiware/db";
+
 export const HISTORY_SIZE = 30;
 export const HISTORY_STEP = 10;
 
@@ -42,6 +44,19 @@ export function fitHistory<T extends StoredRow>(rows: T[], budget = HISTORY_TOKE
   while (total(fitted) > budget && fitted.length > step) fitted = dropLeadingOrphans(fitted.slice(step));
   while (total(fitted) > budget && fitted.length > 1) fitted = dropLeadingOrphans(fitted.slice(1));
   return fitted;
+}
+
+/**
+ * The stored rows the next model call sees, and where they start. The offset moves past every row the token budget leaves out,
+ * so the rolling summary, which covers the rows before it, picks those rows up instead of losing them.
+ */
+export async function historyWindow(tenantId: string, conversationId: string): Promise<{ offset: number; rows: Message[] }> {
+  const { conversations } = repositories();
+  const start = historyOffset(await conversations.countMessages(tenantId, conversationId));
+  const loaded = await conversations.listMessages(tenantId, conversationId, { offset: start, limit: HISTORY_SIZE + HISTORY_STEP });
+  const rows = fitHistory(dropLeadingOrphans(loaded));
+  // fitHistory only removes rows from the front.
+  return { offset: start + loaded.length - rows.length, rows };
 }
 
 // Stored tool rows are replayed on every later turn, so they keep only what names the outcome; the live turn reads the full result.

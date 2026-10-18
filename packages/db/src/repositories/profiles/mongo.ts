@@ -20,7 +20,7 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
   const { db } = connection;
   const profiles = db.collection<ProfileDoc>("profiles");
   const bots = db.collection<{ _id: string; tenantId: string; profileId: string | null }>("bots");
-  const chain = async (tenantId: string, session: ClientSession) =>
+  const tenantFallbacks = async (tenantId: string, session: ClientSession) =>
     (await profiles.find({ tenantId }, { session, projection: { _id: 1, fallbackProfileId: 1 } }).toArray()).map((d) => ({ id: d._id, fallbackProfileId: d.fallbackProfileId ?? null }));
   const one = async (filter: Filter<ProfileDoc>) => {
     const doc = await profiles.findOne(filter);
@@ -37,7 +37,7 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
       await inTransaction(connection, async (session) => {
         // SQL's foreign key: the tenant must exist.
         if (!(await db.collection<{ _id: string }>("tenants").findOne({ _id: tenantId }, { session, projection: { _id: 1 } }))) throw new Error("Tenant not found");
-        if (doc.fallbackProfileId) requireFallback(await chain(tenantId, session), null, doc.fallbackProfileId);
+        requireFallback(await tenantFallbacks(tenantId, session), null, doc.fallbackProfileId);
         await profiles.insertOne(doc, { session });
       });
       return toProfile(doc);
@@ -53,7 +53,7 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
         if (input.fallbackProfileId) {
           const found = await profiles.findOne({ _id: id }, { session, projection: { tenantId: 1 } });
           if (!found) return null;
-          requireFallback(await chain(found.tenantId, session), id, input.fallbackProfileId);
+          requireFallback(await tenantFallbacks(found.tenantId, session), id, input.fallbackProfileId);
         }
         return profiles.findOneAndUpdate({ _id: id }, { $set: { ...definedProfileFields(input), updatedAt: new Date() } }, { session, returnDocument: "after" });
       });

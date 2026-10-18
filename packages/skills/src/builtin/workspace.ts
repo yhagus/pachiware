@@ -111,9 +111,10 @@ function readPart(file: { content: string; version: string }, from: unknown, to:
   const start = fromLine ?? 1, end = toLine ?? totalLines;
   if (start > totalLines) throw new Error(`fromLine ${start} is past the end: the file has ${totalLines} lines.`);
   if (end < start) throw new Error(`toLine ${end} is before fromLine ${start}.`);
+  if (end > totalLines) throw new Error(`toLine ${end} is past the end: the file has ${totalLines} lines.`);
   const lines: { line: number; text: string }[] = [];
   let size = 0;
-  for (let n = start; n <= Math.min(end, totalLines); n++) {
+  for (let n = start; n <= end; n++) {
     const entry = { line: n, text: all[n - 1]! };
     const next = JSON.stringify(entry).length + 1;
     if (size + next > READ_LIMIT) {
@@ -123,7 +124,7 @@ function readPart(file: { content: string; version: string }, from: unknown, to:
     lines.push(entry);
     size += next;
   }
-  const last = lines.at(-1)!.line, more = last < Math.min(end, totalLines) ? { nextLine: last + 1 } : {};
+  const last = lines.at(-1)!.line, more = last < end ? { nextLine: last + 1 } : {};
   return { fromLine: start, toLine: last, totalLines, ...more, lines, version: file.version };
 }
 
@@ -145,7 +146,7 @@ export const workspaceSkill: SkillModule = {
   checks: { deleteFile: async (args, ctx) => notElsewhere(ctx, args.path) },
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: readPathArg }, required: ["path"] } },
-    { name: "readFile", description: `Reads a text file from the Workspace: Markdown, CSV or TXT. A filed PDF, DOCX or XLSX, or a CSV over 256 KB, is read through the .md beside it (named in the file note as "text in ..."); an XLSX's .md holds each sheet as a table. fromLine and toLine (1-based, inclusive) read only those lines, each with its number: when searchFiles or recall gave a matching line, read around it, e.g. 20 lines before to 60 after. Without them, a file over ${READ_LIMIT.toLocaleString("en")} characters returns its first lines with totalLines and nextLine, the line to read from next. A range returns at most that much too, with nextLine when it stopped early.`, parameters: { type: "object", properties: { path: readPathArg, fromLine: { type: "integer", description: "First line to read, 1-based" }, toLine: { type: "integer", description: "Last line to read, inclusive" } }, required: ["path"] } },
+    { name: "readFile", description: `Reads a text file from the Workspace: Markdown, CSV or TXT. A filed PDF, DOCX or XLSX, or a CSV over 256 KB, is read through the .md beside it (named in the file note as "text in ..."); an XLSX's .md holds each sheet as a table. fromLine and toLine (1-based, inclusive) read only those lines, each with its number: when searchFiles or recall gave a matching line, read around it, e.g. 20 lines before to 60 after. Without them, a file over ${READ_LIMIT.toLocaleString("en")} characters returns its first lines with totalLines and nextLine, the line to read from next. A range returns at most that much too, with nextLine when it stopped early.`, parameters: { type: "object", properties: { path: readPathArg, fromLine: { type: "integer", description: "First line to read, 1-based" }, toLine: { type: "integer", description: "Last line to read, inclusive; at most the file's last line" } }, required: ["path"] } },
     { name: "writeFile", description: "Creates or replaces a Markdown file in the Workspace. Missing folders are created. To replace an existing file, pass the version from readFile. Under notes/ and decisions/ the server then writes topics and keywords into the file's head, replacing any already there.", parameters: { type: "object", properties: { path: pathArg, content: { type: "string", description: "Full file content" }, version: { type: "string", description: "Version returned by readFile; required when the file exists" } }, required: ["path", "content"] } },
     { name: "moveFile", description: "Moves or renames a file or folder. Refuses to overwrite.", parameters: { type: "object", properties: { from: pathArg, to: pathArg }, required: ["from", "to"] } },
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },

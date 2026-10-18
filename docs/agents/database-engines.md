@@ -26,7 +26,7 @@ Profiles use every piece. Read them in this order:
 - `repositories/profiles/types.ts`: the interface, `PROFILE_DEFAULTS` and `definedProfileFields`. Both implementations import them, so a default is written once.
 - `repositories/profiles/sql.ts`: `create` sets `id: randomUUID()` and stamps `createdAt` and `updatedAt` from one `new Date()`. `getForBot` joins only within the tenant. `remove` leans on the foreign key's `ON DELETE SET NULL`.
 - `repositories/profiles/mongo.ts`: step `0101-profiles`. `create` checks the tenant exists inside `inTransaction`, the rule SQL's foreign key gives for free. `remove` clears `profileId` on the bots in the same transaction, matching `ON DELETE SET NULL`. `toProfile` reads a missing `baseUrl` as null and a missing `acceptsImages` as false.
-- `migrate.ts`: the `profiles` DDL, and the `accepts_images` and `api_format` `ADD COLUMN` lines that upgrade older installs. `test/migration.test.ts` ("adds the accepts-images flag to existing profiles") covers the upgrade.
+- `migrate.ts`: the `profiles` DDL, and the `accepts_images`, `api_format` and `fallback_profile_id` `ADD COLUMN` lines that upgrade older installs. A column that references another row carries its `REFERENCES … ON DELETE SET NULL` in the `ADD COLUMN` line too. `test/migration.test.ts` ("adds the accepts-images flag to existing profiles", "adds the fallback to existing profiles…") covers the upgrades.
 - `test/contract/profiles.contract.test.ts`: the behaviour both implementations must match.
 
 For a same-tenant rule a foreign key cannot express, see `requireProfile` in `repositories/bots/sql.ts` and `repositories/bots/mongo.ts`: a bot may only name a profile of its own tenant, checked inside the create transaction on every engine.

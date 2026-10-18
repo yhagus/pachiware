@@ -1,5 +1,5 @@
-import { repositories, type Message } from "@pachiware/db";
-import { dropLeadingOrphans, fitHistory, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
+import { repositories } from "@pachiware/db";
+import { historyWindow, storedToolResult } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
@@ -50,17 +50,20 @@ function changeLine({ call, result }: Executed, t: Strings) {
 }
 
 /** The longest a tool call may take before the model is told it did not answer; tests shorten it. */
-export const toolPolicy = { timeoutMs: 90_000 };
+export const toolTimeout = { ms: 90_000 };
 
-/** When a running tool call gives up; a call that runs nested calls (recall) is moved past each nested call's own ceiling. */
-type Ceiling = { until: number };
+/**
+ * When a running tool call gives up; a call that runs nested calls (recall) is moved past each nested call's own ceiling,
+ * but never past `cap`, twice the ceiling from its start, so nested calls one after another cannot hold the turn without bound.
+ */
+type Ceiling = { until: number; cap: number };
 const TIMED_OUT = Symbol("timed out");
 /** Results of calls that did not answer in time: whether their change happened is unknown. */
 const timedOut = new WeakSet<ToolResult>();
 
 /** Runs a tool call within the ceiling; one that has not answered by then gets the timeout error and is audited, and its late result is dropped. */
 async function withinCeiling(call: ToolCall, ctx: SkillContext, run: (ceiling: Ceiling) => Promise<ToolResult>): Promise<ToolResult> {
-  const ceiling: Ceiling = { until: Date.now() + toolPolicy.timeoutMs };
+  const ceiling: Ceiling = { until: Date.now() + toolTimeout.ms, cap: Date.now() + 2 * toolTimeout.ms };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<typeof TIMED_OUT>((resolve) => {
     const arm = () => { timer = setTimeout(() => (Date.now() >= ceiling.until ? resolve(TIMED_OUT) : arm()), Math.max(0, ceiling.until - Date.now())); };
@@ -176,8 +179,7 @@ export class AgentReActLoop {
     const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId, botId: input.botId, off: available.off });
 
     // 3. Load previous messages from DB (windowed in steps so the prompt prefix stays cacheable)
-    const windowOffset = historyOffset(await conversations.countMessages(input.tenantId, convId));
-    const existingDbMessages = fitHistory(dropLeadingOrphans<Message>(await conversations.listMessages(input.tenantId, convId, { offset: windowOffset, limit: HISTORY_SIZE + HISTORY_STEP })));
+    const { offset: windowOffset, rows: existingDbMessages } = await historyWindow(input.tenantId, convId);
 
     const messageHistory: ChatMessage[] = [
       { role: "system", content: systemPrompt },
@@ -246,7 +248,7 @@ export class AgentReActLoop {
     skillContext.tools = {
       here: new Set(activeTools.map((t) => t.name)),
       run: (name, args) => {
-        if (running) running.until = Math.max(running.until, Date.now() + toolPolicy.timeoutMs * 1.1);
+        if (running) running.until = Math.min(running.cap, Math.max(running.until, Date.now() + toolTimeout.ms * 1.1));
         const call = { id: `${name}-in-turn`, name, arguments: args };
         return withinCeiling(call, skillContext, () => skillRegistry.executeTool(call, skillContext));
       },
@@ -369,9 +371,8 @@ export class AgentReActLoop {
         content: "The action budget for this turn is exhausted. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.",
       }];
       const options = { tenantId: input.tenantId, botId: input.botId, cacheKey: convId, historyEnd, language: input.context.language };
-      let boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
-      // A server that refuses tool_choice gets the request once more without tools.
-      if (boundary.httpStatus === 400) boundary = await llmRouter.complete(request, options);
+      // A server that refuses tool_choice is asked once more without tools by the router, before any fallback Profile.
+      const boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
       if (boundary.finishReason === "error") finalReply = failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language);
       else {
         const content = boundary.content ? await cite(boundary.content, toolCallsExecuted, request, skillContext) : "";
