@@ -1519,4 +1519,5 @@ Planning is done; implementation follows the sub-issues of [#226](https://github
     - `remember` without `level` stores nothing.
     - In a burst, a line that mentions the bot is answered before an earlier line that does not, since the latter waits on a look at whether the bot spoke last.
   - Verification: typecheck 0; `bun run test` 1159 pass, 0 fail.
-- [ ] #240 Live Rapor runs (baseline, then after the floor): need a DeepSeek key and a judge key of another vendor from the user.
+- [x] Spec #226 merged: `spec/226-rapor` fast-forwarded into `main` and pushed. #226–#239 closed with their commits. #240 stays open until both live runs are recorded.
+- [ ] #240 Live Rapor runs: a baseline in a temporary worktree (main before #226 plus the eval harness, without the floor fixes), then a run on `main`. Needs a DeepSeek key and a judge key of another vendor from the user.
