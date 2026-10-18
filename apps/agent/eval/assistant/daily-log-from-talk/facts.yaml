@@ -1,0 +1,21 @@
+# A day of talk in the channel, its Daily log written by the bot overnight, then a question the next morning about what was
+# decided: the answer comes from the Daily log and links the decision's message. Spec #226, ticket #237.
+language: id
+area: capture
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+members:
+  - { id: user-dewi, name: Dewi }
+seed:
+  messages:
+    - { author: Dewi, text: "Vendor kaos gathering jadi siapa? Pilihannya Kaosku atau Sablon Jaya.", at: "2026-10-13T10:00:00+07:00" }
+    - { author: Bob, text: "Sablon Jaya lebih murah, 35 ribu per kaos.", at: "2026-10-13T10:05:00+07:00", replyTo: 0 }
+    - { author: Alice, text: "Oke, sepakat pakai Sablon Jaya untuk kaos gathering.", at: "2026-10-13T10:10:00+07:00" }
+    - { author: Dewi, text: "Siap, aku kirim desainnya ke Sablon Jaya besok pagi.", at: "2026-10-13T10:15:00+07:00" }
+then:
+  dailyLog: 2026-10-13   # written before the brief is sent
+mustCover:
+  - Kaos gathering dipesan ke Sablon Jaya, diputuskan Selasa 13 Oktober 2026
+turns:
+  - kept: [Sablon Jaya]
+    cites: [2]
+    replyContains: [Sablon Jaya]

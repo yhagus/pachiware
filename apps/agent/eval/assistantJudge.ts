@@ -26,9 +26,13 @@ const stateText = (s: AssistantState) => [
   `Server Memory: ${s.memory.guild.length ? "" : "empty"}`, ...s.memory.guild.map((l) => `  ${l}`),
   `Files under files/: ${s.files.join(", ") || "none"}`,
   `Reminders: ${s.reminders.length ? "" : "none"}`, ...s.reminders.map((r) => `- ${r.recurrence}${r.weekdays.length ? ` on weekdays ${r.weekdays.join(",")} (0 = Sunday)` : ""}${r.timeOfDay ? ` at ${r.timeOfDay}` : ""} ${r.timezone}, next ${r.nextAt}, ${r.status}, pings ${r.mentions.join(", ") || "the owner only"}: ${r.text}`),
+  ...(s.kept?.length ? ["Minutes and Daily logs the bot wrote:", ...s.kept.map((k) => `#### ${k.path}\n${k.text}`)] : []),
 ].join("\n");
 
-const turnText = (t: AssistantTurn) => `Author: ${t.message}\n${t.replies.length ? t.replies.map((r) => `Bot: ${r}`).join("\n") : "Bot: (no reply)"}`;
+// The author is Alice, who sent the brief; another member's message is headed with their name.
+const speaker = (name = "Alice") => (name === "Alice" ? "Author" : name);
+const said = (t: AssistantTurn) => (t.authors?.length ?? 1) === 1 ? `${speaker(t.authors?.[0])}: ${t.message}` : t.message.split("\n").map((l, i) => `${speaker(t.authors![i])}: ${l}`).join("\n");
+const turnText = (t: AssistantTurn) => `${said(t)}\n${t.replies.length ? t.replies.map((r) => `Bot: ${r}`).join("\n") : "Bot: (no reply)"}`;
 const conversation = (f: AssistantFixture, turns: AssistantTurn[], upTo = turns.length) =>
   `## The conversation (the clock is fixed at ${f.facts.clock})\n${turns.slice(0, upTo).map((t) => `### Turn ${t.n}\n${turnText(t)}`).join("\n\n")}`;
 

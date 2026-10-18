@@ -1,5 +1,6 @@
 # "Friday", "in two hours" and "tomorrow" against a fixed Wednesday 09:00 clock in Asia/Jakarta. Spec #72, stories 1, 5, 6.
 language: en
+area: tasks
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 mustCover:
   - The deck is due Friday 16 October

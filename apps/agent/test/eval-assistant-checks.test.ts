@@ -6,6 +6,7 @@ import { checkAssistantOutput } from "../eval/assistantChecks";
 import { loadAssistantFixtures, type AssistantFixture } from "../eval/assistantFixtures";
 import { gradeAssistantRun, type AssistantOutput, type AssistantState } from "../eval/assistantRun";
 import { EVAL_DIR } from "../eval/repository";
+import { loadExam } from "../eval/scorecard";
 
 const empty: AssistantState = { tasks: [], memory: { channel: [], guild: [] }, files: [], reminders: [] };
 const venue = { title: "Book the venue", status: "pending", dueAt: "2026-10-15", assignedTo: "Bob", createdByName: "Alice" };
@@ -14,7 +15,7 @@ const state = (tasks: AssistantState["tasks"]): AssistantState => ({ ...empty, t
 const fixture: AssistantFixture = {
   name: "x", messages: ["can you note that Bob has to book the venue by tomorrow?", "and give the other one to him too"],
   facts: {
-    language: "en", clock: "2026-10-14T02:00:00Z", mustCover: ["Booking the venue is Bob's task"],
+    language: "en", area: "tasks", clock: "2026-10-14T02:00:00Z", mustCover: ["Booking the venue is Bob's task"],
     turns: [
       { tasks: [{ title: "venue", status: "pending", dueAt: "2026-10-15", assignedTo: "Bob", createdByName: "Alice" }] },
       { ambiguous: "There is no other task", tasks: [{ title: "venue" }] },
@@ -118,6 +119,29 @@ describe("code checks on one run", () => {
     ]);
   });
 
+  test("a reply may link the seeded talk, must link the seeded messages the facts name, and what the bot wrote must hold the given phrases", () => {
+    const f: AssistantFixture = { ...fixture, facts: { ...fixture.facts, turns: [{ cites: [1], kept: ["Rp 49.000"] }, {}] } };
+    const talk = ["https://discord.com/channels/guild-1/channel-1/7001", "https://discord.com/channels/guild-1/channel-1/7002"];
+    const minutes = { path: "minutes/2026-10-14-harga-paket.md", text: "# Harga paket\n\n## Diputuskan\n1. Paket dasar Rp 49.000 [↗](https://discord.com/channels/guild-1/channel-1/7002)" };
+    const run = (reply: string, kept = [minutes]): AssistantOutput => ({ ...withTurn(1, { replies: [reply], state: { ...state([venue]), kept } }), seeded: talk });
+    expect(checks(run("Decided: the basic plan costs Rp 49.000 [↗](https://discord.com/channels/guild-1/channel-1/7002)"), f)).toEqual([]);
+    expect(checks(run("Decided: the basic plan costs Rp 49.000 [↗](https://discord.com/channels/guild-1/channel-1/7001)", []), f)).toEqual([
+      '1 kept: No Minutes or Daily log the bot wrote holds "Rp 49.000"; it wrote none.',
+      "1 citations: The reply does not link seeded message 1, https://discord.com/channels/guild-1/channel-1/7002.",
+    ]);
+    expect(checks({ ...run("See https://discord.com/channels/guild-1/channel-1/7002"), seeded: undefined }, f)).toEqual([
+      "1 citations: The reply does not link seeded message 1, which was never posted.",
+      "1 citations: The reply links https://discord.com/channels/guild-1/channel-1/7002, which nothing seeded holds.",
+    ]);
+  });
+
+  test("a Daily log the facts ask for that was not written fails the first turn", () => {
+    const f: AssistantFixture = { ...fixture, facts: { ...fixture.facts, then: { dailyLog: "2026-10-13" } } };
+    expect(checks({ ...output, dailyLog: "written" }, f)).toEqual([]);
+    expect(checks({ ...output, dailyLog: "failed" }, f)).toEqual(["1 kept: The Daily log of 2026-10-13 was not written: failed."]);
+    expect(checks(output, f)).toEqual(["1 kept: The Daily log of 2026-10-13 was not written: it never ran."]);
+  });
+
   test("a run with fewer turns than the facts fails every missing turn", () => {
     expect(checks({ ...output, turns: output.turns.slice(0, 1) })).toEqual(["2 reply: The bot did not reply."]);
   });
@@ -133,7 +157,8 @@ describe("fixtures and recorded runs", () => {
     for (const name of ["task-casual-indonesian", "task-casual-english", "due-dates-relative", "status-by-title", "remember-forget", "file-search", "reminder-weekly",
       "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels", "bulk-cancel",
       "decision-other-channel", "action-items-across-meetings", "nothing-found", "private-channel-dm", "minutes-as-document",
-      "recall-asked-in-indonesian", "recall-asked-in-english", "recall-decision-replaced", "recall-done-other-channel", "recall-done-pull-request"]) expect(names).toContain(name);
+      "recall-asked-in-indonesian", "recall-asked-in-english", "recall-decision-replaced", "recall-done-other-channel", "recall-done-pull-request",
+      "minutes-from-talk", "member-joins-thread", "daily-log-from-talk"]) expect(names).toContain(name);
     expect(new Set(fixtures.map((f) => f.facts.language))).toEqual(new Set(["en", "id"]));
     for (const f of fixtures) {
       expect(f.facts.mustCover.length).toBeGreaterThan(0);
@@ -147,19 +172,97 @@ describe("fixtures and recorded runs", () => {
     mkdirSync(join(tmp, "x"));
     writeFileSync(join(tmp, "x", "brief.md"), "note this");
     writeFileSync(join(tmp, "x", "follow-ups.md"), "and that\n---\nand this");
-    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\n");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: tasks\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\n");
     expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x has 3 messages but 1 turns");
-    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\nclock: soon\nmustCover: [m]\nturns: [{}, {}, {}]\n");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: tasks\nclock: soon\nmustCover: [m]\nturns: [{}, {}, {}]\n");
     expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: clock is not a time");
-    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}, {}, {}]\n");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: tasks\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}, {}, {}]\n");
     expect(loadAssistantFixtures(tmp)[0]!.messages).toEqual(["note this", "and that", "and this"]);
+  });
+
+  test("a follow-up block may name the member who speaks it, or several who each send one line of a burst", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "catat tugas: pesan katering");
+    const blocks = (followUps: string, turns: number) => {
+      writeFileSync(join(tmp, "x", "follow-ups.md"), followUps);
+      writeFileSync(join(tmp, "x", "facts.yaml"), `language: id\narea: group\nclock: 2026-10-14T02:00:00Z\nmembers: [{ id: user-dewi, name: Dewi Anggraini }]\nmustCover: [m]\nturns: [${Array(turns).fill("{}").join(", ")}]\n`);
+      return () => loadAssistantFixtures(tmp)[0]!;
+    };
+    expect(blocks("@Bob: aku yang ambil\n---\n@Bob+@Dewi Anggraini:\nname tag 50 buah\noke\n---\nsudah?", 4)()).toMatchObject({
+      messages: ["catat tugas: pesan katering", "aku yang ambil", "name tag 50 buah\noke", "sudah?"],
+      authors: [["Alice"], ["Bob"], ["Bob", "Dewi Anggraini"], ["Alice"]],
+    });
+    expect(blocks("@Carol: aku yang ambil", 2)).toThrow("Fixture x: follow-up 1 is spoken by Carol, who is no member");
+    expect(blocks("@Bob+@Dewi Anggraini: satu\ndua\ntiga", 2)).toThrow("Fixture x: follow-up 1 is a burst of 2 people but has 3 lines");
+  });
+
+  test("seeded talk names its members, lists its messages oldest first before the clock, and replies only to an earlier one", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "notulen");
+    const talk = (messages: string) => { writeFileSync(join(tmp, "x", "facts.yaml"), `language: id\narea: capture\nclock: 2026-10-14T02:00:00Z\nmembers: [{ id: user-dewi, name: Dewi }]\nmustCover: [m]\nturns: [{}]\nseed: { messages: ${messages} }\n`); return () => loadAssistantFixtures(tmp)[0]!.facts.seed; };
+    const ok = "[{ channel: '#general', author: Dewi, text: harga paket?, at: 40 }, { channel: general, author: Bob, text: 49 ribu, at: '2026-10-14T08:30:00+07:00', replyTo: 0 }]";
+    expect(talk(ok)()).toEqual({ messages: [{ channel: "#general", author: "Dewi", text: "harga paket?", at: 40 }, { channel: "general", author: "Bob", text: "49 ribu", at: "2026-10-14T08:30:00+07:00", replyTo: 0 }] });
+    expect(talk("[{ author: Carol, text: halo, at: 40 }]")).toThrow("Fixture x: seed.messages[0] is from Carol, who is no member");
+    expect(talk("[{ author: Bob, text: halo, at: 40, replyTo: 1 }, { author: Dewi, text: ya, at: 30 }]")).toThrow("Fixture x: seed.messages[0] replies to 1, which is no earlier seeded message");
+    expect(talk("[{ author: Bob, text: halo, at: 40 }, { author: Dewi, text: ya, at: 30, replyTo: 0, channel: ops }]")).toThrow("Fixture x: seed.messages[1] replies to 0, in another channel");
+    expect(talk("[{ author: Bob, text: halo, at: 30 }, { author: Dewi, text: ya, at: 40 }]")).toThrow("Fixture x: seed.messages are listed oldest first, none after the clock");
+    expect(talk("[{ author: Bob, text: halo, at: '2026-10-14T09:30:00+07:00' }]")).toThrow("Fixture x: seed.messages are listed oldest first, none after the clock");
+    expect(talk("[{ author: Bob, text: halo, at: soon }]")).toThrow("Fixture x: seed.messages[0] needs a text and an at, an ISO time or minutes before the clock");
+  });
+
+  test("a Daily log written before the brief needs seeded talk in the brief's channel that day, in the place's zone", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "kemarin diputuskan apa?");
+    const day = (then: string, settings = "{}") => { writeFileSync(join(tmp, "x", "facts.yaml"), `language: id\narea: capture\nclock: 2026-10-14T02:00:00Z\nsettings: ${settings}\nmustCover: [m]\nturns: [{}]\nthen: ${then}\nseed: { messages: [{ author: Bob, text: sepakat, at: '2026-10-13T23:30:00+07:00' }, { channel: ops, author: Bob, text: oke, at: '2026-10-14T08:00:00+07:00' }] }\n`); return () => loadAssistantFixtures(tmp)[0]!.facts.then; };
+    expect(day("{ dailyLog: 2026-10-13 }")()).toEqual({ dailyLog: "2026-10-13" });
+    expect(day("{ dailyLog: 2026-10-14 }")).toThrow("Fixture x: then.dailyLog 2026-10-14 has no seeded talk in the brief's channel that day");
+    // 23:30 in Jakarta is 16:30 UTC, still the 13th; in Tokyo it is 01:30 on the 14th.
+    expect(day("{ dailyLog: 2026-10-13 }", "{ timezone: Asia/Tokyo }")).toThrow("Fixture x: then.dailyLog 2026-10-13 has no seeded talk in the brief's channel that day");
+    expect(day("{ dailyLog: yesterday }")).toThrow("Fixture x: then.dailyLog is a day, such as 2026-10-13");
+    expect(day("{ dailyLog: 2026-10-13, clock: '2026-10-15T09:00:00+07:00' }")).toThrow("Fixture x: then needs a clock and a list of posts");
+  });
+
+  test("a fixture without an area of the Rapor is refused", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "note this");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\n");
+    expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: facts.yaml area is capture, recall, tasks, group or loop");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: chat\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\n");
+    expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: facts.yaml area is capture, recall, tasks, group or loop");
+  });
+
+  test("a scorecard naming a brief that does not exist, holding out one outside its briefs, or missing a weight is refused", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "eval-scorecard-")), "scorecard.yaml");
+    const card = (briefs: string, holdout = "[]", weights = "{ capture: 20, recall: 25, tasks: 20, group: 10, loop: 15 }") => { writeFileSync(file, `version: 1\nweights: ${weights}\nbriefs: ${briefs}\nholdout: ${holdout}\n`); return () => loadExam(fixtures, file); };
+    expect(card("[file-search, no-such-brief]")).toThrow("scorecard.yaml names no-such-brief, which is no brief under assistant/");
+    expect(card("[file-search]", "[remember-forget]")).toThrow("scorecard.yaml holds out remember-forget, which is not among its briefs");
+    expect(card("[file-search]", "[]", "{ capture: 20, recall: 25, tasks: 20, loop: 15 }")).toThrow("scorecard.yaml weights every area with a positive number; group has none");
+    expect(card("[file-search, file-search]")).toThrow("scorecard.yaml names file-search twice");
+    expect(card("[file-search, remember-forget]", "[remember-forget]")()).toEqual({
+      version: "1", weights: { capture: 20, recall: 25, tasks: 20, group: 10, loop: 15 }, briefs: ["file-search", "remember-forget"], holdout: ["remember-forget"],
+      areas: Object.fromEntries(fixtures.map((f) => [f.name, f.facts.area])),
+    });
+  });
+
+  test("every brief has an area and sits in the committed scorecard, whose weights are the Rapor's", () => {
+    const exam = loadExam(fixtures);
+    expect(exam.weights).toEqual({ capture: 20, recall: 25, tasks: 20, group: 10, loop: 15 });
+    expect([...exam.briefs].sort()).toEqual(fixtures.map((f) => f.name).sort());
+    expect(exam.areas["remember-forget"]).toBe("loop");
+    expect(exam.areas["file-search"]).toBe("capture");
+    expect(exam.areas["recall-among-distractors"]).toBe("recall");
+    expect(exam.areas["reminder-weekly"]).toBe("tasks");
   });
 
   test("a seed file must sit below its channel's folder, and hidden channels are a list of names", () => {
     const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
     mkdirSync(join(tmp, "x"));
     writeFileSync(join(tmp, "x", "brief.md"), "what did we decide?");
-    const facts = (seed: string) => writeFileSync(join(tmp, "x", "facts.yaml"), `language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\nseed: ${seed}\n`);
+    const facts = (seed: string) => writeFileSync(join(tmp, "x", "facts.yaml"), `language: en\narea: recall\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\nseed: ${seed}\n`);
     facts("{ files: [{ channel: ops, path: ../../shared/MEMORY.md, content: x }] }");
     expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: each seed file needs a path below its channel's folder and a content");
     facts("{ files: [{ path: notes/a.md }] }");
@@ -185,7 +288,7 @@ test("the citations check fails an unrendered ref and a link nothing seeded hold
   const seeded: AssistantFixture = {
     name: "cited", messages: ["is audio normalization done?"],
     facts: {
-      language: "en", clock: "2026-10-14T02:00:00Z", mustCover: [], turns: [{}],
+      language: "en", area: "recall", clock: "2026-10-14T02:00:00Z", mustCover: [], turns: [{}],
       seed: {
         files: [{ path: "minutes/2026-10-06-sync.md", content: "---\ntitle: \"Sync\"\nguildId: \"guild-1\"\npostedIn: \"channel-1\"\nmessageId: \"5100\"\n---\n# Sync\nSee https://docs.acme.test/loudness\n" }],
         git: { repos: ["acme/*"], pullRequests: [{ repo: "acme/podcast", number: 42, title: "Normalize", mergedAt: "2026-10-12T00:00:00Z" }] },

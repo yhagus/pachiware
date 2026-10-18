@@ -1,0 +1,22 @@
+# The channel's own talk, then "@bot notulen": the Minutes hold the decision, what is still open and the action item with its owner,
+# each linking the message it rests on, and are kept in the channel's minutes/. Spec #226, ticket #236.
+language: id
+area: capture
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+members:
+  - { id: user-dewi, name: Dewi }
+seed:
+  messages:   # at: minutes before the clock
+    - { author: Dewi, text: "Harga paket dasar mau kita pasang berapa? Pilihannya 49 ribu atau 59 ribu.", at: 40 }
+    - { author: Bob, text: "Aku pilih 49 ribu, biar terjangkau buat UMKM.", at: 35, replyTo: 0 }
+    - { author: Alice, text: "Oke, sepakat ya: paket dasar Rp 49.000 per bulan.", at: 30 }
+    - { author: Dewi, text: "Siap, aku perbarui halaman harga paling lambat Jumat.", at: 25 }
+    - { author: Bob, text: "Paket pro gimana? Itu belum kita putuskan ya.", at: 20 }
+mustCover:
+  - Paket dasar dipasang Rp 49.000 per bulan
+  - Harga paket pro belum diputuskan
+  - Dewi memperbarui halaman harga paling lambat Jumat
+turns:
+  - replyContains: [Rp 49.000, Dewi]
+    cites: [2, 3]
+    kept: [Rp 49.000, halaman harga]

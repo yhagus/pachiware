@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pairedDifference, summarize, type TrialResult } from "../eval/compare";
+import type { Exam } from "../eval/scorecard";
 import { profilesFromEnv } from "../eval/profiles";
 import { writeReport } from "../eval/report";
 
@@ -88,6 +89,60 @@ describe("summarize", () => {
     expect(md).toContain("- Trial 1, draft 2: fail. coverage: draft 2 misses a fact");
     expect(md).toContain("- Trial 3: no draft was posted.");
     expect(md).not.toContain("Trial 2, draft 1");
+    expect(md).not.toContain("Rapor");
+  });
+});
+
+describe("the Rapor", () => {
+  const exam: Exam = {
+    version: "1", weights: { capture: 20, recall: 25, tasks: 20, group: 10, loop: 15 },
+    briefs: ["cap-a", "cap-b", "rec-a", "rec-b", "task-a", "loop-a"], holdout: ["cap-b", "rec-b"],
+    areas: { "cap-a": "capture", "cap-b": "capture", "rec-a": "recall", "rec-b": "recall", "task-a": "tasks", "loop-a": "loop", "off-exam": "tasks" },
+  };
+  const trials = [
+    trial("p", "cap-a", 1, [true, false]), trial("p", "cap-b", 1, [true]),
+    trial("p", "rec-a", 1, [true, true]), trial("p", "rec-a", 2, [false, false]), trial("p", "rec-b", 1, [false]),
+    trial("p", "task-a", 1, [true]), trial("p", "loop-a", 1, []), trial("p", "off-exam", 1, [false]),
+    trial("q", "off-exam", 1, [true]),
+  ];
+  const profiles = [{ name: "p", provider: "openai", model: "m-p" }, { name: "q", provider: "openai", model: "m-q" }];
+
+  test("scores each area as the mean of its briefs, and the total as the weighted mean over the areas that ran", () => {
+    const [p, q] = summarize(trials, profiles, exam).profiles;
+    // capture (0.5 + 1) / 2 = 0.75, its holdout cap-b 1; recall (0.5 + 0) / 2 = 0.25, holdout rec-b 0; tasks 1 (off-exam is no exam brief);
+    // group ran nothing; loop 0. Total (20 * 0.75 + 25 * 0.25 + 20 * 1 + 15 * 0) / (20 + 25 + 20 + 15) = 41.25 / 80.
+    expect(p!.rapor).toEqual({
+      version: "1", total: 0.515625,
+      areas: [
+        { area: "capture", weight: 20, score: 0.75, briefs: 2, holdoutScore: 1 },
+        { area: "recall", weight: 25, score: 0.25, briefs: 2, holdoutScore: 0 },
+        { area: "tasks", weight: 20, score: 1, briefs: 1, holdoutScore: null },
+        { area: "group", weight: 10, score: null, briefs: 0, holdoutScore: null },
+        { area: "loop", weight: 15, score: 0, briefs: 1, holdoutScore: null },
+      ],
+    });
+    expect(q!.rapor!.total).toBeNull();
+    expect(summarize(trials, profiles).profiles[0]!.rapor).toBeUndefined();
+  });
+
+  test("the report opens with the Rapor of each profile and has a table per area", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eval-rapor-"));
+    writeReport(dir, { kind: "assistant", judge: { provider: "anthropic", model: "claude-judge" }, rubricVersion: "0.1", trials: 2, startedAt: "2026-10-18T00:00:00.000Z", profiles }, trials, exam);
+    const md = readFileSync(join(dir, "report.md"), "utf8");
+    expect(md).toStartWith("# Rapor v1: 51.6 (p), none (q)\n\nDaily-behaviour eval, 2026-10-18T00:00:00.000Z. Judge: anthropic / claude-judge. Rubric 0.1. 2 trials per brief.\n");
+    expect(md).toContain([
+      "## Rapor per area: p",
+      "",
+      "| Area | Weight | Score | Briefs | Holdout score |",
+      "|---|---|---|---|---|",
+      "| capture | 20 | 75.0 | 2 | 100.0 |",
+      "| recall | 25 | 25.0 | 2 | 0.0 |",
+      "| tasks | 20 | 100.0 | 1 |  |",
+      "| group | 10 |  | 0 |  |",
+      "| loop | 15 | 0.0 | 1 |  |",
+    ].join("\n"));
+    expect(md).toContain("## Rapor per area: q");
+    expect(JSON.parse(readFileSync(join(dir, "report.json"), "utf8")).summary.profiles[0].rapor).toMatchObject({ version: "1", total: 0.515625 });
   });
 });
 

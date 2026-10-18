@@ -1,6 +1,7 @@
 # One person's action items across Minutes kept in two channels, each with its channel, date and a link to the posted Minutes. Spec #146, stories 6, 7, 11, 12.
 # The seeded Minutes carry the record's identifying fields; the bot's own files also hold the minutes as JSON in their frontmatter.
 language: en
+area: recall
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   files:

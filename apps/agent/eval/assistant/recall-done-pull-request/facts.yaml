@@ -1,6 +1,7 @@
 # Work done through a pull request that no Minutes, Decision, Note or Task mentions. The repository is open here by the Git scope (acme/*);
 # only the merged pull request says it is done. Spec #195, stories 40, 43, 45; ticket #201.
 language: en
+area: recall
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   git:

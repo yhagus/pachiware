@@ -1,5 +1,6 @@
 # A channel line, a server line (the author holds Manage Server), then a forget. Spec #72, stories 21, 23, 24.
 language: en
+area: loop
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 grants: [ManageGuild]
 mustCover:

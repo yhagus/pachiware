@@ -1,0 +1,113 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "member-joins-thread",
+  "turns": [
+    {
+      "n": 1,
+      "message": "catat tugas: pesan katering untuk gathering, deadline Jumat",
+      "replies": [
+        "Dicatat: pesan katering untuk gathering, jatuh tempo Jumat 16 Oktober."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Pesan katering untuk gathering",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "tambahin satu lagi buat aku ya: cetak name tag peserta",
+      "authors": [
+        "Bob"
+      ],
+      "replies": [
+        "Dicatat untuk Bob: cetak name tag peserta."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Cetak name tag peserta",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": "Bob",
+            "createdByName": "Bob"
+          },
+          {
+            "title": "Pesan katering untuk gathering",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 3,
+      "message": "name tag-nya dicetak 60 buah ya\noke Bob, makasih",
+      "authors": [
+        "Bob",
+        "Alice"
+      ],
+      "replies": [
+        "Dicatat di tugas cetak name tag peserta: dicetak 60 buah."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Cetak name tag peserta",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": "Bob",
+            "createdByName": "Bob",
+            "notes": [
+              "- 2026-10-14 Bob: Dicetak 60 buah"
+            ]
+          },
+          {
+            "title": "Pesan katering untuk gathering",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

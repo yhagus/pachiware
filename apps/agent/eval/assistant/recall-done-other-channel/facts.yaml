@@ -1,6 +1,7 @@
 # Work talked about in this channel's Minutes and tracked as a Task in another Public channel, #audio, where it was completed.
 # Nothing here says it is done; only the #audio Task does. Spec #195, stories 37, 38, 43; ticket #200.
 language: en
+area: recall
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   files:
