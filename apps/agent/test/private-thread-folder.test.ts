@@ -13,7 +13,7 @@ discordScenario("minutes written in a private thread go to the thread's folder, 
   s.model.script(JSON.stringify({ title: "Pricing", decided: [{ text: "Ship pricing v2 on Monday", ref: 1 }], open: [], actions: [] }));
   await s.discord.send(`${s.discord.mention} minutes`, { channel: thread });
 
-  const file = `${new Date().toISOString().slice(0, 10)}-pricing.md`;
+  const file = `${new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10)}-pricing.md`; // named by the date in Jakarta, UTC+7 all year
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toEqual([]);
   expect(await s.workspace.list(`${THREAD}/minutes`)).toEqual([`${THREAD}/minutes/${file}`]);
 
