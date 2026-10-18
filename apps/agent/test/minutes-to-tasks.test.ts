@@ -119,3 +119,43 @@ discordScenario("an open point the next discussion settled is not raised again",
   await s.discord.contextMenu("Write minutes", next!);
   expect(s.discord.botMessages.at(-1)!.embeds[0].description).not.toContain("Still open from earlier minutes");
 });
+
+// Review of #253: the reply goes through the registry's checks, private threads keep their Minutes, and an item is known by its message and words.
+discordScenario("a reply asking for tasks is refused where an Availability rule turns task writes off, and nothing is made", async (s) => {
+  await s.guildSettings({ useThreads: false, language: "en" });
+  const { minutes } = await postMinutes(s);
+  await s.availability({ level: "channel", channelId: "channel-1" }, { kind: "skill", name: "task_management", value: "off" });
+  await s.discord.send("turn item 3 into a task", { replyTo: minutes });
+  expect(await tasks(s)).toEqual([]);
+  expect(lastReply(s).content).not.toContain("task made from the minutes");
+});
+
+discordScenario("Minutes of a private thread are not turned into tasks of the parent channel wholesale", async (s) => {
+  await s.guildSettings({ useThreads: false, language: "en" });
+  const thread = s.discord.channel("thread-9", { thread: true, parentId: "channel-1", private: true, members: [s.discord.alice.id, s.discord.bob.id] });
+  s.clock.set("2026-10-14T02:00:00Z");
+  const [start] = s.discord.history([{ content: "Bob writes the notes by Thursday", author: s.discord.bob, at: s.clock.now() - 60_000 }], { channel: thread });
+  s.model.script(JSON.stringify({ title: "Secret plan", decided: [], open: [], actions: [{ owner: "Bob", task: "Write the notes", due: "Thursday", ref: 1 }] }));
+  await s.discord.contextMenu("Write minutes", start!);
+  const minutes = s.discord.botMessages.filter((m) => m.channelId === "thread-9").at(-1)!;
+  await s.discord.send("make item 1 a task", { replyTo: minutes, channel: thread });
+  expect(lastReply(s).content).toBe("These minutes belong to this private thread, and tasks belong to the parent channel's project, which everyone there sees. Make the tasks you want one by one.");
+  expect(await tasks(s)).toEqual([]);
+});
+
+discordScenario("an item made into a task is still known after a correction renumbers it, so asking again makes no duplicate", async (s) => {
+  await s.guildSettings({ useThreads: false, language: "en" });
+  const { minutes } = await postMinutes(s);
+  await s.discord.send("turn items 3 and 4 into tasks", { replyTo: minutes });
+  expect(await tasks(s)).toHaveLength(2);
+  // The requester adds a decided item: the action items become 4 to 6.
+  // A correction's refs number its sources: the Minutes' own links in order (Bob's message, then Alice's), then the correction.
+  s.model.script(JSON.stringify({ title: "Release day", decided: [{ text: "Release on Friday", ref: 1 }, { text: "Freeze on Thursday", ref: 3 }], open: [{ text: "Who announces it", ref: 2 }],
+    actions: [{ owner: "Bob", task: "Write the release notes.", due: "Thursday", ref: 1 }, { owner: null, task: "Fix the flaky login test", due: null, ref: 2 }, { owner: "Dewi", task: "Order the banners", due: "minggu depan", ref: 1 }] }));
+  await s.discord.send("add: we freeze on Thursday", { replyTo: minutes });
+  await s.discord.send("make all of them tasks", { replyTo: minutes });
+  const reply = lastReply(s).content;
+  expect(reply).toContain("Item 4 is already a task");
+  expect(reply).toContain("Item 5 is already a task");
+  expect(await tasks(s)).toHaveLength(3);
+});

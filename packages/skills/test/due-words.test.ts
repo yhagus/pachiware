@@ -42,3 +42,13 @@ test("a written date, day first, with or without a year; a day already past this
 test("words that name a week or no day at all give no date", () => {
   for (const said of ["minggu depan", "next week", "pekan ini", "ASAP", "secepatnya", "", null]) expect(dueFromWords(said, WED)).toBeNull();
 });
+
+test("a time written with a dot is not a date, a fraction of weeks is no count, and \"maybe\" is not May (review of #253)", () => {
+  const MON = "2026-10-19";
+  expect(dueFromWords("Friday 5.10", MON)).toBe("2026-10-23");
+  expect(dueFromWords("Jumat 17.00", MON)).toBe("2026-10-23");
+  expect(dueFromWords("1.5 minggu", MON)).toBeNull();
+  expect(dueFromWords("maybe 3 days", MON)).toBe("2026-10-22");
+  expect(dueFromWords("3 Mei", MON)).toBe("2027-05-03");
+  expect(dueFromWords("Agustus 5", MON)).toBe("2027-08-05");
+});

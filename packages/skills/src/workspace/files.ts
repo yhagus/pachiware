@@ -1,6 +1,6 @@
 import { MAX_BLOB_BYTES, workspaceStore } from "./store.js";
 import { placeRoot, resolvePath, visibleRoots } from "./paths.js";
-import { documentText, extensionOf, extractsText, scannedPages } from "./extract.js";
+import { documentText, extensionOf, extractsText, scannedPages, type ScannedPage } from "./extract.js";
 import { addKeywords } from "./keywords.js";
 import type { Completion, SkillContext } from "../types.js";
 
@@ -16,7 +16,7 @@ export type Extracted = { path: string } | { failed: true };
 /** `path` is the agent-facing path (`channel/files/report.pdf`), which `readFile` and `searchFiles` accept; `text` is set for a PDF, DOCX, XLSX, or a CSV too large for `readFile`. */
 export type Filed = { path: string; bytes: Uint8Array; text?: Extracted };
 /** Reads the text of page images through a model that sees images (#246); null when it cannot. Given only where the bot's Profile accepts images. */
-export type PageReader = (pages: Uint8Array[]) => Promise<string | null>;
+export type PageReader = (pages: ScannedPage[]) => Promise<string | null>;
 export type NotFiled = { reason: NotFiledReason };
 /** The person who gave a Document to the bot; a Note kept from it names them as its author. */
 export type Giver = { name: string; id: string };

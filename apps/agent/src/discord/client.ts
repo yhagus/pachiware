@@ -11,7 +11,7 @@ import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js"
 import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
-import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
+import { prepareReply, replyQuietly, splitReply, withNotes, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, fileTurnDocuments, fileTurnImages, withPlaceholders } from "./attachments.js";
 import { describeImage, pageReader } from "./vision.js";
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
@@ -65,15 +65,17 @@ function assignmentsOf(executed: { call: { name: string }; result: { success: bo
     return task?.assignedTo?.id ? [{ assigneeId: task.assignedTo.id, title: task.title, dueAt: task.dueAt }] : [];
   });
 }
-/** Where an Assignee's ping goes: a private thread's parent channel, since a mention there would add them to the thread, and the task is the parent's anyway. */
-const pingPlace = (channel: any) => (channel.type === ChannelType.PrivateThread && channel.parent?.isSendable?.() ? channel.parent : channel);
-/** One message per turn pinging each member someone else gave a task to, listing theirs; the asker and the bot are never pinged. */
-async function tellAssignees(channel: { send(payload: any): Promise<unknown> }, assignments: Assignment[], actorId: string, botUserId: string | undefined, language: Language) {
+/**
+ * Pings each member someone else gave a task to this turn, listing theirs; the asker and the bot are never pinged. In a private thread only
+ * its members are pinged, there: a mention would add anyone else to the thread, and posting in the parent would show what the thread keeps.
+ */
+async function tellAssignees(channel: any, assignments: Assignment[], actorId: string, botUserId: string | undefined, language: Language) {
   const byPerson = new Map<string, Assignment[]>();
   for (const a of assignments) if (a.assigneeId !== actorId && a.assigneeId !== botUserId) byPerson.set(a.assigneeId, [...(byPerson.get(a.assigneeId) ?? []), a]);
-  if (!byPerson.size) return;
-  const t = textIn(language), content = [...byPerson].map(([id, tasks]) => t.assigned(`<@${id}>`, tasks)).join("\n");
-  await channel.send({ content, allowedMentions: { users: [...byPerson.keys()] } }).catch(() => {});
+  if (channel.type === ChannelType.PrivateThread) for (const id of [...byPerson.keys()]) if (!(await channel.members?.fetch(id).then(() => true, () => false))) byPerson.delete(id);
+  const t = textIn(language);
+  // One message per person keeps every ping under Discord's length limit; a long list is split at line breaks.
+  for (const [id, tasks] of byPerson) for (const content of splitReply(t.assigned(`<@${id}>`, tasks))) await channel.send({ content, allowedMentions: { users: [id] } }).catch(() => {});
 }
 
 const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
@@ -421,9 +423,12 @@ export class DiscordBotManager {
       userId: actor.id, userName: actor.name, timezone: configuredTimezone(guild, agent), language, discord: adapterFor(runtime, msg.guildId),
       auth: { tenantId: runtime.tenantId, botId, userId: actor.id, guildId: msg.guildId!, channelId: msg.channelId, parentChannelId: place.parentChannelId, ...memberAuth(actor.member) },
     };
-    const result = await this.serialize(`minutes:${minutes.id}`, () => minutesToTasks(ctx, minutesFileOf(minutes)!, namedNumbers(text.replace(/<[@#][!&]?\d+>/g, " "))));
-    await replyQuietly(msg)(result.message);
-    if (msg.channel.isSendable()) await tellAssignees(pingPlace(msg.channel), assignmentsOf([{ call: { name: "tasksFromMinutes" }, result: { success: true, data: result } }]), actor.id, runtime.client.user?.id, configuredLanguage(guild, agent));
+    // Through the registry, as the model's call would go: availability rules, permissions and rate limits apply to a reply too.
+    const call = { id: `tasksFromMinutes-${msg.id}`, name: "tasksFromMinutes", arguments: { minutes: minutesFileOf(minutes)!, points: namedNumbers(text.replace(/<[@#][!&]?\d+>/g, " ")) } };
+    const result = await this.serialize(`minutes:${minutes.id}`, () => skillRegistry.executeTool(call, ctx));
+    const message = result.success ? String(result.data?.message ?? "") : result.error ?? textIn(language).failed;
+    for (const chunk of splitReply(message)) await replyQuietly(msg)(chunk);
+    if (result.success && msg.channel.isSendable()) await tellAssignees(msg.channel, assignmentsOf([{ call, result }]), actor.id, runtime.client.user?.id, configuredLanguage(guild, agent));
   }
   /** "@bot turn points 2 and 3 into issues" replying to minutes: an explicit mention naming a playbook's word starts it from those action items. */
   private async briefFromMinutes(runtime: BotRuntime, botId: string, msg: Message, minutes: Message, text: string) {
@@ -602,7 +607,7 @@ export class DiscordBotManager {
           const p = result.success ? pendingOf(result.data) : null;
           if (p) await target.send(confirmMessage(p, actor.id));
         }
-        if (msg.guildId) await tellAssignees(pingPlace(target), assignmentsOf(output.toolCallsExecuted), actor.id, botUserId, configuredLanguage(guild, agent));
+        if (msg.guildId) await tellAssignees(target, assignmentsOf(output.toolCallsExecuted), actor.id, botUserId, configuredLanguage(guild, agent));
       }
       for (const f of output.imagesRejected ? [] : images?.filed ?? []) {
         const seen = await describeImage(runtime.tenantId, botId, f.image);

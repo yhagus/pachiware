@@ -82,6 +82,8 @@ describe("Phase 13 tenant API", () => {
       assert(list.tasks.length === 1 && list.counts.completed === 1, "tenant task search/counts failed");
       const afterPatch = await workspaceStore().read(firstOwned.id, apiFiles[0].path);
       assert(afterPatch?.content.includes('status: "completed"'), "REST update did not update the Workspace file");
+      // A web change keeps the same record a chat change does (#250): completedAt and a History line by the operator.
+      assert(/completedAt: "\\d{4}-\\d{2}-\\d{2}T/.test(afterPatch.content) && /## History\\n- \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} Operator: status pending → completed/.test(afterPatch.content), "REST update kept no History or completedAt: " + afterPatch.content);
       assert((await request("/api/v1/tasks/" + task.id, { method: "DELETE", headers: auth(firstKey.raw, firstOwned) })).status === 200, "task delete failed");
       assert((await request("/api/admin/api-keys/" + firstKey.keyId, { method: "DELETE", headers: admin })).status === 200, "key revoke failed");
       assert((await request("/api/v1/tasks", { headers: auth(firstKey.raw, firstOwned) })).status === 401, "revoked key accepted");

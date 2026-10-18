@@ -40,6 +40,8 @@ export function minutesFilePath(ctx: SkillContext, minutes: string): string | nu
  */
 export async function tasksFromMinutes(ctx: SkillContext, minutes: string, points: number[], create: CreateTask): Promise<MinutesTasksResult> {
   const t = textIn(ctx.language), path = minutesFilePath(ctx, minutes);
+  // A private thread's Minutes belong to it, while tasks belong to the parent channel's project: nothing is copied out of the thread wholesale.
+  if (ctx.privateThread) return { success: false, message: t.minutesTasksPrivate };
   if (!path) return { success: false, message: t.minutesTasksElsewhere };
   const file = await workspaceStore().read(ctx.tenantId, path).catch(() => null);
   const record = file && (parseFrontmatter(file.content)?.fields as unknown as StoredMinutes | undefined);
@@ -52,16 +54,19 @@ export async function tasksFromMinutes(ctx: SkillContext, minutes: string, point
   const picked = points.length ? all.filter((a) => points.includes(a.n)) : all;
 
   const zone = ctx.timezone ?? DEFAULT_TIMEZONE, said = isoInZone(zone, record.header.from).slice(0, 10);
-  const made = new Map((await loadTasks(workspaceStore(), ctx)).filter((f) => f.task.madeFrom?.path === path).map((f) => [f.task.madeFrom!.item, f.task]));
+  // An item is known by its message and its words, not its number: a correction that adds an item above it renumbers it.
+  const titleOf = (task: string) => task.replace(/[.。]+\s*$/u, "").slice(0, 200);
+  const keyOf = (link: string | undefined, title: string) => `${link ?? ""}|${title.toLowerCase()}`;
+  const made = new Map((await loadTasks(workspaceStore(), ctx)).filter((f) => f.task.madeFrom?.path === path).map((f) => [keyOf(f.task.madeFrom!.link, f.task.title), f.task]));
   const created: NonNullable<MinutesTasksResult["created"]> = [], existing: { item: number; line: string }[] = [], notes: string[] = [];
   for (const a of picked) {
-    const already = made.get(a.n);
+    const already = made.get(keyOf(a.link, titleOf(a.task)));
     if (already) { existing.push({ item: a.n, line: taskLine(already, zone) }); continue; }
     const dueAt = dueFromWords(a.due, said);
     if (a.due && !dueAt) notes.push(t.minutesTasksDueKept(a.n, a.due));
     const madeFrom: MadeFrom = { label: t.minutesTasksFrom(m.title, a.n), link: a.link, path, item: a.n };
     // A Minutes item is a sentence; a task title carries no closing full stop.
-    const args = { title: a.task.replace(/[.。]+\s*$/u, "").slice(0, 200), description: t.minutesTasksDescription(m.title, a.link, a.due && !dueAt ? a.due : null), ...(dueAt ? { dueAt } : {}), madeFrom };
+    const args = { title: titleOf(a.task), description: t.minutesTasksDescription(m.title, a.link, a.due && !dueAt ? a.due : null), ...(dueAt ? { dueAt } : {}), madeFrom };
     let result = a.owner ? await create({ ...args, assignedTo: a.owner }, ctx).catch((e: Error) => ({ refused: e.message })) : await create(args, ctx);
     // A name that fits several members, or a member who cannot view the channel, leaves the task unassigned rather than not made.
     if (a.owner && result?.candidates) { notes.push(t.minutesTasksAmbiguous(a.owner)); result = await create(args, ctx); }

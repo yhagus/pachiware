@@ -30,6 +30,11 @@ export async function documentText(name: string, bytes: Uint8Array): Promise<str
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
+/**
+ * A page of a scanned PDF as an image, with its page number in the PDF. pdf.js gives gray, RGB and RGBA images; a 1-bit fax-style scan
+ * (CCITT, JBIG2) or an image mask yields none, so such a page is skipped and the PDF may still read as having no text.
+ */
+export type ScannedPage = { page: number; png: Uint8Array };
 /** The most pages of a scanned PDF read through a model that sees images, and the longest edge each page image is sent at. */
 export const MAX_SCANNED_PAGES = 10;
 const PAGE_EDGE = 2000;
@@ -38,15 +43,15 @@ const PAGE_EDGE = 2000;
  * A PDF with no text layer as one PNG per page (#246): the largest image pdf.js finds on each of its first MAX_SCANNED_PAGES pages, reduced to
  * PAGE_EDGE. A scan is one picture per page, so this is the page; a page without an image is skipped. Empty when the PDF cannot be read.
  */
-export async function scannedPages(bytes: Uint8Array): Promise<Uint8Array[]> {
+export async function scannedPages(bytes: Uint8Array): Promise<ScannedPage[]> {
   try {
-    const doc = await getDocumentProxy(new Uint8Array(bytes), { verbosity: 0 }), pages: Uint8Array[] = [];
+    const doc = await getDocumentProxy(new Uint8Array(bytes), { verbosity: 0 }), pages: ScannedPage[] = [];
     for (let n = 1; n <= Math.min(doc.numPages, MAX_SCANNED_PAGES); n++) {
       const images = await extractImages(doc, n).catch(() => []);
       const largest = images.sort((a, b) => b.width * b.height - a.width * a.height)[0];
       if (!largest || largest.width < 100 || largest.height < 100) continue;
       const png = await new Bun.Image(bmpOf(largest.data, largest.width, largest.height, largest.channels)).resize(PAGE_EDGE, PAGE_EDGE, { fit: "inside", withoutEnlargement: true }).png().bytes().catch(() => null);
-      if (png) pages.push(png);
+      if (png) pages.push({ page: n, png });
     }
     return pages;
   } catch { return []; }

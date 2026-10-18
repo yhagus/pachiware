@@ -85,10 +85,8 @@ discordScenario("a task in a thread is checked against the thread's parent chann
   const inThread = () => s.discord.botMessages.filter((m) => m.channelId === thread.id).at(-1)!;
   expect(JSON.parse(inThread().content).success).toBe(true);
   expect(await s.workspace.read(FILE)).toContain(`assignedTo: {"id":"${s.discord.bob.id}","name":"Bob"}`);
-  // His ping goes to #launch: a mention inside the private thread would add him to it (#250).
-  const ping = s.discord.botMessages.find((m) => m.allowedMentions?.users)!;
-  expect(ping.channelId).toBe("channel-1");
-  expect(ping.allowedMentions).toEqual({ users: [s.discord.bob.id] });
+  // He is not pinged: a mention would add him to the private thread, and a ping in #launch would show what the thread keeps (#250).
+  expect(s.discord.botMessages.filter((m) => m.allowedMentions?.users)).toEqual([]);
 
   s.discord.history([{ content: "hi", author: { id: "user-carol", name: "Carol" } }]);
   s.discord.deny("channel-1", "user-carol", ["ViewChannel"]);

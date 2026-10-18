@@ -14,12 +14,12 @@ export function dueFromWords(text: string | null | undefined, from: string): str
 
   let m = /\b(\d{4})-(\d{2})-(\d{2})\b/.exec(said);
   if (m) return real(Number(m[1]), Number(m[2]), Number(m[3]));
-  // Day first, as Indonesian and most English outside the US write it: 20/10, 20/10/2026, 20-10-2026.
-  m = /\b(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\b/.exec(said);
+  // Day first, as Indonesian and most English outside the US write it: 20/10, 20/10/2026, 20-10-2026. A dot is a time ("17.00"), never a date.
+  m = /(?<![\d.:])(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?(?![\d.:])/.exec(said);
   if (m) { const y = m[3] ? Number(m[3].length === 2 ? `20${m[3]}` : m[3]) : null; return y ? real(y, Number(m[2]), Number(m[1])) : upcoming(Number(m[2]), Number(m[1])); }
-  m = new RegExp(`\\b(\\d{1,2}) (${MONTH_WORDS})\\w*(?: (\\d{4}))?\\b`).exec(said) ?? null;
+  m = new RegExp(`\\b(\\d{1,2}) (${MONTH_WORDS})\\b(?: (\\d{4}))?`).exec(said) ?? null;
   if (m) { const month = monthOf(m[2]!); return m[3] ? real(Number(m[3]), month, Number(m[1])) : upcoming(month, Number(m[1])); }
-  m = new RegExp(`\\b(${MONTH_WORDS})\\w* (\\d{1,2})(?:st|nd|rd|th)?(?:,? (\\d{4}))?\\b`).exec(said);
+  m = new RegExp(`\\b(${MONTH_WORDS}) (\\d{1,2})(?:st|nd|rd|th)?\\b(?:,? (\\d{4}))?`).exec(said);
   if (m) { const month = monthOf(m[1]!); return m[3] ? real(Number(m[3]), month, Number(m[2])) : upcoming(month, Number(m[2])); }
 
   // "minggu depan" and "next week" name a week, not a day; "minggu" alone is Sunday.
@@ -29,7 +29,9 @@ export function dueFromWords(text: string | null | undefined, from: string): str
   if (/\blusa\b|\bday after tomorrow\b/.test(said)) return plus(2);
   if (/\b(akhir bulan|end of (the )?month|eom)\b/.test(said)) return iso(new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)));
 
-  m = /\b(\d{1,2}) (hari|days?|minggu|pekan|weeks?)\b/.exec(said);
+  // "1.5 minggu" is a span, not a day: never read as Sunday ("Minggu").
+  if (/\d[.,]\d+ (hari|days?|minggu|pekan|weeks?)\b/.test(said)) return null;
+  m = /(?<![\d.,])(\d{1,2}) (hari|days?|minggu|pekan|weeks?)\b/.exec(said);
   if (m) return plus(Number(m[1]) * (/^(hari|day)/.test(m[2]!) ? 1 : 7));
 
   const day = WEEKDAYS.findIndex((words) => words.some((w) => new RegExp(`\\b${w}\\b`).test(said)));
@@ -45,8 +47,10 @@ const WEEKDAYS = [
   ["minggu", "ahad", "sunday", "sun"], ["senin", "monday", "mon"], ["selasa", "tuesday", "tue", "tues"], ["rabu", "wednesday", "wed"],
   ["kamis", "thursday", "thu", "thurs"], ["jumat", "jum at", "friday", "fri"], ["sabtu", "saturday", "sat"],
 ];
+/** Each month's names, Indonesian and English, whole words only, so "maybe" is never May. */
 const MONTHS = [
-  ["jan"], ["feb", "peb"], ["mar"], ["apr"], ["mei", "may"], ["jun"], ["jul"], ["agu", "ags", "aug"], ["sep"], ["okt", "oct"], ["nov", "nop"], ["des", "dec"],
+  ["jan", "januari", "january"], ["feb", "peb", "februari", "pebruari", "february"], ["mar", "maret", "march"], ["apr", "april"], ["mei", "may"], ["jun", "juni", "june"],
+  ["jul", "juli", "july"], ["agu", "ags", "agustus", "aug", "august"], ["sep", "sept", "september"], ["okt", "oktober", "oct", "october"], ["nov", "nop", "november", "nopember"], ["des", "desember", "dec", "december"],
 ];
-const MONTH_WORDS = MONTHS.flat().join("|");
-const monthOf = (word: string) => MONTHS.findIndex((forms) => forms.some((f) => word.startsWith(f))) + 1;
+const MONTH_WORDS = MONTHS.flat().sort((a, b) => b.length - a.length).join("|");
+const monthOf = (word: string) => MONTHS.findIndex((forms) => forms.includes(word)) + 1;

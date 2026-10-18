@@ -94,6 +94,7 @@ test("a short request names the one word in it that is not a request word, the t
 });
 
 test("a reply to Minutes asks for tasks with a verb of making before task or tugas; a correction that only names a task does not (#253)", () => {
-  for (const asks of ["jadikan task poin 2-3", "bikin tugas dari semua tindak lanjut", "tolong buatkan task butir 4", "turn items 4 and 5 into tasks", "make item 3 a task", "add these as todos"]) expect(asksForTasks(asks)).toBe(true);
-  for (const not of ["poin 2 itu task Bob, bukan Alice", "the task in item 3 is wrong", "jadikan issue poin 2", "buat ringkasan saja", "multitasking is hard"]) expect(asksForTasks(not)).toBe(false);
+  for (const asks of ["jadikan task poin 2-3", "bikin tugas dari semua tindak lanjut", "tolong buatkan task butir 4", "jadikan action item notulen tadi tugas ya", "turn items 4 and 5 into tasks", "make item 3 a task", "add these as todos", "create tasks from these", "make items 3 and 4 tasks"]) expect(asksForTasks(asks)).toBe(true);
+  for (const not of ["poin 2 itu task Bob, bukan Alice", "the task in item 3 is wrong", "jadikan issue poin 2", "buat ringkasan saja", "multitasking is hard",
+    "make sure the task in point 4 goes to Bob", "the log rotation task belongs to Alice, not Bob", "bikin issue untuk tugas poin 3", "catat bahwa tugas poin 3 milik Bob", "put Dewi on task 5 instead"]) expect(asksForTasks(not)).toBe(false);
 });

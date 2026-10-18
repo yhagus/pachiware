@@ -98,12 +98,23 @@ export function replyLine(ref: Replied | null | undefined, botUserId: string | u
 }
 
 /**
- * Whether a reply to posted Minutes asks for tasks from their action items (#253): a verb of making with "task" or "tugas" after it,
- * such as "jadikan task poin 2-3", "bikin tugas dari semua", "turn items 4 and 5 into tasks". A correction that only names a task
- * ("poin 2 itu task Bob") has no such verb, so it stays a correction.
+ * Whether a reply to posted Minutes asks for tasks from their action items (#253): a phrase that turns items into tasks, such as
+ * "jadikan task poin 2-3", "bikin tugas dari semua", "buatkan task butir 4", "turn items 4 and 5 into tasks", "make item 3 a task",
+ * "create tasks from these". A reply that says who should hold a task or that something is wrong ("poin 2 itu task Bob, bukan Alice",
+ * "make sure the task in point 4 goes to Bob", "put Dewi on task 5 instead") is a correction, never a request for tasks.
  */
-export const asksForTasks = (text: string) =>
-  /(?<![\p{L}])(jadikan|jadiin|buat|buatkan|buatin|bikin|bikinkan|bikinin|tambahkan|tambahin|masukkan|masukin|catat|catatkan|create|make|turn|add|log|put)(?![\p{L}])[^\n]{0,40}?(?<![\p{L}])(tasks?|tugas|todos?)(?![\p{L}])/iu.test(text);
+export function asksForTasks(text: string) {
+  const t = text.toLowerCase();
+  if (/(?<![\p{L}])(bukan|harusnya|seharusnya|milik|punya|salah|ganti|instead|not|belongs?|goes to|should|wrong|rather)(?![\p{L}])/u.test(t)) return false;
+  const word = "(?:tasks?|tugas|todos?|to-dos?)";
+  return [
+    new RegExp(`(?<![\\p{L}])(?:jadikan|jadiin|buatkan|buatin|bikinkan|bikinin)(?![\\p{L}])[^\\n]{0,60}?(?<![\\p{L}])${word}(?![\\p{L}])`, "u"),
+    new RegExp(`(?<![\\p{L}])(?:buat|bikin|tambah|tambahkan|masukkan|masukin)\\s+(?:jadi\\s+)?${word}(?![\\p{L}])`, "u"),
+    new RegExp(`(?<![\\p{L}])(?:turn|make|convert|add)(?![\\p{L}])[^\\n]{0,60}?\\b(?:into|as|a)\\s+${word}\\b`, "u"),
+    new RegExp(`(?<![\\p{L}])(?:create|make|add|open)\\s+(?:the\\s+)?${word}\\s+(?:from|for|of)\\b`, "u"),
+    new RegExp(`(?<![\\p{L}])(?:make|turn|convert)\\s+(?:items?|points?|these|those|them|all|every)(?![\\p{L}])[^\\n]{0,40}?\\b${word}\\b`, "u"),
+  ].some((r) => r.test(t));
+}
 
 /** Words a short request may hold around an in-place playbook's trigger word, in Indonesian and English. */
 const REQUEST_WORDS = new Set(("tolong minta mohon bikin bikinin buat buatin buatkan tulis tulisin tuliskan catat catatin catatkan dong donk ya yah yuk ayo deh sih nih "

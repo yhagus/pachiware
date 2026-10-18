@@ -77,6 +77,8 @@ export const teamHandlers = {
   setTeamMember: async (args: Record<string, unknown>, ctx: SkillContext) => {
     const path = rosterPath(ctx);
     if (!path) throw new Error(textIn(ctx.language).teamNoGuild);
+    // The roster is read in every channel, and what is said in a private thread belongs to it.
+    if (ctx.privateThread) throw new Error(textIn(ctx.language).teamPrivateThread);
     if (typeof args.person !== "string" || !args.person.trim()) throw new Error("person is required");
     const who = await resolveAssignee(args.person, ctx);
     if ("candidates" in who) return ambiguousAssignee(args.person, who.candidates);

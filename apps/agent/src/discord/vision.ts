@@ -9,21 +9,25 @@ const TRANSCRIBE = `This is one scanned page of a document. Write out every word
 
 const png = (bytes: Uint8Array): ImagePart => ({ type: "image", mediaType: "image/png", data: Buffer.from(bytes).toString("base64") });
 
-/** One model call with images; null when it failed or the Profile refused the images. */
-async function seeing(tenantId: string, botId: string | undefined, prompt: string, images: ImagePart[]) {
-  const answer = await llmRouter.complete([{ role: "system", content: prompt }, { role: "user", content: [{ type: "text", text: "The image:" }, ...images] }], { tenantId, botId }).catch(() => null);
+/** How long one image's description may take, and all the pages of one scanned PDF together: neither may hold a conversation for long. */
+export const visionLimits = { describeMs: 45_000, pagesMs: 120_000 };
+
+/** One model call with images, given up at `deadline`; null when it failed, ran out of time, or the Profile refused the images. */
+async function seeing(tenantId: string, botId: string | undefined, prompt: string, images: ImagePart[], deadline: number) {
+  if (Date.now() >= deadline) return null;
+  const answer = await llmRouter.complete([{ role: "system", content: prompt }, { role: "user", content: [{ type: "text", text: "The image:" }, ...images] }], { tenantId, botId, deadline }).catch(() => null);
   return answer && answer.finishReason !== "error" && !answer.imagesRejected ? answer.content?.trim() || null : null;
 }
 
 /** What the bot's Profile sees in an image, in Indonesian and English. */
-export const describeImage = (tenantId: string, botId: string | undefined, image: ImagePart) => seeing(tenantId, botId, DESCRIBE, [image]);
+export const describeImage = (tenantId: string, botId: string | undefined, image: ImagePart) => seeing(tenantId, botId, DESCRIBE, [image], Date.now() + visionLimits.describeMs);
 
-/** Reads scanned pages one call each, headed by page number; null when no page gave text. */
+/** Reads scanned pages one call each, headed by their page number in the PDF, until the time for the PDF runs out; null when no page gave text. */
 export const pageReader = (tenantId: string, botId: string | undefined): PageReader => async (pages) => {
-  const read: string[] = [];
-  for (const [i, page] of pages.entries()) {
-    const text = await seeing(tenantId, botId, TRANSCRIBE, [png(page)]);
-    if (text) read.push(`## Page ${i + 1}\n\n${text}`);
+  const read: string[] = [], deadline = Date.now() + visionLimits.pagesMs;
+  for (const { page, png: bytes } of pages) {
+    const text = await seeing(tenantId, botId, TRANSCRIBE, [png(bytes)], deadline);
+    if (text) read.push(`## Page ${page}\n\n${text}`);
   }
   return read.length ? read.join("\n\n") : null;
 };

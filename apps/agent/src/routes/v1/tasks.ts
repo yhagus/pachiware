@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { object } from "../validation.js";
-import { DEFAULT_TIMEZONE, loadAllTasks, normalizeDueAt, parseAssignee, parseTask, PRIORITIES, render, slug, STATUSES, type Task, WorkspaceConflict, workspaceStore } from "@pachiware/skills";
+import { DEFAULT_TIMEZONE, loadAllTasks, normalizeDueAt, parseAssignee, parseTask, PRIORITIES, recordChange, render, slug, STATUSES, type Task, WorkspaceConflict, workspaceStore } from "@pachiware/skills";
 import type { TenantEnv } from "../../middleware/tenant.js";
 
 export const taskRoutes = new Hono<TenantEnv>();
@@ -40,7 +40,9 @@ taskRoutes.patch("/:id", async (c) => {
   if (!hit) return c.json({ success: false, error: "Task not found." }, 404);
   const current = await workspaceStore().read(tenantId, hit.path), parsed = current && parseTask(current.content);
   if (!current || !parsed) return c.json({ success: false, error: "Task not found." }, 404);
-  const next: Task = { ...parsed, ...(body.title === undefined ? {} : { title: body.title.trim() }), ...(body.description === undefined ? {} : { description: body.description }), ...(body.status === undefined ? {} : { status: body.status }), ...(body.priority === undefined ? {} : { priority: body.priority }), ...(body.assignedTo === undefined ? {} : { assignedTo: parseAssignee(body.assignedTo) }), ...(body.dueAt === undefined ? {} : { dueAt: dueAtOf(body) }), updatedAt: new Date().toISOString() };
+  const edited: Task = { ...parsed, ...(body.title === undefined ? {} : { title: body.title.trim() }), ...(body.description === undefined ? {} : { description: body.description }), ...(body.status === undefined ? {} : { status: body.status }), ...(body.priority === undefined ? {} : { priority: body.priority }), ...(body.assignedTo === undefined ? {} : { assignedTo: parseAssignee(body.assignedTo) }), ...(body.dueAt === undefined ? {} : { dueAt: dueAtOf(body) }) };
+  // As a chat write does: History, completedAt and updatedAt follow the change (#250).
+  const next = recordChange(parsed, edited, { userName: "Operator", userId: "web-operator", timezone: DEFAULT_TIMEZONE });
   try { await workspaceStore().write(tenantId, hit.path, render(next), current.version); } catch (e) { if (e instanceof WorkspaceConflict) return c.json({ success: false, error: e.message }, 409); throw e; }
   return c.json({ success: true, message: "Task updated successfully.", task: next });
 });

@@ -383,6 +383,17 @@ async function matching(store: WorkspaceStore, tenantId: string, found: Found[],
   return out;
 }
 
+/**
+ * `after` as it is written: each field change kept as a dated History line naming who asked (#250), completedAt stamped when it becomes
+ * completed and cleared when it opens again, updatedAt moved. Every write path uses it: chat tools and the web routes.
+ */
+export function recordChange(before: Task, after: Task, who: Pick<SkillContext, "userName" | "userId" | "timezone">): Task {
+  const at = today().toISOString(), changes = changesOf(before, after);
+  const completedAt = after.status === "completed" ? (before.status === "completed" ? before.completedAt ?? null : at) : null;
+  const history = changes.length ? [...(before.history ?? []), historyEntry(who, changes.join("; "))] : before.history;
+  return { ...after, updatedAt: at, completedAt, ...(history?.length ? { history } : {}) };
+}
+
 /** What a write changed in the fields people track, one phrase each, for the task's History. */
 function changesOf(before: Task, after: Task): string[] {
   const out: string[] = [], none = "none";
@@ -409,11 +420,7 @@ async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: s
   const edited = await edit(parsed, hit.path);
   // A name-only Assignee the edit kept is linked when its name now matches exactly one member who may hold the task.
   const assignedTo = edited.assignedTo === parsed.assignedTo ? await linkHeld(ctx, hit.path, edited.assignedTo) : edited.assignedTo;
-  const at = today().toISOString(), changes = changesOf(parsed, { ...edited, assignedTo });
-  // Each field change is kept as a dated line of the task's History (#250), and completing it stamps completedAt; opening it again clears that.
-  const completedAt = edited.status === "completed" ? (parsed.status === "completed" ? parsed.completedAt ?? null : at) : null;
-  const history = changes.length ? [...(parsed.history ?? []), historyEntry(ctx, changes.join("; "))] : parsed.history;
-  const next: Task = { ...edited, assignedTo, updatedAt: at, completedAt, ...(history?.length ? { history } : {}) };
+  const next = recordChange(parsed, { ...edited, assignedTo }, ctx);
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
   return next;

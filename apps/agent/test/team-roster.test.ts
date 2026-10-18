@@ -51,3 +51,12 @@ discordScenario("a time zone that is not one is refused, removing takes a person
   // A DM speaks the tenant's language.
   expect(s.discord.botMessages.at(-1)!.content).toBe("Daftar tim milik sebuah server: tanyakan di salah satu channel-nya.");
 });
+
+discordScenario("the roster is not changed from a private thread, since every channel reads it", async (s) => {
+  await s.guildSettings({ useThreads: false, language: "en" });
+  const thread = s.discord.channel("thread-9", { thread: true, parentId: "channel-1", private: true, members: [s.discord.alice.id] });
+  s.model.script({ tool: "setTeamMember", args: { person: "Bob", role: "acquisition lead" } }, (turn) => turn.toolResults[0].error);
+  await s.discord.send(`${s.discord.mention} Bob leads the acquisition`, { channel: thread });
+  expect(s.discord.botMessages.at(-1)!.content).toBe("The Team roster is read in every channel of this server, so it is not changed from a private thread. Ask in a channel.");
+  expect(await s.workspace.read("guilds/guild-1/shared/team.md")).toBeNull();
+});

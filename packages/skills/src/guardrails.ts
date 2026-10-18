@@ -73,22 +73,16 @@ export const injectionPhrases = (text: string) =>
 
 /** Words that only carry an injection along ("please", "now", "rules"), beside the words that carry no topic at all. */
 const CARRIER = new Set("tolong please pls plz now sekarang lalu kemudian terus then rule rules aturan prompt prompts instruksi instruction instructions perintah everything semuanya punya anda unrestricted unfiltered ai bot answer anything apapun jawab".split(" "));
-const QUOTES = /["“”`]|(?:^|\s)['‘]|['’](?=\s|$|[.,!?])/g;
-
-/** Whether the phrase at `at` sits between quotation marks on its own line, as text someone is talking about. */
-function quoted(text: string, at: number, length: number) {
-  const start = text.lastIndexOf("\n", at) + 1, end = text.indexOf("\n", at + length);
-  const before = text.slice(start, at).match(QUOTES)?.length ?? 0, after = text.slice(at + length, end < 0 ? undefined : end).match(QUOTES)?.length ?? 0;
-  return before % 2 === 1 && after > 0;
-}
+/** What the host adds to a turn line, which no person wrote: attachment placeholders and the line naming the replied-to message. */
+const HOST_TEXT = /\[(?:image|file|image in the replied-to message): [^\]]*\]|^\(replying to [^\n]*$/gmu;
 
 /**
- * Whether a turn is nothing but an attempt to change the rules: every phrase stands unquoted, and without them and the speakers'
- * names fewer than three words with a topic are left. Anything more is a request that quotes such text (#255).
+ * Whether a turn is nothing but an attempt to change the rules: without the phrases, the speakers' names and what the host added to
+ * the lines, fewer than three words with a topic are left. Quotation marks change nothing: a bare injection in quotes is still bare.
+ * Anything more is a request that quotes such text (#255).
  */
 function onlyInjection(text: string, phrases: { text: string; at: number }[]) {
-  if (phrases.some((p) => quoted(text, p.at, p.text.length))) return false;
-  let rest = text;
+  let rest = text.replace(HOST_TEXT, " ");
   for (const p of phrases) rest = rest.split(p.text).join(" ");
   rest = rest.split("\n").map((line) => line.replace(/^[^\n:]{1,60}?:\s/, "")).join(" ");
   const words = rest.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
