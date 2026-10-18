@@ -1570,4 +1570,5 @@ Planning is done; implementation follows the sub-issues of [#226](https://github
   - 4 workers: 62–66 s, 0 and 0.
   - 2 workers: 66–72 s, 0 and 0.
   Each scenario spawns its own bun subprocess, so a worker per core only adds contention, and with Docker's VMs holding about 94k file handles the system table runs out. CI's runners have 4 cores, so CI runs as before. Through the script: 1164 pass, 0 fail in 55 s.
+- [x] The first push through the 4-worker hook (2026-10-19, 00:06 in Jakarta) caught `private-thread-folder.test.ts` expecting today's Minutes under the UTC date. #234 names them by the date in the place's zone, and that scenario was missed when the minutes tests were updated, so it failed every day from 17:00 to 24:00 UTC. Fixed in 0d73ca9. Two full runs, then the hook: 1164 pass, 0 fail each, and `main` was pushed without `--no-verify`.
 
