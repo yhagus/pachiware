@@ -1563,3 +1563,4 @@ Planning is done; implementation follows the sub-issues of [#226](https://github
     - The judges read Minutes and Decision details as outside "tasks, Memory, files or Reminders" when asked whether every statement is supported.
     - Two judges counted a trailing offer after acting ("mau saya buatkan task?") as asking; a calibration item for #49.
     - The baseline worktree and its folder are scratch and not kept.
+  - Merged: `rapor-offline-judge` fast-forwarded into `main` and pushed with `--no-verify`, chosen by the user. Two Apple Virtualization VMs (Docker Desktop's among them) held about 94k of the system's 122,880 file handles, so the parallel suite hit `ENFILE`. The tests that failed pass alone, and the branch changes no product code. #240, #225 and #226 closed.
