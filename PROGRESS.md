@@ -1606,4 +1606,5 @@ The five tickets the first live Rapor (#240, 76.5) filed. Together they cover ev
   - typecheck 0 at every commit.
   - Every new scenario failed before its fix.
   - Full suite at load average 35–44 (Docker's VM at about 240% CPU): 1177 pass, 4 fail. The failures were 5 s timeouts in `setup.test.ts`, `router-hardening.test.ts` and `workspace.test.ts`, and each file passes alone (30 s timeout).
+- [x] Merged: `fix/rapor-241-245` fast-forwarded into `main` and pushed with `--no-verify`, chosen by the user: three pre-push runs at load average 25–39 each failed only on 5 s timeouts (1, 4 and 5 of them, in different files each time), and every file that failed passes alone. #241–#245 closed with their commits; GitHub closed #241 itself from the words "fixes #241" in b0c32ff's subject.
 - [ ] Second live Rapor (`EVAL_EXAM=1 EVAL_TRIALS=3`, profile `deepseek-flash`, judged blind and offline through `offline-judge.ts`), against 76.5. Needs the user's DeepSeek key.
