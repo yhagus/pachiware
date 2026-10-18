@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discordScenario, type Scenario } from "./support/discordScenario";
+import { fakePlane } from "./support/fakePlane";
 
 // Citations rendered by the server, links in replies checked (#212, ADR 0014).
 
@@ -36,6 +37,18 @@ discordScenario("a reply citing [K1] and [G1] after recall shows each source's l
     "Discussed in the Loudness Minutes [#audio · Minutes 2026-09-01](<https://discord.com/channels/guild-1/channel-2/5100>); "
     + "done in a merged pull request [acme/api · pull request #88 \"Normalize audio loudness\" (merged)](<https://github.com/acme/api/pull/88>).",
   );
+});
+
+discordScenario("a reply citing [P1] after recall links the Work item to its page in Plane's web app", async (s) => {
+  await setUp(s);
+  await s.plane({ projects: ["*"] });
+  const plane = fakePlane(s);
+  plane.project({ id: "11111111-1111-4111-8111-111111111111", name: "Engineering", identifier: "ENG" });
+  const done = plane.state({ project: "11111111-1111-4111-8111-111111111111", name: "Done", group: "completed" });
+  plane.item({ project: "11111111-1111-4111-8111-111111111111", sequence_id: 3, name: "Audio normalization", state: done.id });
+  s.model.script(RECALL, "Tracked in Plane [P1].");
+  await s.discord.send(`${s.discord.mention} is audio normalization done?`);
+  expect(s.discord.botMessages.at(-1)!.content).toBe("Tracked in Plane [ENG-3 \"Audio normalization\" (Done)](<https://app.plane.so/acme/browse/ENG-3/>).");
 });
 
 discordScenario("a ref no tool gave leaves no trace in the reply, and an audit row says so", async (s) => {

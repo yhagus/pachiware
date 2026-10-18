@@ -62,7 +62,7 @@ discordScenario("one recall call returns the Minutes, the completed Task, the me
       lines: [{ line: 12, text: "1. Audio normalization targets -14 LUFS [↗](https://discord.com/channels/guild-1/channel-2/5001)" }] }],
     tasks: [{ ref: "T1", label: "#audio · Task \"Normalize the audio loudness\" (completed)", line: "completed | no due date | unassigned | 00000001 | Normalize the audio loudness" }],
     work: [{ ref: "G1", label: "acme/api · pull request #88 \"Normalize audio loudness to -14 LUFS\" (merged)", url: "https://github.com/acme/api/pull/88", date: "2026-10-12T09:00:00Z" }],
-    workItems: [{ ref: "P1", label: "ENG-3 \"Normalisasi audio podcast\" (Done)" }],
+    workItems: [{ ref: "P1", label: "ENG-3 \"Normalisasi audio podcast\" (Done)", url: "https://app.plane.so/acme/browse/ENG-3/" }],
   });
   expect(JSON.stringify(result)).not.toMatch(/secret|vault|SEC-|contract/i);
   expect(s.http.requests.some((r) => r.url.includes("vault") || r.url.includes(`/projects/${SEC}/`))).toBe(false);

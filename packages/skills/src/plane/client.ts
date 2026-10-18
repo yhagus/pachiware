@@ -55,6 +55,17 @@ export function assertPlaneUrl(baseUrl: string | null): void {
 /** A path inside the account's Plane workspace, e.g. inWorkspace(conn, "projects/") for `workspaces/<slug>/projects/`. */
 export const inWorkspace = (conn: PlaneConn, path: string) => `workspaces/${encodeURIComponent(conn.workspaceSlug)}/${path.replace(/^\/+/, "")}`;
 
+/** Plane's cloud web app, where a cloud work item opens in the browser. */
+const PLANE_CLOUD_WEB = "https://app.plane.so";
+
+/**
+ * A work item's page in Plane's web app, such as `https://app.plane.so/acme/browse/ENG-42/`. The route and trailing slash are
+ * Plane v1.3.1's own (`generateWorkItemLink` in packages/utils/src/work-item/base.ts). A self-hosted Plane serves its web app at
+ * the root of the base URL, beside `/api/`.
+ */
+export const workItemWebUrl = (conn: PlaneConn, key: string) =>
+  `${conn.baseUrl ?? PLANE_CLOUD_WEB}/${encodeURIComponent(conn.workspaceSlug)}/browse/${encodeURIComponent(key)}/`;
+
 /** A Plane answer, read field by field. */
 export type Obj = Record<string, any>;
 type Query = Record<string, string | number | boolean | undefined | null>;

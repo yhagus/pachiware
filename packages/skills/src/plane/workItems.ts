@@ -3,7 +3,7 @@
  * relations and attachments. Every tool resolves its Plane project inside the Plane scope first (`resolve.ts`).
  */
 import type { ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
-import { planeList, planeRequest, inWorkspace, type Obj } from "./client.js";
+import { planeList, planeRequest, inWorkspace, workItemWebUrl, type Obj } from "./client.js";
 import { planeProjectAllowed } from "./scope.js";
 import { planeMarkdown, planeText } from "./markdown.js";
 import { holdsQuery, queriesTerms, wordingsOf } from "../workspace/terms.js";
@@ -33,7 +33,7 @@ export const workItemTools: ToolDefinition[] = [
       limit: { type: "number", description: "At most this many results (default 20, max 50)." },
       account: ACCOUNT_ARG,
     }, required: ["query"] } },
-  { name: "workItemList", description: "Lists work items, newest change first, filtered by state or state group, assignee, label, priority, change date and title text, in one Plane project or in all open here. Reads at most 2000 work items per Plane project and 20 Plane projects; stoppedEarly says when it hit that.",
+  { name: "workItemList", description: "Lists work items, newest change first, filtered by state or state group, assignee, label, priority, change date and title text, in one Plane project or in all open here. Reads at most 2000 work items per Plane project and 20 Plane projects; stoppedEarly says when it hit that. Each work item has a url to its page in Plane.",
     parameters: { type: "object", properties: {
       project: { type: "string", description: "Plane project id, identifier or name; omit for every Plane project open here." },
       stateGroup: { type: "string", enum: [...STATE_GROUPS, "open", "closed"], description: "open = backlog, unstarted or started; closed = completed or cancelled." },
@@ -247,7 +247,7 @@ export const workItemHandlers: Record<string, ToolHandler> = {
       items: matched.slice(0, limit).map((it) => ({
         key: it.key, name: it.name, state: it.state?.name ?? null, priority: it.priority,
         assignees: (it.assignees ?? []).map(planeUserName), labels: (it.labels ?? []).map((l: Obj) => l.name),
-        targetDate: it.target_date ?? null, updatedAt: it.updated_at,
+        targetDate: it.target_date ?? null, updatedAt: it.updated_at, url: workItemWebUrl(t.conn, it.key),
       })),
       matched: matched.length,
       ...(matched.length > limit ? { more: true } : {}),
