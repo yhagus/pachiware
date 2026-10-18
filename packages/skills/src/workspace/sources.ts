@@ -30,7 +30,7 @@ export async function viewableChannels(store: WorkspaceStore, tenantId: string, 
 }
 
 /**
- * A place whose kept material (Minutes, Decisions, Notes and Documents) the asker may read from where they ask.
+ * A place whose kept material (Minutes, Daily logs, Decisions, Notes and Documents) the asker may read from where they ask.
  * `root` is the name a path starts with: "channel", "thread" or "dm" for the place asked from (`here`), "channel/threads/<id>" for one
  * of its private threads, else "#name" (with " [id]" when two channels share a name). `label` is how results name it. `folder` is its
  * tenant-relative folder, `folders` the kept folders under it that are read. `quotable`: what it holds may be shown here; a source

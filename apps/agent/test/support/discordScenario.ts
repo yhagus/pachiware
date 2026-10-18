@@ -55,7 +55,8 @@ export interface FakeChannel { id: string; guildId: string | null; parentId: str
 /** `guild` places a channel in a guild the bot joined with `joinGuild`; the default is "guild-1". */
 export type ChannelOptions = { thread?: boolean; parentId?: string; ownerId?: string; dm?: boolean; private?: boolean; members?: string[]; guild?: string };
 /** A message written before the bot was listening; `at` is its creation time in ms. */
-export type PastMessage = { content: string; author?: FakeUser & { bot?: boolean }; at?: number; attachments?: any[] };
+/** `webhook` posts it as a webhook or integration does: a bot author with a `webhookId`. */
+export type PastMessage = { content: string; author?: FakeUser & { bot?: boolean }; at?: number; attachments?: any[]; embeds?: any[]; webhook?: boolean };
 /** A button click or context-menu command as the bot received it, with every response it made. */
 export interface FakeInteraction { responses: { kind: "reply" | "update" | "deferReply" | "deferUpdate" | "editReply" | "followUp"; payload: any }[] }
 /** Another bot of the scenario's tenant, running in the same guild beside the default one. */
@@ -76,7 +77,7 @@ export interface Scenario {
    */
   plane(options?: { name?: string; baseUrl?: string | null; workspaceSlug?: string; projects?: string[] | null }): Promise<{ id: string }>;
   /** Saves guild settings as the console does, Digest schedule rows included. */
-  guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: { channelId: string; hour: number }[] }): Promise<void>;
+  guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: { channelId: string; hour: number }[]; dailyLogChannels?: { channelId: string; backfill: boolean }[] }): Promise<void>;
   /** Calls the admin API with the platform key, as the console does; returns once every post it caused has landed. */
   admin(method: string, path: string, body?: unknown): Promise<{ status: number; body: any }>;
   /** The clock the time context, task dates and the scheduler read. `set` pins it (ms, Date, or ISO text); `advance` moves it forward. */
@@ -237,6 +238,11 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       channel.fetches++;
       const list = (channel.messages as FakeMessage[]).filter((m) => (!query?.before || BigInt(m.id) < BigInt(query.before)) && (!query?.after || BigInt(m.id) > BigInt(query.after)));
       return new Collection(list.slice(-(query?.limit ?? 50)).reverse().map((m) => [m.id, m]));
+    };
+    // Like Discord's, the active list holds every thread under the channel, private ones included; none is archived.
+    if (!o.thread && !o.dm) channel.threads = {
+      fetchActive: async () => ({ threads: new Collection([...channels.values()].filter((t) => t.parentId === id).map((t) => [t.id, t])) }),
+      fetchArchived: async () => ({ threads: new Collection(), hasMore: false }),
     };
     channels.set(id, channel);
     return channel;
@@ -490,7 +496,11 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         await settle();
       },
       channel: (id, options) => makeChannel(id, options),
-      history: (messages, { channel } = {}) => messages.map((m) => post(channelOf(channel), { ...(m.author ?? alice), bot: !!m.author?.bot }, m.content, { attachments: m.attachments, at: m.at })),
+      history: (messages, { channel } = {}) => messages.map((m) => {
+        const message: any = post(channelOf(channel), { ...(m.author ?? alice), bot: !!m.author?.bot || !!m.webhook }, { content: m.content, embeds: m.embeds }, { attachments: m.attachments, at: m.at });
+        if (m.webhook) message.webhookId = `webhook-${message.author.id}`;
+        return message;
+      }),
       deny: (channel, userId, permissions) => {
         const id = typeof channel === "string" ? channel : channel.id;
         const byUser = denied.get(id) ?? new Map<string, string[]>();

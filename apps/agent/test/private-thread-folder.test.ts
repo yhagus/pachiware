@@ -123,7 +123,7 @@ discordScenario("a private thread's files change only from inside it, and the re
     return JSON.parse(s.discord.botMessages.at(-1)!.content);
   };
   const readOnly = "File thread privat hanya bisa diubah dari dalam thread itu sendiri.";
-  const topOnly = "Di tingkat atas folder channel atau DM hanya boleh ada tasks, notes, decisions, files, minutes, MEMORY.md, glossary.md; letakkan di salah satunya.";
+  const topOnly = "Di tingkat atas folder channel atau DM hanya boleh ada tasks, notes, decisions, files, minutes, daily-logs, MEMORY.md, glossary.md; letakkan di salah satunya.";
   expect(await ask(bob)).toEqual(["Hanya orang yang ditambahkan ke thread privat itu yang bisa meminta file-nya dibaca.", readOnly, topOnly]);
   expect(await ask(alice)).toEqual(["ok", readOnly, topOnly]);
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/notes")).toEqual([]);

@@ -77,7 +77,7 @@ discordScenario("writeFile refuses a stray top-level folder under the channel, n
   s.model.script(
     { tool: "writeFile", args: { path: "channel/random/x.md", content: "hi" } },
     (turn) => {
-      expect(turn.toolResults[0].error).toMatch(/tasks, notes, decisions, files, minutes, MEMORY\.md/);
+      expect(turn.toolResults[0].error).toMatch(/tasks, notes, decisions, files, minutes, daily-logs, MEMORY\.md/);
       return { tool: "writeFile", args: { path: "channel/notes/x.md", content: "hi" } };
     },
     (turn) => (turn.toolResults.at(-1).success ? "filed" : `not filed: ${turn.toolResults.at(-1).error}`),

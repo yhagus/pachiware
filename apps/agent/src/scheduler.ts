@@ -2,6 +2,7 @@ import { repositories, type Schedule } from "@pachiware/db";
 import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, readGroups, MAX_SCOPED, workspaceStore, taskLine, isOpen, scopeSources, tasksIn, inScope, groupTasks, type DiscordClientAdapter, type TaskSource, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines } from "./digest.js";
+import { writeDailyLog, dayBefore } from "./discord/dailyLog.js";
 import type { DiscordBotManager } from "./discord/client.js";
 
 export const SCHEDULER_INTERVAL_MS = 60_000;
@@ -30,14 +31,27 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
   if (!client) return;
   const late = at - row.nextAt.getTime();
   if (late > LATE_LIMIT_MS) { await moveOn(row, at, null); return; }
+  if (row.kind === "daily-log") { await dailyLog(manager, row); await moveOn(row, at, new Date(at)); return; }
   try { await post(client, manager.adapterOf(row.botId, row.guildId ?? undefined), row, at, late > LATE_NOTE_MS); }
   catch (error: any) { await failed(row, error?.message || String(error)); return; }
   await moveOn(row, at, new Date(at));
 }
 
+/**
+ * The Daily log of the day before the row came due, written with the owning bot's Profile and never posted. A failure is not retried:
+ * the row moves on either way, since a row that keeps failing would end as done and stop the channel's Daily logs.
+ */
+async function dailyLog(manager: DiscordBotManager, row: Schedule) {
+  const adapter = manager.adapterOf(row.botId, row.guildId ?? undefined);
+  const channel: any = await manager.clientOf(row.botId)?.channels.fetch(row.channelId).catch(() => null);
+  if (!adapter || !row.guildId || !channel) return;
+  const run = { tenantId: row.tenantId, botId: row.botId, guildId: row.guildId, channelId: row.channelId, channelName: channel.name ?? row.channelId, timezone: row.timezone, day: dayBefore(row.timezone, row.nextAt.getTime()), adapter };
+  const result = await writeDailyLog(run).catch((error) => { console.error(`[daily-log] ${row.channelId} ${run.day}:`, error?.message ?? error); return "failed" as const; });
+  if (result === "failed") console.error(`[daily-log] could not write ${row.channelId} ${run.day}`);
+}
+
 /** A Reminder is the one message that pings: the owner and the people named when it was made; a late one says when it was due, in the row's zone. A Digest pings nobody and is skipped on a day with nothing to report. */
 async function post(client: any, discord: DiscordClientAdapter | null, row: Schedule, at: number, late: boolean) {
-  if (row.kind === "daily-log") return; // A Daily log is never posted; writing it is not built yet.
   const channel: any = await client.channels.fetch(row.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) throw new Error("The channel is gone or cannot be posted in.");
   const agent = await repositories().agentConfig.get(row.tenantId);

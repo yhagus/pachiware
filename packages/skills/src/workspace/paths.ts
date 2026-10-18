@@ -9,7 +9,7 @@ const MAX_SEGMENT = 100, MAX_DEPTH = 8;
 export const safeId = (id: string | undefined) => (id && /^[\w-]{1,64}$/.test(id) ? id : undefined);
 
 /** What a place keeps for people to read later; a private thread keeps these in its own folder (ADR 0009). */
-export const KEPT_FOLDERS = ["notes", "decisions", "files", "minutes"];
+export const KEPT_FOLDERS = ["notes", "decisions", "files", "minutes", "daily-logs"];
 
 /** A private thread's own folder, under its parent channel's `threads/` (ADR 0009); undefined when an id is not a safe folder name. */
 export function threadFolder(guildId: string | undefined, channelId: string | undefined, threadId: string | undefined) {

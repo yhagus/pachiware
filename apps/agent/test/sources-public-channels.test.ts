@@ -76,7 +76,7 @@ discordScenario("another channel's Memory, tasks and other folders cannot be lis
   await s.workspace.write(`${MARKETING}/drafts/pricing.md`, "Pricing draft\n");
   await s.workspace.write(`${MARKETING}/threads/thread-x.md`, "Pricing brief\n");
   await s.workspace.write(`${MARKETING}/decisions/2026-10-14-pricing.md`, "Pricing decided\n");
-  const refused = "From another channel only notes, decisions, files, minutes can be read.";
+  const refused = "From another channel only notes, decisions, files, minutes, daily-logs can be read.";
   const decided = { path: "#marketing/decisions/2026-10-14-pricing.md", lines: [{ line: 1, text: "Pricing decided" }] };
   expect(await ask(s, [
     { tool: "listFiles", args: { path: "#marketing" } },
