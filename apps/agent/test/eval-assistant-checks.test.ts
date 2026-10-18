@@ -6,6 +6,7 @@ import { checkAssistantOutput } from "../eval/assistantChecks";
 import { loadAssistantFixtures, type AssistantFixture } from "../eval/assistantFixtures";
 import { gradeAssistantRun, type AssistantOutput, type AssistantState } from "../eval/assistantRun";
 import { EVAL_DIR } from "../eval/repository";
+import { loadExam } from "../eval/scorecard";
 
 const empty: AssistantState = { tasks: [], memory: { channel: [], guild: [] }, files: [], reminders: [] };
 const venue = { title: "Book the venue", status: "pending", dueAt: "2026-10-15", assignedTo: "Bob", createdByName: "Alice" };
@@ -14,7 +15,7 @@ const state = (tasks: AssistantState["tasks"]): AssistantState => ({ ...empty, t
 const fixture: AssistantFixture = {
   name: "x", messages: ["can you note that Bob has to book the venue by tomorrow?", "and give the other one to him too"],
   facts: {
-    language: "en", clock: "2026-10-14T02:00:00Z", mustCover: ["Booking the venue is Bob's task"],
+    language: "en", area: "tasks", clock: "2026-10-14T02:00:00Z", mustCover: ["Booking the venue is Bob's task"],
     turns: [
       { tasks: [{ title: "venue", status: "pending", dueAt: "2026-10-15", assignedTo: "Bob", createdByName: "Alice" }] },
       { ambiguous: "There is no other task", tasks: [{ title: "venue" }] },
@@ -147,19 +148,52 @@ describe("fixtures and recorded runs", () => {
     mkdirSync(join(tmp, "x"));
     writeFileSync(join(tmp, "x", "brief.md"), "note this");
     writeFileSync(join(tmp, "x", "follow-ups.md"), "and that\n---\nand this");
-    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\n");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: tasks\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\n");
     expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x has 3 messages but 1 turns");
-    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\nclock: soon\nmustCover: [m]\nturns: [{}, {}, {}]\n");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: tasks\nclock: soon\nmustCover: [m]\nturns: [{}, {}, {}]\n");
     expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: clock is not a time");
-    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}, {}, {}]\n");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: tasks\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}, {}, {}]\n");
     expect(loadAssistantFixtures(tmp)[0]!.messages).toEqual(["note this", "and that", "and this"]);
+  });
+
+  test("a fixture without an area of the Rapor is refused", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "note this");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\n");
+    expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: facts.yaml area is capture, recall, tasks, group or loop");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: chat\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\n");
+    expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: facts.yaml area is capture, recall, tasks, group or loop");
+  });
+
+  test("a scorecard naming a brief that does not exist, holding out one outside its briefs, or missing a weight is refused", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "eval-scorecard-")), "scorecard.yaml");
+    const card = (briefs: string, holdout = "[]", weights = "{ capture: 20, recall: 25, tasks: 20, group: 10, loop: 15 }") => { writeFileSync(file, `version: 1\nweights: ${weights}\nbriefs: ${briefs}\nholdout: ${holdout}\n`); return () => loadExam(fixtures, file); };
+    expect(card("[file-search, no-such-brief]")).toThrow("scorecard.yaml names no-such-brief, which is no brief under assistant/");
+    expect(card("[file-search]", "[remember-forget]")).toThrow("scorecard.yaml holds out remember-forget, which is not among its briefs");
+    expect(card("[file-search]", "[]", "{ capture: 20, recall: 25, tasks: 20, loop: 15 }")).toThrow("scorecard.yaml weights every area with a positive number; group has none");
+    expect(card("[file-search, file-search]")).toThrow("scorecard.yaml names file-search twice");
+    expect(card("[file-search, remember-forget]", "[remember-forget]")()).toEqual({
+      version: "1", weights: { capture: 20, recall: 25, tasks: 20, group: 10, loop: 15 }, briefs: ["file-search", "remember-forget"], holdout: ["remember-forget"],
+      areas: Object.fromEntries(fixtures.map((f) => [f.name, f.facts.area])),
+    });
+  });
+
+  test("every brief has an area and sits in the committed scorecard, whose weights are the Rapor's", () => {
+    const exam = loadExam(fixtures);
+    expect(exam.weights).toEqual({ capture: 20, recall: 25, tasks: 20, group: 10, loop: 15 });
+    expect([...exam.briefs].sort()).toEqual(fixtures.map((f) => f.name).sort());
+    expect(exam.areas["remember-forget"]).toBe("loop");
+    expect(exam.areas["file-search"]).toBe("capture");
+    expect(exam.areas["recall-among-distractors"]).toBe("recall");
+    expect(exam.areas["reminder-weekly"]).toBe("tasks");
   });
 
   test("a seed file must sit below its channel's folder, and hidden channels are a list of names", () => {
     const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
     mkdirSync(join(tmp, "x"));
     writeFileSync(join(tmp, "x", "brief.md"), "what did we decide?");
-    const facts = (seed: string) => writeFileSync(join(tmp, "x", "facts.yaml"), `language: en\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\nseed: ${seed}\n`);
+    const facts = (seed: string) => writeFileSync(join(tmp, "x", "facts.yaml"), `language: en\narea: recall\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}]\nseed: ${seed}\n`);
     facts("{ files: [{ channel: ops, path: ../../shared/MEMORY.md, content: x }] }");
     expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: each seed file needs a path below its channel's folder and a content");
     facts("{ files: [{ path: notes/a.md }] }");
@@ -185,7 +219,7 @@ test("the citations check fails an unrendered ref and a link nothing seeded hold
   const seeded: AssistantFixture = {
     name: "cited", messages: ["is audio normalization done?"],
     facts: {
-      language: "en", clock: "2026-10-14T02:00:00Z", mustCover: [], turns: [{}],
+      language: "en", area: "recall", clock: "2026-10-14T02:00:00Z", mustCover: [], turns: [{}],
       seed: {
         files: [{ path: "minutes/2026-10-06-sync.md", content: "---\ntitle: \"Sync\"\nguildId: \"guild-1\"\npostedIn: \"channel-1\"\nmessageId: \"5100\"\n---\n# Sync\nSee https://docs.acme.test/loudness\n" }],
         git: { repos: ["acme/*"], pullRequests: [{ repo: "acme/podcast", number: 42, title: "Normalize", mergedAt: "2026-10-12T00:00:00Z" }] },

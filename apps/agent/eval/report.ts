@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { summarize, type ProfileInfo, type TrialResult } from "./compare";
+import type { Exam } from "./scorecard";
 
 export interface RunMeta {
   /** Which eval the run is; the issue-draft eval when absent. */
@@ -28,16 +29,22 @@ const WORDING = {
   },
 };
 
-/** Writes `report.json` (everything) and `report.md` (a summary to read) into `dir`. */
-export function writeReport(dir: string, meta: RunMeta, trials: TrialResult[]) {
+const RAPOR_RULE = "The Rapor is out of 100. An area scores the mean of its exam briefs' scores, held-out briefs included; the total is the mean of the areas that ran, weighted as `scorecard.yaml` says. Holdout score is the mean of the area's held-out briefs alone, which nothing is ever tuned to.";
+const hundred = (x: number | null) => (x === null ? "" : (x * 100).toFixed(1));
+
+/** Writes `report.json` (everything) and `report.md` (a summary to read) into `dir`; with the exam, a daily-behaviour report opens with the Rapor. */
+export function writeReport(dir: string, meta: RunMeta, trials: TrialResult[], exam?: Exam) {
   mkdirSync(dir, { recursive: true });
-  const summary = summarize(trials, meta.profiles), words = WORDING[meta.kind ?? "drafts"];
+  const summary = summarize(trials, meta.profiles, exam), words = WORDING[meta.kind ?? "drafts"];
   writeFileSync(join(dir, "report.json"), `${JSON.stringify({ ...meta, summary, results: trials }, null, 2)}\n`);
   const briefs = [...new Set(trials.map((t) => t.result.fixture))].sort();
+  const run = `Judge: ${meta.judge.provider} / ${meta.judge.model}. Rubric ${meta.rubricVersion}. ${meta.trials} ${meta.trials === 1 ? "trial" : "trials"} per brief.${meta.repo && meta.commit ? ` Repository: ${meta.repo} at \`${meta.commit.slice(0, 7)}\`.` : ""}`;
   const md = [
-    `# ${words.title}, ${meta.startedAt}`,
-    "",
-    `Judge: ${meta.judge.provider} / ${meta.judge.model}. Rubric ${meta.rubricVersion}. ${meta.trials} ${meta.trials === 1 ? "trial" : "trials"} per brief.${meta.repo && meta.commit ? ` Repository: ${meta.repo} at \`${meta.commit.slice(0, 7)}\`.` : ""}`,
+    ...(exam ? [
+      `# Rapor v${exam.version}: ${summary.profiles.map((p) => `${p.rapor!.total === null ? "none" : hundred(p.rapor!.total)} (${p.name})`).join(", ")}`,
+      "",
+      `${words.title}, ${meta.startedAt}. ${run}`,
+    ] : [`# ${words.title}, ${meta.startedAt}`, "", run]),
     "",
     words.rule,
     "",
@@ -54,6 +61,14 @@ export function writeReport(dir: string, meta: RunMeta, trials: TrialResult[]) {
       "|---|---|---|---|",
       ...summary.pairs.map((d) => `| ${d.b} vs ${d.a} | ${d.n} | ${signed(d.mean)} | ${d.se === null ? "" : fixed(d.se)} |`),
     ] : []),
+    ...(exam ? ["", RAPOR_RULE, ...summary.profiles.flatMap((p) => [
+      "",
+      `## Rapor per area: ${p.name}`,
+      "",
+      "| Area | Weight | Score | Briefs | Holdout score |",
+      "|---|---|---|---|---|",
+      ...p.rapor!.areas.map((a) => `| ${a.area} | ${a.weight} | ${hundred(a.score)} | ${a.briefs} | ${hundred(a.holdoutScore)} |`),
+    ])] : []),
     "",
     "## Score per brief",
     "",

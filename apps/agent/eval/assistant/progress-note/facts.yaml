@@ -1,5 +1,6 @@
 # A progress report made to the bot is kept as a Progress note on the task, by its reporter; asking about the task shows it. Spec #120, stories 17, 18, 24.
 language: en
+area: tasks
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   tasks:

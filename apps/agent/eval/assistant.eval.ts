@@ -15,6 +15,7 @@ import { assertJudgeOutside, judgeFromEnv, judgeOverHttp } from "./judge";
 import { profilesFromEnv } from "./profiles";
 import { EVAL_DIR } from "./repository";
 import { writeReport } from "./report";
+import { loadExam } from "./scorecard";
 
 const env = process.env;
 const PER_TRIAL_MS = 10 * 60_000;
@@ -23,6 +24,7 @@ if (env.EVAL_LIVE !== "1") test.skip("the live eval runs only with EVAL_LIVE=1",
 else {
   const judge = judgeFromEnv(), profiles = profilesFromEnv();
   assertJudgeOutside(judge, profiles);
+  const exam = loadExam();
   const trials = Number(env.EVAL_TRIALS || 3);
   if (!Number.isInteger(trials) || trials < 1) throw new Error(`EVAL_TRIALS is a whole number of at least 1, not ${env.EVAL_TRIALS}.`);
   // The parent process names the run; each trial's subprocess inherits it.
@@ -50,7 +52,7 @@ else {
     writeReport(runDir, {
       kind: "assistant", judge: { provider: judge.provider, model: judge.model }, rubricVersion: ASSISTANT_RUBRIC_VERSION, trials, startedAt: env.EVAL_STARTED_AT!,
       profiles: profiles.map(({ name, provider, model, price }) => ({ name, provider, model, ...(price ? { price } : {}) })),
-    }, results);
+    }, results, exam);
     console.log(`Eval report: ${join(runDir, "report.md")}`);
   });
 }

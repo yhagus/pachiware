@@ -1,7 +1,7 @@
 /**
  * Daily-behaviour fixtures, one folder per brief under `assistant/`: `brief.md` (the first message, sent with a
  * mention), `follow-ups.md` (later messages, split on `---` lines, sent in the thread the bot opened), and `facts.yaml`:
- * the fixed clock, settings, grants and members, anything to seed (in the brief's channel or another) or attach, the must-cover facts, one `turns` entry per message
+ * the Rapor area, the fixed clock, settings, grants and members, anything to seed (in the brief's channel or another) or attach, the must-cover facts, one `turns` entry per message
  * with the Workspace and schedule state expected after it, and `then`, a scheduler tick after the conversation.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -43,8 +43,13 @@ export interface SeedFile {
 export interface SeedPullRequest { repo: string; number: number; title: string; /** Absent for a pull request still open. */ mergedAt?: string }
 /** A GitHub account whose Git scope opens `repos` (patterns such as "acme/*") in the guild, holding these pull requests. */
 export interface SeedGit { repos: string[]; pullRequests?: SeedPullRequest[] }
+/** The Rapor's areas: Minutes, Daily logs and Documents; finding what was kept; Tasks and project work; several people at once; the agent loop itself. */
+export const AREAS = ["capture", "recall", "tasks", "group", "loop"] as const;
+export type Area = (typeof AREAS)[number];
 export interface AssistantFacts {
   language: Language;
+  /** The Rapor area the brief scores in. */
+  area: Area;
   /** The instant the conversation starts at. */
   clock: string;
   settings?: { timezone?: string; language?: Language };
@@ -77,6 +82,7 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
     };
     const raw = Bun.YAML.parse(file("facts.yaml")) as any;
     if (raw?.language !== "en" && raw?.language !== "id") throw new Error(`Fixture ${name}: facts.yaml language is en or id`);
+    if (!AREAS.includes(raw.area)) throw new Error(`Fixture ${name}: facts.yaml area is ${AREAS.slice(0, -1).join(", ")} or ${AREAS.at(-1)}`);
     if (typeof raw.clock !== "string" || Number.isNaN(Date.parse(raw.clock))) throw new Error(`Fixture ${name}: clock is not a time`);
     const brief = file("brief.md").trim();
     if (!brief) throw new Error(`Fixture ${name} has an empty brief`);
@@ -90,7 +96,7 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
     if (raw.seed?.git && !strings(raw.seed.git.repos, `${name} seed.git.repos`)?.length) throw new Error(`Fixture ${name}: seed.git needs the repository patterns its Git scope opens`);
     for (const f of raw.seed?.files ?? []) if (typeof f?.path !== "string" || typeof f.content !== "string" || f.path.startsWith("/") || f.path.split("/").includes("..")) throw new Error(`Fixture ${name}: each seed file needs a path below its channel's folder and a content`);
     if (raw.then && (typeof raw.then.clock !== "string" || Number.isNaN(Date.parse(raw.then.clock)) || !Array.isArray(raw.then.posts))) throw new Error(`Fixture ${name}: then needs a clock and a list of posts`);
-    const facts: AssistantFacts = { language: raw.language, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), members: raw.members, seed: raw.seed, attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
+    const facts: AssistantFacts = { language: raw.language, area: raw.area, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), members: raw.members, seed: raw.seed, attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
     return { name, messages, facts };
   });
 }

@@ -1,0 +1,42 @@
+# The Rapor's exam (spec #226). Any change here, to a weight, a brief or a holdout, bumps `version`; only reports at one version compare.
+# Weights are out of 100; the other 10 of the harness review's rubric, the eval itself, is met by how the run is made, not by briefs.
+# `holdout` names briefs among `briefs` that never tune workspace/vocabulary.ts, the persona, a tool description or a playbook (README.md).
+version: 1
+weights:
+  capture: 20
+  recall: 25
+  tasks: 20
+  group: 10
+  loop: 15
+briefs:
+  # capture
+  - file-search
+  - minutes-as-document
+  # recall
+  - action-items-across-meetings
+  - decision-other-channel
+  - nothing-found
+  - private-channel-dm
+  - recall-among-distractors
+  - recall-asked-in-english
+  - recall-asked-in-indonesian
+  - recall-daily-log-only
+  - recall-decision-replaced
+  - recall-done-other-channel
+  - recall-done-pull-request
+  # tasks
+  - assign-ambiguous-name
+  - assign-unknown-name
+  - bulk-cancel
+  - cancel-with-reason
+  - due-dates-relative
+  - plate-across-channels
+  - progress-note
+  - reminder-weekly
+  - status-by-title
+  - task-casual-english
+  - task-casual-indonesian
+  - task-reference-ambiguous
+  # loop
+  - remember-forget
+holdout: []

@@ -1,5 +1,6 @@
 # A name no member has: the task is assigned to that name only, and the reply says the bot cannot reach him. Spec #120, stories 4, 5.
 language: en
+area: tasks
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   tasks:

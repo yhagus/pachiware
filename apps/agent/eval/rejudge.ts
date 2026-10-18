@@ -6,18 +6,19 @@
  */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadAssistantFixtures } from "./assistantFixtures";
+import { loadAssistantFixtures, type AssistantFixture } from "./assistantFixtures";
 import { ASSISTANT_RUBRIC_VERSION, gradeAssistantWithJudge, type AssistantJudged } from "./assistantJudge";
 import type { TrialResult } from "./compare";
 import { loadFixtures } from "./fixtures";
 import { assertJudgeOutside, gradeWithJudge, judgeFromEnv, judgeOverHttp, RUBRIC_VERSION, type Ask, type JudgedResult } from "./judge";
 import { writeReport, type RunMeta } from "./report";
+import { loadExam } from "./scorecard";
 
 export async function rejudge(runDir: string, ask: Ask, judge: RunMeta["judge"]): Promise<string> {
   const meta = JSON.parse(readFileSync(join(runDir, "report.json"), "utf8")) as RunMeta;
   assertJudgeOutside(judge, meta.profiles);
   const assistant = meta.kind === "assistant", version = assistant ? ASSISTANT_RUBRIC_VERSION : RUBRIC_VERSION;
-  const fixtures = new Map<string, any>((assistant ? loadAssistantFixtures() : loadFixtures()).map((f) => [f.name, f]));
+  const briefs = assistant ? loadAssistantFixtures() : loadFixtures(), fixtures = new Map<string, any>(briefs.map((f) => [f.name, f]));
   const out = join(runDir, `rejudged-${version}`);
   mkdirSync(join(out, "trials"), { recursive: true });
   const trials: TrialResult[] = [];
@@ -33,7 +34,7 @@ export async function rejudge(runDir: string, ask: Ask, judge: RunMeta["judge"])
     writeFileSync(join(out, "trials", file), `${JSON.stringify(again, null, 2)}\n`);
     trials.push(again);
   }
-  writeReport(out, { ...meta, judge, rubricVersion: version }, trials);
+  writeReport(out, { ...meta, judge, rubricVersion: version }, trials, assistant ? loadExam(briefs as AssistantFixture[]) : undefined);
   return out;
 }
 

@@ -1,6 +1,7 @@
 # Talk nobody asked to keep: only the Daily log the server wrote of #podcast (a Public channel) on 9 October 2026 holds it.
 # No Minutes, Decision or Note mentions it, and the talk was in Indonesian. Spec #195, stories 16, 18, 36, 43; ticket #206.
 language: en
+area: recall
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   files:

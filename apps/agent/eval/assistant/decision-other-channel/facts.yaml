@@ -1,5 +1,6 @@
 # A Decision kept in another Public channel answers a question asked here, naming that channel and the date. Spec #146, stories 1, 6, 10, 11.
 language: en
+area: recall
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   files:

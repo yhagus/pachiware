@@ -1,5 +1,6 @@
 # "The invoice" fits two tasks: the bot lists both as task lines and asks once, changing nothing; the answer settles it. Spec #120, story 26.
 language: en
+area: tasks
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   tasks:

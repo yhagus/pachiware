@@ -1,6 +1,7 @@
 # A topic kept in English, asked about in Indonesian: Minutes in this channel and a Note in another Public channel both say
 # "audio normalization", never "normalisasi audio". Spec #195, stories 33, 43; ticket #196.
 language: id
+area: recall
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   files:

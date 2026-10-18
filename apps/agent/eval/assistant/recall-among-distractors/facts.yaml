@@ -1,6 +1,7 @@
 # The one Decision that answers the question sits among two dozen kept files in three channels that share its words: an older
 # MP3 bitrate Decision it replaced, files about video bitrate, other exports and other MP3 matters. Spec #207, ticket #211.
 language: en
+area: recall
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   files:

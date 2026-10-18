@@ -1,5 +1,6 @@
 # A bulk cancel: four tasks would change at once, so the bot lists them as task lines and waits for a yes, changing nothing; the yes cancels all four. Issue #137.
 language: en
+area: tasks
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   tasks:

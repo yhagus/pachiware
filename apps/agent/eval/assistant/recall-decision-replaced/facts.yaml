@@ -1,6 +1,7 @@
 # Two Decisions on the same subject at different dates; neither file says it was replaced. The answer gives the newer one
 # and says the older was replaced. Spec #195, story 44; ticket #196.
 language: en
+area: recall
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
 seed:
   files:
