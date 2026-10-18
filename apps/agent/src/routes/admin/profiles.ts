@@ -28,8 +28,21 @@ function fields(body: Record<string, any>, creating: boolean): ProfileUpdate {
     if (typeof body.acceptsImages !== "boolean") throw new HTTPException(400, { message: "acceptsImages must be true or false" });
     out.acceptsImages = body.acceptsImages;
   }
+  if (body.fallbackProfileId !== undefined) {
+    if (body.fallbackProfileId !== null && body.fallbackProfileId !== "" && typeof body.fallbackProfileId !== "string") throw new HTTPException(400, { message: "fallbackProfileId must be a profile id or null" });
+    out.fallbackProfileId = body.fallbackProfileId || null;
+  }
   if (body.apiKey !== undefined && !String(body.apiKey).includes("••••")) out.apiKeyEncrypted = body.apiKey ? encryptSecret(string(body.apiKey, "apiKey")!) : null;
   return out;
+}
+
+const FALLBACK_REFUSALS = new Set(["Fallback profile not found", "A profile cannot fall back to itself", "Fallback chain would loop"]);
+/** A refused fallback is the caller's mistake, so it answers 400 with the repository's message. */
+async function refusingFallback<T>(write: () => Promise<T>): Promise<T> {
+  try { return await write(); } catch (err: any) {
+    if (FALLBACK_REFUSALS.has(err?.message)) throw new HTTPException(400, { message: err.message });
+    throw err;
+  }
 }
 
 profileAdminRoutes.get("/tenants/:id/profiles", async (c) => {
@@ -40,7 +53,7 @@ profileAdminRoutes.post("/tenants/:id/profiles", async (c) => {
   if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
   const values = fields(object(await c.req.json(), "body"), true);
   if (values.provider === "custom" && !values.baseUrl) throw new HTTPException(400, { message: "A custom provider needs a baseUrl" });
-  const row = await repositories().profiles.create(c.req.param("id"), values as NewProfile);
+  const row = await refusingFallback(() => repositories().profiles.create(c.req.param("id"), values as NewProfile));
   return c.json({ success: true, profile: publicProfile(row) }, 201);
 });
 profileAdminRoutes.patch("/profiles/:profileId", async (c) => {
@@ -49,10 +62,10 @@ profileAdminRoutes.patch("/profiles/:profileId", async (c) => {
   if (!current) return c.json({ error: "Profile not found" }, 404);
   const values = fields(object(await c.req.json(), "body"), false);
   if ((values.provider ?? current.provider) === "custom" && !(values.baseUrl !== undefined ? values.baseUrl : current.baseUrl)) throw new HTTPException(400, { message: "A custom provider needs a baseUrl" });
-  const row = await repositories().profiles.update(id, values);
+  const row = await refusingFallback(() => repositories().profiles.update(id, values));
   return c.json({ success: true, profile: publicProfile(row) });
 });
-// Integrations using the profile fall back to the tenant default.
+// Integrations using the profile fall back to the tenant default, and profiles that fell back to it have no fallback.
 profileAdminRoutes.delete("/profiles/:profileId", async (c) => {
   return await repositories().profiles.remove(c.req.param("profileId")!) ? c.json({ success: true }) : c.json({ error: "Profile not found" }, 404);
 });

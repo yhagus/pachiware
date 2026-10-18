@@ -1,9 +1,9 @@
 import { cachedTokensOf } from "./usage.js";
 import { providerRequest } from "./retry.js";
 import { readAnswer } from "./answer.js";
-import { repositories, decryptSecret } from "@pachiware/db";
+import { repositories, decryptSecret, type Profile } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { skillRegistry, textIn, configuredLanguage } from "@pachiware/skills";
+import { skillRegistry, textIn, configuredLanguage, audit } from "@pachiware/skills";
 import type { ChatMessage, ContentPart, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
 import { providerBaseUrl, providerHeaders, formatHeaders, apiFormatOf, isProvider, PROVIDERS, DEFAULT_MODELS, ANTHROPIC_TEST_MODEL } from "./providers.js";
@@ -23,6 +23,8 @@ export const anthropicBlocks = (content: ChatMessage["content"]): any[] => !Arra
 const anthropicModelOf = (config: any): string => config?.anthropicModel || (config?.defaultProvider === "anthropic" && config?.defaultModel) || DEFAULT_MODELS.anthropic!;
 // Low enough that actions are repeatable; a tenant's own value wins.
 export const DEFAULT_TEMPERATURE = 0.2;
+// The most Profiles one request may reach: the bot's own and two fallbacks after it.
+const MAX_CHAIN = 3;
 const CACHED = { cache_control: { type: "ephemeral" } };
 const markLast = (blocks: any[]) => blocks.map((b, i) => (i === blocks.length - 1 ? { ...b, ...CACHED } : b));
 // A response cut at the output limit is "length" whatever else it holds: its text is unfinished and any tool call in it may be.
@@ -79,8 +81,33 @@ export class LLMRouter {
     messages: ChatMessage[],
     options: LLMRequestOptions
   ): Promise<LLMResponse> {
-    let dbConfig = await this.getActiveTenantConfig(options.tenantId);
+    const tenantConfig = await this.getActiveTenantConfig(options.tenantId);
     const profile = options.provider ? null : await this.getBotProfile(options.tenantId, options.botId);
+    const started = performance.now();
+    let answered = await this.answerWith(profile, tenantConfig, messages, options);
+    let answeredBy = profile;
+    // A failed Profile hands the same request to its fallback, and that one to its own, up to MAX_CHAIN Profiles in all.
+    const tried = new Set(profile ? [profile.id] : []);
+    while (answered.response.finishReason === "error" && answeredBy?.fallbackProfileId && tried.size < MAX_CHAIN) {
+      const next = await repositories().profiles.getForTenant(options.tenantId, answeredBy.fallbackProfileId);
+      if (!next || tried.has(next.id)) break;
+      tried.add(next.id);
+      const blind = !next.acceptsImages && hasImages(messages);
+      answered = await this.answerWith(next, tenantConfig, blind ? withoutImages(messages) : messages, options);
+      if (blind && answered.response.finishReason !== "error") answered.response = { ...answered.response, imagesRejected: true };
+      answeredBy = next;
+    }
+    const { response, provider, model } = answered;
+    if (response.finishReason !== "error") {
+      if (profile && answeredBy && answeredBy.id !== profile.id) await audit(options, "profile_fallback", { from: profile.id, to: answeredBy.id, profiles: tried.size });
+      await repositories().usage.record({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0, latencyMs: Math.round(performance.now() - started), ...(answeredBy ? { profileId: answeredBy.id } : {}) } });
+    }
+    return response;
+  }
+
+  /** One request answered by a profile, or by the tenant default when there is none; a 400 on images is retried without them. */
+  private async answerWith(profile: Profile | null, tenantConfig: any, messages: ChatMessage[], options: LLMRequestOptions) {
+    let dbConfig = tenantConfig;
     const format = profile ? apiFormatOf(profile.provider, profile.apiFormat) : "chat_completions";
     if (profile) {
       if (!isProvider(profile.provider)) throw new Error("Unsupported profile provider");
@@ -100,17 +127,13 @@ export class LLMRouter {
         default: throw new Error("Unsupported tenant LLM provider");
       }
     };
-    const started = performance.now();
     let response = await call(messages);
     // A 400 on a request with images is most likely the model refusing them: one retry without, so the text still gets answered.
     if (response.httpStatus === 400 && hasImages(messages)) {
       const retry = await call(withoutImages(messages));
       if (retry.finishReason !== "error") response = { ...retry, imagesRejected: true };
     }
-    if (response.finishReason !== "error") {
-      await repositories().usage.record({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0, latencyMs: Math.round(performance.now() - started) } });
-    }
-    return response;
+    return { response, provider, model: options.model || dbConfig[`${provider}Model`] || dbConfig.defaultModel };
   }
 
   /**
