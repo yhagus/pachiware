@@ -1354,3 +1354,17 @@ Started from a review of the harness as an administrative assistant (2026-10-18)
     - Scenarios in `daily-log-backfill.test.ts`: two off nights stay without a Daily log after the rule is lifted while a night missed while down is written; a failed nightly day is written on the next start.
     - Verification: `bun run typecheck` exits 0; `bun run test` 1010 pass, 0 fail.
   - Verification: `bun run typecheck` exits 0. `bun run test`: 1008 pass, 0 fail. `bun run test:engines` against the compose PostgreSQL, MongoDB replica set and standalone services: 434 pass, 0 fail.
+
+## Phase 40 — Recall in one call, sharper matching, server-rendered citations (planning, spec #207)
+
+Planning is done; implementation follows the sub-issues of [#207](https://github.com/yhagus/pachiware/issues/207) in order. Prompted by the harness review of 2026-10-18, which scored recall 58/100: matching is substring-based with no filler words, stems or field weights; "is it done?" depends on the model calling four tools in turn; citations are only asked for in the persona.
+
+- [x] Decided one `recall` tool over the four-tool persona procedure. It runs Kept material, Tasks, git and Plane at once and reaches only what `listTasks`, `repoSearchWork` and `workItemList` reach from the same place: the loop passes the tools usable at the place into `SkillContext`.
+- [x] Decided light hand-written stemming (Indonesian particles and suffixes, English suffixes, loanword endings such as `-isasi`/`-ization`) over a dictionary stemmer such as Sastrawi; Indonesian prefixes are not stripped. Still within ADR 0013.
+- [x] ADR 0014: citations are rendered by the server. Tools give refs (`K1`, `T2`, `G3`, `P4`) with labels and links; the loop renders them in the final reply, drops unknown refs, and drops links found neither in the turn's tool results nor in the conversation sent to the model, following the guardrail mode.
+- [x] Spec #207 cut into 5 tickets, all sub-issues of #207 with native blocking, ready-for-agent:
+  - #208 Retrieval benchmark for Kept material (no blockers)
+  - #209 Shared word matching: stems, filler words, weighted fields (after #208)
+  - #210 Date range and match strength on searchFiles (after #209)
+  - #211 One recall call answers "was it discussed, decided, done?" (after #210)
+  - #212 Citations rendered by the server, links in replies checked (after #211)
