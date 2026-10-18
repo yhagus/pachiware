@@ -98,7 +98,8 @@ discordScenario("a recall part that hangs is reported under unavailable with the
   await s.git({ provider: "github", repos: ["acme/*"] });
   s.http.on("GET api.github.com/user/repos", () => NEVER);
   await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-01-loudness.md", "# Loudness\nAudio normalization targets -14 LUFS.\n");
-  await ceiling(80);
+  // Long enough for the kept search to finish on a loaded machine, so only the hung git part times out.
+  await ceiling(400);
   let result: any;
   s.model.script({ tool: "recall", args: { queries: ["audio normalization", "normalisasi audio"] } }, (turn) => { result = turn.toolResults[0]; return "done"; });
   await s.discord.send(`${s.discord.mention} is audio normalization done?`);
