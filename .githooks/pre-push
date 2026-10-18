@@ -1,3 +1,3 @@
 #!/bin/sh
-# `bun run test` runs the contract suites on SQLite only, in parallel; PostgreSQL and MongoDB runs stay opt-in.
+# `bun run test` runs the contract suites on SQLite only, on 4 parallel workers; PostgreSQL and MongoDB runs stay opt-in.
 bun run typecheck && bun run test

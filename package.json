@@ -17,7 +17,7 @@
     "dev:web": "bun --filter @pachiware/web dev",
     "build": "bun --filter @pachiware/* build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p apps/web",
-    "test": "TEST_POSTGRES_URL= TEST_MONGODB_URL= TEST_MONGODB_STANDALONE_URL= bun test --parallel",
+    "test": "TEST_POSTGRES_URL= TEST_MONGODB_URL= TEST_MONGODB_STANDALONE_URL= bun test --parallel=4",
     "test:engines": "bun ./packages/db/test/engines-run.ts",
     "eval": "bun test ./apps/agent/eval/drafts.eval.ts",
     "eval:assistant": "bun test ./apps/agent/eval/assistant.eval.ts"

@@ -1564,3 +1564,10 @@ Planning is done; implementation follows the sub-issues of [#226](https://github
     - Two judges counted a trailing offer after acting ("mau saya buatkan task?") as asking; a calibration item for #49.
     - The baseline worktree and its folder are scratch and not kept.
   - Merged: `rapor-offline-judge` fast-forwarded into `main` and pushed with `--no-verify`, chosen by the user. Two Apple Virtualization VMs (Docker Desktop's among them) held about 94k of the system's 122,880 file handles, so the parallel suite hit `ENFILE`. The tests that failed pass alone, and the branch changes no product code. #240, #225 and #226 closed.
+- [x] Suite parallelism: `bun run test` runs on 4 workers (`--parallel=4`), not one per core. Measured on this Mac (11 cores), two full runs each:
+  - 11 workers (the default): 46–58 s, 119 and 19 failures, almost all `ENFILE`.
+  - 6 workers: 45–50 s, 0 and 1 failure (a 5 s timeout).
+  - 4 workers: 62–66 s, 0 and 0.
+  - 2 workers: 66–72 s, 0 and 0.
+  Each scenario spawns its own bun subprocess, so a worker per core only adds contention, and with Docker's VMs holding about 94k file handles the system table runs out. CI's runners have 4 cores, so CI runs as before. Through the script: 1164 pass, 0 fail in 55 s.
+
