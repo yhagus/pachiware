@@ -21,6 +21,7 @@ const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 type Day = { year: number; month: number; day: number };
 const dayFrom = (utc: number): Day => { const d = new Date(utc); return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() }; };
 const daysInMonth = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).getUTCDate();
+const clockTime = (hour: number, minute: number) => hour <= 23 && minute <= 59;
 
 /** The next time a schedule fires after `after`, in the row's zone, or null when it is over: a `once` row, or a repeating one past `until`. A monthly day past the month's end lands on its last day. */
 export function nextOccurrence(schedule: Recurrence, after: number): number | null {
@@ -57,12 +58,15 @@ export function parseWhen(input: unknown, timeZone: string, from: number): numbe
   let m = DATE_TIME.exec(text);
   if (m) {
     const [year, month, day, hour, minute, second = 0] = m.slice(1).map((n) => (n === undefined ? 0 : Number(n)));
+    // A day or time that does not exist ("30 February", "09:75") would roll over into another one.
+    if (month! < 1 || month! > 12 || day! < 1 || day! > daysInMonth(year!, month!) || !clockTime(hour!, minute!) || second > 59) return null;
     const at = wallToInstant(timeZone, { year: year!, month: month!, day: day!, hour: hour!, minute: minute!, second });
     return Number.isNaN(at) ? null : at;
   }
   m = TIME.exec(text);
   if (m) {
     const today = wallClock(timeZone, from), hour = Number(m[1]), minute = Number(m[2]);
+    if (!clockTime(hour, minute)) return null;
     const at = wallToInstant(timeZone, { ...today, hour, minute, second: 0 });
     return at > from ? at : wallToInstant(timeZone, { ...wallClock(timeZone, from + DAY_MS), hour, minute, second: 0 });
   }

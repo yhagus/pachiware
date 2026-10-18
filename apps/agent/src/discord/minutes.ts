@@ -1,5 +1,5 @@
 import type { Message } from "discord.js";
-import { workspaceStore, addKeywords, renderFrontmatter, parseFrontmatter, placeRoot, visibleRoots, asUntrusted, replyObject, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, permissionName, type Language, type Playbook } from "@pachiware/skills";
+import { workspaceStore, addKeywords, renderFrontmatter, parseFrontmatter, placeRoot, visibleRoots, asUntrusted, replyObject, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, isoInZone, permissionName, type Language, type Playbook } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
 import { replyQuietly } from "./replyStyle.js";
@@ -46,6 +46,8 @@ export interface MinutesRun {
   /** Set when `channelId` is a private thread: its minutes go to its own folder (ADR 0009). */
   privateThread?: boolean;
   requesterId: string;
+  /** The place's zone: the file is named by its date there, as Daily logs are. */
+  timezone: string;
   /** The message a "Write minutes" command ran on; without it a channel's last 3 hours are read. */
   startId?: string;
   skipIds?: string[];
@@ -69,7 +71,7 @@ export async function writeMinutes(run: MinutesRun, now = clockNow()): Promise<s
   if (!minutes) return t.minutesFailed;
   const header: Header = { from: messages[0]!.at, to: messages.at(-1)!.at, count: messages.length, participants: [...new Set(messages.filter((m) => !m.own).map((m) => m.speaker))], cut, language };
   const folder = minutesFolder({ guildId: run.guildId, channelId: run.channelId, parentChannelId: run.parentId ?? undefined, privateThread: run.privateThread });
-  const file = await freeName(run.tenantId, folder, `${new Date(now).toISOString().slice(0, 10)}-${slug(minutes.title)}`);
+  const file = await freeName(run.tenantId, folder, `${isoInZone(run.timezone, now).slice(0, 10)}-${slug(minutes.title)}`);
   const payload = payloadOf(minutes, header, file);
   const posted = await run.post(payload).catch(() => null);
   if (!posted) return t.minutesNotPosted(payload.files.length > 0);

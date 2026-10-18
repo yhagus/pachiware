@@ -81,3 +81,25 @@ discordScenario("editing a message, or deleting one no Daily log holds, leaves t
 
   expect(await s.workspace.read(FILE)).toBe(written);
 });
+
+discordScenario("for a bot that lists no guilds, which means every guild, deleting a message still removes it from that day's Daily log", async (s) => {
+  const { alice, bob } = s.discord;
+  const { repositories } = await import("@pachiware/db");
+  await repositories().bots.update(s.bot.id, { guildIds: [] });
+  await s.restart();
+  s.clock.set("2026-03-06T08:00:00+07:00");
+  await s.guildSettings({ dailyLogChannels: [{ channelId: "channel-1", backfill: false }] });
+  const [question, friday] = s.discord.history([
+    { content: "Which day do we release?", author: alice, at: at("10:00") },
+    { content: "Friday", author: bob, at: at("10:05") },
+  ]);
+  s.model.script(JSON.stringify({ topics: [], decided: [{ text: "Release on Friday", refs: [1, 2] }], open: [], next: [] }));
+  s.clock.set("2026-03-07T00:30:00+07:00");
+  await s.scheduler.tick();
+  expect(await s.workspace.read(FILE)).toContain(question!.id);
+
+  await s.discord.deleteMessage(question!);
+  const log = (await s.workspace.read(FILE))!;
+  expect(log).not.toContain(question!.id);
+  expect(log).toContain(`Release on Friday [↗](${link("channel-1", friday!.id)})`);
+});

@@ -33,7 +33,7 @@ discordScenario("Write minutes on a message covers it and everything after it, p
   expect(embed.description).toMatch(/Bob.*Write the release notes.*Thursday/);
   expect(embed.description).toContain("Alice, Bob");
 
-  const day = new Date().toISOString().slice(0, 10);
+  const day = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); // Jakarta, UTC+7 all year
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toEqual([`guilds/guild-1/channels/channel-1/minutes/${day}-release-day.md`]);
   expect(await s.workspace.read(`guilds/guild-1/channels/channel-1/minutes/${day}-release-day.md`)).toContain("Release on Friday");
 });
@@ -141,6 +141,18 @@ discordScenario("@bot notulen in a channel writes the minutes as @bot minutes do
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toHaveLength(2);
 });
 
+discordScenario("Minutes written at 23:30 UTC are named by the date in the place's zone, Jakarta's next morning", async (s) => {
+  const { alice, bob } = s.discord;
+  s.clock.set("2026-03-06T23:30:00Z");
+  s.discord.history([
+    { content: "We keep Postgres, agreed", author: alice, at: Date.parse("2026-03-06T22:00:00Z") },
+    { content: "Agreed", author: bob, at: Date.parse("2026-03-06T22:30:00Z") },
+  ]);
+  s.model.script(JSON.stringify({ title: "Database", decided: [{ text: "Keep Postgres", ref: 1 }], open: [], actions: [] }));
+  await s.discord.send(`${s.discord.mention} minutes`);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toEqual(["guilds/guild-1/channels/channel-1/minutes/2026-03-07-database.md"]);
+});
+
 discordScenario("every item links to its source message and owners appear only when the discussion named them", async (s) => {
   const { alice, bob } = s.discord;
   const now = Date.now();
@@ -197,7 +209,7 @@ discordScenario("the requester's reply corrects the minutes in place; anyone els
   s.model.script(JSON.stringify({ title: "Release day", decided: [{ text: "Release on Friday", ref: 2 }], open: [], actions: [] }));
   await s.discord.contextMenu("Write minutes", start!);
   const minutes = s.discord.botMessages[0]!;
-  const day = new Date().toISOString().slice(0, 10);
+  const day = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); // Jakarta, UTC+7 all year
   const file = `guilds/guild-1/channels/channel-1/minutes/${day}-release-day.md`;
 
   const other = await s.discord.send("point 1 was not decided", { author: bob, replyTo: minutes });

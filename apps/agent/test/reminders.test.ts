@@ -72,3 +72,14 @@ discordScenario("a time that has passed or cannot be read is refused and nothing
   const { repositories } = await import("../../../packages/db/src/index.ts");
   expect(await repositories().schedules.list()).toEqual([]);
 });
+
+discordScenario("a Reminder at a day or a time that does not exist is refused, and nothing is stored", async (s) => {
+  s.clock.set("2026-02-10T14:00:00+07:00");
+  const { repositories } = await import("@pachiware/db");
+  for (const at of ["2026-02-30T09:00", "25:00", "2026-02-12T09:75"]) {
+    s.model.script({ tool: "createReminder", args: { text: "pay rent", at } }, (turn) => turn.toolResults[0].error);
+    await s.discord.send(`${s.discord.mention} remind me at ${at} to pay rent`);
+    expect(s.discord.botMessages.at(-1)?.content).toBe('at must be a date and time such as "2026-03-06T15:00"');
+  }
+  expect(await repositories().schedules.list()).toEqual([]);
+});

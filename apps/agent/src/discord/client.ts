@@ -106,7 +106,7 @@ export class DiscordBotManager {
   background(work: Promise<unknown>) { this.track(work); }
   /** What a person deletes does not live on in a Daily log; a thread's message sits in its parent channel's. Discord may send only the ids. */
   private async forgetDeleted(runtime: BotRuntime, msg: Pick<Message, "id" | "channelId" | "guildId" | "createdTimestamp"> & { channel?: Message["channel"] | null }) {
-    if (!msg.guildId || !runtime.guildIds.includes(msg.guildId)) return;
+    if (!msg.guildId || (runtime.guildIds.length && !runtime.guildIds.includes(msg.guildId))) return;
     const channel = msg.channel ?? await runtime.client.channels.fetch(msg.channelId).catch(() => null);
     const channelId = channel?.isThread() ? channel.parentId : msg.channelId;
     if (!channelId) return;
@@ -479,8 +479,9 @@ export class DiscordBotManager {
       if (refusal) { await o.refuse(refusal); return; }
       await o.ack?.(thread ? t.minutesOfThread : o.from === "menu" ? t.minutesFromHere : t.minutesRecent(RECENT_MS / 3600_000));
       if ("sendTyping" in at.channel) await at.channel.sendTyping().catch(() => {});
+      const timezone = configuredTimezone(at.guildId ? await loadGuildSettings(runtime.tenantId, botId, at.guildId) : null, await repositories().agentConfig.get(runtime.tenantId));
       const error = await writeMinutes({
-        tenantId: runtime.tenantId, botId, adapter, playbook, guildId: at.guildId!, channelId: at.channelId, parentId: thread ? at.channel.parentId : null, privateThread: placeOfChannel(at.channel).privateThread, requesterId: o.actor.id,
+        tenantId: runtime.tenantId, botId, adapter, playbook, guildId: at.guildId!, channelId: at.channelId, parentId: thread ? at.channel.parentId : null, privateThread: placeOfChannel(at.channel).privateThread, requesterId: o.actor.id, timezone,
         startId: o.from === "menu" ? at.id : undefined, skipIds: o.from === "mention" ? [at.id] : undefined, post: (payload) => at.reply(payload),
       }).catch(() => t.minutesFailed);
       if (error) await o.fail(error);

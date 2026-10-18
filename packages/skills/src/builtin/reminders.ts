@@ -89,7 +89,7 @@ export const remindersSkill: SkillModule = {
           weekdays: { type: "array", items: { type: "string" }, description: 'For weekly: the days it posts on, e.g. ["monday", "thursday"]' },
           dayOfMonth: { type: "integer", description: "For monthly: the date it posts on, 1 to 31; a month without that date uses its last day" },
           until: { type: "string", description: 'Last day a repeating Reminder may post, e.g. "2026-12-31"' },
-          withTasks: { type: "boolean", description: "true: the post also lists the asker's open tasks (assigned to or created by them) visible from this place, so a morning DM Reminder doubles as their overview" },
+          withTasks: { type: "boolean", description: "true: the post also lists the asker's open tasks (assigned to them, and their Personal tasks) visible from this place, so a morning DM Reminder doubles as their overview" },
         },
         required: ["text"],
       },
