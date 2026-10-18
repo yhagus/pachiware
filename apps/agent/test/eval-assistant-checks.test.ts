@@ -357,6 +357,25 @@ describe("fixtures and recorded runs", () => {
   });
 });
 
+describe("recorded lived-in sessions", () => {
+  const sessions = loadAssistantFixtures(LIVED_IN_DIR);
+  const dir = join(EVAL_DIR, "recorded", "lived-in");
+  const recorded: AssistantOutput[] = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
+
+  test("these sessions have a recorded dry run, and every recording names a session", () => {
+    const names = recorded.map((r) => r.fixture);
+    for (const name of ["loudness-dibahas-selesai", "supabase-tidak-pernah-diputuskan"]) expect(names).toContain(name);
+    expect(names.filter((n) => !sessions.some((f) => f.name === n))).toEqual([]);
+  });
+
+  test.each(recorded.map((r) => [r.fixture, r] as const))("the recorded run of %s passes every code check and found its gold sources", (name, run) => {
+    const graded = gradeAssistantRun(run, sessions.find((f) => f.name === name)!);
+    expect(graded.failures).toEqual([]);
+    expect(graded.passed).toBe(true);
+    expect(graded.retrieval?.recallAt5).toBe(1);
+  });
+});
+
 test("the citations check fails an unrendered ref and a link nothing seeded holds, and passes the seeded Minutes' posted message and a seeded pull request", () => {
   const seeded: AssistantFixture = {
     name: "cited", messages: ["is audio normalization done?"],

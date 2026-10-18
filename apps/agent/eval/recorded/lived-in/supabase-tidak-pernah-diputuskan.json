@@ -1,0 +1,868 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "supabase-tidak-pernah-diputuskan",
+  "seeded": [
+    "https://discord.com/channels/guild-1/channel-1/1559733731328000000",
+    "https://discord.com/channels/guild-1/channel-1/1559735492935680000",
+    "https://discord.com/channels/guild-1/channel-1/1559737506201600000",
+    "https://discord.com/channels/guild-1/channel-1/1559740274442240000",
+    "https://discord.com/channels/guild-1/channel-1/1559742539366400000",
+    "https://discord.com/channels/guild-1/channel-1/1559743797657600000",
+    "https://discord.com/channels/guild-1/channel-1/1559745559265280000"
+  ],
+  "turns": [
+    {
+      "n": 1,
+      "message": "kapan kita mutusin pindah dari firebase ke supabase?",
+      "replies": [
+        "Saya tidak menemukan keputusan pindah dari Firebase ke Supabase. Supabase cuma pernah disebut Tomi sebagai ide untuk setelah beta, dan belum dibahas serius [#general · Log harian 2026-08-20](<https://discord.com/channels/guild-1/channel-1/1539866956969019154>)."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Accessibility labels for the recorder",
+            "status": "pending",
+            "dueAt": "2026-10-30",
+            "assignedTo": "Mira",
+            "createdByName": "Mira",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Add a Compatibility mode toggle to the export sheet",
+            "status": "completed",
+            "dueAt": "2026-09-25",
+            "assignedTo": "Bayu",
+            "createdByName": "Alice",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Aset visual store listing",
+            "status": "completed",
+            "dueAt": "2026-08-21",
+            "assignedTo": "Mira",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Beli perangkat tes Android murah",
+            "status": "completed",
+            "dueAt": "2026-08-07",
+            "assignedTo": "Joko",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Bikin checklist beta",
+            "status": "in_progress",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Build a loudness test set of 20 episodes",
+            "status": "completed",
+            "dueAt": "2026-08-26",
+            "assignedTo": "Joko",
+            "createdByName": "Alice",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Cetak stiker untuk acara komunitas",
+            "status": "cancelled",
+            "dueAt": "2026-09-12",
+            "assignedTo": "Sekar",
+            "createdByName": "Sekar",
+            "channel": "#marketing",
+            "notes": [
+              "- 2026-09-03 Sekar: acaranya batal, stiker nggak jadi dicetak"
+            ]
+          },
+          {
+            "title": "Collect noisy recording samples",
+            "status": "completed",
+            "dueAt": "2026-07-24",
+            "assignedTo": "Joko",
+            "createdByName": "Alice",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Dark mode polish",
+            "status": "completed",
+            "dueAt": "2026-09-04",
+            "assignedTo": "Mira",
+            "createdByName": "Mira",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Decide the loudness target for music shows",
+            "status": "pending",
+            "dueAt": "2026-11-02",
+            "assignedTo": "Rani",
+            "createdByName": "Rani",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Fix Bluetooth mic latency on Android",
+            "status": "in_progress",
+            "dueAt": "2026-10-07",
+            "assignedTo": "Bob",
+            "createdByName": "Alice",
+            "channel": "#mobile",
+            "notes": [
+              "- 2026-09-22 Bob: repro di Samsung A54 dan Pixel 7, delay sekitar 300 ms",
+              "- 2026-10-05 Bob: root cause di perpindahan codec SCO, lagi coba fallback ke A2DP"
+            ]
+          },
+          {
+            "title": "Fix clipping in the limiter on loud intros",
+            "status": "in_progress",
+            "dueAt": "2026-10-13",
+            "assignedTo": "Rani",
+            "createdByName": "Rani",
+            "channel": "#audio-engine",
+            "notes": [
+              "- 2026-10-08 Rani: softer attack helps, PR #90 open"
+            ]
+          },
+          {
+            "title": "Fuzz the Opus decoder",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": "Joko",
+            "createdByName": "Joko",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Implement loudness normalization in the export pipeline",
+            "status": "completed",
+            "dueAt": "2026-08-28",
+            "assignedTo": "Rani",
+            "createdByName": "Alice",
+            "channel": "#audio-engine",
+            "notes": [
+              "- 2026-08-27 Rani: PR #88 is up for review",
+              "- 2026-09-03 Rani: merged, every export now lands at -16 LUFS"
+            ]
+          },
+          {
+            "title": "Jadwal konten countdown beta",
+            "status": "completed",
+            "dueAt": "2026-10-05",
+            "assignedTo": "Sekar",
+            "createdByName": "Sekar",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Kirim brief ke kreator podcast",
+            "status": "pending",
+            "dueAt": "2026-10-09",
+            "assignedTo": "Sekar",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Kirim CSV statistik pendengar manual tiap Senin",
+            "status": "in_progress",
+            "dueAt": null,
+            "assignedTo": "Tomi",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Newsletter Oktober",
+            "status": "pending",
+            "dueAt": "2026-10-20",
+            "assignedTo": "Sekar",
+            "createdByName": "Sekar",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Noise suppression prototype with RNNoise",
+            "status": "completed",
+            "dueAt": "2026-08-21",
+            "assignedTo": "Rani",
+            "createdByName": "Alice",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Normalize the episodes and shows tables",
+            "status": "completed",
+            "dueAt": "2026-09-19",
+            "assignedTo": "Tomi",
+            "createdByName": "Tomi",
+            "notes": [
+              "- 2026-09-17 Tomi: script migrasi siap, Joko tes di staging aman",
+              "- 2026-09-20 Tomi: migrasi jalan 11 menit, aman"
+            ]
+          },
+          {
+            "title": "Offline recording sync",
+            "status": "in_progress",
+            "dueAt": "2026-10-21",
+            "assignedTo": "Bayu",
+            "createdByName": "Alice",
+            "channel": "#mobile",
+            "notes": [
+              "- 2026-09-25 Bayu: background fetch dibunuh iOS, PR #138 ditutup, ganti ke upload queue"
+            ]
+          },
+          {
+            "title": "Pasang budget alert GCP",
+            "status": "completed",
+            "dueAt": "2026-07-15",
+            "assignedTo": "Tomi",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Perpanjang kontrak hosting Awan Biru",
+            "status": "pending",
+            "dueAt": "2027-01-15",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Press release bareng partner hosting",
+            "status": "pending",
+            "dueAt": "2026-10-19",
+            "assignedTo": "Alice",
+            "createdByName": "Sekar",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Profile mixer allocations",
+            "status": "cancelled",
+            "dueAt": null,
+            "assignedTo": "Rani",
+            "createdByName": "Rani",
+            "channel": "#audio-engine",
+            "notes": [
+              "- 2026-08-24 Rani: cancelled: the mixer no longer allocates after the ring buffer change"
+            ]
+          },
+          {
+            "title": "Rapikan dokumen PRD lama",
+            "status": "cancelled",
+            "dueAt": "2026-08-14",
+            "assignedTo": "Alice",
+            "createdByName": "Alice",
+            "notes": [
+              "- 2026-07-31 Alice: dibatalkan: sudah diganti PRD Gema v1"
+            ]
+          },
+          {
+            "title": "Redesign onboarding screens",
+            "status": "in_progress",
+            "dueAt": "2026-10-20",
+            "assignedTo": "Mira",
+            "createdByName": "Alice",
+            "channel": "#mobile",
+            "notes": [
+              "- 2026-10-07 Mira: draft v2 udah di Figma, nunggu review Alice"
+            ]
+          },
+          {
+            "title": "Regression pass on the 0.9 beta build",
+            "status": "in_progress",
+            "dueAt": "2026-10-12",
+            "assignedTo": "Joko",
+            "createdByName": "Alice",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Replace the linear resampler",
+            "status": "completed",
+            "dueAt": "2026-10-09",
+            "assignedTo": "Rani",
+            "createdByName": "Rani",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Review onboarding v2",
+            "status": "pending",
+            "dueAt": "2026-10-09",
+            "assignedTo": "Alice",
+            "createdByName": "Mira",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Review push notification copy",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Sekar",
+            "createdByName": "Bayu",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Riset harga kompetitor",
+            "status": "completed",
+            "dueAt": "2026-08-12",
+            "assignedTo": "Sekar",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Set up the Play Console release tracks",
+            "status": "completed",
+            "dueAt": "2026-08-14",
+            "assignedTo": "Bob",
+            "createdByName": "Bob",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Siapkan agenda weekly sync",
+            "status": "completed",
+            "dueAt": "2026-10-12",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Siapkan press kit beta",
+            "status": "in_progress",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Sekar",
+            "createdByName": "Alice",
+            "channel": "#marketing",
+            "notes": [
+              "- 2026-08-27 Sekar: tenggat digeser ikut beta 20 Oktober",
+              "- 2026-10-09 Sekar: tinggal foto tim sama kutipan Alice"
+            ]
+          },
+          {
+            "title": "Survei pengguna beta tertutup",
+            "status": "completed",
+            "dueAt": "2026-09-11",
+            "assignedTo": "Sekar",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Switch the default encoder to Opus 64 kbps",
+            "status": "completed",
+            "dueAt": "2026-09-18",
+            "assignedTo": "Rani",
+            "createdByName": "Alice",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Turn on loudness normalization in the app export settings",
+            "status": "in_progress",
+            "dueAt": "2026-10-23",
+            "assignedTo": "Bayu",
+            "createdByName": "Alice",
+            "channel": "#mobile",
+            "notes": [
+              "- 2026-10-08 Bayu: toggle udah jalan di iOS, Android nunggu Bob"
+            ]
+          },
+          {
+            "title": "Turunkan p95 latency API di bawah 300 ms",
+            "status": "in_progress",
+            "dueAt": "2026-10-30",
+            "assignedTo": "Tomi",
+            "createdByName": "Tomi",
+            "notes": [
+              "- 2026-10-06 Tomi: p95 sekarang 480 ms di jam sibuk, cache daftar episode lagi dikerjain"
+            ]
+          },
+          {
+            "title": "Undo after trim",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": "Bayu",
+            "createdByName": "Joko",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Update harga di landing page",
+            "status": "pending",
+            "dueAt": "2026-10-12",
+            "assignedTo": "Mira",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Update runbook on-call",
+            "status": "pending",
+            "dueAt": "2026-10-09",
+            "assignedTo": "Tomi",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Upgrade Gradle to 8.10",
+            "status": "completed",
+            "dueAt": "2026-08-21",
+            "assignedTo": "Bob",
+            "createdByName": "Bob",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Waveform trim and cut",
+            "status": "completed",
+            "dueAt": "2026-08-14",
+            "assignedTo": "Bayu",
+            "createdByName": "Alice",
+            "channel": "#mobile"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [
+          "files/kontrak-hosting-awanbiru.md",
+          "files/prd-gema-v1.md",
+          "files/runbook-migrasi-db.txt"
+        ],
+        "reminders": []
+      },
+      "retrieved": [
+        {
+          "tool": "recall",
+          "kept": [
+            "#general/daily-logs/2026-08/2026-08-20.md",
+            "#general/decisions/2026-07-08-tetap-firebase.md",
+            "#general/minutes/2026-07-08-rapat-arsitektur-backend.md",
+            "#general/daily-logs/2026-07/2026-07-08.md",
+            "#general/minutes/2026-09-17-migrasi-database.md",
+            "#general/daily-logs/2026-09/2026-09-17.md",
+            "#general/notes/2026-09-20-laporan-migrasi.md",
+            "#general/files/runbook-migrasi-db.txt",
+            "#general/decisions/2026-09-30-ekspor-csv-statistik-ditunda.md",
+            "#general/daily-logs/2026-08/2026-08-05.md"
+          ],
+          "tasks": [],
+          "work": []
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "message": "ohh. jadi skrg resminya masih firebase? ada keputusan tertulisnya ga",
+      "replies": [
+        "Iya, resminya masih Firebase: keputusannya backend tetap di Firebase sampai beta selesai #general · Keputusan 2026-07-08."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Accessibility labels for the recorder",
+            "status": "pending",
+            "dueAt": "2026-10-30",
+            "assignedTo": "Mira",
+            "createdByName": "Mira",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Add a Compatibility mode toggle to the export sheet",
+            "status": "completed",
+            "dueAt": "2026-09-25",
+            "assignedTo": "Bayu",
+            "createdByName": "Alice",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Aset visual store listing",
+            "status": "completed",
+            "dueAt": "2026-08-21",
+            "assignedTo": "Mira",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Beli perangkat tes Android murah",
+            "status": "completed",
+            "dueAt": "2026-08-07",
+            "assignedTo": "Joko",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Bikin checklist beta",
+            "status": "in_progress",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Build a loudness test set of 20 episodes",
+            "status": "completed",
+            "dueAt": "2026-08-26",
+            "assignedTo": "Joko",
+            "createdByName": "Alice",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Cetak stiker untuk acara komunitas",
+            "status": "cancelled",
+            "dueAt": "2026-09-12",
+            "assignedTo": "Sekar",
+            "createdByName": "Sekar",
+            "channel": "#marketing",
+            "notes": [
+              "- 2026-09-03 Sekar: acaranya batal, stiker nggak jadi dicetak"
+            ]
+          },
+          {
+            "title": "Collect noisy recording samples",
+            "status": "completed",
+            "dueAt": "2026-07-24",
+            "assignedTo": "Joko",
+            "createdByName": "Alice",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Dark mode polish",
+            "status": "completed",
+            "dueAt": "2026-09-04",
+            "assignedTo": "Mira",
+            "createdByName": "Mira",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Decide the loudness target for music shows",
+            "status": "pending",
+            "dueAt": "2026-11-02",
+            "assignedTo": "Rani",
+            "createdByName": "Rani",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Fix Bluetooth mic latency on Android",
+            "status": "in_progress",
+            "dueAt": "2026-10-07",
+            "assignedTo": "Bob",
+            "createdByName": "Alice",
+            "channel": "#mobile",
+            "notes": [
+              "- 2026-09-22 Bob: repro di Samsung A54 dan Pixel 7, delay sekitar 300 ms",
+              "- 2026-10-05 Bob: root cause di perpindahan codec SCO, lagi coba fallback ke A2DP"
+            ]
+          },
+          {
+            "title": "Fix clipping in the limiter on loud intros",
+            "status": "in_progress",
+            "dueAt": "2026-10-13",
+            "assignedTo": "Rani",
+            "createdByName": "Rani",
+            "channel": "#audio-engine",
+            "notes": [
+              "- 2026-10-08 Rani: softer attack helps, PR #90 open"
+            ]
+          },
+          {
+            "title": "Fuzz the Opus decoder",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": "Joko",
+            "createdByName": "Joko",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Implement loudness normalization in the export pipeline",
+            "status": "completed",
+            "dueAt": "2026-08-28",
+            "assignedTo": "Rani",
+            "createdByName": "Alice",
+            "channel": "#audio-engine",
+            "notes": [
+              "- 2026-08-27 Rani: PR #88 is up for review",
+              "- 2026-09-03 Rani: merged, every export now lands at -16 LUFS"
+            ]
+          },
+          {
+            "title": "Jadwal konten countdown beta",
+            "status": "completed",
+            "dueAt": "2026-10-05",
+            "assignedTo": "Sekar",
+            "createdByName": "Sekar",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Kirim brief ke kreator podcast",
+            "status": "pending",
+            "dueAt": "2026-10-09",
+            "assignedTo": "Sekar",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Kirim CSV statistik pendengar manual tiap Senin",
+            "status": "in_progress",
+            "dueAt": null,
+            "assignedTo": "Tomi",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Newsletter Oktober",
+            "status": "pending",
+            "dueAt": "2026-10-20",
+            "assignedTo": "Sekar",
+            "createdByName": "Sekar",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Noise suppression prototype with RNNoise",
+            "status": "completed",
+            "dueAt": "2026-08-21",
+            "assignedTo": "Rani",
+            "createdByName": "Alice",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Normalize the episodes and shows tables",
+            "status": "completed",
+            "dueAt": "2026-09-19",
+            "assignedTo": "Tomi",
+            "createdByName": "Tomi",
+            "notes": [
+              "- 2026-09-17 Tomi: script migrasi siap, Joko tes di staging aman",
+              "- 2026-09-20 Tomi: migrasi jalan 11 menit, aman"
+            ]
+          },
+          {
+            "title": "Offline recording sync",
+            "status": "in_progress",
+            "dueAt": "2026-10-21",
+            "assignedTo": "Bayu",
+            "createdByName": "Alice",
+            "channel": "#mobile",
+            "notes": [
+              "- 2026-09-25 Bayu: background fetch dibunuh iOS, PR #138 ditutup, ganti ke upload queue"
+            ]
+          },
+          {
+            "title": "Pasang budget alert GCP",
+            "status": "completed",
+            "dueAt": "2026-07-15",
+            "assignedTo": "Tomi",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Perpanjang kontrak hosting Awan Biru",
+            "status": "pending",
+            "dueAt": "2027-01-15",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Press release bareng partner hosting",
+            "status": "pending",
+            "dueAt": "2026-10-19",
+            "assignedTo": "Alice",
+            "createdByName": "Sekar",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Profile mixer allocations",
+            "status": "cancelled",
+            "dueAt": null,
+            "assignedTo": "Rani",
+            "createdByName": "Rani",
+            "channel": "#audio-engine",
+            "notes": [
+              "- 2026-08-24 Rani: cancelled: the mixer no longer allocates after the ring buffer change"
+            ]
+          },
+          {
+            "title": "Rapikan dokumen PRD lama",
+            "status": "cancelled",
+            "dueAt": "2026-08-14",
+            "assignedTo": "Alice",
+            "createdByName": "Alice",
+            "notes": [
+              "- 2026-07-31 Alice: dibatalkan: sudah diganti PRD Gema v1"
+            ]
+          },
+          {
+            "title": "Redesign onboarding screens",
+            "status": "in_progress",
+            "dueAt": "2026-10-20",
+            "assignedTo": "Mira",
+            "createdByName": "Alice",
+            "channel": "#mobile",
+            "notes": [
+              "- 2026-10-07 Mira: draft v2 udah di Figma, nunggu review Alice"
+            ]
+          },
+          {
+            "title": "Regression pass on the 0.9 beta build",
+            "status": "in_progress",
+            "dueAt": "2026-10-12",
+            "assignedTo": "Joko",
+            "createdByName": "Alice",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Replace the linear resampler",
+            "status": "completed",
+            "dueAt": "2026-10-09",
+            "assignedTo": "Rani",
+            "createdByName": "Rani",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Review onboarding v2",
+            "status": "pending",
+            "dueAt": "2026-10-09",
+            "assignedTo": "Alice",
+            "createdByName": "Mira",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Review push notification copy",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Sekar",
+            "createdByName": "Bayu",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Riset harga kompetitor",
+            "status": "completed",
+            "dueAt": "2026-08-12",
+            "assignedTo": "Sekar",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Set up the Play Console release tracks",
+            "status": "completed",
+            "dueAt": "2026-08-14",
+            "assignedTo": "Bob",
+            "createdByName": "Bob",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Siapkan agenda weekly sync",
+            "status": "completed",
+            "dueAt": "2026-10-12",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Siapkan press kit beta",
+            "status": "in_progress",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Sekar",
+            "createdByName": "Alice",
+            "channel": "#marketing",
+            "notes": [
+              "- 2026-08-27 Sekar: tenggat digeser ikut beta 20 Oktober",
+              "- 2026-10-09 Sekar: tinggal foto tim sama kutipan Alice"
+            ]
+          },
+          {
+            "title": "Survei pengguna beta tertutup",
+            "status": "completed",
+            "dueAt": "2026-09-11",
+            "assignedTo": "Sekar",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Switch the default encoder to Opus 64 kbps",
+            "status": "completed",
+            "dueAt": "2026-09-18",
+            "assignedTo": "Rani",
+            "createdByName": "Alice",
+            "channel": "#audio-engine"
+          },
+          {
+            "title": "Turn on loudness normalization in the app export settings",
+            "status": "in_progress",
+            "dueAt": "2026-10-23",
+            "assignedTo": "Bayu",
+            "createdByName": "Alice",
+            "channel": "#mobile",
+            "notes": [
+              "- 2026-10-08 Bayu: toggle udah jalan di iOS, Android nunggu Bob"
+            ]
+          },
+          {
+            "title": "Turunkan p95 latency API di bawah 300 ms",
+            "status": "in_progress",
+            "dueAt": "2026-10-30",
+            "assignedTo": "Tomi",
+            "createdByName": "Tomi",
+            "notes": [
+              "- 2026-10-06 Tomi: p95 sekarang 480 ms di jam sibuk, cache daftar episode lagi dikerjain"
+            ]
+          },
+          {
+            "title": "Undo after trim",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": "Bayu",
+            "createdByName": "Joko",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Update harga di landing page",
+            "status": "pending",
+            "dueAt": "2026-10-12",
+            "assignedTo": "Mira",
+            "createdByName": "Alice",
+            "channel": "#marketing"
+          },
+          {
+            "title": "Update runbook on-call",
+            "status": "pending",
+            "dueAt": "2026-10-09",
+            "assignedTo": "Tomi",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Upgrade Gradle to 8.10",
+            "status": "completed",
+            "dueAt": "2026-08-21",
+            "assignedTo": "Bob",
+            "createdByName": "Bob",
+            "channel": "#mobile"
+          },
+          {
+            "title": "Waveform trim and cut",
+            "status": "completed",
+            "dueAt": "2026-08-14",
+            "assignedTo": "Bayu",
+            "createdByName": "Alice",
+            "channel": "#mobile"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [
+          "files/kontrak-hosting-awanbiru.md",
+          "files/prd-gema-v1.md",
+          "files/runbook-migrasi-db.txt"
+        ],
+        "reminders": []
+      },
+      "retrieved": [
+        {
+          "tool": "recall",
+          "kept": [
+            "#general/decisions/2026-07-08-tetap-firebase.md",
+            "#general/minutes/2026-07-08-rapat-arsitektur-backend.md",
+            "#general/daily-logs/2026-07/2026-07-08.md",
+            "#general/decisions/2026-09-30-ekspor-csv-statistik-ditunda.md",
+            "#marketing/decisions/2026-09-16-harga-paket-pro.md",
+            "#mobile/decisions/2026-08-10-native-apps.md",
+            "#audio-engine/decisions/2026-07-15-default-export-aac.md",
+            "#audio-engine/decisions/2026-09-09-default-export-opus.md",
+            "#marketing/minutes/2026-09-16-finalisasi-harga.md",
+            "#general/minutes/2026-08-26-go-no-go-beta-publik.md"
+          ],
+          "tasks": [],
+          "work": []
+        }
+      ]
+    }
+  ],
+  "posts": []
+}
