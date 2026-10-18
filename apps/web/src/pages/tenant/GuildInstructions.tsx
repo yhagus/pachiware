@@ -1,23 +1,35 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TimezoneInput } from "@/components/TimezoneInput";
-import { api, LANGUAGES, type Guild, type GuildConfig, type Language } from "@/lib/api";
+import { IconButton } from "@/components/IconButton";
+import { api, LANGUAGES, type DocSource, type Guild, type GuildConfig, type GuildGit, type Language } from "@/lib/api";
 
 const MAX = 8000;
 const INHERIT = "tenant";
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const DEFAULT_DIGEST_HOUR = 8;
 const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
+const ANY_ACCOUNT = "";
+const DEFAULT_DOC_PATHS = "README.md, docs/**";
+/** A doc source as edited: its paths as one comma-separated text, so typing a comma does not lose it. */
+type DocDraft = { channelId: string; repo: string; account: string; paths: string };
+const toDraft = (s: DocSource): DocDraft => ({ channelId: s.channelId, repo: s.repo, account: s.account ?? ANY_ACCOUNT, paths: s.paths.join(", ") });
+const toSource = (d: DocDraft): DocSource => ({ channelId: d.channelId, repo: d.repo.trim(), ...(d.account ? { account: d.account } : {}), paths: d.paths.split(",").map((p) => p.trim()).filter(Boolean) });
+const selectClass = "h-8 rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function GuildInstructions({ botId, guild, onClose }: { botId: string; guild: Guild | null; onClose: () => void }) {
   const [cfg, setCfg] = useState<GuildConfig | null>(null);
   const [savedLogs, setSavedLogs] = useState<string[]>([]);
+  const [docs, setDocs] = useState<DocDraft[]>([]);
+  const [accounts, setAccounts] = useState<GuildGit["accounts"]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -26,14 +38,16 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
     setCfg(null); setError(null);
     if (!guild) return;
     let live = true;
-    api.getGuildConfig(botId, guild.id).then((r) => { if (live) { setCfg(r.config); setSavedLogs(r.config.dailyLogChannels.map((d) => d.channelId)); } }).catch((e) => live && setError(e.message));
+    api.getGuildConfig(botId, guild.id).then((r) => { if (live) { setCfg(r.config); setSavedLogs(r.config.dailyLogChannels.map((d) => d.channelId)); setDocs(r.config.docSources.map(toDraft)); } }).catch((e) => live && setError(e.message));
+    // Only names the accounts to choose from; without them a source reads with any account the channel allows.
+    api.getGuildGit(botId, guild.id).then((r) => live && setAccounts(r.accounts)).catch(() => live && setAccounts([]));
     return () => { live = false; };
   }, [botId, guild, attempt]);
 
   const save = async () => {
     if (!guild || !cfg) return;
     setSaving(true);
-    try { await api.saveGuildConfig(botId, guild.id, cfg); toast.success("Server instructions saved"); onClose(); }
+    try { await api.saveGuildConfig(botId, guild.id, { ...cfg, docSources: docs.map(toSource) }); toast.success("Server instructions saved"); onClose(); }
     catch (e) { toast.error((e as Error).message); }
     finally { setSaving(false); }
   };
@@ -45,6 +59,8 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
   const toggleLog = (id: string, on: boolean) => cfg && setCfg({ ...cfg, dailyLogChannels: on ? [...cfg.dailyLogChannels, { channelId: id, backfill: true }] : cfg.dailyLogChannels.filter((d) => d.channelId !== id) });
   const setBackfill = (id: string, backfill: boolean) => cfg && setCfg({ ...cfg, dailyLogChannels: cfg.dailyLogChannels.map((d) => (d.channelId === id ? { ...d, backfill } : d)) });
   const textChannels = guild?.channels.filter((c) => c.type === "text") ?? [];
+  const setDoc = (i: number, change: Partial<DocDraft>) => setDocs(docs.map((d, n) => (n === i ? { ...d, ...change } : d)));
+  const addDoc = () => setDocs([...docs, { channelId: textChannels[0]?.id ?? "", repo: "", account: ANY_ACCOUNT, paths: DEFAULT_DOC_PATHS }]);
 
   return (
     <Sheet open={!!guild} onOpenChange={(o) => !o && onClose()}>
@@ -155,6 +171,49 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
                       );
                     })}
                   </ul>
+                )}
+              </fieldset>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">Documentation from repositories</legend>
+                <p className="text-xs text-muted-foreground">Copies the text files (.md, .mdx, .markdown, .txt, .rst, .adoc) on a repository's default branch that match the paths into the channel's files, so people can ask about them there. Copied right after saving and refreshed every night; a file deleted in the repository is deleted here too. The channel's git access must allow the repository. At most 200 files per repository, each under 256 KB.</p>
+                {textChannels.length === 0 ? <p className="text-sm text-muted-foreground">No text channels visible to this bot.</p> : (
+                  <>
+                    {docs.length > 0 && (
+                      <ul className="space-y-2">
+                        {docs.map((d, i) => (
+                          <li key={i} className="space-y-2 rounded-md border p-2">
+                            <div className="flex items-center gap-2">
+                              <select aria-label="Channel" value={d.channelId} onChange={(e) => setDoc(i, { channelId: e.target.value })} className={`${selectClass} min-w-0 flex-1`}>
+                                {!textChannels.some((c) => c.id === d.channelId) && <option value={d.channelId}>{d.channelId}</option>}
+                                {textChannels.map((c) => <option key={c.id} value={c.id}># {c.name}</option>)}
+                              </select>
+                              <IconButton label="Remove repository" className="text-destructive hover:text-destructive" onClick={() => setDocs(docs.filter((_, n) => n !== i))}><Trash2 /></IconButton>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <Label htmlFor={`doc-repo-${i}`} className="text-xs">Repository</Label>
+                                <Input id={`doc-repo-${i}`} value={d.repo} onChange={(e) => setDoc(i, { repo: e.target.value })} placeholder="owner/name" />
+                              </div>
+                              <div className="space-y-1">
+                                <Label htmlFor={`doc-account-${i}`} className="text-xs">Git account</Label>
+                                <select id={`doc-account-${i}`} value={d.account} onChange={(e) => setDoc(i, { account: e.target.value })} className={`${selectClass} h-9 w-full`}>
+                                  <option value={ANY_ACCOUNT}>Any account allowed there</option>
+                                  {d.account && !accounts.some((a) => a.name === d.account) && <option value={d.account}>{d.account}</option>}
+                                  {accounts.map((a) => <option key={a.id} value={a.name}>{a.name} · {a.provider}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor={`doc-paths-${i}`} className="text-xs">Paths</Label>
+                              <Input id={`doc-paths-${i}`} value={d.paths} onChange={(e) => setDoc(i, { paths: e.target.value })} placeholder="README.md, docs/**, adr/*.md" />
+                              <p className="text-xs text-muted-foreground">Separated by commas. * stays inside one folder, ** reaches every folder below.</p>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <Button variant="outline" size="sm" onClick={addDoc}><Plus /> Add a repository</Button>
+                  </>
                 )}
               </fieldset>
             </>

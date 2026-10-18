@@ -78,7 +78,9 @@ export interface TenantSettings { timezone: string; language: Language; }
 export interface DigestChannel { channelId: string; hour: number; }
 /** A channel this bot writes a Daily log of every night; `backfill` asks for the last 30 days when it is turned on. */
 export interface DailyLogChannel { channelId: string; backfill: boolean; }
-export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; dailyLogChannels: DailyLogChannel[]; }
+/** A repository whose matching text files (`paths` such as README.md or docs/**) the bot mirrors into a channel's files; `account` names the git account, else any the channel allows. */
+export interface DocSource { channelId: string; repo: string; account?: string; paths: string[]; }
+export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; dailyLogChannels: DailyLogChannel[]; docSources: DocSource[]; }
 export interface GitRule { gitAccountId: string; repoPatterns: string[]; }
 export interface GuildGit { accounts: { id: string; name: string; provider: "github" | "gitlab"; username: string }[]; server: GitRule[]; channels: Record<string, GitRule[]>; }
 /** A Plane scope rule: Plane project ids, or ["*"] for every Plane project of the account. */
