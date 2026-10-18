@@ -16,6 +16,16 @@ discordScenario("the first model call carries the administrative-assistant perso
   expect(prompt.indexOf("administrative assistant")).toBeLessThan(prompt.indexOf("### Policy"));
 });
 
+discordScenario("the persona has a batch of more than three task changes called first, for the guard to list it, not listed before any call (#241)", async (s) => {
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const persona = systemPrompt(s.model.calls[0]!).split("### Policy")[0]!;
+  const bulk = persona.split("\n").find((line) => /more than three tasks/i.test(line))!;
+  expect(bulk).toContain("make the calls straight away");
+  expect(bulk).toContain("confirmation_required");
+  expect(bulk).not.toMatch(/^- Before creating or changing/);
+});
+
 discordScenario("the persona describes project work in the glossary's terms and keeps \"owner\" for Reminders", async (s) => {
   s.model.script("ok");
   await s.discord.send(`${s.discord.mention} hi`);
