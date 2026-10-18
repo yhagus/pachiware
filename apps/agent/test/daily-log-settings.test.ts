@@ -1,8 +1,9 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
 
-const NOTICE_ID = "Mulai sekarang saya mencatat obrolan channel ini setiap malam sebagai Daily log. Catatannya tidak diposting di sini, tetapi bisa ditanyakan kapan saja.";
-const NOTICE_EN = "From now on I keep a nightly record of this channel's talk as a Daily log. It is not posted here, but you can ask me about it anytime.";
+const NOTICE_ID = "Mulai sekarang saya mencatat obrolan channel ini setiap malam sebagai Daily log, mulai hari ini. Catatannya tidak diposting di sini, tetapi bisa ditanyakan kapan saja.";
+const RECORDED_ID = "Mulai sekarang saya mencatat obrolan channel ini setiap malam sebagai Daily log, dan obrolan 30 hari terakhir sudah saya catat. Catatannya tidak diposting di sini, tetapi bisa ditanyakan kapan saja.";
+const RECORDED_EN = "From now on I keep a nightly record of this channel's talk as a Daily log, and I have recorded the talk of the last 30 days. It is not posted here, but you can ask me about it anytime.";
 const config = (botId: string) => `/api/admin/bots/${botId}/guilds/guild-1/config`;
 const posts = (s: any, channelId: string) => s.discord.botMessages.filter((m: any) => m.channelId === channelId);
 const dailyLogRows = async (s: any, botId: string) => {
@@ -30,14 +31,14 @@ discordScenario("an admin turns Daily logs on for a channel: it is stored, one n
   const second = await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: false }, { channelId: "channel-2" }] });
   expect(second.body.config.dailyLogChannels).toEqual([{ channelId: "channel-1", backfill: false }, { channelId: "channel-2", backfill: true }]);
   expect(posts(s, "channel-1")).toHaveLength(1);
-  expect(posts(s, "channel-2").map((m: any) => m.content)).toEqual([NOTICE_ID]);
+  expect(posts(s, "channel-2").map((m: any) => m.content)).toEqual([RECORDED_ID]);
 });
 
 discordScenario("a channel another bot of the tenant already logs is refused, naming that bot, and nothing is posted", async (s) => {
   s.clock.set("2026-03-06T20:00:00+07:00");
   const helper = await s.discord.addBot({ name: "Helper" });
   expect((await s.admin("PUT", config(helper.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: true }] })).status).toBe(200);
-  expect(helper.messages.map((m) => m.content)).toEqual([NOTICE_ID]);
+  expect(helper.messages.map((m) => m.content)).toEqual([RECORDED_ID]);
 
   const refused = await s.admin("PUT", config(s.bot.id), { useThreads: false, dailyLogChannels: [{ channelId: "channel-1", backfill: true }] });
   expect(refused.status).toBe(409);
@@ -56,7 +57,7 @@ discordScenario("turning Daily logs off cancels the nightly row and posts nothin
   s.clock.set("2026-03-06T20:00:00+07:00");
   await s.guildSettings({ language: "en" });
   await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: true }] });
-  expect(posts(s, "channel-1").map((m: any) => m.content)).toEqual([NOTICE_EN]);
+  expect(posts(s, "channel-1").map((m: any) => m.content)).toEqual([RECORDED_EN]);
 
   await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { timezone: "Europe/Berlin" });
   expect(await dailyLogRows(s, s.bot.id)).toEqual([{ channelId: "channel-1", guildId: "guild-1", recurrence: "daily", timeOfDay: "00:30", timezone: "Europe/Berlin", nextAt: "2026-03-06T23:30:00.000Z", status: "active" }]);
