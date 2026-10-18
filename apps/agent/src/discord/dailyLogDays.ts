@@ -1,5 +1,5 @@
 import { repositories, type DailyLogChannel, type Schedule } from "@pachiware/db";
-import { now, addDays, textIn, type Language } from "@pachiware/skills";
+import { now, addDays, textIn, audit, failureOf, type Language } from "@pachiware/skills";
 import { syncDailyRows, type GuildPlace } from "../digest.js";
 import { writeDailyLog, dayBefore, daySpan, type DailyLogResult } from "./dailyLog.js";
 import type { DiscordBotManager } from "./client.js";
@@ -54,8 +54,13 @@ async function writeDays(manager: Manager, place: DailyLogPlace, days: string[])
   const results: DailyLogResult[] = [];
   for (const day of days) {
     const run = { ...place, channelName: channel.name ?? place.channelId, day, adapter };
-    const result = await writeDailyLog(run).catch((error) => { console.error(`[daily-log] ${place.channelId} ${day}:`, error?.message ?? error); return "failed" as const; });
-    if (result === "failed") console.error(`[daily-log] could not write ${place.channelId} ${day}`);
+    let thrown: unknown;
+    const result = await writeDailyLog(run).catch((error) => { thrown = error; return "failed" as const; });
+    if (result === "failed") {
+      const failure = thrown === undefined ? { error: "Unwritable", message: "the model gave no Daily log that could be read" } : failureOf(thrown);
+      console.error(`[daily-log] could not write ${place.channelId} ${day}: ${failure.error}: ${failure.message}`);
+      await audit({ tenantId: place.tenantId, botId: place.botId }, "daily_log_failed", { channelId: place.channelId, day, ...failure });
+    }
     results.push(result);
   }
   return results;
