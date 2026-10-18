@@ -2,6 +2,7 @@ import { repositories, type Message } from "@pachiware/db";
 import { dropLeadingOrphans, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
+import { botCompletion } from "../llm/completion.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
 import { summaryMessage } from "./summary.js";
@@ -162,10 +163,7 @@ export class AgentReActLoop {
       userId: input.context.userId,
       timezone: input.context.timezone,
       language: input.context.language,
-      complete: async ({ system, user }) => {
-        const response = await llmRouter.complete([{ role: "system", content: system }, { role: "user", content: user }], { tenantId: input.tenantId, botId: input.botId, tools: [], language: input.context.language }).catch(() => null);
-        return response && response.finishReason !== "error" ? response.content : null;
-      },
+      complete: botCompletion(input.tenantId, input.botId, input.context.language),
       metadata: input.context.skillContext?.metadata,
       auth: {
         tenantId: input.tenantId, botId: input.botId, userId: input.context.userId, guildId: input.context.guildId, channelId: input.context.channelId,
