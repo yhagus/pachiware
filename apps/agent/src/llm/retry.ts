@@ -25,18 +25,24 @@ const backoff = (attempt: number) => Math.min(retryPolicy.maxDelayMs, retryPolic
  * One provider request with a timeout per attempt. 408, 409, 429, 5xx, and thrown fetch errors (network, timeout) are retried
  * with exponential backoff and jitter; any other status, 400 included, comes back as is so the caller can read it.
  */
-export async function providerRequest(url: string, init: RequestInit): Promise<Response> {
+export async function providerRequest(url: string, init: RequestInit, deadline?: number): Promise<Response> {
+  // A turn's deadline shortens the last attempt and stops any retry that would start, or wait, past it.
+  const left = () => (deadline === undefined ? Infinity : deadline - Date.now());
   for (let attempt = 0; ; attempt++) {
-    const last = attempt === retryPolicy.retries;
+    if (left() <= 0) throw new Error("The turn's deadline passed");
+    let last = attempt === retryPolicy.retries;
     let response: Response;
     try {
-      response = await fetch(url, { ...init, signal: AbortSignal.timeout(retryPolicy.timeoutMs) });
+      response = await fetch(url, { ...init, signal: AbortSignal.timeout(Math.min(retryPolicy.timeoutMs, left())) });
     } catch (err) {
-      if (last) throw err;
-      await retryPolicy.sleep(backoff(attempt));
+      const wait = backoff(attempt);
+      if (last || wait >= left()) throw err;
+      await retryPolicy.sleep(wait);
       continue;
     }
+    const wait = retryAfterMs(response.headers.get("retry-after")) ?? backoff(attempt);
+    if (wait >= left()) last = true;
     if (response.ok || !retryable(response.status) || last) return response;
-    await retryPolicy.sleep(retryAfterMs(response.headers.get("retry-after")) ?? backoff(attempt));
+    await retryPolicy.sleep(wait);
   }
 }

@@ -30,6 +30,9 @@ export type AgentConfig = {
 export type AgentConfigUpdate = Partial<Omit<AgentConfig, "tenantId" | "updatedAt">>;
 
 /** The configuration a new tenant starts with, on every engine. */
+/** How many model calls one turn may make when the tenant set no other number; Discord, the web chat and the loop share it. */
+export const DEFAULT_REACT_ITERATIONS = 32;
+
 export function defaultAgentConfig(tenantId: string, now: Date): AgentConfig {
   return {
     tenantId,
@@ -50,7 +53,7 @@ export function defaultAgentConfig(tenantId: string, now: Date): AgentConfig {
     customModel: null,
     timezone: "Asia/Jakarta",
     language: "id",
-    settings: { maxReActIterations: 32 },
+    settings: { maxReActIterations: DEFAULT_REACT_ITERATIONS },
     updatedAt: now,
   };
 }

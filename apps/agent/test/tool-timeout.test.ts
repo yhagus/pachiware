@@ -118,3 +118,47 @@ discordScenario("a call running nested calls one after another gives up at twice
   await s.discord.send(`${s.discord.mention} look everything up`);
   expect(seen).toEqual({ error: "The tool did not answer in time. A change may or may not have happened: check before trying again." });
 });
+
+// A turn stops at its deadline (#254): no model call or tool call starts past it, and the turn ends with the summary the action budget gives.
+let shippedDeadline: number | undefined;
+async function deadline(ms: number) {
+  const { turnDeadline } = await import("../src/loop/react.ts");
+  shippedDeadline ??= turnDeadline.ms;
+  turnDeadline.ms = ms;
+}
+afterEach(async () => {
+  if (shippedDeadline === undefined) return;
+  (await import("../src/loop/react.ts")).turnDeadline.ms = shippedDeadline;
+  shippedDeadline = undefined;
+});
+
+discordScenario("past the turn's deadline the next tool call is not run and the turn ends with a summary of what was done", async (s) => {
+  await s.guildSettings({ language: "en", useThreads: false });
+  let saved = false;
+  await slowSkill(s, { slowLookup: () => new Promise((resolve) => setTimeout(() => resolve({ venue: "Hall B" }), 150)), slowSave: async () => { saved = true; return { saved: true }; } });
+  await deadline(80);
+  let asked: any[] = [];
+  s.model.script([{ tool: "slowLookup", args: {} }, { tool: "slowSave", args: { text: "Hall B" } }], (turn) => { asked = turn.messages; return "I found Hall B but ran out of time before saving it."; });
+  await s.discord.send(`${s.discord.mention} look up the venue and save it`);
+
+  expect(saved).toBe(false);
+  const tools = asked.filter((m) => m.role === "tool").map((m) => String(m.content));
+  expect(tools[0]).toContain("Hall B");
+  expect(tools[1]).toContain("This tool call was not run: the turn ran out of time. Say it was not done.");
+  expect(String(asked.at(-1).content)).toBe("The time for this turn ran out. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.");
+  expect(s.discord.botMessages.at(-1)!.content).toBe("I found Hall B but ran out of time before saving it.");
+  expect(s.model.calls.length).toBe(2);
+  const { repositories } = await import("@pachiware/db");
+  const limits = (await repositories().usage.list({ tenantId: s.tenant.id, type: "guardrail_denied" })).map((e: any) => e.metadata).filter((m: any) => m.kind === "limit" && m.synthesized);
+  expect(limits).toEqual([expect.objectContaining({ source: "deadline" })]);
+});
+
+discordScenario("a turn without a saved iteration setting gets the shared default of 32 model calls, not 12", async (s) => {
+  await s.guildSettings({ language: "en", useThreads: false });
+  const { repositories } = await import("@pachiware/db");
+  const config = await repositories().agentConfig.get(s.tenant.id);
+  await repositories().agentConfig.update(s.tenant.id, { settings: { ...(config?.settings ?? {}), maxReActIterations: undefined } } as any);
+  s.model.script(...Array.from({ length: 13 }, () => ({ tool: "listTasks", args: {} })), "thirteen lists later");
+  await s.discord.send(`${s.discord.mention} keep listing`);
+  expect(s.discord.botMessages.at(-1)!.content).toBe("thirteen lists later");
+});

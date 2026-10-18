@@ -1,4 +1,4 @@
-import { repositories } from "@pachiware/db";
+import { repositories, DEFAULT_REACT_ITERATIONS } from "@pachiware/db";
 import { historyWindow, storedToolResult } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
@@ -53,6 +53,12 @@ function changeLine({ call, result }: Executed, t: Strings) {
 export const toolTimeout = { ms: 90_000 };
 
 /**
+ * How long one turn may keep calling the model and tools (TURN_DEADLINE_SECONDS, default 3 minutes): past it no model call or
+ * tool call starts, and the turn ends with the same summary the action budget gives, which may take `summaryMs` more. Tests shorten both.
+ */
+export const turnDeadline = { ms: (Number(process.env.TURN_DEADLINE_SECONDS) || 180) * 1000, summaryMs: 30_000 };
+
+/**
  * When a running tool call gives up; a call that runs nested calls (recall) is moved past each nested call's own ceiling,
  * but never past `cap`, twice the ceiling from its start, so nested calls one after another cannot hold the turn without bound.
  */
@@ -102,17 +108,20 @@ async function cite(reply: string, executed: Executed[], sent: ChatMessage[], ct
 }
 
 const CUT_TOOL_CALL = "This tool call was cut off at the output limit and was not run. Make it smaller, for example by splitting the content over several calls.";
+const OUT_OF_TIME_CALL = "This tool call was not run: the turn ran out of time. Say it was not done.";
+const BUDGET_SPENT = "The action budget for this turn is exhausted. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
+const TIME_SPENT = "The time for this turn ran out. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
 const CONTINUE = "Your last answer was cut off at the output limit. Continue exactly where you stopped, without repeating anything you already wrote.";
 
 /**
  * Asks once for the rest of an answer cut at the output limit and joins the two parts; `stillCut` when the rest is cut too or never came.
  * The continuation request is not stored: only the joined answer is.
  */
-async function continueCut(partial: string, sent: ChatMessage[], tools: ToolDefinition[], convId: string, historyEnd: number | undefined, input: ReActInput, ctx: SkillContext) {
+async function continueCut(partial: string, sent: ChatMessage[], tools: ToolDefinition[], convId: string, historyEnd: number | undefined, input: ReActInput, ctx: SkillContext, deadline: number) {
   await audit(ctx, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "text" });
   if (!partial.trim()) return { text: partial, stillCut: true };
   const rest = await llmRouter.complete([...sent, { role: "assistant", content: partial }, { role: "user", content: CONTINUE }], {
-    tenantId: input.tenantId, botId: input.botId, cacheKey: convId, historyEnd, tools, language: input.context.language,
+    tenantId: input.tenantId, botId: input.botId, cacheKey: convId, historyEnd, tools, language: input.context.language, deadline,
   });
   if (rest.finishReason === "error") return { text: partial, stillCut: true };
   if (rest.finishReason === "length") await audit(ctx, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "text" });
@@ -133,7 +142,8 @@ export class AgentReActLoop {
    * Executes the ReAct cycle (Thought -> Action -> Observation -> Answer).
    */
   async run(input: ReActInput): Promise<ReActOutput> {
-    const requestedIterations = Number(input.maxIterations) || 32;
+    const deadline = Date.now() + turnDeadline.ms;
+    const requestedIterations = Number(input.maxIterations) || DEFAULT_REACT_ITERATIONS;
     const maxIterations = Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, PLAYBOOK_ITERATIONS) : requestedIterations));
     const toolCallsExecuted: Executed[] = [];
 
@@ -256,11 +266,13 @@ export class AgentReActLoop {
 
     const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;
+    let outOfTime = false;
     let finalReply = "";
     let imagesRejected = false;
 
     // 7. ReAct execution cycle
     while (iterations < maxIterations) {
+      if (Date.now() >= deadline) { outOfTime = true; break; }
       iterations++;
 
       // LLM Step (Thinking & Tool Decision)
@@ -271,11 +283,13 @@ export class AgentReActLoop {
         historyEnd,
         tools: activeTools,
         language: input.context.language,
+        deadline,
       });
 
       if (response.imagesRejected) { imagesRejected = true; turn.content = input.message; }
 
       // The failure text is the host's, not the model's: kept out of history so later turns never read it as something the bot said.
+      if (response.finishReason === "error" && Date.now() >= deadline) { outOfTime = true; break; }
       if (response.finishReason === "error") {
         finalReply = failureReply(response.content ?? "", toolCallsExecuted, input.context.language);
         break;
@@ -289,7 +303,7 @@ export class AgentReActLoop {
       const cut = response.finishReason === "length";
       const final = !response.toolCalls || response.toolCalls.length === 0;
       let answer = response.content, stillCut = false;
-      if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, convId, historyEnd, input, skillContext));
+      if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, convId, historyEnd, input, skillContext, deadline));
 
       // The final answer gets its citations rendered and its links checked before it is stored, so later turns read real links.
       const content = final && answer ? await cite(answer, toolCallsExecuted, messageHistory, skillContext) : answer;
@@ -331,7 +345,9 @@ export class AgentReActLoop {
         input.onStep?.({ type: "tool_call", payload: toolCall });
 
         if (cut) await audit(skillContext, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "tool_call", tool: toolCall.name });
-        const refusal = cut ? CUT_TOOL_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
+        const late = !cut && Date.now() >= deadline;
+        if (late) outOfTime = true;
+        const refusal = cut ? CUT_TOOL_CALL : late ? OUT_OF_TIME_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
         const approved = bulkDecision.allow && bulkDecision.approved.has(toolCall.id);
         const result = await executeCall(toolCall, skillContext, { refusal, approved, running: setRunning });
         toolCallsExecuted.push({ call: toolCall, result });
@@ -363,14 +379,11 @@ export class AgentReActLoop {
       }
     }
 
-    if (iterations >= maxIterations && !finalReply) {
+    if ((iterations >= maxIterations || outOfTime) && !finalReply) {
       // One more call with the same tools and tool_choice none, so the cached prefix holds and completed work becomes a useful answer
       // instead of an opaque failure. The instruction is not stored; the answer is, so the next turn builds on it.
-      const request = [...messageHistory, {
-        role: "user" as const,
-        content: "The action budget for this turn is exhausted. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.",
-      }];
-      const options = { tenantId: input.tenantId, botId: input.botId, cacheKey: convId, historyEnd, language: input.context.language };
+      const request = [...messageHistory, { role: "user" as const, content: outOfTime ? TIME_SPENT : BUDGET_SPENT }];
+      const options = { tenantId: input.tenantId, botId: input.botId, cacheKey: convId, historyEnd, language: input.context.language, deadline: Date.now() + turnDeadline.summaryMs };
       // A server that refuses tool_choice is asked once more without tools by the router, before any fallback Profile.
       const boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
       if (boundary.finishReason === "error") finalReply = failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language);
@@ -379,7 +392,7 @@ export class AgentReActLoop {
         if (content) await conversations.addMessage({ tenantId: input.tenantId, conversationId: convId, role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
         finalReply = redact(content || textIn(input.context.language).budgetSpent);
       }
-      await audit(skillContext, "guardrail_denied", { kind: "limit", source: "iterations", synthesized: true });
+      await audit(skillContext, "guardrail_denied", { kind: "limit", source: outOfTime ? "deadline" : "iterations", synthesized: true });
     }
 
     return {

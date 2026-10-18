@@ -97,6 +97,27 @@ describe("Router hardening", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("a turn's deadline cuts a hung request at the deadline and starts no retry or fallback that would run past it", () => {
+    const { code, stderr } = scenario(`
+      await useOpenAI(tenant.id);
+      reply = () => HANG;
+      const started = performance.now();
+      const hung = await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, deadline: Date.now() + 60 });
+      const elapsed = performance.now() - started;
+      assert(hung.finishReason === "error" && calls.length === 1 && calls[0].aborted, "hung request retried past the deadline: " + calls.length);
+      assert(elapsed >= 50 && elapsed < 1000, "not cut at the deadline: " + elapsed);
+
+      calls.length = 0; waits.length = 0; reply = () => json({ error: { message: "overloaded" } }, 503);
+      const down = await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, deadline: Date.now() + 200 });
+      assert(down.finishReason === "error" && down.httpStatus === 503 && calls.length === 1 && waits.length === 0, "a retry waited past the deadline: " + calls.length + " / " + JSON.stringify(waits));
+
+      calls.length = 0;
+      const late = await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, deadline: Date.now() - 1 });
+      assert(late.finishReason === "error" && calls.length === 0, "a request started past the deadline: " + calls.length);
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("an Anthropic request marks the last system block and the last tool for caching, sends no temperature, and records cached tokens", () => {
     const { code, stderr } = scenario(`
       const created = await post("/tenants/" + tenant.id + "/profiles", { name: "Claude", provider: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-ant-profile" });

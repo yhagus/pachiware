@@ -44,4 +44,6 @@ export interface LLMRequestOptions {
   provider?: "openai" | "anthropic" | "custom";
   /** The configured language of the place, for a fallback answer when the provider fails; the tenant's when absent. */
   language?: Language;
+  /** When the turn must stop (epoch ms): no attempt, retry or fallback Profile starts past it, and the last attempt is cut at it. */
+  deadline?: number;
 }

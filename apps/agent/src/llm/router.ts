@@ -95,7 +95,7 @@ export class LLMRouter {
     let answeredBy = profile;
     // A failed Profile hands the same request to its fallback, and that one to its own, up to MAX_CHAIN Profiles in all.
     const tried = new Set(profile ? [profile.id] : []);
-    while (answered.response.finishReason === "error" && answeredBy?.fallbackProfileId && tried.size < MAX_CHAIN) {
+    while (answered.response.finishReason === "error" && answeredBy?.fallbackProfileId && tried.size < MAX_CHAIN && !(options.deadline !== undefined && Date.now() >= options.deadline)) {
       const next = await repositories().profiles.getForTenant(options.tenantId, answeredBy.fallbackProfileId);
       if (!next || tried.has(next.id)) break;
       tried.add(next.id);
@@ -217,7 +217,7 @@ export class LLMRouter {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
-      });
+      }, options.deadline);
 
       if (!response.ok) return this.rejected(response.status, messages, options);
 
@@ -337,7 +337,7 @@ export class LLMRouter {
         method: "POST",
         headers: { "Content-Type": "application/json", ...formatHeaders(as, "messages", apiKey) },
         body: JSON.stringify(body),
-      });
+      }, options.deadline);
 
       if (!response.ok) return this.rejected(response.status, messages, options);
 
@@ -445,7 +445,7 @@ export class LLMRouter {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
-      });
+      }, options.deadline);
 
       if (!response.ok) return this.rejected(response.status, messages, options);
 
@@ -519,7 +519,7 @@ export class LLMRouter {
         method: "POST",
         headers: { "Content-Type": "application/json", ...providerHeaders("custom", apiKey) },
         body: JSON.stringify(body),
-      });
+      }, options.deadline);
       if (!response.ok) return this.rejected(response.status, messages, options);
 
       const data = await readAnswer("responses", response);
