@@ -1607,4 +1607,30 @@ The five tickets the first live Rapor (#240, 76.5) filed. Together they cover ev
   - Every new scenario failed before its fix.
   - Full suite at load average 35–44 (Docker's VM at about 240% CPU): 1177 pass, 4 fail. The failures were 5 s timeouts in `setup.test.ts`, `router-hardening.test.ts` and `workspace.test.ts`, and each file passes alone (30 s timeout).
 - [x] Merged: `fix/rapor-241-245` fast-forwarded into `main` and pushed with `--no-verify`, chosen by the user: three pre-push runs at load average 25–39 each failed only on 5 s timeouts (1, 4 and 5 of them, in different files each time), and every file that failed passes alone. #241–#245 closed with their commits; GitHub closed #241 itself from the words "fixes #241" in b0c32ff's subject.
-- [ ] Second live Rapor (`EVAL_EXAM=1 EVAL_TRIALS=3`, profile `deepseek-flash`, judged blind and offline through `offline-judge.ts`), against 76.5. Needs the user's DeepSeek key.
+- [x] Second live Rapor (2026-10-19): `EVAL_EXAM=1 EVAL_TRIALS=3`, profile `deepseek-flash`, judged blind and offline by Claude in this session, as the user chose.
+  - The first run, on 8738fc1, was kept for its code checks only (`rapor-phase43-interim-20261019-0224/`). `daily-log-from-talk` still cited the question in all three trials. `keptSource` chose among a match's three shown lines, and in a real Daily log those are the head's Topics and Keywords lines and the topic row. Fixed in cac5663: every row of the log's body is weighed against the query words. The #242 scenario now has a realistic head and failed first. The exam then ran again on cac5663 (`rapor-phase43-20261019-0227/`).
+  - Code-check failures went from 25 to 2: `member-joins-thread` trial 1 kept no Progress note, and `tanpa-link-karangan` trial 2 answered in English.
+  - Judging:
+    - 460 questions (450 from the exam, 10 from the regression brief) were shuffled with no run named and split into five batches of 92. Five Claude Opus 5.5 subagents answered them, and every answer file passed a validator: 456 yes, 4 no.
+    - Two "no" verdicts on `pdf-ditanya-kemudian` (trials 1 and 2, turn 2: "the contract starts 1 November 2026" is not supported) were reconciled to yes. The same brief's trial 3 and the previous Rapor both read the start date as a detail of the contract, and the PDF says it.
+  - Calibration of the new judges: 37 questions of the previous Rapor (its 14 no, 3 unknown and 20 sampled yes) were answered blind by a sixth subagent.
+    - Agreement 86%: 12 of the 14 no stayed no.
+    - The two that flipped are the trailing offer after acting already noted for #49, now read as acting. Read that way, the previous run would score about 2 points higher, about 78.5.
+  - **Rapor v3, rubric 0.2: 95.5** (76.5 before Phase 43). pass^3 90%, coverage 0.97, question rate 98%.
+
+    | Area | Weight | Before | Now | Holdout now |
+    |---|---|---|---|---|
+    | capture | 20 | 73.3 | 100.0 | 100.0 |
+    | recall | 25 | 77.8 | 100.0 | 100.0 |
+    | tasks | 20 | 81.3 | 87.5 | 100.0 |
+    | group | 10 | 72.2 | 97.2 | 100.0 |
+    | loop | 15 | 75.0 | 91.7 | 100.0 |
+
+  - Per brief, before → now: `daily-log-from-talk` 0 → 1, `sudah-diimplementasi-pr-ditutup` 0 → 1, `minutes-as-document` 0.67 → 1, `channel-tanpa-daily-log` 0.67 → 1, `tiga-alat-sekaligus` (held out) 0 → 1, `dua-orang-bersamaan` 0.33 → 1, `member-joins-thread` 0.56 → 0.89. Below 1 now: `tanpa-link-karangan` 0.67 and `bulk-cancel` 0.
+  - `bulk-cancel` 0.00:
+    - The bot now cancels all four tasks after one yes, and its code checks pass in every trial.
+    - The must-cover fact "All four of Bob's tasks are cancelled; Confirm the venue, Alice's, is still pending" was read as unmet in all three trials, because no reply names Alice's untouched task. At 1 of 2 facts, every turn fails. Trial 1 also asked an extra question in turn 1.
+    - Exam defect: the venue's state is already a code check, and the persona has the bot say only what changed. With the fact cut to the cancellation, `bulk-cancel` would score 0.83 and the Rapor about 97.8. Left to the user, since the fix bumps the scorecard to v4.
+  - Exam defect: the recorded state lists files, not their text, so a claim about what a Document says cannot be checked.
+  - The regression brief `ingat-ya-dikonfirmasi` (#243) scored 1.00: all three trials said the line was kept.
+  - Run folders (gitignored): `rapor-phase43-20261019-0227/` and `regression-ingat-ya-20261019-0228/`, each graded into `rejudged-0.2/`. About 44k prompt and 0.7k completion tokens a trial, 1.6 s a model call.
