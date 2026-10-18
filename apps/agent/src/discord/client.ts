@@ -13,6 +13,7 @@ import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replySt
 import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachments.js";
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
 import { llmRouter } from "../llm/router.js";
+import { botCompletion } from "../llm/completion.js";
 import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
 
 const BURST_MS = 2500;
@@ -493,7 +494,7 @@ export class DiscordBotManager {
       // The brief's author still gets a round: it asks them to describe the screenshot.
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);
       if (media.blind && !briefAuthor && !items.some((i) => i.text)) { await send(`${t.blind} ${t.describeImage}`); return; }
-      const filed = await fileTurnDocuments(runtime.tenantId, items, language);
+      const filed = await fileTurnDocuments(runtime.tenantId, items, language, botCompletion(runtime.tenantId, botId, language));
       let turn = [items.map((i) => speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed), keepableId(i.text, i.msg.id))).join("\n"), media.context].filter(Boolean).join("\n");
       const brief = opts.binding && { place: bindingPlace(opts.binding), authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
       if (brief?.outsider) turn = outsiderTurn(turn);

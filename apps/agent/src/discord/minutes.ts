@@ -1,6 +1,7 @@
 import type { Message } from "discord.js";
-import { workspaceStore, renderFrontmatter, parseFrontmatter, placeRoot, visibleRoots, asUntrusted, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, permissionName, type Language, type Playbook } from "@pachiware/skills";
+import { workspaceStore, addKeywords, renderFrontmatter, parseFrontmatter, placeRoot, visibleRoots, asUntrusted, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, permissionName, type Language, type Playbook } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
+import { botCompletion } from "../llm/completion.js";
 import { replyQuietly } from "./replyStyle.js";
 import { placeOfChannel, speakerName } from "./routing.js";
 import { HISTORY_PAGE, HISTORY_PAGES, HISTORY_SPAN_MS, stamp, transcript, type DiscordJSAdapter, type HistoryAccess, type HistoryCut } from "./adapter.js";
@@ -74,6 +75,7 @@ export async function writeMinutes(run: MinutesRun, now = clockNow()): Promise<s
   if (!posted) return t.minutesNotPosted(payload.files.length > 0);
   const record: MinutesRecord = { title: minutes.title, guildId: run.guildId, channelId: run.parentId ?? run.channelId, postedIn: run.channelId, messageId: posted.id, requesterId: run.requesterId, header, minutes, corrections: [], input: [] };
   await workspaceStore().write(run.tenantId, `${folder}/${file}`, recordText(record));
+  await addKeywords(run.tenantId, `${folder}/${file}`, botCompletion(run.tenantId, run.botId, language));
   return null;
 }
 

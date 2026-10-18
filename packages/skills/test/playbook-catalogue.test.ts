@@ -5,7 +5,7 @@ import { skillRegistry } from "../src/registry.ts";
 import { BUILTIN_PLAYBOOKS_DIR, builtinPlaybooks, builtinPlaybookFiles, playbookChain } from "../src/playbooks.ts";
 
 // Ours; every other built-in is copied from mattpocock/skills and must say so.
-const OWN = ["issue-draft", "minutes"];
+const OWN = ["daily-log", "issue-draft", "minutes"];
 const folders = readdirSync(BUILTIN_PLAYBOOKS_DIR).filter((n) => statSync(join(BUILTIN_PLAYBOOKS_DIR, n)).isDirectory()).sort();
 const playbooks = builtinPlaybooks();
 const imported = playbooks.filter((p) => !OWN.includes(p.name));

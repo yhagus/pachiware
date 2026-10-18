@@ -13,6 +13,7 @@ export * from "./workspace/threads.js";
 export * from "./workspace/threadMove.js";
 export * from "./workspace/memory.js";
 export * from "./workspace/files.js";
+export * from "./workspace/keywords.js";
 export * from "./builtin/discord.js";
 export * from "./builtin/git.js";
 export * from "./git.js";

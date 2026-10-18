@@ -2,6 +2,7 @@ import { placeRoot, resolvePath } from "./paths.js";
 import { WorkspaceConflict, workspaceStore } from "./store.js";
 import { extensionOf, extractsText } from "./extract.js";
 import { provenanceOf, unrecordedTextPath } from "./files.js";
+import { withoutKeywords } from "./keywords.js";
 import { DEFAULT_TIMEZONE, isoInZone } from "../clock.js";
 import { textIn } from "../language.js";
 import { jumpLink, renderFrontmatter } from "../playbooks.js";
@@ -41,7 +42,7 @@ export async function keptDocument(ctx: SkillContext, path: unknown): Promise<Ke
     : given ? given.textPath ?? null : unrecordedTextPath(document, siblings);
   const file = textPath ? await store.read(ctx.tenantId, resolvePath(ctx, textPath)).catch(() => null) : null;
   if (!file) throw new Error(t.keepNoText(document));
-  return { text: file.content, source: document, ...(given && { author: given.name }) };
+  return { text: withoutKeywords(file.content), source: document, ...(given && { author: given.name }) };
 }
 
 export const MAX_KEPT_MESSAGES = 20;
