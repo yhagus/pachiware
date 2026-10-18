@@ -1,5 +1,5 @@
 import { repositories, type Message } from "@pachiware/db";
-import { dropLeadingOrphans, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
+import { dropLeadingOrphans, fitHistory, historyOffset, storedToolResult, HISTORY_SIZE, HISTORY_STEP } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
@@ -129,7 +129,7 @@ export class AgentReActLoop {
 
     // 3. Load previous messages from DB (windowed in steps so the prompt prefix stays cacheable)
     const windowOffset = historyOffset(await conversations.countMessages(input.tenantId, convId));
-    const existingDbMessages = dropLeadingOrphans<Message>(await conversations.listMessages(input.tenantId, convId, { offset: windowOffset, limit: HISTORY_SIZE + HISTORY_STEP }));
+    const existingDbMessages = fitHistory(dropLeadingOrphans<Message>(await conversations.listMessages(input.tenantId, convId, { offset: windowOffset, limit: HISTORY_SIZE + HISTORY_STEP })));
 
     const messageHistory: ChatMessage[] = [
       { role: "system", content: systemPrompt },

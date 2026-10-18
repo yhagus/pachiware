@@ -14,6 +14,36 @@ export function dropLeadingOrphans<T extends { role: string }>(rows: T[]): T[] {
   return rows.slice(i);
 }
 
+/** Stored history after the rolling summary stays within this many estimated tokens; a pasted long text would otherwise ride every later turn. */
+export const HISTORY_TOKENS = 16_000;
+const IMAGE_TOKENS = 1_000;
+const CLIPPED_NOTE = "\n…[clipped; the full text is in the conversation's earlier message]";
+
+type StoredRow = { role: string; content: unknown; toolCalls?: unknown };
+
+/** Characters / 4, an image counted as 1,000. */
+export function estimateTokens(row: StoredRow): number {
+  let chars = row.toolCalls ? JSON.stringify(row.toolCalls).length : 0, images = 0;
+  if (typeof row.content === "string") chars += row.content.length;
+  else if (Array.isArray(row.content)) for (const part of row.content as { type: string; text?: string }[]) part.type === "image" ? images++ : (chars += part.text?.length ?? 0);
+  return Math.ceil(chars / 4) + images * IMAGE_TOKENS;
+}
+
+const total = (rows: StoredRow[]) => rows.reduce((sum, row) => sum + estimateTokens(row), 0);
+
+/**
+ * Keeps the loaded window within the token budget. A message bigger than the budget on its own is clipped (the same way every turn, so the prefix holds).
+ * Over budget the start advances by whole steps, so the prompt prefix still changes only once per step; only a window shorter than a step that
+ * is still over budget loses single rows from the front. A cut never leaves a tool result without its call.
+ */
+export function fitHistory<T extends StoredRow>(rows: T[], budget = HISTORY_TOKENS, step = HISTORY_STEP): T[] {
+  const keep = Math.floor(budget / 2) * 4;
+  let fitted = rows.map((row) => (typeof row.content === "string" && estimateTokens(row) > budget ? { ...row, content: `${row.content.slice(0, keep)}${CLIPPED_NOTE}` } : row));
+  while (total(fitted) > budget && fitted.length > step) fitted = dropLeadingOrphans(fitted.slice(step));
+  while (total(fitted) > budget && fitted.length > 1) fitted = dropLeadingOrphans(fitted.slice(1));
+  return fitted;
+}
+
 // Stored tool rows are replayed on every later turn, so they keep only what names the outcome; the live turn reads the full result.
 export const STORED_TOOL_RESULT = 800;
 const KEPT_FIELD = /^(success|id|title|name|path|from|to|status|url|number|line|message|total|count|removed|pending|summary|version|level|error)$|Id$/;
