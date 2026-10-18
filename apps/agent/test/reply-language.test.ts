@@ -42,6 +42,11 @@ discordScenario("an Indonesian brief's confirmation and creation report are in I
   s.model.script([{ tool: "recordBriefAnswers", args: { round: 1, acceptRest: true } }, { tool: "writeIssueDraft", args: draft(1) }, { tool: "writeIssueDraft", args: draft(2) }], "ok");
   await s.discord.send("ya", { channel: thread });
 
+  let refusal = "";
+  s.model.script({ tool: "createBriefIssues", args: { skip: [1, 2] } }, (turn) => { refusal = turn.toolResults.at(-1).error; return "ok"; });
+  await s.discord.send("lewati semuanya", { channel: thread });
+  expect(refusal).toContain("Semua draf brief ini sudah punya issue atau sudah dilewati.");
+
   let issue = 100;
   s.http.on("POST api.github.com/repos/acme/api/issues", () => { issue++; return { number: issue, id: 9000 + issue, html_url: `https://github.com/acme/api/issues/${issue}` }; });
   s.http.on("POST api.github.com/repos/acme/api/issues/102/dependencies/blocked_by", () => new Response("", { status: 404 }));

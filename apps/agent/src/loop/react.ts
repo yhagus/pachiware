@@ -313,7 +313,7 @@ export class AgentReActLoop {
       // If no tool calls, this is the final answer!
       // The cut-off note is the host's, not the model's, so it goes to the person but not into history.
       if (final) {
-        finalReply = redact(content || (stillCut ? "" : "I have processed your request."));
+        finalReply = redact(content || (stillCut ? "" : textIn(input.context.language).emptyAnswer));
         if (stillCut) finalReply = finalReply ? `${finalReply}\n\n${textIn(input.context.language).outputCut}` : textIn(input.context.language).outputCut;
         break;
       }
@@ -377,7 +377,7 @@ export class AgentReActLoop {
       else {
         const content = boundary.content ? await cite(boundary.content, toolCallsExecuted, request, skillContext) : "";
         if (content) await conversations.addMessage({ tenantId: input.tenantId, conversationId: convId, role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
-        finalReply = redact(content || "I completed the available actions. Please continue this task in your next message.");
+        finalReply = redact(content || textIn(input.context.language).budgetSpent);
       }
       await audit(skillContext, "guardrail_denied", { kind: "limit", source: "iterations", synthesized: true });
     }

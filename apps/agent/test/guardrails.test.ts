@@ -233,7 +233,7 @@ test("ReAct loop: refusals before the model, injected tool results stay data, se
         // iteration cap
         script = () => ({ content: null, finishReason: "tool_calls", toolCalls: [{ id: "n" + Math.random(), name: "listTasks", arguments: {} }] });
         const capped = await ask("list tasks", { maxIterations: 3 });
-        assert(capped.iterations === 3 && capped.reply.includes("available actions"), "iteration cap did not produce a boundary summary: " + capped.reply);
+        assert(capped.iterations === 3 && capped.reply.includes("Ask me to continue"), "iteration cap did not produce a boundary summary: " + capped.reply);
 
         // observe mode: would-be refusals are logged, not enforced
         process.env.GUARDRAIL_MODE = "observe"; script = () => ({ content: "ok", finishReason: "stop", toolCalls: [] });

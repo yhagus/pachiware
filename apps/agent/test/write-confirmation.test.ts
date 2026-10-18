@@ -78,7 +78,7 @@ discordScenario("an action for Trusted members only is refused for anyone else b
   process.env.TRUSTED_DISCORD_IDS = s.discord.alice.id;
   const notes = await notebook(s);
   const refused = await ask(s, "noteWipe", "all", { author: s.discord.bob });
-  expect(refused.content).toContain("limited to Trusted members");
+  expect(refused.content).toContain("hanya untuk Trusted member");
   expect(refused.components).toEqual([]);
 
   const queued = await ask(s, "noteWipe", "all");

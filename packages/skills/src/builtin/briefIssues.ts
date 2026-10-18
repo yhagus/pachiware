@@ -80,7 +80,7 @@ export async function createBriefIssues(a: Record<string, unknown>, ctx: SkillCo
   const state = briefState(found.binding), count = state.drafts.length;
   const skip = numbers(a.skip, count, "skip");
   const picked = a.drafts === undefined ? state.drafts.filter((d) => !d.issue && !d.skipped && !skip.includes(d.n)).map((d) => d.n) : numbers(a.drafts, count, "drafts");
-  if (!picked.length) throw new Error("Every draft of this brief already has an issue or was skipped.");
+  if (!picked.length) throw new Error(textIn(ctx.language).briefNothingLeft);
   const problems = [
     ...picked.filter((n) => !state.drafts[n - 1]!.writtenAt).map((n) => `Draft ${n} is not written yet: write it with writeIssueDraft, or skip it.`),
     ...picked.filter((n) => state.drafts[n - 1]!.writtenAt && !state.drafts[n - 1]!.repo).map((n) => `Draft ${n} has no repository: give it one with writeIssueDraft, or skip it and paste it by hand from drafts.md.`),
@@ -89,7 +89,7 @@ export async function createBriefIssues(a: Record<string, unknown>, ctx: SkillCo
   const order = creationOrder(state.drafts, picked);
 
   if (!ctx.confirmed) {
-    if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error("Creating issues needs the author to confirm it, which only works in a Discord thread.");
+    if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error(textIn(ctx.language).briefNeedsThread);
     const summary = summaryOf(state, found.binding, order, skip, textIn(replyLanguage(found.body)));
     const q = queueAction({ tenantId: ctx.tenantId, botId: ctx.botId, userId: ctx.userId, guildId: ctx.guildId, channelId: ctx.channelId, parentChannelId: ctx.parentChannelId, tool: CREATE_BRIEF_ISSUES, args: { drafts: order, ...(skip.length ? { skip } : {}) }, summary, auth: ctx.auth, ownConfirmation: true });
     return { pending: true, ownConfirmation: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the author to press Confirm or Cancel on the message that appears in the thread; a thread grant does not cover this. Do not call this tool again." };

@@ -36,7 +36,7 @@ discordScenario("workItemDelete is refused for someone who is not a Trusted memb
   const item = plane.item({ project: P1, sequence_id: 42, name: "Fix login", state: w.todo.id });
 
   const refused = await ask(s, "workItemDelete", { item: "ENG-42" }, { author: s.discord.bob });
-  expect(refused.result.error).toContain("limited to Trusted members");
+  expect(refused.result.error).toContain("hanya untuk Trusted member");
   expect(refused.confirmation).toBeUndefined();
 
   // Alice grants the thread with an ordinary write first.
@@ -96,7 +96,7 @@ discordScenario("cycleDelete, moduleDelete and intakeDelete run after their own 
   const pending = plane.intake({ project: P1, name: "Export fails on Safari", sequence_id: 57 });
 
   const notTrusted = await ask(s, "cycleDelete", { project: "ENG", cycle: "Sprint 42" }, { author: s.discord.bob });
-  expect(notTrusted.result.error).toContain("limited to Trusted members");
+  expect(notTrusted.result.error).toContain("hanya untuk Trusted member");
 
   const cycle = await ask(s, "cycleDelete", { project: "ENG", cycle: "sprint 42" });
   expect(cycle.result.summary).toContain("Delete cycle Sprint 42 in ENG");
@@ -241,7 +241,7 @@ discordScenario("workspaceInvite and workspaceCancelInvite are offered only wher
   plane.invitation({ email: "joined@example.com", accepted: true, responded_at: "2026-10-05T00:00:00Z" });
 
   const notTrusted = await ask(s, "workspaceInvite", { email: "sari@example.com" }, { author: s.discord.bob });
-  expect(notTrusted.result.error).toContain("limited to Trusted members");
+  expect(notTrusted.result.error).toContain("hanya untuk Trusted member");
   const badEmail = await ask(s, "workspaceInvite", { email: "sari at example" });
   expect(badEmail.result.error).toContain("email address");
   const dup = await ask(s, "workspaceInvite", { email: "OLD@example.com" });

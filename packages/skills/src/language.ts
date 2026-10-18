@@ -210,6 +210,12 @@ const en = {
   guardRateLimit: "Too many requests right now. Wait a minute and try again.",
   guardDuplicate: "That exact action just ran. It was not repeated.",
   guardNoConfirmer: "This action needs a person to confirm it, which only works in a Discord channel.",
+  guardTrustedOnly: "This action is limited to Trusted members (Discord ids in TRUSTED_DISCORD_IDS). Tell the user they are not allowed to request it.",
+  briefNothingLeft: "Every draft of this brief already has an issue or was skipped.",
+  briefNeedsThread: "Creating issues needs the author to confirm it, which only works in a Discord thread.",
+  // The loop's own fallbacks, when the model gives no text
+  emptyAnswer: "Done.",
+  budgetSpent: "I did what I could in this turn. Ask me to continue for the rest.",
 };
 
 const id: typeof en = {
@@ -369,6 +375,11 @@ const id: typeof en = {
   guardRateLimit: "Terlalu banyak permintaan saat ini. Tunggu satu menit lalu coba lagi.",
   guardDuplicate: "Aksi yang persis sama baru saja dijalankan. Tidak saya ulangi.",
   guardNoConfirmer: "Aksi ini perlu dikonfirmasi seseorang, dan itu hanya bisa di channel Discord.",
+  guardTrustedOnly: "Aksi ini hanya untuk Trusted member (id Discord di TRUSTED_DISCORD_IDS). Sampaikan bahwa dia tidak boleh memintanya.",
+  briefNothingLeft: "Semua draf brief ini sudah punya issue atau sudah dilewati.",
+  briefNeedsThread: "Membuat issue perlu dikonfirmasi penulis brief, dan itu hanya bisa di thread Discord.",
+  emptyAnswer: "Selesai.",
+  budgetSpent: "Yang bisa saya kerjakan di giliran ini sudah saya kerjakan. Minta saya melanjutkan untuk sisanya.",
 };
 
 export type Strings = typeof en;

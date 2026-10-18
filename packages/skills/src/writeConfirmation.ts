@@ -2,6 +2,7 @@ import type { SkillContext } from "./types.js";
 import { queueAction } from "./gitConfirm.js";
 import { hasThreadConfirmation, isTrustedMember } from "./threadConfirmation.js";
 import { actionKey, isDone, markDone } from "./guardrails.js";
+import { textIn } from "./language.js";
 
 export interface WriteRequest {
   /** The tool's own name and its arguments as the model sent them: Confirm re-runs exactly this call. */
@@ -25,11 +26,11 @@ export const DANGER_PREFIX = "⚠️ DANGEROUS: ";
  * A Trusted member's thread grant runs it at once, unless it needs its own Confirm.
  */
 export async function confirmWrite<T>(ctx: SkillContext, req: WriteRequest, prepare: () => PreparedWrite<T> | Promise<PreparedWrite<T>>): Promise<T | PendingWrite> {
-  if (req.access === "trusted" && !isTrustedMember(ctx)) throw new Error("This action is limited to Trusted members (Discord ids in TRUSTED_DISCORD_IDS). Tell the user they are not allowed to request it.");
+  if (req.access === "trusted" && !isTrustedMember(ctx)) throw new Error(textIn(ctx.language).guardTrustedOnly);
   const { summary, run } = await prepare();
-  if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error("Write actions need a person to confirm them, which only works in a Discord channel");
+  if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error(textIn(ctx.language).guardNoConfirmer);
   const key = actionKey(req.tool, req.args, ctx);
-  if (isDone(key)) throw new Error("That exact action just ran. It was not repeated.");
+  if (isDone(key)) throw new Error(textIn(ctx.language).guardDuplicate);
   if (ctx.confirmed || (!req.ownConfirmation && hasThreadConfirmation(ctx))) {
     const result = await run();
     markDone(key);

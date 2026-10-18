@@ -59,7 +59,7 @@ discordScenario("a danger git tool still needs an owner to ask and a Confirm cli
   s.model.script({ tool: "repoDelete", args: { repo: "acme/api" } }, (turn) => `result: ${JSON.stringify(turn.toolResults[0])}`,
     { tool: "repoDelete", args: { repo: "acme/api" } }, "Queued the deletion for your confirmation.");
   await s.discord.send(`${s.discord.mention} delete acme/api`, { author: s.discord.bob });
-  expect(s.discord.botMessages.at(-1)?.content).toMatch(/limited to Trusted members/);
+  expect(s.discord.botMessages.at(-1)?.content).toMatch(/hanya untuk Trusted member/);
 
   await s.discord.send(`${s.discord.mention} delete acme/api`);
   const confirmation = s.discord.botMessages.at(-1)!;
