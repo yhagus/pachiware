@@ -1520,4 +1520,46 @@ Planning is done; implementation follows the sub-issues of [#226](https://github
     - In a burst, a line that mentions the bot is answered before an earlier line that does not, since the latter waits on a look at whether the bot spoke last.
   - Verification: typecheck 0; `bun run test` 1159 pass, 0 fail.
 - [x] Spec #226 merged: `spec/226-rapor` fast-forwarded into `main` and pushed with `--no-verify`, chosen by the user: the pre-push run failed only on the known 5 s timeout of the CLI doctor MongoDB scenario at load about 68, which passes alone, while the full suite at low load was 1159 pass, 0 fail. #227–#239 closed with their commits. #226 stays open until #240 lands.
-- [ ] #240 Live Rapor runs: a baseline in a temporary worktree (main before #226 plus the eval harness, without the floor fixes), then a run on `main`. Needs a DeepSeek key and a judge key of another vendor from the user.
+- [x] #240 First live Rapor (2026-10-18). The user holds only a DeepSeek key, so the judge is Claude Opus 5.5 in Claude Code, a vendor outside the compared profile, judging offline.
+  - Harness added on `rapor-offline-judge`:
+    - `EVAL_JUDGE_PROVIDER=offline` and `offline-judge.ts` (`prompts` writes the HTTP judge's questions word for word, each once, leaving out those that cannot change a verdict; `grade` refuses answers that leave one out and regrades through `rejudge`). c19e867.
+    - `EVAL_EXAM=1`.
+    - `rejudge` reruns code checks from the recorded output against current facts. 450fd11.
+  - Setup:
+    - Profile `deepseek-flash` (DeepSeek-V4.1-Flash, `custom`, `https://api.deepseek.com/v1`), checked against the account's `/models`.
+    - `EVAL_TRIALS=3` over the 30 exam briefs.
+    - The baseline ran in a temporary worktree with the sources of 80c8faf (before #226) and the eval of this branch. The other run was on the current bot.
+    - Run folders (gitignored): `apps/agent/eval/results/rapor-baseline-20261018-2235/` and `rapor-after-20261018-2235/`, each graded into `rejudged-0.2/`. A run took about a minute. About 45k prompt and 0.8k completion tokens per trial, 1.8 s per model call. No price was given, so no cost.
+  - Judging was blind: 728 questions of both runs, mixed and shuffled with no run named, answered by 7 subagents; then 116 changed or new ones by 2 more. 654 answers were carried where only the rubric line's version differed. Every answer file passed a validator.
+  - Exam defects found by the run and fixed before grading, both runs graded the same way:
+    - minutes-as-document asked for a file name, which citations never show.
+    - notulen-pemilik-tenggat asked for one of two valid sources.
+    - 13 must-cover facts in 12 briefs were cut short by an unquoted " #" (a YAML comment); the loader now refuses that. bc37dbf.
+    - The judge's state said a Reminder pings only its mentions; it pings its owner too. Rubric 0.2, 569789e.
+    - Scorecard v3.
+  - **Rapor v3, rubric 0.2: baseline 65.1, current 76.5 (+11.4).**
+
+    | Area | Weight | Baseline | Current |
+    |---|---|---|---|
+    | capture | 20 | 33.3 | 73.3 |
+    | recall | 25 | 70.4 | 77.8 |
+    | tasks | 20 | 72.9 | 81.3 |
+    | group | 10 | 80.6 | 72.2 |
+    | loop | 15 | 77.8 | 75.0 |
+
+    - Holdout scores, current: capture 100, recall 83.3, tasks 100, group 100, loop 0 (its one holdout, `tiga-alat-sekaligus`).
+    - Trial score 0.67 → 0.77, pass^3 47% → 60%, coverage 0.77 → 0.88, question rate 77% → 87%.
+    - Group and loop moved within the noise of 3 trials over 4 briefs each.
+  - What #226 moved, per brief (baseline → current): `minutes-from-talk`, `notulen-pemilik-tenggat` and `notulen-jadi-tugas` 0 → 1 ("notulen", #231); `channel-tanpa-daily-log` 0 → 0.67 (`notLogged`, #233); `nothing-found`, `private-channel-dm` and `recall-done-pull-request` up to 1.
+  - Still failing, filed needs-triage:
+    - #241 bulk task changes never unlock when the model lists them first (`bulk-cancel` 0).
+    - #242 citations: a Daily log cites the wrong message, pull requests and Documents carry no useful date, ref tags leak (`daily-log-from-talk` 0, `sudah-diimplementasi-pr-ditutup` 0, `minutes-as-document` 0.67).
+    - #243 an explicit "ingat ya" is never confirmed, and `remember` without `level` stores nothing (`tiga-alat-sekaligus` 0).
+    - #244 in a burst a member's question goes unanswered (`dua-orang-bersamaan` 0.33, `member-joins-thread` 0.56).
+    - #245 "@bot notulen dong", and "jadikan task" on Minutes read as a correction.
+  - Known limits:
+    - The rubric is uncalibrated (#49): no person has graded yet, and the judge is one model family.
+    - Questions the code checks made moot grade unknown, so the question rate counts them as not answered.
+    - The judges read Minutes and Decision details as outside "tasks, Memory, files or Reminders" when asked whether every statement is supported.
+    - Two judges counted a trailing offer after acting ("mau saya buatkan task?") as asking; a calibration item for #49.
+    - The baseline worktree and its folder are scratch and not kept.
