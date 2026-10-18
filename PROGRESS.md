@@ -1250,4 +1250,16 @@ Started from a review of the harness as an administrative assistant (2026-10-18)
   - Content: Topics with Indonesian and English keywords, Decided, Still open, Who does what next, every item linked to its messages. People's and webhook messages in; other bots and the bot out; public threads in; private threads and DMs never. A busy day read in parts, cut past 5,000 messages with a note. A deleted message loses its link and an item left with none goes; edits ignored. Steps are a built-in, tenant-editable Playbook; an Availability rule turning it off stops the Daily log.
   - Recall: ranked search over files (no AND), several query variants per search, server-written topics and keywords on newly kept material, no topic list for now, "is it done?" reads Tasks of viewable channels under the Source rules plus git and Plane within their scopes, a four-part answer with the newest source winning.
 - [x] Test seams: the Discord scenario harness for behaviour and the assistant eval for recall quality with a real model; no new seam.
-- [ ] Cut spec #195 into tickets (`/to-tickets`).
+- [x] Spec #195 cut into 11 tickets, all sub-issues of #195 with native blocking, ready-for-agent. Persona changes land one at a time, so #199, #200 and #202 wait on #197.
+  - #196 Recall eval baseline
+  - #197 Ranked search with query variants (persona: variants, four-part answer, newest wins)
+  - #198 Turn Daily logs on for a channel
+  - #199 Keywords on newly kept material (after #197)
+  - #200 "Is it done?" reads Tasks across viewable channels (after #197)
+  - #201 "Is it done?" reaches git and Plane within their scopes (after #200)
+  - #202 Write yesterday's Daily log at 00:30 (after #197, #198)
+  - #203 Busy days read in parts (after #202)
+  - #204 Backfill and catch-up (after #202)
+  - #205 A deleted message leaves the Daily log (after #202)
+  - #206 Recall from Daily logs (after #197, #202)
+  - Starting frontier: #196, #197, #198.
