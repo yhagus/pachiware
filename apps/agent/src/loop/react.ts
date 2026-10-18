@@ -49,10 +49,38 @@ function changeLine({ call, result }: Executed, t: Strings) {
   return subject ? `${label} "${subject.trim().slice(0, 80)}"` : label;
 }
 
+/** The longest a tool call may take before the model is told it did not answer; tests shorten it. */
+export const toolPolicy = { timeoutMs: 90_000 };
+
+/** When a running tool call gives up; a call that runs nested calls (recall) is moved past each nested call's own ceiling. */
+type Ceiling = { until: number };
+const TIMED_OUT = Symbol("timed out");
+/** Results of calls that did not answer in time: whether their change happened is unknown. */
+const timedOut = new WeakSet<ToolResult>();
+
+/** Runs a tool call within the ceiling; one that has not answered by then gets the timeout error and is audited, and its late result is dropped. */
+async function withinCeiling(call: ToolCall, ctx: SkillContext, run: (ceiling: Ceiling) => Promise<ToolResult>): Promise<ToolResult> {
+  const ceiling: Ceiling = { until: Date.now() + toolPolicy.timeoutMs };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<typeof TIMED_OUT>((resolve) => {
+    const arm = () => { timer = setTimeout(() => (Date.now() >= ceiling.until ? resolve(TIMED_OUT) : arm()), Math.max(0, ceiling.until - Date.now())); };
+    arm();
+  });
+  try {
+    const out = await Promise.race([run(ceiling), expired]);
+    if (out !== TIMED_OUT) return out;
+  } finally { clearTimeout(timer); }
+  await audit(ctx, "guardrail_denied", { kind: "limit", reason: "tool_timeout", tool: call.name });
+  const result = { toolCallId: call.id, name: call.name, success: false, error: textIn(ctx.language).toolTimedOut };
+  timedOut.add(result);
+  return result;
+}
+
 /** Runs one tool call, or answers the refusal (a tool closed here, a task write of a bulk waiting for a yes) without running it; an approved bulk's call skips the per-tool write limit. */
-function executeCall(call: ToolCall, ctx: SkillContext, o: { refusal?: string; approved: boolean }): Promise<ToolResult> {
+function executeCall(call: ToolCall, ctx: SkillContext, o: { refusal?: string; approved: boolean; running: (ceiling?: Ceiling) => void }): Promise<ToolResult> {
   if (o.refusal) return Promise.resolve({ toolCallId: call.id, name: call.name, success: false, error: o.refusal });
-  return skillRegistry.executeTool(call, o.approved ? { ...ctx, bulkApproved: true } : ctx);
+  return withinCeiling(call, ctx, (ceiling) => { o.running(ceiling); return skillRegistry.executeTool(call, o.approved ? { ...ctx, bulkApproved: true } : ctx); })
+    .finally(() => o.running(undefined));
 }
 
 /**
@@ -91,8 +119,10 @@ async function continueCut(partial: string, sent: ChatMessage[], tools: ToolDefi
 /** The reply to a provider failure; when changes already landed this turn it names them first, so nobody asks for them twice. */
 function failureReply(failure: string, executed: Executed[], language?: Language) {
   const t = textIn(language), said = failure || t.providerFailed;
-  const done = executed.filter(({ call, result }) => result.success && result.data?.success !== false && !result.data?.pending && skillRegistry.effectOf(call.name) !== "read").map((e) => changeLine(e, t));
-  return redact(done.length ? `${t.doneBeforeFailure(done)}\n\n${said}` : said);
+  const change = ({ call }: Executed) => skillRegistry.effectOf(call.name) !== "read";
+  const done = executed.filter((e) => e.result.success && e.result.data?.success !== false && !e.result.data?.pending && change(e)).map((e) => changeLine(e, t));
+  const uncertain = executed.filter((e) => timedOut.has(e.result) && change(e)).map((e) => changeLine(e, t));
+  return redact([done.length ? t.doneBeforeFailure(done) : "", uncertain.length ? t.uncertainBeforeFailure(uncertain) : "", said].filter(Boolean).join("\n\n"));
 }
 
 export class AgentReActLoop {
@@ -210,7 +240,17 @@ export class AgentReActLoop {
     const hidden = await skillRegistry.hiddenTools(skillContext);
     const activeTools = available.tools.filter((t) => !closed.has(t.name) && !hidden.has(t.name));
     // A tool that combines others (recall) runs them as the model would here: only the tools offered, each through the registry's checks.
-    skillContext.tools = { here: new Set(activeTools.map((t) => t.name)), run: (name, args) => skillRegistry.executeTool({ id: `${name}-in-turn`, name, arguments: args }, skillContext) };
+    // Nested calls get the same ceiling, and the call running them is given until theirs has passed, so a hung part is reported as such.
+    let running: Ceiling | undefined;
+    const setRunning = (ceiling?: Ceiling) => { running = ceiling; };
+    skillContext.tools = {
+      here: new Set(activeTools.map((t) => t.name)),
+      run: (name, args) => {
+        if (running) running.until = Math.max(running.until, Date.now() + toolPolicy.timeoutMs * 1.1);
+        const call = { id: `${name}-in-turn`, name, arguments: args };
+        return withinCeiling(call, skillContext, () => skillRegistry.executeTool(call, skillContext));
+      },
+    };
 
     const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;
@@ -291,7 +331,7 @@ export class AgentReActLoop {
         if (cut) await audit(skillContext, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "tool_call", tool: toolCall.name });
         const refusal = cut ? CUT_TOOL_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
         const approved = bulkDecision.allow && bulkDecision.approved.has(toolCall.id);
-        const result = await executeCall(toolCall, skillContext, { refusal, approved });
+        const result = await executeCall(toolCall, skillContext, { refusal, approved, running: setRunning });
         toolCallsExecuted.push({ call: toolCall, result });
 
         input.onStep?.({ type: "tool_result", payload: result });
