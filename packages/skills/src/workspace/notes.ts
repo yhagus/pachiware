@@ -55,9 +55,14 @@ export async function keptMessages(ctx: SkillContext, messageIds: unknown): Prom
   if (ids.length > MAX_KEPT_MESSAGES) throw new Error(t.keepTooManyMessages(MAX_KEPT_MESSAGES));
   const { discord, channelId } = ctx;
   if (!discord || !channelId) throw new Error(t.keepNoMessage(ids[0]!));
-  // A thread opened from a message shares its id, and that starter message sits in the parent channel.
-  const placeOf = (messageId: string) => (messageId === channelId && ctx.parentChannelId ? ctx.parentChannelId : channelId);
-  const messages = await Promise.all(ids.map((messageId) => discord.fetchMessage({ channelId: placeOf(messageId), messageId })));
+  // A thread opened from a message shares its id, and that starter message sits in the parent channel; so does a message the starter replied to.
+  const parent = ctx.parentChannelId && ctx.parentChannelId !== channelId ? ctx.parentChannelId : undefined;
+  const fetchOne = async (messageId: string) => {
+    if (messageId === channelId && parent) return discord.fetchMessage({ channelId: parent, messageId });
+    const here = await discord.fetchMessage({ channelId, messageId }).catch(() => null);
+    return here ?? (parent ? discord.fetchMessage({ channelId: parent, messageId }) : null);
+  };
+  const messages = await Promise.all(ids.map(fetchOne));
   return messages.map((message, i) => {
     if (!message) throw new Error(t.keepNoMessage(ids[i]!));
     const source = jumpLink(ctx.guildId, message.channelId, message.id);

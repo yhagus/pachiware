@@ -73,6 +73,25 @@ export function speakerTurn(guildId: string | null, name: string, text: string, 
   return `${ref ? `${name} ${ref}` : name}: ${text}`;
 }
 
+/** How much of a replied-to message its line quotes; a longer one is also named by id, so keepAsNote can keep it whole. */
+export const REPLY_QUOTE = 500;
+
+type Replied = { id: string; content: string; author: { id: string; username: string }; member?: { displayName?: string } | null };
+
+/**
+ * The line before a turn line saying what it replies to: `(replying to Bob: "...")`, or `(replying to you: "...")` for the bot's own
+ * message, quoted on one line and clipped. Empty for a message that could not be fetched or has no text.
+ */
+export function replyLine(ref: Replied | null | undefined, botUserId: string | undefined) {
+  const text = ref ? withoutMention(ref.content, botUserId).trim() : "";
+  if (!ref || !text) return "";
+  const who = ref.author.id === botUserId ? "you" : speakerName(ref);
+  const id = keepableId(text, ref.id);
+  const flat = text.replace(/\s+/g, " ");
+  const quote = flat.length > REPLY_QUOTE ? `${flat.slice(0, REPLY_QUOTE)}…` : flat;
+  return `(replying to ${id ? `${who} (message ${id})` : who}: "${quote}")`;
+}
+
 // Emoji, stickers-as-text, punctuation and whitespace alone carry nothing to answer.
 export function isNoise(text: string, hasAttachments = false) {
   if (hasAttachments) return false;

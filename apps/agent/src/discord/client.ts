@@ -4,7 +4,7 @@ import { DiscordJSAdapter } from "./adapter.js";
 import { catchUpDailyLogs } from "./dailyLogDays.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
-import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel } from "./routing.js";
+import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel, replyLine } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
@@ -21,7 +21,8 @@ import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileO
 const BURST_MS = 2500;
 // Admin edits often come in a run (several rules saved one after another); one registration covers them.
 const COMMANDS_MS = 2000;
-type TurnItem = { msg: Message; text: string; direct?: boolean };
+// `replyTo` is the message a person replied to, when it could be fetched; it gets its own line before theirs.
+type TurnItem = { msg: Message; text: string; direct?: boolean; replyTo?: Message | null };
 /** `sentCommands` holds each guild's last overwrite as JSON, so an unchanged guild is not sent again. */
 type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[]; globalCleared: boolean; sentCommands: Map<string, string> };
 /** A Discord adapter of a bot bound to `guildId` (else its first served guild) and limited to the guilds it serves now. */
@@ -257,6 +258,9 @@ export class DiscordBotManager {
     const botUserId = runtime.client.user?.id || "";
     const tenant = await repositories().tenants.get(runtime.tenantId);
     if (tenant?.status !== "active") return;
+    // The replied-to message, fetched at most once: routing, the Minutes check and the turn line share it.
+    let referenced: Promise<Message | null> | undefined;
+    const reference = () => (referenced ??= msg.reference?.messageId ? msg.fetchReference().catch(() => null) : Promise.resolve(null));
     const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
     const channelId0 = msg.channelId;
     const parentId = msg.channel.isThread() ? msg.channel.parentId : null;
@@ -282,7 +286,7 @@ export class DiscordBotManager {
     };
     // Fetching costs an API call, so only do it when the answer can change the decision.
     if (msg.guildId && shared && msg.reference?.messageId) {
-      const ref = await msg.fetchReference().catch(() => null);
+      const ref = await reference();
       trigger.repliedToBot = ref?.author.id === botUserId;
       if (ref && !trigger.repliedToBot) trigger.addressesOthers = true;
     }
@@ -302,7 +306,7 @@ export class DiscordBotManager {
     let reason = respondReason(trigger);
     if (!reason && bound && !outsider) reason = "direct";
     if (!reason && !shared && msg.reference?.messageId) {
-      const ref = await msg.fetchReference().catch(() => null);
+      const ref = await reference();
       trigger.repliedToBot = ref?.author.id === botUserId;
       reason = respondReason(trigger);
     }
@@ -315,7 +319,7 @@ export class DiscordBotManager {
     if (!text && !msg.attachments.size) return;
     await repositories().usage.record({ tenantId: runtime.tenantId, botId, type: "discord_message", metadata: { channelId: msg.channelId } });
     if (text && msg.guildId && msg.reference?.messageId) {
-      const ref = await msg.fetchReference().catch(() => null);
+      const ref = await reference();
       if (ref?.author.id === botUserId && minutesFileOf(ref)) {
         if (await this.briefFromMinutes(runtime, botId, msg, ref, text)) return;
         await this.serialize(`minutes:${ref.id}`, () => correctMinutes({ tenantId: runtime.tenantId, botId, guildId: msg.guildId!, minutesMessage: ref, reply: msg, text }));
@@ -332,11 +336,13 @@ export class DiscordBotManager {
     const channelId = thread?.id ?? msg.channelId;
     // One turn at a time per conversation, so concurrent messages do not interleave history.
     const run = (m: Message, items: TurnItem[]) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, items, channelId, thread, { playbook: bound?.playbook, binding: bound?.binding, direct: items.some((i) => i.direct !== false) }));
-    if (!msg.guildId || thread) { await run(msg, [{ msg, text, direct }]); return; }
-    // Burst of messages in a shared channel: wait for a pause, then answer once with all of them.
-    const key = `${botId}:${channelId}`;
+    const replyTo = await reference();
+    if (!msg.guildId || thread) { await run(msg, [{ msg, text, direct, replyTo }]); return; }
+    // Burst of one person's messages in a shared channel: wait for their pause, then answer once with all of them, as them.
+    // Keyed by author too, so someone posting at the same moment gets their own turn and never acts with another person's rights.
+    const key = `${botId}:${channelId}:${msg.author.id}`;
     const burst = this.bursts.get(key) ?? { items: [] as TurnItem[], timer: undefined as any };
-    burst.items.push({ msg, text, direct });
+    burst.items.push({ msg, text, direct, replyTo });
     clearTimeout(burst.timer);
     burst.timer = setTimeout(() => {
       this.bursts.delete(key);
@@ -507,12 +513,13 @@ export class DiscordBotManager {
       const repository = opts.binding && threadRepositoryOf(opts.binding), documents = opts.binding && threadDocumentsOf(opts.binding);
       const chained = opts.playbook && withLoads(opts.playbook, await listPlaybooks(runtime.tenantId));
       const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes, ...(repository ? { repository } : {}), ...(documents ? { documents } : {}) };
-      const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId), language);
+      const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId), language, new Map(items.flatMap((i) => (i.replyTo !== undefined ? [[i.msg, i.replyTo] as const] : []))));
       // The brief's author still gets a round: it asks them to describe the screenshot.
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);
       if (media.blind && !briefAuthor && !items.some((i) => i.text)) { await send(`${t.blind} ${t.describeImage}`); return; }
       const filed = await fileTurnDocuments(runtime.tenantId, items, language, botCompletion(runtime.tenantId, botId, language));
-      let turn = [items.map((i) => speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed), keepableId(i.text, i.msg.id))).join("\n"), media.context].filter(Boolean).join("\n");
+      const lines = items.flatMap((i) => [replyLine(i.replyTo, botUserId), speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed), keepableId(i.text, i.msg.id))]);
+      let turn = [...lines, media.context].filter(Boolean).join("\n");
       const brief = opts.binding && { place: bindingPlace(opts.binding), authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
       if (brief?.outsider) turn = outsiderTurn(turn);
       else if (brief) { const input = await takeBriefInput(runtime.tenantId, brief.place).catch(() => null); if (input) turn = inputTurn(input, turn); }
