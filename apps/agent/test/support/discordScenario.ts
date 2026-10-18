@@ -77,6 +77,8 @@ export interface Scenario {
   plane(options?: { name?: string; baseUrl?: string | null; workspaceSlug?: string; projects?: string[] | null }): Promise<{ id: string }>;
   /** Saves guild settings as the console does, Digest schedule rows included. */
   guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: { channelId: string; hour: number }[] }): Promise<void>;
+  /** Calls the admin API with the platform key, as the console does; returns once every post it caused has landed. */
+  admin(method: string, path: string, body?: unknown): Promise<{ status: number; body: any }>;
   /** The clock the time context, task dates and the scheduler read. `set` pins it (ms, Date, or ISO text); `advance` moves it forward. */
   clock: { set(at: number | string | Date): void; advance(ms: number): void; now(): number };
   /** One scheduler pass at the fake clock's time, as the agent's minute loop would run it; returns once every post has landed. */
@@ -341,7 +343,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const { llmRouter } = await import("../../src/llm/router.ts");
   const { retryPolicy } = await import("../../src/llm/retry.ts");
   retryPolicy.sleep = async () => {};
-  const { DiscordBotManager } = await import("../../src/discord/client.ts");
+  const { discordBotManager } = await import("../../src/discord/client.ts");
   const { CacheService, tenantKey } = await import("../../src/cache/redis.ts");
   const { saveGuildSettings } = await import("../../src/loop/prompt.ts");
   const { workspaceStore } = await import("../../../../packages/skills/src/workspace/store.ts");
@@ -389,7 +391,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     return out instanceof Response ? out : Response.json(out ?? null);
   }) as typeof fetch;
 
-  const manager = new DiscordBotManager(0, 0);
+  // The process's one manager, so the admin API posts through the same fake clients; no burst or command debounce.
+  const manager = discordBotManager;
+  Object.assign(manager, { burstMs: 0, commandsMs: 0 });
   const started = await manager.startBot(bot.id);
   if (!started.success) throw new Error(`bot did not start: ${started.message}`);
   const extraBots: string[] = [];
@@ -401,6 +405,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     if (failures.length) throw new Error(failures.join("\n"));
   };
   makeChannel("channel-1");
+  let server: { request(path: string, init: RequestInit): Response | Promise<Response> } | null = null;
 
   const unlimited = new Set<string>();
   const responder = (interaction: FakeInteraction & Record<string, any>, channel: any, user: FakeUser) => {
@@ -444,6 +449,13 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       return account;
     },
     guildSettings: async (input) => { await saveGuildSettings(tenant.id, bot.id, GUILD.id, input); },
+    admin: async (method, path, body) => {
+      server ??= (await import("../../src/server.ts")).createServer();
+      const response = await server.request(path, { method, headers: { "X-Platform-Key": "scenario", "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const out = { status: response.status, body: await response.json().catch(() => null) };
+      await settle();
+      return out;
+    },
     clock: {
       set: (at) => { let fixed = at instanceof Date ? at.getTime() : typeof at === "string" ? Date.parse(at) : at; if (Number.isNaN(fixed)) throw new Error(`Not a time: ${String(at)}`); setClock(() => fixed); },
       advance: (ms) => { const fixed = clockNow() + ms; setClock(() => fixed); },

@@ -133,13 +133,16 @@ contract("Bots and guild configuration", (use) => {
     const bot = await bots.create({ tenantId: acme.id, token: "t" });
     expect(await bots.getGuildConfig(bot.id, "g1")).toBeNull();
     const created = await bots.saveGuildConfig(acme.id, bot.id, "g1", { systemPrompt: "Be brief", digestChannels: [{ channelId: "c1", hour: 9 }] });
-    expect(created).toMatchObject({ tenantId: acme.id, botId: bot.id, guildId: "g1", systemPrompt: "Be brief", useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [{ channelId: "c1", hour: 9 }] });
+    expect(created).toMatchObject({ tenantId: acme.id, botId: bot.id, guildId: "g1", systemPrompt: "Be brief", useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [{ channelId: "c1", hour: 9 }], dailyLogChannels: [] });
     expect(created.updatedAt).toBeInstanceOf(Date);
     expect(await bots.getGuildConfig(bot.id, "g1")).toEqual(created);
 
     const changed = await bots.saveGuildConfig(acme.id, bot.id, "g1", { useThreads: false, alwaysChannelIds: ["c2"], timezone: "Asia/Tokyo", language: "en", systemPrompt: null });
-    expect(changed).toMatchObject({ id: created.id, systemPrompt: null, useThreads: false, alwaysChannelIds: ["c2"], timezone: "Asia/Tokyo", language: "en", digestChannels: [{ channelId: "c1", hour: 9 }] });
+    expect(changed).toMatchObject({ id: created.id, systemPrompt: null, useThreads: false, alwaysChannelIds: ["c2"], timezone: "Asia/Tokyo", language: "en", digestChannels: [{ channelId: "c1", hour: 9 }], dailyLogChannels: [] });
     expect(await bots.getGuildConfig(bot.id, "g1")).toEqual(changed);
+    const logged = await bots.saveGuildConfig(acme.id, bot.id, "g1", { dailyLogChannels: [{ channelId: "c3", backfill: false }, { channelId: "c1", backfill: true }] });
+    expect(logged).toMatchObject({ id: created.id, useThreads: false, digestChannels: [{ channelId: "c1", hour: 9 }], dailyLogChannels: [{ channelId: "c3", backfill: false }, { channelId: "c1", backfill: true }] });
+    expect(await bots.getGuildConfig(bot.id, "g1")).toEqual(logged);
     expect(await bots.getGuildConfig(bot.id, "g2")).toBeNull();
   });
 

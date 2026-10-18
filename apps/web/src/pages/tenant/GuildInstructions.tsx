@@ -17,6 +17,7 @@ const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
 export function GuildInstructions({ botId, guild, onClose }: { botId: string; guild: Guild | null; onClose: () => void }) {
   const [cfg, setCfg] = useState<GuildConfig | null>(null);
+  const [savedLogs, setSavedLogs] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -25,7 +26,7 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
     setCfg(null); setError(null);
     if (!guild) return;
     let live = true;
-    api.getGuildConfig(botId, guild.id).then((r) => live && setCfg(r.config)).catch((e) => live && setError(e.message));
+    api.getGuildConfig(botId, guild.id).then((r) => { if (live) { setCfg(r.config); setSavedLogs(r.config.dailyLogChannels.map((d) => d.channelId)); } }).catch((e) => live && setError(e.message));
     return () => { live = false; };
   }, [botId, guild, attempt]);
 
@@ -40,6 +41,9 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
   const digestOf = (id: string) => cfg?.digestChannels.find((d) => d.channelId === id);
   const toggleDigest = (id: string, on: boolean) => cfg && setCfg({ ...cfg, digestChannels: on ? [...cfg.digestChannels, { channelId: id, hour: DEFAULT_DIGEST_HOUR }] : cfg.digestChannels.filter((d) => d.channelId !== id) });
   const setDigestHour = (id: string, hour: number) => cfg && setCfg({ ...cfg, digestChannels: cfg.digestChannels.map((d) => (d.channelId === id ? { ...d, hour } : d)) });
+  const logOf = (id: string) => cfg?.dailyLogChannels.find((d) => d.channelId === id);
+  const toggleLog = (id: string, on: boolean) => cfg && setCfg({ ...cfg, dailyLogChannels: on ? [...cfg.dailyLogChannels, { channelId: id, backfill: true }] : cfg.dailyLogChannels.filter((d) => d.channelId !== id) });
+  const setBackfill = (id: string, backfill: boolean) => cfg && setCfg({ ...cfg, dailyLogChannels: cfg.dailyLogChannels.map((d) => (d.channelId === id ? { ...d, backfill } : d)) });
   const textChannels = guild?.channels.filter((c) => c.type === "text") ?? [];
 
   return (
@@ -121,6 +125,31 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
                               className="h-8 rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
                               {HOURS.map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
                             </select>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </fieldset>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">Daily logs</legend>
+                <p className="text-xs text-muted-foreground">Every night after midnight, writes a record of the day's talk in this channel that people can ask about later. It is never posted. Turning it on posts one notice in the channel. Another bot of this tenant cannot log the same channel.</p>
+                {textChannels.length === 0 ? <p className="text-sm text-muted-foreground">No text channels visible to this bot.</p> : (
+                  <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                    {textChannels.map((c) => {
+                      const log = logOf(c.id);
+                      return (
+                        <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded px-1 py-1 text-sm hover:bg-muted">
+                          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                            <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={!!log} onChange={(e) => toggleLog(c.id, e.target.checked)} />
+                            <span className="truncate"># {c.name}</span>
+                          </label>
+                          {log && !savedLogs.includes(c.id) && (
+                            <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                              <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={log.backfill} onChange={(e) => setBackfill(c.id, e.target.checked)} />
+                              Also write the last 30 days
+                            </label>
                           )}
                         </li>
                       );

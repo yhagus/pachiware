@@ -220,4 +220,26 @@ describe("SQLite tenancy migration", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+  test("adds Daily log channels to existing guild settings, none turned on", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-daily-logs-"));
+    const database = join(directory, "daily-logs.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
+        await runMigrations();
+        queryClient.exec("ALTER TABLE guild_configs DROP COLUMN daily_log_channels");
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
+        queryClient.exec("INSERT INTO bots (id,tenant_id,token_encrypted) VALUES ('b1','t1','x')");
+        queryClient.exec("INSERT INTO guild_configs (id,tenant_id,bot_id,guild_id) VALUES ('g1','t1','b1','guild-1')");
+        await runMigrations();
+        await runMigrations();
+        console.log(JSON.stringify(queryClient.query("SELECT id, daily_log_channels AS channels FROM guild_configs").all()));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual([{ id: "g1", channels: "[]" }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
