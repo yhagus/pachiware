@@ -1,0 +1,64 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "makasih-reaksi",
+  "turns": [
+    {
+      "n": 1,
+      "message": "kapan tenggat tugas sewa sound system?",
+      "replies": [
+        "Tenggat sewa sound system Sabtu 17 Oktober 2026."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Sewa sound system",
+            "status": "pending",
+            "dueAt": "2026-10-17",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "oke makasih ya",
+      "replies": [],
+      "reactions": [
+        "👍"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Sewa sound system",
+            "status": "pending",
+            "dueAt": "2026-10-17",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

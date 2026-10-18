@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "holdout-parafrasa-volume",
+  "turns": [
+    {
+      "n": 1,
+      "message": "dulu pernah dibahas nggak soal menyamakan volume antar episode podcast? hasilnya gimana?",
+      "replies": [
+        "Pernah dibahas [#channel-1 · Notulen 2026-09-22](<https://discord.com/channels/guild-1/channel-1/6200>): Semua episode di-master ke -16 LUFS supaya volumenya rata dari episode ke episode."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

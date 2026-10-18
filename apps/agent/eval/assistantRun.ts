@@ -7,7 +7,7 @@
  */
 import type { FakeUser, Scenario } from "../test/support/discordScenario";
 import { checkAssistantOutput, type AssistantFailure } from "./assistantChecks";
-import { seedTime, zoneOf, type AssistantFacts, type AssistantFixture, type SeedFile, type SeedGit, type SeedPullRequest, type SeedTask } from "./assistantFixtures";
+import { BOT_MENTION, seedTime, zoneOf, type AssistantFacts, type AssistantFixture, type SeedFile, type SeedGit, type SeedPullRequest, type SeedTask } from "./assistantFixtures";
 import { gradeAssistantWithJudge } from "./assistantJudge";
 import type { TrialResult } from "./compare";
 import type { Ask } from "./judge";
@@ -117,13 +117,13 @@ async function seedGit(s: Scenario, git: SeedGit) {
     const terms = (new URL(req.url).searchParams.get("q") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
     const repo = terms.find((t) => t.startsWith("repo:"))?.slice(5), words = terms.filter((t) => !t.includes(":"));
     const items = prs.filter((p) => (!repo || p.repo === repo) && words.every((w) => p.title.toLowerCase().includes(w))).map((p) => ({
-      number: p.number, title: p.title, state: p.mergedAt ? "closed" : "open", html_url: url(p), updated_at: p.mergedAt ?? new Date(s.clock.now()).toISOString(), closed_at: p.mergedAt ?? null,
+      number: p.number, title: p.title, state: p.mergedAt || p.closedAt ? "closed" : "open", html_url: url(p), updated_at: p.mergedAt ?? p.closedAt ?? new Date(s.clock.now()).toISOString(), closed_at: p.mergedAt ?? p.closedAt ?? null,
       pull_request: { merged_at: p.mergedAt ?? null, html_url: url(p) },
     }));
     return { total_count: items.length, items };
   });
   for (const r of repos) s.http.on(`GET api.github.com/repos/${r}/pulls`, () => prs.filter((p) => p.repo === r).map((p) => ({
-    number: p.number, title: p.title, state: p.mergedAt ? "closed" : "open", merged_at: p.mergedAt ?? null, user: { login: "dewi" }, head: { ref: "audio" }, base: { ref: "main" }, labels: [], html_url: url(p), created_at: "2026-10-10T00:00:00Z",
+    number: p.number, title: p.title, state: p.mergedAt || p.closedAt ? "closed" : "open", merged_at: p.mergedAt ?? null, user: { login: "dewi" }, head: { ref: "audio" }, base: { ref: "main" }, labels: [], html_url: url(p), created_at: "2026-10-10T00:00:00Z",
   })));
 }
 
@@ -135,7 +135,7 @@ async function attachmentsOf(s: Scenario, fixture: AssistantFixture) {
 
 /** The Minutes and Daily logs of the brief's channel the bot wrote, at any depth; the seeded ones are left out. */
 async function keptOf(s: Scenario, seeded: Set<string>): Promise<KeptState[]> {
-  const paths = (await Promise.all(["minutes", "daily-logs"].map((f) => s.workspace.files(`${CHANNEL}/${f}`)))).flat().map((p) => p.slice(CHANNEL.length + 1)).filter((p) => p.endsWith(".md") && !seeded.has(p)).sort();
+  const paths = (await Promise.all(["minutes", "daily-logs", "notes", "decisions"].map((f) => s.workspace.files(`${CHANNEL}/${f}`)))).flat().map((p) => p.slice(CHANNEL.length + 1)).filter((p) => p.endsWith(".md") && !seeded.has(p)).sort();
   return Promise.all(paths.map(async (path) => ({ path, text: ((await s.workspace.read(`${CHANNEL}/${path}`)) ?? "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim() })));
 }
 
@@ -186,8 +186,8 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
   for (const [i, message] of fixture.messages.entries()) {
     const who = speakers[i] ?? ["Alice"], where = thread ?? CHANNEL_ID;
     const sentAll = i === 0 ? [await s.discord.send(`${s.discord.mention} ${message}`, { attachments: await attachmentsOf(s, fixture) })]
-      : who.length > 1 ? await s.discord.burst(message.split("\n").map((content, j) => ({ content, author: member(who[j]!) })), { channel: where })
-      : [await s.discord.send(message, { author: member(who[0]!), channel: where })];
+      : who.length > 1 ? await s.discord.burst(message.replace(BOT_MENTION, s.discord.mention).split("\n").map((content, j) => ({ content, author: member(who[j]!) })), { channel: where })
+      : [await s.discord.send(message.replace(BOT_MENTION, s.discord.mention), { author: member(who[0]!), channel: where })];
     const sent = sentAll[0]!, reactions = sentAll.flatMap((m) => m.reactions);
     thread ??= sent.thread;
     const posted = s.discord.botMessages.slice(seen);

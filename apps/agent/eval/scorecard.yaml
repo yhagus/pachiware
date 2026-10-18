@@ -1,7 +1,11 @@
 # The Rapor's exam (spec #226). Any change here, to a weight, a brief or a holdout, bumps `version`; only reports at one version compare.
 # Weights are out of 100; the other 10 of the harness review's rubric, the eval itself, is met by how the run is made, not by briefs.
 # `holdout` names briefs among `briefs` that never tune workspace/vocabulary.ts, the persona, a tool description or a playbook (README.md).
-version: 1
+# Version 2 (#239): 30 briefs, 22 of them in Indonesian, the language the tenants' teams speak. The other briefs under assistant/ keep their
+# dry runs and recordings and still run live, but the Rapor does not count them.
+# Two briefs measure work the next spec builds: notulen-jadi-tugas (Tasks from Minutes) and colek-h-1 (a Nudge that follows the due date).
+# Today a model passes them only by doing that work by hand: reading the Minutes and filing Tasks, or setting and moving a Reminder.
+version: 2
 weights:
   capture: 20
   recall: 25
@@ -11,36 +15,43 @@ weights:
 briefs:
   # capture
   - daily-log-from-talk
-  - file-search
-  - minutes-as-document
   - minutes-from-talk
+  - minutes-as-document
+  - pdf-ditanya-kemudian
+  - notulen-pemilik-tenggat
   # recall
-  - action-items-across-meetings
-  - decision-other-channel
-  - nothing-found
-  - private-channel-dm
-  - recall-among-distractors
-  - recall-asked-in-english
   - recall-asked-in-indonesian
-  - recall-daily-log-only
-  - recall-decision-replaced
-  - recall-done-other-channel
   - recall-done-pull-request
+  - recall-decision-replaced
+  - private-channel-dm
+  - nothing-found
+  - holdout-parafrasa-volume
+  - sudah-diimplementasi-pr-ditutup
+  - keputusan-bertentangan
+  - channel-tanpa-daily-log
   # tasks
-  - assign-ambiguous-name
-  - assign-unknown-name
-  - bulk-cancel
   - cancel-with-reason
-  - due-dates-relative
-  - plate-across-channels
-  - progress-note
-  - reminder-weekly
-  - status-by-title
-  - task-casual-english
   - task-casual-indonesian
-  - task-reference-ambiguous
+  - assign-ambiguous-name
+  - bulk-cancel
+  - notulen-jadi-tugas
+  - telat-per-orang
+  - pengingat-berulang
+  - colek-h-1
   # group
   - member-joins-thread
+  - dua-orang-bersamaan
+  - balasan-untuk-orang-lain
+  - makasih-reaksi
   # loop
   - remember-forget
-holdout: []
+  - tiga-alat-sekaligus
+  - tanpa-link-karangan
+  - tempel-teks-panjang
+holdout:
+  - notulen-pemilik-tenggat
+  - holdout-parafrasa-volume
+  - keputusan-bertentangan
+  - telat-per-orang
+  - makasih-reaksi
+  - tiga-alat-sekaligus

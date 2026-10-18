@@ -1,0 +1,65 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "telat-per-orang",
+  "turns": [
+    {
+      "n": 1,
+      "message": "apa saja tugas yang sudah telat? kelompokkan per orang ya",
+      "replies": [
+        "Bob:\npending | due 2026-10-09, late | Bob | 00000003 | Perpanjang domain\npending | due 2026-10-12, late | Bob | 00000001 | Kirim invoice PT Maju\nDewi:\nin_progress | due 2026-10-13, late | Dewi | 00000002 | Rekap absensi September"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Desain banner Oktober",
+            "status": "pending",
+            "dueAt": "2026-10-20",
+            "assignedTo": "Dewi",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Kirim invoice PT Maju",
+            "status": "pending",
+            "dueAt": "2026-10-12",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Perpanjang domain",
+            "status": "pending",
+            "dueAt": "2026-10-09",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Rekap absensi September",
+            "status": "in_progress",
+            "dueAt": "2026-10-13",
+            "assignedTo": "Dewi",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Tutup buku September",
+            "status": "completed",
+            "dueAt": "2026-10-10",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

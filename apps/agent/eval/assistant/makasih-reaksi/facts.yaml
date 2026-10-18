@@ -1,0 +1,13 @@
+# A thanks after an answer is acknowledged with a reaction alone, no text. Held out: nothing is tuned to it. Spec #226, ticket #239.
+language: id
+area: group
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  tasks:
+    - { title: Sewa sound system, status: pending, dueAt: "2026-10-17", assignedTo: Bob }
+mustCover:
+  - Tenggat sewa sound system Sabtu 17 Oktober 2026
+turns:
+  - replyContains: ["17 Oktober"]
+  - quiet: true
+    reaction: ["👍", "✅"]

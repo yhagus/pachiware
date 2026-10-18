@@ -1,0 +1,96 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "balasan-untuk-orang-lain",
+  "turns": [
+    {
+      "n": 1,
+      "message": "catat tugas: cek stok merchandise di gudang, buat Dewi, tenggat besok",
+      "replies": [
+        "Dicatat untuk Dewi: cek stok merchandise di gudang, jatuh tempo Kamis 15 Oktober."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Cek stok merchandise di gudang",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Dewi",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "<@user-dewi> kamu sempat ke gudang kemarin?",
+      "authors": [
+        "Bob"
+      ],
+      "replies": [],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Cek stok merchandise di gudang",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Dewi",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 3,
+      "message": "@bot stoknya tinggal 40 kaos, catat ya",
+      "authors": [
+        "Dewi"
+      ],
+      "replies": [
+        "Dicatat di tugas cek stok merchandise: stok tinggal 40 kaos."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Cek stok merchandise di gudang",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Dewi",
+            "createdByName": "Alice",
+            "notes": [
+              "- 2026-10-14 Dewi: Stok tinggal 40 kaos"
+            ]
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

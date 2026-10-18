@@ -1,0 +1,16 @@
+# One message asking for three things: a Task, a Reminder and a line of Memory. All three are done in one turn.
+# Held out: nothing is tuned to it. Spec #226, ticket #239.
+language: id
+area: loop
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - Siapkan proposal sponsor tercatat sebagai tugas Bob, jatuh tempo Jumat 16 Oktober 2026
+  - Pengingat Kamis 15 Oktober 2026 jam 16:00 untuk cek proposal sponsor
+  - Sponsor utama Kopi Senja diingat
+turns:
+  - tasks:
+      - { title: proposal sponsor, assignedTo: Bob, dueAt: "2026-10-16" }
+    reminders:
+      - { text: proposal, recurrence: once, nextAt: "2026-10-15T09:00:00.000Z", mentions: [] }
+    memory:
+      channel: { has: [Kopi Senja] }

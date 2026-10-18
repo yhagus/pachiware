@@ -1,0 +1,10 @@
+# A link is asked for that no tool can give: no git account is open here. The bot says why and links nothing. Spec #226, ticket #239.
+language: id
+area: loop
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - Tidak ada akun git yang aktif di channel ini, jadi bot tidak bisa mencari pull request-nya
+  - Bot tidak memberi link pull request apa pun
+turns:
+  - replyContains: [git]
+    replyLacks: [github.com, gitlab.com]

@@ -1,0 +1,15 @@
+# A weekly Reminder asked for in Indonesian; the scheduler fires the first one next Monday. Spec #226, ticket #239.
+language: id
+area: tasks
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - Pengingat tiap Senin jam 09:00 untuk kirim laporan mingguan ke klien
+  - Pengingat pertama Senin 19 Oktober 2026
+turns:
+  - reminders:
+      - { text: laporan mingguan, recurrence: weekly, weekdays: [1], timeOfDay: "09:00", nextAt: "2026-10-19T02:00:00.000Z", mentions: [] }
+    replyContains: [Senin]
+then:
+  clock: 2026-10-19T09:00:10+07:00
+  posts:
+    - { contains: laporan mingguan, pings: [user-alice] }

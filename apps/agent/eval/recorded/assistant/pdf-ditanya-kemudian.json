@@ -1,0 +1,53 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "pdf-ditanya-kemudian",
+  "turns": [
+    {
+      "n": 1,
+      "message": "simpan kontrak Sablon Jaya ini ya",
+      "replies": [
+        "Tersimpan sebagai kontrak-sablon-jaya.pdf di files/, beserta teksnya."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [
+          "files/kontrak-sablon-jaya.md",
+          "files/kontrak-sablon-jaya.pdf"
+        ],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "berapa nilai kontraknya, dan sampai kapan berlakunya?",
+      "replies": [
+        "Nilai kontraknya Rp 12.500.000, berlaku sampai 31 Oktober 2027 (kontrak-sablon-jaya)."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [
+          "files/kontrak-sablon-jaya.md",
+          "files/kontrak-sablon-jaya.pdf"
+        ],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

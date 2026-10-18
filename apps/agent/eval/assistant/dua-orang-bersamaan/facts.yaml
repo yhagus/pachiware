@@ -1,0 +1,16 @@
+# Bob and Alice post at once in the bot's thread: Bob's question gets its answer, and Alice's request is done as hers.
+# Spec #226, tickets #215 and #239.
+language: id
+area: group
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - Siapkan rundown acara ulang tahun kantor tercatat sebagai tugas, jatuh tempo Jumat 16 Oktober 2026
+  - Bob diberi tahu tenggat rundown Jumat 16 Oktober 2026
+  - Booking tempat tercatat sebagai tugas Bob, dibuat oleh Alice
+turns:
+  - tasks:
+      - { title: rundown, dueAt: "2026-10-16", createdByName: Alice }
+  - tasks:
+      - { title: rundown, dueAt: "2026-10-16", createdByName: Alice }
+      - { title: booking tempat, assignedTo: Bob, createdByName: Alice }
+    replyContains: ["16 Oktober"]

@@ -120,8 +120,8 @@ test("rejudge regrades a daily-behaviour run with the assistant rubric, not the 
   expect(prompts.length).toBeGreaterThan(0);
   expect(prompts.every((p) => p.system.includes(`administrative assistant`) && p.system.includes(`Rubric ${ASSISTANT_RUBRIC_VERSION}`) && !p.system.includes("issue drafts"))).toBe(true);
   const md = readFileSync(join(out, "report.md"), "utf8");
-  // task-casual-english is the only brief run, a tasks brief: its trial scores 1 of 2 turns.
-  expect(md).toStartWith(`# Rapor v1: 50.0 (a)\n\nDaily-behaviour eval, 2026-10-14T00:00:00.000Z. Judge: custom / new-judge. Rubric ${ASSISTANT_RUBRIC_VERSION}. 1 trial per brief.\n`);
+  // task-casual-english, the only brief run, is no brief of the exam, so there is no Rapor number.
+  expect(md).toStartWith(`# Rapor v2: none (a)\n\nDaily-behaviour eval, 2026-10-14T00:00:00.000Z. Judge: custom / new-judge. Rubric ${ASSISTANT_RUBRIC_VERSION}. 1 trial per brief.\n`);
   expect(md).toContain("- Trial 1, turn 2: fail. unsupported: Nothing supports it.");
 });
 
@@ -134,15 +134,15 @@ test("the report of the recorded runs, every criterion judged yes, opens with th
   const out = mkdtempSync(join(tmpdir(), "eval-assistant-rapor-"));
   writeReport(out, { kind: "assistant", judge: { provider: "custom", model: "judge" }, rubricVersion: ASSISTANT_RUBRIC_VERSION, trials: 1, startedAt: "2026-10-18T00:00:00.000Z", profiles: [{ name: "dry run", provider: "scripted", model: "dry run" }] }, trials, loadExam(fixtures));
   const md = readFileSync(join(out, "report.md"), "utf8");
-  expect(md).toStartWith("# Rapor v1: 100.0 (dry run)\n");
+  expect(md).toStartWith("# Rapor v2: 100.0 (dry run)\n");
   expect(md).toContain([
     "| Area | Weight | Score | Briefs | Holdout score |",
     "|---|---|---|---|---|",
-    "| capture | 20 | 100.0 | 4 |  |",
-    "| recall | 25 | 100.0 | 11 |  |",
-    "| tasks | 20 | 100.0 | 12 |  |",
-    "| group | 10 | 100.0 | 1 |  |",
-    "| loop | 15 | 100.0 | 1 |  |",
+    "| capture | 20 | 100.0 | 5 | 100.0 |",
+    "| recall | 25 | 100.0 | 9 | 100.0 |",
+    "| tasks | 20 | 100.0 | 8 | 100.0 |",
+    "| group | 10 | 100.0 | 4 | 100.0 |",
+    "| loop | 15 | 100.0 | 4 | 100.0 |",
   ].join("\n"));
 });
 
@@ -157,5 +157,5 @@ test("the judge reads another member's turn under their name, a burst line by li
   expect(thread.some((p) => p.includes("### Turn 2\nBob: tambahin satu lagi buat aku ya: cetak name tag peserta\nBot: "))).toBe(true);
   expect(thread.some((p) => p.includes("### Turn 3\nBob: name tag-nya dicetak 60 buah ya\nAuthor: oke Bob, makasih\nBot: "))).toBe(true);
   const minutes = await graded("minutes-from-talk");
-  expect(minutes.find((p) => p.includes("Recorded state after turn 1"))).toContain("Minutes and Daily logs the bot wrote:\n#### minutes/2026-10-14-harga-paket.md\n# Harga paket");
+  expect(minutes.find((p) => p.includes("Recorded state after turn 1"))).toContain("Minutes, Daily logs, Notes and Decisions the bot wrote:\n#### minutes/2026-10-14-harga-paket.md\n# Harga paket");
 });

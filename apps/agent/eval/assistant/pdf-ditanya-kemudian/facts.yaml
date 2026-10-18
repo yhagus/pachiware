@@ -1,0 +1,16 @@
+# A contract PDF sent to the bot is filed with its text; a turn later, a question about its value and end date is answered from it. Spec #226, ticket #239.
+language: id
+area: capture
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+attachments:
+  - name: kontrak-sablon-jaya.pdf
+    pdf: ["Kontrak kerja sama PT Sablon Jaya", "Nilai kontrak Rp 12.500.000", "Berlaku 1 November 2026 sampai 31 Oktober 2027"]
+mustCover:
+  - Kontrak disimpan di files/ sebagai kontrak-sablon-jaya.pdf
+  - Nilai kontrak Sablon Jaya Rp 12.500.000
+  - Kontrak berlaku sampai 31 Oktober 2027
+turns:
+  - files: [files/kontrak-sablon-jaya.md, files/kontrak-sablon-jaya.pdf]
+    replyContains: [kontrak-sablon-jaya]
+  - files: [files/kontrak-sablon-jaya.md, files/kontrak-sablon-jaya.pdf]
+    replyContains: ["12.500.000", "31 Oktober 2027"]

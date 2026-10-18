@@ -1,0 +1,49 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "pengingat-berulang",
+  "turns": [
+    {
+      "n": 1,
+      "message": "ingatkan aku tiap Senin jam 9 pagi buat kirim laporan mingguan ke klien",
+      "replies": [
+        "Siap: tiap Senin jam 09:00, mulai Senin 19 Oktober."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": [
+          {
+            "text": "kirim laporan mingguan ke klien",
+            "recurrence": "weekly",
+            "weekdays": [
+              1
+            ],
+            "timeOfDay": "09:00",
+            "timezone": "Asia/Jakarta",
+            "nextAt": "2026-10-19T02:00:00.000Z",
+            "status": "active",
+            "mentions": []
+          }
+        ]
+      }
+    }
+  ],
+  "posts": [
+    {
+      "text": "<@user-alice> Pengingat: kirim laporan mingguan ke klien",
+      "pings": [
+        "user-alice"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+# Late tasks grouped by person: a done task and one not yet due stay out. Held out: nothing is tuned to it. Spec #226, ticket #239.
+language: id
+area: tasks
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+members:
+  - { id: user-dewi, name: Dewi }
+seed:
+  tasks:
+    - { title: Kirim invoice PT Maju, status: pending, dueAt: "2026-10-12", assignedTo: Bob }
+    - { title: Rekap absensi September, status: in_progress, dueAt: "2026-10-13", assignedTo: Dewi }
+    - { title: Perpanjang domain, status: pending, dueAt: "2026-10-09", assignedTo: Bob }
+    - { title: Desain banner Oktober, status: pending, dueAt: "2026-10-20", assignedTo: Dewi }
+    - { title: Tutup buku September, status: completed, dueAt: "2026-10-10", assignedTo: Bob }
+mustCover:
+  - Bob telat dua tugas, Kirim invoice PT Maju (jatuh tempo 12 Oktober) dan Perpanjang domain (9 Oktober)
+  - Dewi telat satu tugas, Rekap absensi September (13 Oktober)
+  - Desain banner Oktober belum telat dan Tutup buku September sudah selesai, jadi keduanya tidak disebut
+turns:
+  - taskList: true
+    replyContains: [Bob, Dewi, Kirim invoice PT Maju, Perpanjang domain, Rekap absensi September]
+    replyLacks: [Desain banner, Tutup buku]

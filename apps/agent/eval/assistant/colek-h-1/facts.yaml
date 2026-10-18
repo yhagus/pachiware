@@ -1,0 +1,20 @@
+# A nudge for Bob the day before his task is due, which follows the due date when it moves. The next spec builds this as a Nudge;
+# today the agent can only set and move a Reminder by hand. Spec #226, ticket #239.
+language: id
+area: tasks
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  tasks:
+    - { title: Kirim desain final ke percetakan, status: pending, dueAt: "2026-10-16", assignedTo: Bob }
+mustCover:
+  - Bob dicolek sehari sebelum tenggat tugas Kirim desain final ke percetakan
+  - Setelah tenggatnya mundur ke Senin 19 Oktober 2026, Bob dicolek Minggu 18 Oktober 2026
+turns:
+  - replyContains: [Bob]
+  - tasks:
+      - { title: desain final, dueAt: "2026-10-19", assignedTo: Bob }
+    replyContains: ["18 Oktober"]
+then:
+  clock: 2026-10-18T09:00:10+07:00
+  posts:
+    - { contains: desain final, pings: [user-alice, user-bob] }

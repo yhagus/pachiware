@@ -1,0 +1,35 @@
+# A question in other words than the Minutes it is answered from: "menyamakan volume" against "volumenya rata", with -16 LUFS the only
+# number. Held out: nothing is tuned to it, the bilingual vocabulary included. Spec #226, ticket #239.
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  files:
+    - path: minutes/2026-09-22-mastering-podcast.md
+      content: |
+        ---
+        title: "Mastering podcast"
+        guildId: "guild-1"
+        channelId: "channel-1"
+        postedIn: "channel-1"
+        messageId: "6200"
+        requesterId: "user-alice"
+        ---
+        # Mastering podcast
+
+        2026-09-22 03:00 – 2026-09-22 03:40 UTC · 18 messages
+        Participants: Alice, Dewi
+
+        ## Decided
+        1. Semua episode di-master ke -16 LUFS supaya volumenya rata dari episode ke episode [↗](https://discord.com/channels/guild-1/channel-1/6211)
+
+        ## Action items
+        2. **Dewi**: Pasang preset mastering di Audition [↗](https://discord.com/channels/guild-1/channel-1/6212)
+    - path: notes/2026-10-01-studio.md
+      content: |
+        Alice bilang mikrofon studio kedua datang minggu depan.
+mustCover:
+  - Pernah dibahas di Minutes Mastering podcast tanggal 22 September 2026
+  - Diputuskan semua episode di-master ke -16 LUFS supaya volumenya rata antar episode
+turns:
+  - replyContains: ["2026-09-22", "-16 LUFS"]

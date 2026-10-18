@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "channel-tanpa-daily-log",
+  "turns": [
+    {
+      "n": 1,
+      "message": "minggu lalu kita sempat ngobrol soal ganti vendor hosting, akhirnya jadi gimana?",
+      "replies": [
+        "Saya tidak menemukan apa pun soal ganti vendor hosting. #channel-1 belum punya Daily log, jadi obrolan yang tidak diminta disimpan tidak bisa dicari setelah sehari; admin bisa menyalakan Daily log di console."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

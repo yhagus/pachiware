@@ -1,0 +1,35 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "tempel-teks-panjang",
+  "turns": [
+    {
+      "n": 1,
+      "message": "simpan transkrip ini sebagai catatan ya:\n\nTranskrip rapat evaluasi event Oktober, Selasa 13 Oktober 2026.\n1. Alice membuka rapat dan meminta tiap divisi menyampaikan evaluasi singkat.\n2. Divisi acara melaporkan jumlah peserta 312 orang, naik dari target 250.\n3. Registrasi di pintu masuk sempat antre sekitar 20 menit karena hanya ada dua meja.\n4. Usulan untuk event berikutnya: empat meja registrasi dan QR code dikirim sehari sebelumnya.\n5. Divisi konsumsi melaporkan makan siang habis lebih cepat dari perkiraan.\n6. Vendor katering bersedia menambah porsi dengan harga yang sama untuk event berikutnya.\n7. Divisi dokumentasi sudah mengunggah 480 foto ke drive bersama.\n8. Video highlight akan selesai diedit paling lambat Jumat 16 Oktober.\n9. Sponsor Kopi Senja meminta laporan jumlah pengunjung booth mereka.\n10. Booth Kopi Senja dikunjungi sekitar 190 orang menurut hitungan panitia.\n11. Masalah sound system di sesi kedua karena kabel mikrofon longgar.\n12. Untuk event berikutnya, sound check dilakukan dua jam sebelum acara, bukan satu jam.\n13. Survei kepuasan peserta mendapat 140 jawaban dengan nilai rata-rata 4,4 dari 5.\n14. Keluhan paling banyak soal ruangan yang terlalu dingin.\n15. Anggaran terpakai Rp 86.400.000 dari pagu Rp 90.000.000.\n16. Sisa anggaran Rp 3.600.000 dialihkan ke biaya cetak sertifikat.\n17. Sertifikat peserta dikirim lewat email paling lambat Senin 19 Oktober.\n18. Bob mengusulkan event berikutnya diadakan di bulan Februari.\n19. Tanggal pasti event Februari belum diputuskan dan dibahas di rapat berikutnya.\n20. Alice menutup rapat dan berterima kasih kepada semua divisi.\n21. Alice membuka rapat dan meminta tiap divisi menyampaikan evaluasi singkat.\n22. Divisi acara melaporkan jumlah peserta 312 orang, naik dari target 250.\n23. Registrasi di pintu masuk sempat antre sekitar 20 menit karena hanya ada dua meja.\n24. Usulan untuk event berikutnya: empat meja registrasi dan QR code dikirim sehari sebelumnya.\n25. Divisi konsumsi melaporkan makan siang habis lebih cepat dari perkiraan.\n26. Vendor katering bersedia menambah porsi dengan harga yang sama untuk event berikutnya.\n27. Divisi dokumentasi sudah mengunggah 480 foto ke drive bersama.\n28. Video highlight akan selesai diedit paling lambat Jumat 16 Oktober.\n29. Sponsor Kopi Senja meminta laporan jumlah pengunjung booth mereka.\n30. Booth Kopi Senja dikunjungi sekitar 190 orang menurut hitungan panitia.\n31. Masalah sound system di sesi kedua karena kabel mikrofon longgar.\n32. Untuk event berikutnya, sound check dilakukan dua jam sebelum acara, bukan satu jam.\n33. Survei kepuasan peserta mendapat 140 jawaban dengan nilai rata-rata 4,4 dari 5.\n34. Keluhan paling banyak soal ruangan yang terlalu dingin.\n35. Anggaran terpakai Rp 86.400.000 dari pagu Rp 90.000.000.\n36. Sisa anggaran Rp 3.600.000 dialihkan ke biaya cetak sertifikat.\n37. Sertifikat peserta dikirim lewat email paling lambat Senin 19 Oktober.\n38. Bob mengusulkan event berikutnya diadakan di bulan Februari.\n39. Tanggal pasti event Februari belum diputuskan dan dibahas di rapat berikutnya.\n40. Alice menutup rapat dan berterima kasih kepada semua divisi.",
+      "replies": [
+        "Disimpan sebagai catatan notes/2026-10-14-evaluasi-event-oktober.md."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": [],
+        "kept": [
+          {
+            "path": "notes/2026-10-14-evaluasi-event-oktober.md",
+            "text": "simpan transkrip ini sebagai catatan ya:\n\nTranskrip rapat evaluasi event Oktober, Selasa 13 Oktober 2026.\n1. Alice membuka rapat dan meminta tiap divisi menyampaikan evaluasi singkat.\n2. Divisi acara melaporkan jumlah peserta 312 orang, naik dari target 250.\n3. Registrasi di pintu masuk sempat antre sekitar 20 menit karena hanya ada dua meja.\n4. Usulan untuk event berikutnya: empat meja registrasi dan QR code dikirim sehari sebelumnya.\n5. Divisi konsumsi melaporkan makan siang habis lebih cepat dari perkiraan.\n6. Vendor katering bersedia menambah porsi dengan harga yang sama untuk event berikutnya.\n7. Divisi dokumentasi sudah mengunggah 480 foto ke drive bersama.\n8. Video highlight akan selesai diedit paling lambat Jumat 16 Oktober.\n9. Sponsor Kopi Senja meminta laporan jumlah pengunjung booth mereka.\n10. Booth Kopi Senja dikunjungi sekitar 190 orang menurut hitungan panitia.\n11. Masalah sound system di sesi kedua karena kabel mikrofon longgar.\n12. Untuk event berikutnya, sound check dilakukan dua jam sebelum acara, bukan satu jam.\n13. Survei kepuasan peserta mendapat 140 jawaban dengan nilai rata-rata 4,4 dari 5.\n14. Keluhan paling banyak soal ruangan yang terlalu dingin.\n15. Anggaran terpakai Rp 86.400.000 dari pagu Rp 90.000.000.\n16. Sisa anggaran Rp 3.600.000 dialihkan ke biaya cetak sertifikat.\n17. Sertifikat peserta dikirim lewat email paling lambat Senin 19 Oktober.\n18. Bob mengusulkan event berikutnya diadakan di bulan Februari.\n19. Tanggal pasti event Februari belum diputuskan dan dibahas di rapat berikutnya.\n20. Alice menutup rapat dan berterima kasih kepada semua divisi.\n21. Alice membuka rapat dan meminta tiap divisi menyampaikan evaluasi singkat.\n22. Divisi acara melaporkan jumlah peserta 312 orang, naik dari target 250.\n23. Registrasi di pintu masuk sempat antre sekitar 20 menit karena hanya ada dua meja.\n24. Usulan untuk event berikutnya: empat meja registrasi dan QR code dikirim sehari sebelumnya.\n25. Divisi konsumsi melaporkan makan siang habis lebih cepat dari perkiraan.\n26. Vendor katering bersedia menambah porsi dengan harga yang sama untuk event berikutnya.\n27. Divisi dokumentasi sudah mengunggah 480 foto ke drive bersama.\n28. Video highlight akan selesai diedit paling lambat Jumat 16 Oktober.\n29. Sponsor Kopi Senja meminta laporan jumlah pengunjung booth mereka.\n30. Booth Kopi Senja dikunjungi sekitar 190 orang menurut hitungan panitia.\n31. Masalah sound system di sesi kedua karena kabel mikrofon longgar.\n32. Untuk event berikutnya, sound check dilakukan dua jam sebelum acara, bukan satu jam.\n33. Survei kepuasan peserta mendapat 140 jawaban dengan nilai rata-rata 4,4 dari 5.\n34. Keluhan paling banyak soal ruangan yang terlalu dingin.\n35. Anggaran terpakai Rp 86.400.000 dari pagu Rp 90.000.000.\n36. Sisa anggaran Rp 3.600.000 dialihkan ke biaya cetak sertifikat.\n37. Sertifikat peserta dikirim lewat email paling lambat Senin 19 Oktober.\n38. Bob mengusulkan event berikutnya diadakan di bulan Februari.\n39. Tanggal pasti event Februari belum diputuskan dan dibahas di rapat berikutnya.\n40. Alice menutup rapat dan berterima kasih kepada semua divisi."
+          }
+        ]
+      }
+    }
+  ],
+  "posts": []
+}

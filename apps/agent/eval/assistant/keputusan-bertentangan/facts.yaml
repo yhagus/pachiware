@@ -1,0 +1,26 @@
+# Two Decisions about the release day; the newer one replaced the older. The answer gives the newer and names the older as replaced.
+# Held out: nothing is tuned to it. Spec #226, ticket #239.
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  files:
+    - path: decisions/2026-09-15-hari-rilis.md
+      content: |
+        # Hari rilis
+
+        Diputuskan: versi baru dirilis setiap Jumat sore.
+        Konteks: rapat sprint 15 September.
+        Alasan: QA paling longgar menjelang akhir pekan.
+    - path: decisions/2026-10-06-hari-rilis-senin.md
+      content: |
+        # Hari rilis pindah ke Senin
+
+        Diputuskan: versi baru dirilis Senin pagi, menggantikan rilis Jumat sore.
+        Konteks: retro 6 Oktober.
+        Alasan: bug di akhir pekan tidak ada yang jaga.
+mustCover:
+  - Versi baru dirilis Senin pagi, diputuskan 6 Oktober 2026
+  - Keputusan itu menggantikan rilis Jumat sore dari 15 September 2026
+turns:
+  - replyContains: [Senin, "2026-10-06", "2026-09-15"]

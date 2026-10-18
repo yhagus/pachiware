@@ -1,0 +1,1 @@
+notulen: rapat gathering

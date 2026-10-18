@@ -1,0 +1,80 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "notulen-jadi-tugas",
+  "seeded": [
+    "https://discord.com/channels/guild-1/channel-1/1559734989619200000",
+    "https://discord.com/channels/guild-1/channel-1/1559736247910400000",
+    "https://discord.com/channels/guild-1/channel-1/1559737506201600000",
+    "https://discord.com/channels/guild-1/channel-1/1559738764492800000"
+  ],
+  "turns": [
+    {
+      "n": 1,
+      "message": "notulen: rapat gathering",
+      "replies": [
+        "Rapat gathering\n\n<t:1791940200:f> – <t:1791941100:f> · 4 pesan\nParticipants: Alice, Bob, Dewi\n\n**Decided**\n1. Gathering tanggal 24 Oktober [↗](https://discord.com/channels/guild-1/channel-1/1559734989619200000)\n\n**Still open**\n*None*\n\n**Action items**\n2. **Bob**: Booking venue (due Kamis) [↗](https://discord.com/channels/guild-1/channel-1/1559736247910400000)\n3. **Dewi**: Urus konsumsi (due Jumat) [↗](https://discord.com/channels/guild-1/channel-1/1559737506201600000)"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": [],
+        "kept": [
+          {
+            "path": "minutes/2026-10-14-rapat-gathering.md",
+            "text": "# Rapat gathering\n\n2026-10-14 01:10 – 2026-10-14 01:25 UTC · 4 pesan\nParticipants: Alice, Bob, Dewi\n\n## Decided\n1. Gathering tanggal 24 Oktober [↗](https://discord.com/channels/guild-1/channel-1/1559734989619200000)\n\n## Still open\n*None*\n\n## Action items\n2. **Bob**: Booking venue (due Kamis) [↗](https://discord.com/channels/guild-1/channel-1/1559736247910400000)\n3. **Dewi**: Urus konsumsi (due Jumat) [↗](https://discord.com/channels/guild-1/channel-1/1559737506201600000)"
+          }
+        ]
+      }
+    },
+    {
+      "n": 2,
+      "message": "@bot jadikan action item notulen tadi tugas ya",
+      "replies": [
+        "Dicatat: booking venue gathering untuk Bob, jatuh tempo Kamis 15 Oktober, dan urus konsumsi gathering untuk Dewi, jatuh tempo Jumat 16 Oktober."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Booking venue gathering",
+            "status": "pending",
+            "dueAt": "2026-10-15",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Urus konsumsi gathering",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Dewi",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": [],
+        "kept": [
+          {
+            "path": "minutes/2026-10-14-rapat-gathering.md",
+            "text": "# Rapat gathering\n\n2026-10-14 01:10 – 2026-10-14 01:25 UTC · 4 pesan\nParticipants: Alice, Bob, Dewi\n\n## Decided\n1. Gathering tanggal 24 Oktober [↗](https://discord.com/channels/guild-1/channel-1/1559734989619200000)\n\n## Still open\n*None*\n\n## Action items\n2. **Bob**: Booking venue (due Kamis) [↗](https://discord.com/channels/guild-1/channel-1/1559736247910400000)\n3. **Dewi**: Urus konsumsi (due Jumat) [↗](https://discord.com/channels/guild-1/channel-1/1559737506201600000)"
+          }
+        ]
+      }
+    }
+  ],
+  "posts": []
+}

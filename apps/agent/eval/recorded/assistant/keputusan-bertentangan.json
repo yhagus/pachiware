@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "keputusan-bertentangan",
+  "turns": [
+    {
+      "n": 1,
+      "message": "rilis versi baru itu sebenarnya hari apa sih?",
+      "replies": [
+        "Versi baru dirilis Senin pagi #channel-1 · Keputusan 2026-10-06. Itu menggantikan rilis Jumat sore #channel-1 · Keputusan 2026-09-15."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

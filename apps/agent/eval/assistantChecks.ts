@@ -82,7 +82,7 @@ export function checkTurn(turn: AssistantTurn, facts: TurnFacts, before: Assista
   if (facts.files && !same([...turn.state.files].sort(), [...facts.files].sort())) fail("files", [`files/ holds ${turn.state.files.join(", ") || "nothing"}, expected ${facts.files.join(", ") || "nothing"}.`]);
   if (facts.reminders) fail("reminders", reminderFailures(facts.reminders, turn.state.reminders));
   const kept = turn.state.kept ?? [];
-  fail("kept", (facts.kept ?? []).filter((p) => !kept.some((k) => has(k.text, p))).map((p) => `No Minutes or Daily log the bot wrote holds "${p}"; it wrote ${kept.map((k) => k.path).join(", ") || "none"}.`));
+  fail("kept", (facts.kept ?? []).filter((p) => !kept.some((k) => has(k.text, p))).map((p) => `No Minutes, Daily log, Note or Decision the bot wrote holds "${p}"; it wrote ${kept.map((k) => k.path).join(", ") || "none"}.`));
   fail("format", replyFailures(facts, turn.replies));
   for (const reply of turn.replies) fail("filler", fillerIn(reply).map((line) => `Filler: "${line}"`));
   for (const reply of turn.replies) {

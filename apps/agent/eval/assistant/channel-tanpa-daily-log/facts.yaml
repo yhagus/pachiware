@@ -1,0 +1,15 @@
+# Talk nobody kept, in a channel without Daily logs: the bot finds nothing, says so, and says an admin can turn Daily logs on.
+# Spec #226, tickets #233 and #239.
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  files:
+    - path: notes/2026-10-08-kantor.md
+      content: |
+        Alice bilang kantor tutup tanggal 28 Oktober untuk libur bersama.
+mustCover:
+  - Tidak ada yang tersimpan tentang ganti vendor hosting, dan bot bilang tidak menemukan apa-apa
+  - Channel ini tidak punya Daily log, jadi obrolan yang tidak diminta disimpan tidak bisa dicari setelah sehari; admin bisa menyalakannya
+turns:
+  - replyContains: [hosting, Daily log, admin]

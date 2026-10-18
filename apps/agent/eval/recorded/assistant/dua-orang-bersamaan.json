@@ -1,0 +1,75 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "dua-orang-bersamaan",
+  "turns": [
+    {
+      "n": 1,
+      "message": "catat tugas: siapkan rundown acara ulang tahun kantor, tenggat Jumat",
+      "replies": [
+        "Dicatat: siapkan rundown acara ulang tahun kantor, jatuh tempo Jumat 16 Oktober."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Siapkan rundown acara ulang tahun kantor",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "rundown-nya tenggat kapan ya?\n@bot tambahin juga tugas booking tempat buat Bob",
+      "authors": [
+        "Bob",
+        "Alice"
+      ],
+      "replies": [
+        "Dicatat untuk Bob: booking tempat.",
+        "Tenggat rundown Jumat 16 Oktober 2026."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Booking tempat",
+            "status": "pending",
+            "dueAt": null,
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Siapkan rundown acara ulang tahun kantor",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": null,
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

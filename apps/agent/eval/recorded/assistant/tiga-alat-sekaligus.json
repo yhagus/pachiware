@@ -1,0 +1,50 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "tiga-alat-sekaligus",
+  "turns": [
+    {
+      "n": 1,
+      "message": "tolong catat tugas buat Bob siapkan proposal sponsor tenggat Jumat, ingatkan aku Kamis jam 4 sore buat cek proposalnya, dan ingat ya sponsor utama kita Kopi Senja",
+      "replies": [
+        "Dicatat: siapkan proposal sponsor untuk Bob, jatuh tempo Jumat 16 Oktober. Pengingat Kamis 15 Oktober jam 16:00 untuk cek proposalnya."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Siapkan proposal sponsor",
+            "status": "pending",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Bob",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [
+            "- 2026-10-14 (Alice): Sponsor utama kita Kopi Senja"
+          ],
+          "guild": []
+        },
+        "files": [],
+        "reminders": [
+          {
+            "text": "cek proposal sponsor",
+            "recurrence": "once",
+            "weekdays": [],
+            "timeOfDay": "16:00",
+            "timezone": "Asia/Jakarta",
+            "nextAt": "2026-10-15T09:00:00.000Z",
+            "status": "active",
+            "mentions": []
+          }
+        ]
+      }
+    }
+  ],
+  "posts": []
+}

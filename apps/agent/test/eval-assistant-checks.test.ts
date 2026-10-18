@@ -134,7 +134,7 @@ describe("code checks on one run", () => {
     const run = (reply: string, kept = [minutes]): AssistantOutput => ({ ...withTurn(1, { replies: [reply], state: { ...state([venue]), kept } }), seeded: talk });
     expect(checks(run("Decided: the basic plan costs Rp 49.000 [↗](https://discord.com/channels/guild-1/channel-1/7002)"), f)).toEqual([]);
     expect(checks(run("Decided: the basic plan costs Rp 49.000 [↗](https://discord.com/channels/guild-1/channel-1/7001)", []), f)).toEqual([
-      '1 kept: No Minutes or Daily log the bot wrote holds "Rp 49.000"; it wrote none.',
+      '1 kept: No Minutes, Daily log, Note or Decision the bot wrote holds "Rp 49.000"; it wrote none.',
       "1 citations: The reply does not link seeded message 1, https://discord.com/channels/guild-1/channel-1/7002.",
     ]);
     expect(checks({ ...run("See https://discord.com/channels/guild-1/channel-1/7002"), seeded: undefined }, f)).toEqual([
@@ -186,6 +186,15 @@ describe("fixtures and recorded runs", () => {
     expect(() => loadAssistantFixtures(tmp)).toThrow("Fixture x: clock is not a time");
     writeFileSync(join(tmp, "x", "facts.yaml"), "language: en\narea: tasks\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}, {}, {}]\n");
     expect(loadAssistantFixtures(tmp)[0]!.messages).toEqual(["note this", "and that", "and this"]);
+  });
+
+  test("a follow-up that starts with @bot is Alice's mention of the bot, even with a colon in it", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "notulen");
+    writeFileSync(join(tmp, "x", "follow-ups.md"), "@bot notulen: rapat sprint\n---\n@Bob: @bot catat ya");
+    writeFileSync(join(tmp, "x", "facts.yaml"), "language: id\narea: capture\nclock: 2026-10-14T02:00:00Z\nmustCover: [m]\nturns: [{}, {}, {}]\n");
+    expect(loadAssistantFixtures(tmp)[0]).toMatchObject({ messages: ["notulen", "@bot notulen: rapat sprint", "@bot catat ya"], authors: [["Alice"], ["Alice"], ["Bob"]] });
   });
 
   test("a follow-up block may name the member who speaks it, or several who each send one line of a burst", () => {
@@ -256,10 +265,15 @@ describe("fixtures and recorded runs", () => {
     });
   });
 
-  test("every brief has an area and sits in the committed scorecard, whose weights are the Rapor's", () => {
-    const exam = loadExam(fixtures);
+  test("every brief has an area, and the committed exam is #239's: 30 briefs, 60% Indonesian or more, 4 a area or more, 5 held out, each recorded", () => {
+    const exam = loadExam(fixtures), language = Object.fromEntries(fixtures.map((f) => [f.name, f.facts.language]));
     expect(exam.weights).toEqual({ capture: 20, recall: 25, tasks: 20, group: 10, loop: 15 });
-    expect([...exam.briefs].sort()).toEqual(fixtures.map((f) => f.name).sort());
+    expect(exam.briefs).toHaveLength(30);
+    expect(exam.briefs.filter((b) => language[b] === "id").length / exam.briefs.length).toBeGreaterThanOrEqual(0.6);
+    for (const area of ["capture", "recall", "tasks", "group", "loop"]) expect([area, exam.briefs.filter((b) => exam.areas[b] === area).length >= 4]).toEqual([area, true]);
+    expect(exam.holdout.length).toBeGreaterThanOrEqual(5);
+    const recordedNames = new Set(recorded.map((r) => r.fixture));
+    expect(exam.briefs.filter((b) => !recordedNames.has(b))).toEqual([]);
     expect(exam.areas["remember-forget"]).toBe("loop");
     expect(exam.areas["file-search"]).toBe("capture");
     expect(exam.areas["recall-among-distractors"]).toBe("recall");

@@ -1,0 +1,16 @@
+# "Is it implemented?" answered from git alone: one pull request was closed without merging, a later one was merged.
+# Only the merged one makes it done. Spec #226, ticket #239.
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  git:
+    repos: ["acme/*"]
+    pullRequests:
+      - { repo: acme/dashboard, number: 51, title: Export sales report to CSV, closedAt: "2026-10-02T09:00:00Z" }
+      - { repo: acme/dashboard, number: 57, title: Export sales report to CSV with streaming, mergedAt: "2026-10-09T09:00:00Z" }
+mustCover:
+  - Sudah diimplementasi lewat pull request #57 di acme/dashboard, yang di-merge 9 Oktober 2026
+  - Pull request #51 ditutup tanpa di-merge, jadi bukan itu yang menyelesaikannya
+turns:
+  - replyContains: ["#57", "#51", "https://github.com/acme/dashboard/pull/57"]

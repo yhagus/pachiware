@@ -1,0 +1,9 @@
+# A long pasted transcript, over 2,000 characters as a Nitro member may send, kept as a Note word for word with keepAsNote, never retyped.
+# Spec #226, ticket #239.
+language: id
+area: loop
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - Transkrip rapat evaluasi event Oktober disimpan sebagai catatan
+turns:
+  - kept: [Transkrip rapat evaluasi event Oktober, "Anggaran terpakai Rp 86.400.000", "Alice menutup rapat"]

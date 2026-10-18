@@ -1,0 +1,18 @@
+# In the bot's thread Bob asks Dewi something: not for the bot, so it stays quiet. Then Dewi tells the bot, and it keeps her report.
+# Spec #226, ticket #239.
+language: id
+area: group
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+members:
+  - { id: user-dewi, name: Dewi }
+mustCover:
+  - Cek stok merchandise di gudang tercatat sebagai tugas Dewi, jatuh tempo Kamis 15 Oktober 2026
+  - Stok tinggal 40 kaos dicatat di tugas itu
+turns:
+  - tasks:
+      - { title: stok merchandise, assignedTo: Dewi, dueAt: "2026-10-15" }
+  - quiet: true
+    tasks:
+      - { title: stok merchandise, assignedTo: Dewi, notes: [] }
+  - tasks:
+      - { title: stok merchandise, assignedTo: Dewi, notes: [40 kaos] }

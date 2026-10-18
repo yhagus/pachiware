@@ -34,7 +34,7 @@ export interface TurnFacts {
   taskList?: boolean;
   /** The reply links each of these seeded messages, by index in `seed.messages`. */
   cites?: number[];
-  /** Phrases each held by a Minutes or Daily log the bot wrote in the brief's channel. */
+  /** Phrases each held by a Minutes, Daily log, Note or Decision the bot wrote in the brief's channel. */
   kept?: string[];
   /** The message is not for the bot to answer (it is aimed at someone else, or only thanks): the bot posts nothing. */
   quiet?: true;
@@ -58,7 +58,7 @@ export interface SeedFile {
   content: string;
   /** Another channel of the guild to keep it in, by name (it is created); the brief's channel when left out. */ channel?: string;
 }
-export interface SeedPullRequest { repo: string; number: number; title: string; /** Absent for a pull request still open. */ mergedAt?: string }
+export interface SeedPullRequest { repo: string; number: number; title: string; /** Absent for a pull request still open. */ mergedAt?: string; /** A pull request closed without merging. */ closedAt?: string }
 /** A GitHub account whose Git scope opens `repos` (patterns such as "acme/*") in the guild, holding these pull requests. */
 export interface SeedGit { repos: string[]; pullRequests?: SeedPullRequest[] }
 /** The Rapor's areas: Minutes, Daily logs and Documents; finding what was kept; Tasks and project work; several people at once; the agent loop itself. */
@@ -106,8 +106,10 @@ export const zoneOf = (facts: Pick<AssistantFacts, "settings">) => facts.setting
 const dayIn = (zone: string, at: number) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
 
 const HEAD = /^@([^\n:]+):[ \t]*/;
+/** "@bot" in a follow-up is a mention of the bot, sent as one; a block that starts with it is Alice's, never a speaker named "bot …". */
+export const BOT_MENTION = /@bot\b/g;
 function spoken(name: string, block: string, n: number, members: string[]) {
-  const head = HEAD.exec(block);
+  const head = /^@bot\b/.test(block) ? null : HEAD.exec(block);
   if (!head) return { text: block, authors: ["Alice"] };
   const authors = head[1]!.split("+").map((a) => a.trim().replace(/^@/, "")), text = block.slice(head[0].length).trim();
   for (const a of authors) if (!members.includes(a)) throw new Error(`Fixture ${name}: follow-up ${n} is spoken by ${a}, who is no member`);

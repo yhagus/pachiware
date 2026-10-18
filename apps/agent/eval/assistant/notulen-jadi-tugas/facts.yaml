@@ -1,0 +1,23 @@
+# Minutes from the channel's talk, then "turn the action items into tasks": each becomes a Task with its owner and due date.
+# The next spec makes this a feature (Tasks from Minutes, with a link back); today the agent can only read the Minutes and file Tasks by hand.
+# Spec #226, ticket #239.
+language: id
+area: tasks
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+members:
+  - { id: user-dewi, name: Dewi }
+seed:
+  messages:   # at: minutes before the clock
+    - { author: Alice, text: "Gathering tanggal 24 Oktober ya, sudah fix.", at: 50 }
+    - { author: Bob, text: "Aku yang booking venue, paling lambat Kamis.", at: 45 }
+    - { author: Dewi, text: "Aku urus konsumsi, aku kabari menu hari Jumat.", at: 40 }
+    - { author: Alice, text: "Sip, makasih semua.", at: 35 }
+mustCover:
+  - Gathering tanggal 24 Oktober
+  - Booking venue jadi tugas Bob, jatuh tempo Kamis 15 Oktober 2026
+  - Urus konsumsi jadi tugas Dewi, jatuh tempo Jumat 16 Oktober 2026
+turns:
+  - kept: [venue, konsumsi]
+  - tasks:
+      - { title: venue, assignedTo: Bob, dueAt: "2026-10-15" }
+      - { title: konsumsi, assignedTo: Dewi, dueAt: "2026-10-16" }

@@ -1,0 +1,42 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "notulen-pemilik-tenggat",
+  "seeded": [
+    "https://discord.com/channels/guild-1/channel-1/1559734989619200000",
+    "https://discord.com/channels/guild-1/channel-1/1559736247910400000",
+    "https://discord.com/channels/guild-1/channel-1/1559737506201600000",
+    "https://discord.com/channels/guild-1/channel-1/1559738764492800000",
+    "https://discord.com/channels/guild-1/channel-1/1559740022784000000"
+  ],
+  "turns": [
+    {
+      "n": 1,
+      "message": "notulen: sprint planning",
+      "replies": [
+        "Sprint planning\n\n<t:1791940200:f> – <t:1791941400:f> · 5 pesan\nParticipants: Dewi, Bob, Alice\n\n**Decided**\n1. Sprint depan fokus ke fitur ekspor PDF [↗](https://discord.com/channels/guild-1/channel-1/1559734989619200000)\n\n**Still open**\n2. Batas ukuran file ekspor belum ditentukan [↗](https://discord.com/channels/guild-1/channel-1/1559740022784000000)\n\n**Action items**\n3. **Bob**: Mengerjakan API ekspor (due Kamis) [↗](https://discord.com/channels/guild-1/channel-1/1559736247910400000)\n4. **Dewi**: Menyiapkan desain tombol ekspor (due besok) [↗](https://discord.com/channels/guild-1/channel-1/1559737506201600000)"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": [],
+        "kept": [
+          {
+            "path": "minutes/2026-10-14-sprint-planning.md",
+            "text": "# Sprint planning\n\n2026-10-14 01:10 – 2026-10-14 01:30 UTC · 5 pesan\nParticipants: Dewi, Bob, Alice\n\n## Decided\n1. Sprint depan fokus ke fitur ekspor PDF [↗](https://discord.com/channels/guild-1/channel-1/1559734989619200000)\n\n## Still open\n2. Batas ukuran file ekspor belum ditentukan [↗](https://discord.com/channels/guild-1/channel-1/1559740022784000000)\n\n## Action items\n3. **Bob**: Mengerjakan API ekspor (due Kamis) [↗](https://discord.com/channels/guild-1/channel-1/1559736247910400000)\n4. **Dewi**: Menyiapkan desain tombol ekspor (due besok) [↗](https://discord.com/channels/guild-1/channel-1/1559737506201600000)"
+          }
+        ]
+      }
+    }
+  ],
+  "posts": []
+}

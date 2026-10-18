@@ -26,7 +26,7 @@ const stateText = (s: AssistantState) => [
   `Server Memory: ${s.memory.guild.length ? "" : "empty"}`, ...s.memory.guild.map((l) => `  ${l}`),
   `Files under files/: ${s.files.join(", ") || "none"}`,
   `Reminders: ${s.reminders.length ? "" : "none"}`, ...s.reminders.map((r) => `- ${r.recurrence}${r.weekdays.length ? ` on weekdays ${r.weekdays.join(",")} (0 = Sunday)` : ""}${r.timeOfDay ? ` at ${r.timeOfDay}` : ""} ${r.timezone}, next ${r.nextAt}, ${r.status}, pings ${r.mentions.join(", ") || "the owner only"}: ${r.text}`),
-  ...(s.kept?.length ? ["Minutes and Daily logs the bot wrote:", ...s.kept.map((k) => `#### ${k.path}\n${k.text}`)] : []),
+  ...(s.kept?.length ? ["Minutes, Daily logs, Notes and Decisions the bot wrote:", ...s.kept.map((k) => `#### ${k.path}\n${k.text}`)] : []),
 ].join("\n");
 
 // The author is Alice, who sent the brief; another member's message is headed with their name.

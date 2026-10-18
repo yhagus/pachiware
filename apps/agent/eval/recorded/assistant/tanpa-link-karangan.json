@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "tanpa-link-karangan",
+  "turns": [
+    {
+      "n": 1,
+      "message": "kirimin link PR normalisasi audio dong",
+      "replies": [
+        "Tidak ada akun git yang aktif di channel ini, jadi saya tidak bisa mencari pull request-nya; admin bisa mengaktifkannya di console."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

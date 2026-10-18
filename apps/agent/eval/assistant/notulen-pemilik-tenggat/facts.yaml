@@ -1,0 +1,23 @@
+# Sprint planning talk with two action items, each with its owner and when; "@bot notulen: sprint planning" writes Minutes that keep both,
+# the decision and the open question, each linking its message. Held out: nothing is tuned to it. Spec #226, ticket #239.
+language: id
+area: capture
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+members:
+  - { id: user-dewi, name: Dewi }
+seed:
+  messages:   # at: minutes before the clock
+    - { author: Dewi, text: "Sprint depan kita fokus ke fitur ekspor PDF ya.", at: 50 }
+    - { author: Bob, text: "Setuju. Aku kerjakan API ekspornya, target Kamis.", at: 45, replyTo: 0 }
+    - { author: Alice, text: "Oke. Dewi tolong siapkan desain tombol ekspor paling lambat besok.", at: 40 }
+    - { author: Dewi, text: "Siap, besok sore aku kirim desainnya.", at: 35, replyTo: 2 }
+    - { author: Bob, text: "Batas ukuran file ekspor belum kita tentukan ya.", at: 30 }
+mustCover:
+  - Sprint depan fokus ke fitur ekspor PDF
+  - Bob mengerjakan API ekspor, targetnya Kamis
+  - Dewi menyiapkan desain tombol ekspor paling lambat besok
+  - Batas ukuran file ekspor belum ditentukan
+turns:
+  - replyContains: [Bob, Dewi, ekspor]
+    cites: [1, 2]
+    kept: [API ekspor, desain tombol ekspor, Batas ukuran file]
