@@ -10,7 +10,7 @@
       "n": 1,
       "message": "what action items does Bob have from our meetings?",
       "replies": [
-        "Bob's action items:\n- #channel-1, 2026-10-12: Update the onboarding checklist (due 16 October) (https://discord.com/channels/guild-1/channel-1/4200)\n- #launch, 2026-10-07: Send the press kit to the agency (due Friday) (https://discord.com/channels/guild-1/launch/4100)"
+        "Bob's action items:\n- Update the onboarding checklist (due 16 October) [#channel-1 · Notulen 2026-10-12](<https://discord.com/channels/guild-1/channel-1/4200>)\n- Send the press kit to the agency (due Friday) [#launch · Notulen 2026-10-07](<https://discord.com/channels/guild-1/launch/4100>)"
       ],
       "confirm": false,
       "pings": [],

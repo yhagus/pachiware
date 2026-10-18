@@ -13,7 +13,8 @@ import { replyLanguage, textIn, type Language } from "./language.js";
 export type GuardrailMode = "observe" | "write" | "enforce";
 export const guardrailMode = (): GuardrailMode => (process.env.GUARDRAIL_MODE === "observe" || process.env.GUARDRAIL_MODE === "write" ? process.env.GUARDRAIL_MODE : "enforce");
 
-export type GuardrailKind = "out_of_scope" | "unauthorized" | "prompt_injection" | "confirmation_required" | "limit" | "duplicate";
+/** `citation`: a link in a reply that no tool gave and nobody wrote (ADR 0014). */
+export type GuardrailKind = "out_of_scope" | "unauthorized" | "prompt_injection" | "confirmation_required" | "limit" | "duplicate" | "citation";
 export type GuardrailDecision = { allow: true } | { allow: false; kind: GuardrailKind; message: string };
 
 export type AuditEvent = "guardrail_denied" | "tool_denied" | "confirmation_requested" | "confirmation_accepted" | "confirmation_expired" | "prompt_injection_detected" | "thread_confirmation_requested" | "thread_confirmation_granted" | "thread_confirmation_denied" | "thread_confirmation_expired";

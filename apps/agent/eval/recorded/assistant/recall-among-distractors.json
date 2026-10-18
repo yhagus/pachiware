@@ -10,7 +10,7 @@
       "n": 1,
       "message": "What bitrate did we settle on for MP3 export?",
       "replies": [
-        "MP3 exports use 192 kbps, decided in #audio on 2026-09-16: Settled: MP3 exports use a constant 192 kbps bitrate; WAV and FLAC stay lossless."
+        "MP3 exports use 192 kbps: Settled: MP3 exports use a constant 192 kbps bitrate; WAV and FLAC stay lossless. #audio · Keputusan 2026-09-16"
       ],
       "confirm": false,
       "pings": [],

@@ -8,7 +8,7 @@ import { fillerIn } from "../src/discord/replyStyle";
 import type { AssistantFixture, ExpectedReminder, ExpectedTask, MemoryFacts, TurnFacts } from "./assistantFixtures";
 import type { AssistantOutput, AssistantState, AssistantTurn } from "./assistantRun";
 
-export type AssistantCheck = "reply" | "confirm" | "pings" | "acted" | "tasks" | "memory" | "files" | "reminders" | "format" | "filler" | "language" | "posts";
+export type AssistantCheck = "reply" | "confirm" | "pings" | "acted" | "tasks" | "memory" | "files" | "reminders" | "format" | "filler" | "language" | "posts" | "citations";
 export interface AssistantFailure { turn: number; check: AssistantCheck; message: string }
 
 const LANGUAGE_NAMES: Record<Language, string> = { en: "English", id: "Indonesian" };
@@ -87,14 +87,36 @@ export function checkTurn(turn: AssistantTurn, facts: TurnFacts, before: Assista
   return out;
 }
 
+/**
+ * The links a reply may hold for this fixture: those written in its seeded files, the posted message of each seeded Minutes
+ * (from the guildId, postedIn and messageId at its top), and each seeded pull request's. Anything else was made up.
+ */
+function seedLinks(fixture: AssistantFixture): string {
+  const files = fixture.facts.seed?.files ?? [], prs = fixture.facts.seed?.git?.pullRequests ?? [];
+  const field = (text: string, key: string) => text.match(new RegExp(`^${key}: "?([^"\\n]+)"?$`, "m"))?.[1];
+  const minutes = files.flatMap((f) => {
+    const guild = field(f.content, "guildId"), posted = field(f.content, "postedIn"), message = field(f.content, "messageId");
+    return guild && posted && message ? [`https://discord.com/channels/${guild}/${posted}/${message}`] : [];
+  });
+  return [...files.map((f) => f.content), ...minutes, ...prs.map((p) => `https://github.com/${p.repo}/pull/${p.number}`)].join("\n");
+}
+
+/** A ref the bot left unrendered ("[K1]"), and every link that is not in the seed. */
+export function citationFailures(reply: string, links: string): string[] {
+  const refs = reply.match(/\[[KTGP]\d+\]/g) ?? [];
+  const made = (reply.match(/https?:\/\/[^\s<>)\]]+/g) ?? []).map((u) => u.replace(/[.,;:!?'"]+$/, "")).filter((u) => !links.includes(u));
+  return [...refs.map((r) => `The reply leaves the ref ${r} unrendered.`), ...made.map((u) => `The reply links ${u}, which nothing seeded holds.`)];
+}
+
 /** The checks over a whole run: every turn the facts name, then the Reminder posts after the tick, charged to the last turn. */
 export function checkAssistantOutput(output: AssistantOutput, fixture: AssistantFixture): AssistantFailure[] {
   const out: AssistantFailure[] = [];
-  const turns = fixture.facts.turns, last = turns.length;
+  const turns = fixture.facts.turns, last = turns.length, links = seedLinks(fixture);
   turns.forEach((facts, i) => {
     const turn = output.turns.find((t) => t.n === i + 1);
     if (!turn) { out.push({ turn: i + 1, check: "reply", message: "The bot did not reply." }); return; }
     out.push(...checkTurn(turn, facts, output.turns.find((t) => t.n === i)?.state ?? null, fixture.facts.language));
+    for (const reply of turn.replies) for (const message of citationFailures(reply, links)) out.push({ turn: turn.n, check: "citations", message });
   });
   const then = fixture.facts.then;
   if (then) {

@@ -9,7 +9,7 @@ When the bot answers from Kept material, Tasks, git or Plane, the model names ea
 
 ## Consequences
 
-- Any tool may return `citations` (ref to label and link). The loop collects them over the turn and renders refs in the final reply, including the reply it forces when the action budget runs out.
+- Any tool result may hold items with a `ref`, a `label` and an optional `url`, at any depth. The loop collects them over the turn and renders refs in the final reply, including the reply it forces when the action budget runs out. `recall` is the first tool to give them.
 - The rendered reply is the one stored in history, so a later turn sees real links, not refs.
 - Dropping a link follows the guardrail mode: in `observe` the link stays and the drop is only audited.
 - A link a person pasted, or one an earlier reply already showed, is still allowed, because it appears in the conversation the model was sent.

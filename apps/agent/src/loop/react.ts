@@ -6,6 +6,7 @@ import { botCompletion } from "../llm/completion.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
 import { summaryMessage } from "./summary.js";
+import { checkLinks, citationsIn, renderCitations } from "./citations.js";
 import { bulkApprovalOf, patchConversationMetadata, summaryOf, type ConversationSummary } from "./conversationMetadata.js";
 
 export interface ReActInput {
@@ -52,6 +53,21 @@ function changeLine({ call, result }: Executed, t: Strings) {
 function executeCall(call: ToolCall, ctx: SkillContext, o: { refusal?: string; approved: boolean }): Promise<ToolResult> {
   if (o.refusal) return Promise.resolve({ toolCallId: call.id, name: call.name, success: false, error: o.refusal });
   return skillRegistry.executeTool(call, o.approved ? { ...ctx, bulkApproved: true } : ctx);
+}
+
+/**
+ * A final reply with the refs tools gave rendered as their label and link, unknown refs removed, and any link that appears in no
+ * tool result of the turn and no message the model was sent removed too, unless the guardrail mode only observes (ADR 0014).
+ */
+async function cite(reply: string, executed: Executed[], sent: ChatMessage[], ctx: SkillContext): Promise<string> {
+  const results = executed.map(({ result }) => result.data ?? result.error ?? null);
+  const rendered = renderCitations(reply, citationsIn(results));
+  if (rendered.unknown.length) await audit(ctx, "guardrail_denied", { kind: "citation", reason: "unknown_ref", count: rendered.unknown.length });
+  const known = [JSON.stringify(results), ...sent.map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))].join("\n");
+  const enforced = isEnforced("citation");
+  const checked = checkLinks(rendered.text, known, !enforced);
+  if (checked.dropped.length) await audit(ctx, "guardrail_denied", { kind: "citation", reason: "link_not_found", count: checked.dropped.length, observed: !enforced });
+  return checked.text;
 }
 
 /** The reply to a provider failure; when changes already landed this turn it names them first, so nobody asks for them twice. */
@@ -207,10 +223,14 @@ export class AgentReActLoop {
         input.onStep?.({ type: "thought", payload: response.content });
       }
 
+      // The final answer gets its citations rendered and its links checked before it is stored, so later turns read real links.
+      const final = !response.toolCalls || response.toolCalls.length === 0;
+      const content = final && response.content ? await cite(response.content, toolCallsExecuted, messageHistory, skillContext) : response.content;
+
       // Record assistant message
       messageHistory.push({
         role: "assistant",
-        content: response.content,
+        content,
         toolCalls: response.toolCalls.length > 0 ? response.toolCalls : undefined,
       });
 
@@ -218,14 +238,14 @@ export class AgentReActLoop {
         tenantId: input.tenantId,
         conversationId: convId,
         role: "assistant",
-        content: response.content,
+        content,
         toolCalls: response.toolCalls.length > 0 ? response.toolCalls : null,
         tokensUsed: response.usage?.totalTokens || null,
       });
 
       // If no tool calls, this is the final answer!
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        finalReply = redact(response.content || "I have processed your request.");
+      if (final) {
+        finalReply = redact(content || "I have processed your request.");
         break;
       }
 
@@ -289,7 +309,7 @@ export class AgentReActLoop {
       });
       finalReply = boundary.finishReason === "error"
         ? failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language)
-        : redact(boundary.content || "I completed the available actions. Please continue this task in your next message.");
+        : redact(boundary.content ? await cite(boundary.content, toolCallsExecuted, messageHistory, skillContext) : "I completed the available actions. Please continue this task in your next message.");
       await audit(skillContext, "guardrail_denied", { kind: "limit", source: "iterations", synthesized: true });
     }
 

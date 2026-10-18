@@ -186,25 +186,24 @@ discordScenario("dry run: decision-other-channel finds the pricing Decision kept
   expect(output.turns[0].replies).toEqual(["#marketing, Decision of 2026-10-08: Settled: three pricing tiers, Starter at 9 dollars, Team at 29 and Business at 79 a month."]);
 });
 
-discordScenario("dry run: action-items-across-meetings lists Bob's items from Minutes in two channels, each with channel, date and link", async (s) => {
+discordScenario("dry run: action-items-across-meetings lists Bob's items from Minutes in two channels, each cited by its ref with channel, date and link", async (s) => {
   s.model.script(
-    { tool: "searchFiles", args: { query: "Bob" } },
-    (turn) => turn.toolResults[0].groups.flatMap((g: any) => g.matches.map((m: any) => ({ tool: "readFile", args: { path: m.path } }))),
+    { tool: "recall", args: { queries: ["Bob action items", "tugas Bob"] } },
+    (turn) => turn.toolResults[0].kept.map((k: any) => ({ tool: "readFile", args: { path: k.path } })),
     (turn) => {
-      const [search, ...reads] = turn.toolResults;
-      const matches = search.groups.flatMap((g: any) => g.matches.map((m: any) => ({ channel: g.channel, path: m.path })));
-      return ["Bob's action items:", ...matches.map((m: any, i: number) => {
-        const text: string = reads[i].content, field = (key: string) => JSON.parse(text.match(new RegExp(`^${key}: (.*)$`, "m"))![1]!);
-        const items = text.split("\n").filter((l) => l.includes("**Bob**:")).map((l) => l.replace(/^\d+\. \*\*Bob\*\*: /, "").replace(/ \[↗\].*$/, ""));
-        return `- ${m.channel}, ${m.path.split("/").pop().slice(0, 10)}: ${items.join("; ")} (https://discord.com/channels/${field("guildId")}/${field("postedIn")}/${field("messageId")})`;
+      const [found, ...reads] = turn.toolResults;
+      return ["Bob's action items:", ...found.kept.map((k: any, i: number) => {
+        const items = (reads[i].content as string).split("\n").filter((l) => l.includes("**Bob**:")).map((l) => l.replace(/^\d+\. \*\*Bob\*\*: /, "").replace(/ \[↗\].*$/, ""));
+        return `- ${items.join("; ")} [${k.ref}]`;
       })].join("\n");
     },
   );
+  // Labels are in the place's configured language (Indonesian by default), like every tool's own text.
   const output = await dryRun(s, "action-items-across-meetings");
   expect(output.turns[0].replies).toEqual([[
     "Bob's action items:",
-    "- #channel-1, 2026-10-12: Update the onboarding checklist (due 16 October) (https://discord.com/channels/guild-1/channel-1/4200)",
-    "- #launch, 2026-10-07: Send the press kit to the agency (due Friday) (https://discord.com/channels/guild-1/launch/4100)",
+    "- Update the onboarding checklist (due 16 October) [#channel-1 · Notulen 2026-10-12](<https://discord.com/channels/guild-1/channel-1/4200>)",
+    "- Send the press kit to the agency (due Friday) [#launch · Notulen 2026-10-07](<https://discord.com/channels/guild-1/launch/4100>)",
   ].join("\n")]);
 });
 
@@ -319,13 +318,13 @@ discordScenario("dry run: recall-done-pull-request finds no kept material or Tas
   s.model.script(
     { tool: "recall", args: { queries: ["podcast audio normalization", "normalize podcast audio", "normalisasi audio podcast"] } },
     (turn) => {
-      const [found] = turn.toolResults, pr = found.work[0];
-      return [`Done or not: ${pr.label}, ${pr.date.slice(0, 10)}: ${pr.url}`, `Nothing found: ${found.nothingFound.join(", ")}.`].join("\n");
+      const [found] = turn.toolResults;
+      return [`Done or not: merged on ${found.work[0].date.slice(0, 10)} [${found.work[0].ref}]`, `Nothing found: ${found.nothingFound.join(", ")}.`].join("\n");
     },
   );
   const output = await dryRun(s, "recall-done-pull-request");
   expect(output.turns[0].replies).toEqual([[
-    `Done or not: acme/podcast · pull request #42 "Normalize podcast audio to -16 LUFS" (merged), 2026-10-12: https://github.com/acme/podcast/pull/42`,
+    `Done or not: merged on 2026-10-12 [acme/podcast · pull request #42 "Normalize podcast audio to -16 LUFS" (merged)](<https://github.com/acme/podcast/pull/42>)`,
     "Nothing found: kept, tasks.",
   ].join("\n")]);
 });
@@ -334,12 +333,12 @@ discordScenario("dry run: recall-among-distractors finds the one MP3 bitrate Dec
   s.model.script(
     { tool: "recall", args: { queries: ["MP3 export bitrate", "bitrate ekspor MP3"] } },
     (turn) => {
-      const top = turn.toolResults[0].kept[0], c = cited(top);
-      return `MP3 exports use 192 kbps, decided in ${c.channel} on ${c.date}: ${top.lines[0].text}`;
+      const top = turn.toolResults[0].kept[0];
+      return `MP3 exports use 192 kbps: ${top.lines[0].text} [${top.ref}]`;
     },
   );
   const output = await dryRun(s, "recall-among-distractors");
-  expect(output.turns[0].replies).toEqual(["MP3 exports use 192 kbps, decided in #audio on 2026-09-16: Settled: MP3 exports use a constant 192 kbps bitrate; WAV and FLAC stay lossless."]);
+  expect(output.turns[0].replies).toEqual(["MP3 exports use 192 kbps: Settled: MP3 exports use a constant 192 kbps bitrate; WAV and FLAC stay lossless. #audio · Keputusan 2026-09-16"]);
 });
 
 discordScenario("dry run: a judge over HTTP grades a daily-behaviour trial, and the report reads per turn", async (s) => {

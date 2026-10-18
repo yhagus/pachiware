@@ -45,7 +45,9 @@ discordScenario("the persona answers questions about past meetings from kept mat
   expect(section).toMatch(/search before/i);
   expect(section).toMatch(/channel and (the )?date/i);
   expect(section).toMatch(/date the text gives/i);
-  expect(section).toContain("postedIn");
+  expect(section).not.toContain("postedIn");
+  expect(section).toMatch(/\[K1\]/);
+  expect(section).toMatch(/Never write a source's link or date yourself/);
   expect(section).toMatch(/found nothing/i);
   expect(section).toMatch(/without naming/i);
   expect(persona).not.toContain("threads/");

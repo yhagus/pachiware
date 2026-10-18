@@ -180,3 +180,23 @@ describe("fixtures and recorded runs", () => {
     expect(graded.passed).toBe(true);
   });
 });
+
+test("the citations check fails an unrendered ref and a link nothing seeded holds, and passes the seeded Minutes' posted message and a seeded pull request", () => {
+  const seeded: AssistantFixture = {
+    name: "cited", messages: ["is audio normalization done?"],
+    facts: {
+      language: "en", clock: "2026-10-14T02:00:00Z", mustCover: [], turns: [{}],
+      seed: {
+        files: [{ path: "minutes/2026-10-06-sync.md", content: "---\ntitle: \"Sync\"\nguildId: \"guild-1\"\npostedIn: \"channel-1\"\nmessageId: \"5100\"\n---\n# Sync\nSee https://docs.acme.test/loudness\n" }],
+        git: { repos: ["acme/*"], pullRequests: [{ repo: "acme/podcast", number: 42, title: "Normalize", mergedAt: "2026-10-12T00:00:00Z" }] },
+      },
+    },
+  };
+  const run = (reply: string): AssistantOutput => ({ turns: [{ n: 1, message: "q", replies: [reply], confirm: false, pings: [], state: empty }], posts: [] } as any);
+  const cited = (reply: string) => checkAssistantOutput(run(reply), seeded).filter((f) => f.check === "citations").map((f) => f.message);
+  expect(cited("Discussed [#channel-1 · Minutes 2026-10-06](<https://discord.com/channels/guild-1/channel-1/5100>), done in https://github.com/acme/podcast/pull/42. Spec: https://docs.acme.test/loudness.")).toEqual([]);
+  expect(cited("Discussed [K1], see https://docs.acme.test/made-up.")).toEqual([
+    "The reply leaves the ref [K1] unrendered.",
+    "The reply links https://docs.acme.test/made-up, which nothing seeded holds.",
+  ]);
+});
