@@ -80,6 +80,60 @@ function creatable(ctx: SkillContext, requested: unknown) {
   return path;
 }
 
+/** The most of a file one readFile returns, measured as the JSON the loop sends, so a read never reaches the loop's tool result cap. */
+const READ_LIMIT = 10_000;
+
+const lineArg = (value: unknown, name: string) => {
+  if (value === undefined || value === null) return undefined;
+  const n = typeof value === "string" && value.trim() ? Number(value) : value;
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1) throw new Error(`${name} must be a line number, 1 or more.`);
+  return n;
+};
+
+/** A whole small file as before (content and version, for writeFile's check); a range, or the head of a large file, within READ_LIMIT. */
+function readPart(file: { content: string; version: string }, from: unknown, to: unknown) {
+  const fromLine = lineArg(from, "fromLine"), toLine = lineArg(to, "toLine");
+  const all = file.content.split("\n");
+  if (all.at(-1) === "") all.pop();
+  const totalLines = all.length;
+  if (fromLine === undefined && toLine === undefined) {
+    if (JSON.stringify(file.content).length <= READ_LIMIT) return { content: file.content, version: file.version };
+    const kept: string[] = [];
+    let size = 2;
+    for (const line of all) {
+      const next = JSON.stringify(line).length;
+      if (size + next > READ_LIMIT && kept.length) break;
+      kept.push(size + next > READ_LIMIT ? clip(line, READ_LIMIT - size - 2) : line);
+      size += next;
+    }
+    return { content: kept.join("\n") + "\n", totalLines, nextLine: kept.length + 1, version: file.version };
+  }
+  const start = fromLine ?? 1, end = toLine ?? totalLines;
+  if (start > totalLines) throw new Error(`fromLine ${start} is past the end: the file has ${totalLines} lines.`);
+  if (end < start) throw new Error(`toLine ${end} is before fromLine ${start}.`);
+  const lines: { line: number; text: string }[] = [];
+  let size = 0;
+  for (let n = start; n <= Math.min(end, totalLines); n++) {
+    const entry = { line: n, text: all[n - 1]! };
+    const next = JSON.stringify(entry).length + 1;
+    if (size + next > READ_LIMIT) {
+      if (lines.length) break;
+      entry.text = clip(entry.text, READ_LIMIT - 40);
+    }
+    lines.push(entry);
+    size += next;
+  }
+  const last = lines.at(-1)!.line, more = last < Math.min(end, totalLines) ? { nextLine: last + 1 } : {};
+  return { fromLine: start, toLine: last, totalLines, ...more, lines, version: file.version };
+}
+
+/** A single line too long to return whole, cut so its JSON stays within `room`. */
+function clip(line: string, room: number) {
+  let cut = line.slice(0, Math.max(0, room));
+  while (JSON.stringify(cut).length > room && cut) cut = cut.slice(0, Math.floor(cut.length * 0.9));
+  return cut;
+}
+
 export const workspaceSkill: SkillModule = {
   id: "workspace",
   name: "Workspace",
@@ -91,7 +145,7 @@ export const workspaceSkill: SkillModule = {
   checks: { deleteFile: async (args, ctx) => notElsewhere(ctx, args.path) },
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: readPathArg }, required: ["path"] } },
-    { name: "readFile", description: "Reads a text file from the Workspace: Markdown, CSV or TXT. A filed PDF, DOCX or XLSX, or a CSV over 256 KB, is read through the .md beside it (named in the file note as \"text in ...\"); an XLSX's .md holds each sheet as a table.", parameters: { type: "object", properties: { path: readPathArg }, required: ["path"] } },
+    { name: "readFile", description: `Reads a text file from the Workspace: Markdown, CSV or TXT. A filed PDF, DOCX or XLSX, or a CSV over 256 KB, is read through the .md beside it (named in the file note as "text in ..."); an XLSX's .md holds each sheet as a table. fromLine and toLine (1-based, inclusive) read only those lines, each with its number: when searchFiles or recall gave a matching line, read around it, e.g. 20 lines before to 60 after. Without them, a file over ${READ_LIMIT.toLocaleString("en")} characters returns its first lines with totalLines and nextLine, the line to read from next. A range returns at most that much too, with nextLine when it stopped early.`, parameters: { type: "object", properties: { path: readPathArg, fromLine: { type: "integer", description: "First line to read, 1-based" }, toLine: { type: "integer", description: "Last line to read, inclusive" } }, required: ["path"] } },
     { name: "writeFile", description: "Creates or replaces a Markdown file in the Workspace. Missing folders are created. To replace an existing file, pass the version from readFile. Under notes/ and decisions/ the server then writes topics and keywords into the file's head, replacing any already there.", parameters: { type: "object", properties: { path: pathArg, content: { type: "string", description: "Full file content" }, version: { type: "string", description: "Version returned by readFile; required when the file exists" } }, required: ["path", "content"] } },
     { name: "moveFile", description: "Moves or renames a file or folder. Refuses to overwrite.", parameters: { type: "object", properties: { from: pathArg, to: pathArg }, required: ["from", "to"] } },
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
@@ -125,7 +179,7 @@ export const workspaceSkill: SkillModule = {
       await threadAccess(ctx).check(path);
       const file = await workspaceStore().read(ctx.tenantId, path);
       if (!file) throw new Error(`File "${args.path}" not found.`);
-      return { content: file.content, version: file.version };
+      return readPart(file, args.fromLine, args.toLine);
     },
     writeFile: async (args, ctx) => {
       if (typeof args.content !== "string") throw new Error("content is required");
