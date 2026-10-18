@@ -53,7 +53,7 @@ discordScenario("images of the replied-to message reach the model", async (s) =>
   s.model.script("p99 doubled at 14:05.");
   await s.discord.send(`${s.discord.mention} what does this show?`, { replyTo: post });
   const turn = s.model.calls[0]!.find((m) => Array.isArray(m.content)) as any;
-  expect(turn.content[0].text).toBe("Alice: what does this show?\n[image in the replied-to message: chart.png, 640×480]");
+  expect(turn.content[0].text).toBe('(replying to Bob: "latency after the deploy")\nAlice: what does this show?\n[image in the replied-to message: chart.png, 640×480]');
   expect(turn.content.slice(1).map((p: any) => [p.type, p.mediaType])).toEqual([["image", "image/png"]]);
 });
 

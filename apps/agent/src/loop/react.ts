@@ -77,11 +77,11 @@ const CONTINUE = "Your last answer was cut off at the output limit. Continue exa
  * Asks once for the rest of an answer cut at the output limit and joins the two parts; `stillCut` when the rest is cut too or never came.
  * The continuation request is not stored: only the joined answer is.
  */
-async function continueCut(partial: string, sent: ChatMessage[], tools: ToolDefinition[], convId: string, input: ReActInput, ctx: SkillContext) {
+async function continueCut(partial: string, sent: ChatMessage[], tools: ToolDefinition[], convId: string, historyEnd: number | undefined, input: ReActInput, ctx: SkillContext) {
   await audit(ctx, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "text" });
   if (!partial.trim()) return { text: partial, stillCut: true };
   const rest = await llmRouter.complete([...sent, { role: "assistant", content: partial }, { role: "user", content: CONTINUE }], {
-    tenantId: input.tenantId, botId: input.botId, cacheKey: convId, tools, language: input.context.language,
+    tenantId: input.tenantId, botId: input.botId, cacheKey: convId, historyEnd, tools, language: input.context.language,
   });
   if (rest.finishReason === "error") return { text: partial, stillCut: true };
   if (rest.finishReason === "length") await audit(ctx, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "text" });
@@ -163,6 +163,7 @@ export class AgentReActLoop {
         toolCallId: msg.toolCallId || undefined,
       });
     }
+    const historyEnd = existingDbMessages.length ? messageHistory.length - 1 : undefined;
 
     // 4. Append current user message
     const turn: ChatMessage = { role: "user", content: input.images?.length ? [{ type: "text", text: input.message }, ...input.images] : input.message };
@@ -225,6 +226,7 @@ export class AgentReActLoop {
         tenantId: input.tenantId,
         botId: input.botId,
         cacheKey: convId,
+        historyEnd,
         tools: activeTools,
         language: input.context.language,
       });
@@ -245,7 +247,7 @@ export class AgentReActLoop {
       const cut = response.finishReason === "length";
       const final = !response.toolCalls || response.toolCalls.length === 0;
       let answer = response.content, stillCut = false;
-      if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, convId, input, skillContext));
+      if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, convId, historyEnd, input, skillContext));
 
       // The final answer gets its citations rendered and its links checked before it is stored, so later turns read real links.
       const content = final && answer ? await cite(answer, toolCallsExecuted, messageHistory, skillContext) : answer;
@@ -320,22 +322,22 @@ export class AgentReActLoop {
     }
 
     if (iterations >= maxIterations && !finalReply) {
-      // Give the model one tool-free turn to turn completed work into a useful answer.
-      // This prevents the safety budget from surfacing as an opaque failure message.
-      messageHistory.push({
-        role: "user",
+      // One more call with the same tools and tool_choice none, so the cached prefix holds and completed work becomes a useful answer
+      // instead of an opaque failure. The instruction is not stored; the answer is, so the next turn builds on it.
+      const request = [...messageHistory, {
+        role: "user" as const,
         content: "The action budget for this turn is exhausted. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.",
-      });
-      const boundary = await llmRouter.complete(messageHistory, {
-        tenantId: input.tenantId,
-        botId: input.botId,
-        cacheKey: convId,
-        tools: [],
-        language: input.context.language,
-      });
-      finalReply = boundary.finishReason === "error"
-        ? failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language)
-        : redact(boundary.content ? await cite(boundary.content, toolCallsExecuted, messageHistory, skillContext) : "I completed the available actions. Please continue this task in your next message.");
+      }];
+      const options = { tenantId: input.tenantId, botId: input.botId, cacheKey: convId, historyEnd, language: input.context.language };
+      let boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
+      // A server that refuses tool_choice gets the request once more without tools.
+      if (boundary.httpStatus === 400) boundary = await llmRouter.complete(request, options);
+      if (boundary.finishReason === "error") finalReply = failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language);
+      else {
+        const content = boundary.content ? await cite(boundary.content, toolCallsExecuted, request, skillContext) : "";
+        if (content) await conversations.addMessage({ tenantId: input.tenantId, conversationId: convId, role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
+        finalReply = redact(content || "I completed the available actions. Please continue this task in your next message.");
+      }
       await audit(skillContext, "guardrail_denied", { kind: "limit", source: "iterations", synthesized: true });
     }
 
