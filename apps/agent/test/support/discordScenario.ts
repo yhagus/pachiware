@@ -66,7 +66,11 @@ export interface Scenario {
   tenant: { id: string };
   bot: { id: string };
   /** `live()` hands every later model call to the real router instead of the script. */
-  model: { script(...steps: ModelStep[]): void; calls: ChatMessage[][]; /** Tool names offered on each call. */ tools: string[][]; live(): void };
+  model: {
+    script(...steps: ModelStep[]): void; calls: ChatMessage[][]; /** Tool names offered on each call. */ tools: string[][]; live(): void;
+    /** Replies to the calls that find a kept file's topics and keywords, kept apart from `script` and `calls`; an unscripted one fails as a provider error would. */
+    keywords(...replies: (string | ErrorStep)[]): void; keywordCalls: ChatMessage[][];
+  };
   /** `passthrough` sends matching requests to the network. */
   http: { on(match: string | RegExp, respond: (req: HttpRequest) => unknown): void; passthrough(match: string | RegExp): void; requests: HttpRequest[] };
   /** Attaches a git account to the bot and opens these repositories in the guild. */
@@ -362,6 +366,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
 
   const steps: ModelStep[] = [];
   const calls: ChatMessage[][] = [], offered: string[][] = [];
+  const keywordCalls: ChatMessage[][] = [], keywordReplies: (string | ErrorStep)[] = [];
+  const { KEYWORDS_PROMPT } = await import("../../../../packages/skills/src/workspace/keywords.ts");
   let callId = 0;
   const toResponse = async (step: ModelStep, turn: ModelTurn): Promise<LLMResponse> => {
     if (typeof step === "function") return toResponse(await step(turn), turn);
@@ -372,6 +378,10 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   };
   const realComplete = llmRouter.complete.bind(llmRouter);
   (llmRouter as any).complete = async (messages: ChatMessage[], options?: { tools?: { name: string }[] }) => {
+    if (messages[0]?.role === "system" && messages[0].content === KEYWORDS_PROMPT) {
+      keywordCalls.push(messages.map((m) => ({ ...m })));
+      return toResponse(keywordReplies.shift() ?? { error: "Provider request failed" }, { messages, toolResults: [] });
+    }
     calls.push(messages.map((m) => ({ ...m })));
     offered.push((options?.tools ?? []).map((t) => t.name));
     const step = steps.shift();
@@ -434,7 +444,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
 
   return {
     tenant, bot,
-    model: { script: (...more) => { steps.push(...more); }, calls, tools: offered, live: () => { (llmRouter as any).complete = realComplete; } },
+    model: { script: (...more) => { steps.push(...more); }, calls, tools: offered, live: () => { (llmRouter as any).complete = realComplete; },
+      keywords: (...replies) => { keywordReplies.push(...replies); }, keywordCalls },
     http: { on: (match, respond) => { routes.push({ match, respond }); }, passthrough: (match) => { routes.push({ match, respond: () => null, passthrough: true }); }, requests },
     git: async ({ provider = "github", repos = ["acme/*"] } = {}) => {
       await repositories().skills.setEnabled(tenant.id, "git_repositories", true);

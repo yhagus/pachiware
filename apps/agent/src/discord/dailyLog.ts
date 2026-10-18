@@ -1,5 +1,5 @@
 import { workspaceStore, renderFrontmatter, asUntrusted, redact, loadPlaybook, listPlaybooks, availabilityPlace, skillRegistry, jumpLink, wallClock, wallToInstant, type Playbook } from "@pachiware/skills";
-import { llmRouter } from "../llm/router.js";
+import { botCompletion } from "../llm/completion.js";
 import { stamp, transcript, type DiscordJSAdapter, type HistoryCut } from "./adapter.js";
 
 /** The built-in, reference-only playbook whose steps the Daily log follows; a tenant playbook of the same name changes the steps, not where the file goes. */
@@ -53,11 +53,11 @@ export async function writeDailyLog(run: DailyLogRun): Promise<DailyLogResult> {
   if (!messages.length) return "empty";
   const links = messages.map((m) => jumpLink(run.guildId, m.channelId, m.id));
   const corpus = messages.map((m) => `${m.speaker}\n${m.text}`).join("\n");
-  const response = await llmRouter.complete([
-    { role: "system", content: systemPrompt(playbook) },
-    { role: "user", content: `Messages of #${run.channelName} on ${run.day}, oldest first${cut ? `; only the last ${messages.length} were read, everything before ${stamp(cut.keptFrom)} UTC was left out` : ""}:\n${asUntrusted("discord:history", transcript(messages))}` },
-  ], { tenantId: run.tenantId, botId: run.botId }).catch(() => null);
-  const log = response && response.finishReason !== "error" ? parseDailyLog(response.content, links, corpus) : null;
+  const content = await botCompletion(run.tenantId, run.botId)({
+    system: systemPrompt(playbook),
+    user: `Messages of #${run.channelName} on ${run.day}, oldest first${cut ? `; only the last ${messages.length} were read, everything before ${stamp(cut.keptFrom)} UTC was left out` : ""}:\n${asUntrusted("discord:history", transcript(messages))}`,
+  });
+  const log = content === null ? null : parseDailyLog(content, links, corpus);
   if (!log) return "failed";
   const header = { count: messages.length, participants: [...new Set(messages.map((m) => m.speaker))], cut };
   await store.write(run.tenantId, path, recordText(run, header, log));
@@ -118,12 +118,15 @@ function render(run: DailyLogRun, h: Header, log: DailyLog) {
   ].join("\n\n");
 }
 
-/** The fields at the top keep the log whole, so a later change (a deleted message) can rewrite the file from them. */
+/**
+ * The fields at the top keep the log whole, so a later change (a deleted message) can rewrite the file from them.
+ * `topics` and `keywords` end the head, as `addKeywords` writes them on other kept material.
+ */
 function recordText(run: DailyLogRun, h: Header, log: DailyLog) {
   const fields = {
     kind: "daily-log", guildId: run.guildId, channelId: run.channelId, channel: run.channelName, day: run.day, timezone: run.timezone,
-    topics: log.topics.map((t) => t.name), keywords: [...new Set(log.topics.flatMap((t) => [...t.keywords.id, ...t.keywords.en]))],
     header: h, log,
+    topics: log.topics.map((t) => t.name), keywords: [...new Set(log.topics.flatMap((t) => [...t.keywords.id, ...t.keywords.en]))],
   };
   return renderFrontmatter(fields, `${render(run, h, log)}\n`);
 }

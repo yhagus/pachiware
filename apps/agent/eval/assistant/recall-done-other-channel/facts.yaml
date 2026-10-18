@@ -1,0 +1,35 @@
+# Work talked about in this channel's Minutes and tracked as a Task in another Public channel, #audio, where it was completed.
+# Nothing here says it is done; only the #audio Task does. Spec #195, stories 37, 38, 43; ticket #200.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  files:
+    - path: minutes/2026-10-06-podcast-sync.md
+      content: |
+        ---
+        title: "Podcast sync"
+        guildId: "guild-1"
+        channelId: "channel-1"
+        postedIn: "channel-1"
+        messageId: "6100"
+        requesterId: "user-alice"
+        ---
+        # Podcast sync
+
+        2026-10-06 03:00 – 2026-10-06 03:30 UTC · 12 messages
+        Participants: Alice, Dewi
+
+        ## Decided
+        1. Every episode is normalized to -16 LUFS before it is published [↗](https://discord.com/channels/guild-1/channel-1/6011)
+
+        ## Action items
+        2. **Dewi**: Set up audio normalization for the podcast episodes [↗](https://discord.com/channels/guild-1/channel-1/6012)
+  tasks:
+    - { title: Normalize podcast audio to -16 LUFS, status: completed, assignedTo: Dewi, channel: audio }
+mustCover:
+  - Audio normalization was discussed in this channel's Podcast sync Minutes on 6 October 2026, which decided every episode is normalized to -16 LUFS
+  - It is done; the Task Normalize podcast audio to -16 LUFS in #audio is completed
+turns:
+  - tasks:
+      - { title: normalize podcast audio, status: completed, assignedTo: Dewi, channel: "#audio" }
+    replyContains: ["2026-10-06", "#audio", "completed", "-16 LUFS"]

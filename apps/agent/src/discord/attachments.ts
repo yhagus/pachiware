@@ -1,5 +1,5 @@
 import type { Message } from "discord.js";
-import { textIn, jumpLink, fileDocument, takenNames, type Filed, type Language, type Strings } from "@pachiware/skills";
+import { textIn, jumpLink, fileDocument, takenNames, type Completion, type Filed, type Language, type Strings } from "@pachiware/skills";
 import type { ImagePart } from "../llm/types.js";
 import { placeOfChannel, speakerName } from "./routing.js";
 
@@ -38,7 +38,7 @@ export function withPlaceholders(text: string, msg: Message, filed?: FiledNotes)
  * Files the documents of the messages that address the bot into the turn's `files/` folder before the turn runs,
  * and says per attachment where it landed or why it did not. Attachments of other messages keep their placeholder.
  */
-export async function fileTurnDocuments(tenantId: string, items: { msg: Message; direct?: boolean }[], language?: Language): Promise<FiledNotes> {
+export async function fileTurnDocuments(tenantId: string, items: { msg: Message; direct?: boolean }[], language?: Language, complete?: Completion): Promise<FiledNotes> {
   const t = textIn(language), notes: FiledNotes = new Map();
   const taken = new Map<string, Set<string>>();
   for (const { msg, direct } of items) {
@@ -48,7 +48,7 @@ export async function fileTurnDocuments(tenantId: string, items: { msg: Message;
     for (const a of attachmentsOf(msg).filter((a) => !isImage(a))) {
       const names = taken.get(key) ?? (await takenNames(tenantId, where).catch(() => new Set<string>()));
       taken.set(key, names);
-      const outcome = await fileDocument(tenantId, where, a, { taken: names, givenBy: { name: speakerName(msg), id: msg.author.id } }).catch(() => ({ reason: "download" as const }));
+      const outcome = await fileDocument(tenantId, where, a, { taken: names, givenBy: { name: speakerName(msg), id: msg.author.id }, complete }).catch(() => ({ reason: "download" as const }));
       notes.set(a.id, "path" in outcome ? `[file: ${a.name} saved as ${outcome.path}${textNote(outcome, t)}]` : filePlaceholder(a, msg, t.notFiled[outcome.reason]));
     }
   }

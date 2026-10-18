@@ -10,6 +10,7 @@ import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 import { forget, memoryLevel, remember } from "../workspace/memory.js";
 import { fileDocument, isDocument } from "../workspace/files.js";
 import { keepNote, keptDocument, keptMessages, MAX_KEPT_MESSAGES } from "../workspace/notes.js";
+import { addKeywords } from "../workspace/keywords.js";
 import { capMatches, queriesWords, shownMatch, type FileMatch } from "../workspace/search.js";
 import { namesChannel, readableSources, searchSource, searchSources, sourcePath } from "../workspace/sources.js";
 import { textIn } from "../language.js";
@@ -64,6 +65,8 @@ function changeable(ctx: SkillContext, path: unknown) {
 }
 
 const TOP_FOLDERS = ["tasks", ...KEPT_FOLDERS], TOP_FILES = ["MEMORY.md", "glossary.md"];
+/** Kept material the agent writes itself: a file written under these gets topics and keywords in its head. */
+const KEYWORDED_FOLDERS = ["notes", "decisions"];
 /** A channel's or DM's top level is fixed so people find things in the console; deeper folders are free. A private thread's own folder holds only what it keeps.
  *  In a private thread, `channel/<kept folder>/...` becomes the thread's own (ADR 0009); the returned path is where the write goes. */
 function creatable(ctx: SkillContext, requested: unknown) {
@@ -87,7 +90,7 @@ export const workspaceSkill: SkillModule = {
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: readPathArg }, required: ["path"] } },
     { name: "readFile", description: "Reads a text file from the Workspace: Markdown, CSV or TXT. A filed PDF, DOCX or XLSX, or a CSV over 256 KB, is read through the .md beside it (named in the file note as \"text in ...\"); an XLSX's .md holds each sheet as a table.", parameters: { type: "object", properties: { path: readPathArg }, required: ["path"] } },
-    { name: "writeFile", description: "Creates or replaces a Markdown file in the Workspace. Missing folders are created. To replace an existing file, pass the version from readFile.", parameters: { type: "object", properties: { path: pathArg, content: { type: "string", description: "Full file content" }, version: { type: "string", description: "Version returned by readFile; required when the file exists" } }, required: ["path", "content"] } },
+    { name: "writeFile", description: "Creates or replaces a Markdown file in the Workspace. Missing folders are created. To replace an existing file, pass the version from readFile. Under notes/ and decisions/ the server then writes topics and keywords into the file's head, replacing any already there.", parameters: { type: "object", properties: { path: pathArg, content: { type: "string", description: "Full file content" }, version: { type: "string", description: "Version returned by readFile; required when the file exists" } }, required: ["path", "content"] } },
     { name: "moveFile", description: "Moves or renames a file or folder. Refuses to overwrite.", parameters: { type: "object", properties: { from: pathArg, to: pathArg }, required: ["from", "to"] } },
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "searchFiles", description: "Finds files that hold words of the queries somewhere in their name or text, in any order and case; the words need not share a line and a file need not hold them all. Pass several wordings of the same question in queries (Indonesian, English, same-meaning words) to search them at once. Best match first: files holding every word of a query, then those holding more and rarer words, then newest first by the date a file name starts with; at most 50 files, and when more matched, total and leftOut say how many. Each match gives up to three of the file's lines, those holding the most query words, with their line numbers. The text of a PDF, DOCX or XLSX is searched in the .md beside it. Without a path, searches the minutes, Daily logs, decisions, notes and files of this place and of every other channel you may read from here, grouped by channel. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are.", parameters: { type: "object", properties: { query: { type: "string", description: "Words to find, e.g. \"pricing decision\"" }, queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\", \"loudness\"]" }, path: { type: "string", description: 'Folder to search, e.g. "channel/minutes" or "#marketing"; leave it out to search every channel you may read from here' } } } },
@@ -124,8 +127,11 @@ export const workspaceSkill: SkillModule = {
     writeFile: async (args, ctx) => {
       if (typeof args.content !== "string") throw new Error("content is required");
       const target = creatable(ctx, args.path);
-      const { version } = await workspaceStore().write(ctx.tenantId, changeable(ctx, target), args.content, typeof args.version === "string" ? args.version : undefined);
-      await labelFolder(ctx, String(target).split("/")[0]!);
+      const full = changeable(ctx, target);
+      const written = await workspaceStore().write(ctx.tenantId, full, args.content, typeof args.version === "string" ? args.version : undefined);
+      const [root, top] = String(target).split("/");
+      const version = KEYWORDED_FOLDERS.includes(top!) ? (await addKeywords(ctx.tenantId, full, ctx.complete)) ?? written.version : written.version;
+      await labelFolder(ctx, root!);
       return { success: true, path: target, version };
     },
     moveFile: async (args, ctx) => {
@@ -169,7 +175,7 @@ export const workspaceSkill: SkillModule = {
       const candidates = wanted ? message.attachments.filter((a) => a.name.toLowerCase() === wanted) : documents.length ? documents : message.attachments;
       if (!candidates.length) throw new Error(t.saveNoFile);
       if (candidates.length > 1) throw new Error(t.saveWhich(candidates.map((a) => a.name)));
-      const outcome = await fileDocument(ctx.tenantId, ctx, candidates[0]!, { givenBy: { name: message.authorName, id: message.authorId } });
+      const outcome = await fileDocument(ctx.tenantId, ctx, candidates[0]!, { givenBy: { name: message.authorName, id: message.authorId }, complete: ctx.complete });
       if ("reason" in outcome) throw new Error(t.notFiled[outcome.reason]);
       await labelFolder(ctx, placeRoot(ctx)!);
       const text =!outcome.text ? {} : "path" in outcome.text ? { text: outcome.text.path } : { note: t.textNotExtracted };
@@ -185,6 +191,7 @@ export const workspaceSkill: SkillModule = {
       // Only the Note is redirected into a private thread's folder: a parent channel Document stays readable where it is.
       const pieces = hasDocument ? [await keptDocument(ctx, document)] : await keptMessages(ctx, args.messageIds);
       const note = await keepNote(ctx, keptPath(ctx, args.path), pieces);
+      await addKeywords(ctx.tenantId, resolvePath(ctx, note.path), ctx.complete);
       await labelFolder(ctx, placeRoot(ctx)!);
       return { success: true, path: note.path, source: document || pieces.map((p) => p.source) };
     },

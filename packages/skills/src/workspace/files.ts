@@ -1,7 +1,8 @@
 import { MAX_BLOB_BYTES, workspaceStore } from "./store.js";
 import { placeRoot, resolvePath, visibleRoots } from "./paths.js";
 import { documentText, extensionOf, extractsText } from "./extract.js";
-import type { SkillContext } from "../types.js";
+import { addKeywords } from "./keywords.js";
+import type { Completion, SkillContext } from "../types.js";
 
 export const DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "csv", "md", "txt"] as const;
 export const MAX_DOCUMENT_BYTES = MAX_BLOB_BYTES;
@@ -62,7 +63,7 @@ export function unrecordedTextPath(path: string, siblings: string[]) {
  * Fetches one allowed document and writes it into `files/` under the turn's folder, never over an existing file.
  * The text of a PDF, DOCX, XLSX or large CSV then goes to a sibling `<name>.md` for `readFile` and `searchFiles`; `saveAttachment` calls this for a named message.
  */
-export async function fileDocument(tenantId: string, where: Where, doc: Document, { taken, givenBy }: { taken?: Set<string>; givenBy?: Giver } = {}): Promise<Filed | NotFiled> {
+export async function fileDocument(tenantId: string, where: Where, doc: Document, { taken, givenBy, complete }: { taken?: Set<string>; givenBy?: Giver; complete?: Completion } = {}): Promise<Filed | NotFiled> {
   const reason = documentReason(doc);
   if (reason) return { reason };
   const root = placeRoot(where);
@@ -74,9 +75,12 @@ export async function fileDocument(tenantId: string, where: Where, doc: Document
   await workspaceStore().writeBytes(tenantId, resolvePath(where, path), bytes);
   if (!extractsText(name, bytes.byteLength)) {
     if (givenBy) await recordProvenance(tenantId, where, path, givenBy);
+    // A Markdown Document can carry a head; a TXT or CSV is left exactly as given.
+    if (extensionOf(name) === "md") await addKeywords(tenantId, resolvePath(where, path), complete);
     return { path, bytes };
   }
   const text = await extractInto(tenantId, where, root, name, bytes, names);
+  if ("path" in text) await addKeywords(tenantId, resolvePath(where, text.path), complete);
   if (givenBy) {
     await recordProvenance(tenantId, where, path, { ...givenBy, ...("path" in text && { textPath: text.path }) });
     if ("path" in text) await recordProvenance(tenantId, where, text.path, givenBy);

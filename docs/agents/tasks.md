@@ -20,7 +20,7 @@ Files written before spec #120 (plain-text `assignedTo`, no notes section) still
 - `taskFile.ts`: the file format (`render`, `parseTask`), statuses, due dates, `taskLine`, `isOpen`, `isLate`, plus `loadTasks` and `readInFull`.
 - `assignee.ts`: the Assignee value (a member id plus a name, or a name only), resolving one from a mention, "me", or a name (`resolveAssignee`), and matching one (`isAssignee`).
 - `taskAccess.ts`: who may see or hold a task. This covers `canHold`/`mustHold`, finding a channel by name (`findProject`), and listing the channels a user can view (`viewableProjects`).
-- `taskScopes.ts`: the scopes `here`, `mine` and `delegated` (`scopeSources`, `inScope`, `groupTasks`, `readGroups`).
+- `taskScopes.ts`: the scopes `here`, `mine`, `delegated` and `anywhere` (`scopeSources`, `anywhereSources`, `inScope`, `groupTasks`, `readGroups`). `anywhere` answers "is it done?": every task of the Sources the asker may read kept material from (`readableSources` in `packages/skills/src/workspace/sources.ts`), every status by default; a Source that is not quotable here has its tasks counted as `notShownHere`, never listed. Change who may see what in `sources.ts`, not here.
 - `progressNotes.ts` and `checklist.ts`: the body's notes section and its checklist.
 
 The Discord side is the adapter methods `channelView`, `findChannels`, `sharedGuilds` and `forGuild` (interface in `packages/skills/src/types.ts`). Each works across every guild the bot serves, and a channel it cannot resolve counts as not viewable.
