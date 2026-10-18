@@ -1432,3 +1432,7 @@ Planning is done; implementation follows the sub-issues of [#213](https://github
   - #223 Matching handles Indonesian prefixes, a bilingual work vocabulary and stem collisions (after #222)
   - #224 Work items cited with a link once Plane's web URL is confirmed (no blockers; research first)
   - #225 Run the live recall eval with a real model and record it (ready-for-human; after #214, #221, #223)
+- [x] #222 Retrieval benchmark v2: 22 new hand-labelled questions (48 in all) and 17 new files (77) in four groups, each with deliberate distractors; the 26 of v1 must all stay in the top 3. The scenario prints and pins top-1, top-3 and MRR over the first 10 shown paths (raising the pinned top-1 to 27 fails the test). The questions run in steps of 24 with the per-person tool limit (30 a minute) cleared between steps, and the rolling summary the long turn triggers is scripted.
+  - Baseline: top-1 26/48, top-3 42/48, MRR@10 0.68 (v1 alone was top-3 26/26, top-1 20/26, MRR 0.87).
+  - Misses (rank, or "-" when outside the first 10): prefix `dirilis` (8), `ditunda` (-); pair `rapat-meeting` (-), `export-ekspor` (-); collision `realisasi-real` (6), `lokalisasi-lokal` (-); sentence none. Weak hits at rank 2–3: prefix `diimplementasikan`, `pembayaran`; pair `anggaran-budget`, `tugas-task`, `schedule-jadwal`; collision `optimasi-optimal`, `standardisasi-standar`.
+  - Full suite: 1038 pass, 1 fail (`packages/cli/test/setup.test.ts` doctor MongoDB timed out at 5 s under load; passes alone).

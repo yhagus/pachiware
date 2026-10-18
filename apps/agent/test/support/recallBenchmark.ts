@@ -20,7 +20,7 @@ export const BENCHMARK_CHANNELS = Object.entries(CHANNELS).map(([name, c]) => ({
 /** A Workspace file: its tenant-relative path and content. */
 export interface KeptFile { path: string; content: string }
 /** One question as a model would search it, with the files a person would accept as answering it, as `searchFiles` shows them. */
-export interface Question { id: string; asked: string; queries: string[]; expected: string[] }
+export interface Question { id: string; group?: "prefix" | "pair" | "collision" | "sentence"; asked: string; queries: string[]; expected: string[] }
 
 const files: KeptFile[] = [];
 const add = (channel: Channel, rel: string, content: string) => files.push({ path: `guilds/guild-1/channels/${CHANNELS[channel].id}/${rel}`, content });
@@ -362,11 +362,53 @@ decision("general", "2026-09-02", "remote-policy", "Kebijakan kerja: WFH setiap 
 note("general", "2026-10-10", "team-dinner", "Makan malam tim tanggal 24 Oktober di Senopati; Maya yang pesan tempat.");
 note("general", "2026-09-20", "onboarding", "Onboarding checklist for new hires: laptop, Discord and GitHub access, a buddy for the first two weeks, and a walk through the Podkit app.");
 
+// v2 (#222): files for the harder questions. Each answers in one word form or language while the question uses another, and each
+// has a distractor that shares the question's other words, or a base word the question's derived word grows from.
+
+// Indonesian prefixed forms: the file has the base word, the question the prefixed one (or the other way round).
+note("audio", "2026-10-12", "export-templates", "Implementasi template ekspor selesai: pengguna bisa simpan preset format dan bitrate sendiri.");
+decision("audio", "2026-10-10", "release-2-4", "2.4 rilis tanggal 14 Oktober sesuai rencana. Ekspor batch tidak ikut, nanti di 2.5.");
+note("marketing", "2026-10-11", "payments", "Pelanggan bisa bayar lewat QRIS, transfer bank, atau kartu kredit mulai November.");
+dailyLog("marketing", "2026-10-09", "Maya, Andi, Sari", [
+  { name: "Cara menjawab keluhan pelanggan", id: ["cara", "keluhan", "pelanggan"], en: ["customer complaints"] },
+  { name: "Template email pelanggan", id: ["template", "email", "pelanggan"], en: ["customer email template"] },
+], { next: ["**Sari**: tulis cara menjawab keluhan pelanggan soal harga"] });
+note("ops", "2026-10-13", "disk-alert-fix", "Eko perbaiki alert disk yang salah bunyi tiap malam; ambangnya sekarang 85%.");
+note("audio", "2026-10-14", "batch-export-delay", "Ekspor batch tunda ke versi 2.5 karena antrean di server belum siap. Yang lain tetap jalan.");
+
+// Indonesian–English pairs that share no stem: the question in one language, the file in the other.
+note("general", "2026-10-12", "q4-budget", "Q4 budget: Rp120 juta for hiring, Rp30 juta for laptops, Rp10 juta for the office move.");
+documentText("ops", "uptime-report-september", [
+  "# Uptime report, September 2026",
+  "Uptime 99.7% for the month. One outage on 13 September: 40 minutes, disk full on the API server.",
+  "Mean time to recovery 40 minutes. No data lost.",
+].join("\n"));
+decision("general", "2026-10-01", "weekly-meeting", "The weekly team meeting moves from Monday to Wednesday 13:00, starting in October.");
+note("ops", "2026-10-11", "task-board", "Fajar moved every ops task to the Plane board; each task has an owner and a due date.");
+
+// Stem collisions: the question has a derived word, a distractor its base word in a heading and keywords.
+dailyLog("ops", "2026-10-13", "Eko, Fajar", [
+  { name: "Ukuran instans optimal", id: ["optimal", "instans"], en: ["right-sizing", "instances"] },
+  { name: "Akses database staging", id: ["database", "akses"], en: ["staging database access"] },
+], { decided: ["Instans staging diturunkan ke ukuran optimal"], next: ["**Fajar**: buka akses database staging untuk QA"] });
+note("ops", "2026-10-14", "db-optimization", "Optimasi database: index baru di tabel episodes memangkas waktu respons dari 800 ms ke 120 ms.");
+dailyLog("audio", "2026-10-13", "Rina, Sari", [
+  { name: "Kualitas standar rekaman", id: ["standar", "kualitas"], en: ["recording quality standard"] },
+  { name: "Format file dari tamu", id: ["format", "file", "tamu"], en: ["guest file formats"] },
+], { decided: ["Rekaman tamu minimal standar 44,1 kHz"] });
+note("audio", "2026-10-14", "file-naming", "File name standardization for exports: date-title-episode.wav, agreed by Rina and Sari.");
+dailyLog("marketing", "2026-10-12", "Maya, Andi", [
+  { name: "Testimoni real dari pengguna", id: ["real", "testimoni"], en: ["real testimonials"] },
+  { name: "Iklan audio baru", id: ["iklan", "audio"], en: ["new audio ads"] },
+], { next: ["**Andi**: edit iklan audio versi 15 detik"] });
+note("marketing", "2026-10-13", "ad-spend", "Realized ad spend for September: Rp38 juta of the Rp45 juta budget.");
+note("audio", "2026-10-15", "localization", "App localization into English and Malay is on Sari for version 2.5.");
+
 export const BENCHMARK_FILES: readonly KeptFile[] = files;
 
 const AUDIO_NORMALIZATION = [shown("audio", "minutes/2026-08-19-loudness.md"), shown("audio", "decisions/2026-08-20-loudness-target.md"), shown("audio", "minutes/2026-09-02-weekly.md")];
 
-export const BENCHMARK_QUESTIONS: readonly Question[] = [
+const V1_QUESTIONS: Question[] = [
   { id: "normalisasi-id-only", asked: "normalisasi audio sudah pernah dibahas?", queries: ["normalisasi audio"], expected: AUDIO_NORMALIZATION },
   { id: "normalisasi-sentence", asked: "apakah fitur normalisasi audio sudah pernah dibahas dan diimplementasi?", queries: ["apakah fitur normalisasi audio sudah pernah dibahas dan diimplementasi?"], expected: AUDIO_NORMALIZATION },
   { id: "normalisasi-variants", asked: "normalisasi audio sudah dibahas?", queries: ["normalisasi audio", "audio normalization", "loudness"], expected: AUDIO_NORMALIZATION },
@@ -394,6 +436,44 @@ export const BENCHMARK_QUESTIONS: readonly Question[] = [
   { id: "crashes-plural", asked: "were the recording crashes fixed?", queries: ["recording crashes fixed"], expected: [shown("audio", "daily-logs/2026-10-01.md"), shown("audio", "minutes/2026-09-30-release.md"), shown("audio", "notes/2026-09-12-android-crash.md"), shown("audio", "minutes/2026-09-16-weekly.md"), shown("audio", "daily-logs/2026-09-17.md")] },
   { id: "newsletter-ideas", asked: "any newsletter ideas?", queries: ["newsletter ideas"], expected: [shown("marketing", "notes/2026-10-01-newsletter-ideas.md")] },
 ];
+
+/** The 26 questions of v1 (#208); all of them must stay in the top 3. */
+export const V1_QUESTION_COUNT = 26;
+
+const RELEASE_2_4 = [shown("audio", "minutes/2026-09-30-release.md"), shown("audio", "decisions/2026-10-10-release-2-4.md")];
+const ANDROID_CRASH = [shown("audio", "notes/2026-09-12-android-crash.md"), shown("audio", "minutes/2026-09-16-weekly.md"), shown("audio", "daily-logs/2026-09-17.md"), shown("audio", "daily-logs/2026-10-01.md"), shown("audio", "minutes/2026-09-30-release.md")];
+
+/** v2 (#222): harder questions in four groups; many miss today, which is what the next matching change is measured by. */
+const V2_QUESTIONS: Question[] = [
+  // Indonesian prefixed forms against base forms.
+  { group: "prefix", id: "diimplementasikan", asked: "template ekspor sudah diimplementasikan?", queries: ["template yang diimplementasikan"], expected: [shown("audio", "notes/2026-10-12-export-templates.md")] },
+  { group: "prefix", id: "dirilis", asked: "versi apa yang dirilis 14 Oktober?", queries: ["versi yang dirilis 14 Oktober"], expected: [shown("audio", "decisions/2026-10-10-release-2-4.md")] },
+  { group: "prefix", id: "pembayaran", asked: "gimana cara pembayaran pelanggan?", queries: ["cara pembayaran pelanggan"], expected: [shown("marketing", "notes/2026-10-11-payments.md")] },
+  { group: "prefix", id: "perbaikan", asked: "perbaikan alert disk sudah?", queries: ["perbaikan alert disk"], expected: [shown("ops", "notes/2026-10-13-disk-alert-fix.md")] },
+  { group: "prefix", id: "ditunda", asked: "fitur apa yang ditunda?", queries: ["fitur yang ditunda"], expected: [shown("audio", "notes/2026-10-14-batch-export-delay.md")] },
+  // Indonesian–English pairs that share no stem.
+  { group: "pair", id: "anggaran-budget", asked: "anggaran Q4 berapa?", queries: ["anggaran Q4"], expected: [shown("general", "notes/2026-10-12-q4-budget.md")] },
+  { group: "pair", id: "laporan-report", asked: "ada laporan uptime September?", queries: ["laporan uptime September"], expected: [shown("ops", "files/uptime-report-september.md")] },
+  { group: "pair", id: "rapat-meeting", asked: "rapat mingguan pindah ke hari apa?", queries: ["rapat mingguan pindah"], expected: [shown("general", "decisions/2026-10-01-weekly-meeting.md")] },
+  { group: "pair", id: "tugas-task", asked: "tugas ops Fajar ditaruh di mana?", queries: ["tugas ops Fajar"], expected: [shown("ops", "notes/2026-10-11-task-board.md")] },
+  { group: "pair", id: "schedule-jadwal", asked: "what is the blog publishing schedule?", queries: ["blog publishing schedule"], expected: [shown("marketing", "decisions/2026-09-24-blog-cadence.md")] },
+  { group: "pair", id: "export-ekspor", asked: "what is the export limit on the free plan?", queries: ["free plan export limit"], expected: [shown("marketing", "decisions/2026-08-14-pro-pricing.md")] },
+  // Stem collisions: a derived word in the question, its base word in a distractor.
+  { group: "collision", id: "normalisasi-volume", asked: "normalisasi volume podcast gimana?", queries: ["normalisasi volume podcast"], expected: [...AUDIO_NORMALIZATION, shown("audio", "decisions/2026-10-02-loudness-target.md")] },
+  { group: "collision", id: "optimasi-optimal", asked: "optimasi database sudah dilakukan?", queries: ["optimasi database"], expected: [shown("ops", "notes/2026-10-14-db-optimization.md")] },
+  { group: "collision", id: "standardisasi-standar", asked: "standardisasi nama file gimana?", queries: ["standardisasi nama file"], expected: [shown("audio", "notes/2026-10-14-file-naming.md")] },
+  { group: "collision", id: "realisasi-real", asked: "realisasi anggaran iklan berapa?", queries: ["realisasi anggaran iklan"], expected: [shown("marketing", "notes/2026-10-13-ad-spend.md")] },
+  { group: "collision", id: "lokalisasi-lokal", asked: "lokalisasi aplikasi sudah direncanakan?", queries: ["lokalisasi aplikasi"], expected: [shown("audio", "notes/2026-10-15-localization.md")] },
+  // Full-sentence questions mixing Indonesian and English.
+  { group: "sentence", id: "release-why", asked: "kapan release 2.4 dan kenapa diundur?", queries: ["kapan release 2.4 dan kenapa diundur?"], expected: RELEASE_2_4 },
+  { group: "sentence", id: "pro-rate-limit", asked: "berapa rate limit untuk Pro plan sekarang?", queries: ["berapa rate limit untuk Pro plan sekarang?"], expected: [shown("ops", "decisions/2026-10-08-rate-limit.md")] },
+  { group: "sentence", id: "restore-test", asked: "apakah backup database sudah di-test restore?", queries: ["apakah backup database sudah di-test restore?"], expected: [shown("ops", "minutes/2026-10-06-backup.md")] },
+  { group: "sentence", id: "annual-price", asked: "what did we decide soal harga paket tahunan?", queries: ["what did we decide soal harga paket tahunan?"], expected: [shown("marketing", "minutes/2026-09-09-pricing.md"), shown("marketing", "daily-logs/2026-09-08.md")] },
+  { group: "sentence", id: "android-crash-status", asked: "where do we stand dengan crash Android 14?", queries: ["where do we stand dengan crash Android 14?"], expected: ANDROID_CRASH },
+  { group: "sentence", id: "influencer-budget", asked: "budget untuk influencer Q3 berapa ya?", queries: ["budget untuk influencer Q3 berapa ya?"], expected: [shown("marketing", "minutes/2026-08-12-campaign.md")] },
+];
+
+export const BENCHMARK_QUESTIONS: readonly Question[] = [...V1_QUESTIONS, ...V2_QUESTIONS];
 
 /** The files a `searchFiles` result shows, in the order the model reads them; a cut result still gives the paths before the cut. */
 export function shownPaths(result: unknown): string[] {
