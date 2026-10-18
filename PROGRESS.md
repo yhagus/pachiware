@@ -1450,3 +1450,37 @@ Planning is done; implementation follows the sub-issues of [#213](https://github
   - Verified: typecheck 0, full suite 1048 pass, 0 fail.
 - [x] Code review fixes (spec #213): the token budget now moves the window offset (`historyWindow` in `loop/history.ts`, shared by `react.ts` and `rollSummary`), so rows it leaves out reach the rolling summary instead of vanishing; a 400 to a request with `toolChoice` is retried without tools by the router on the same Profile before falling back (the retry left `react.ts`); `readFile` refuses a `toLine` past the end; a call running nested calls (recall) is never extended past twice the tool ceiling from its start; `toolPolicy` in `react.ts` renamed `toolTimeout` (`.ms`) and restored after each `tool-timeout.test.ts` scenario; refused fallbacks throw `FallbackRefused` (exported from `@pachiware/db`) and the admin route checks the class instead of re-typed messages; profile repos' `chain` renamed `tenantFallbacks`, the redundant create guard dropped; `docs/agents/database-engines.md` names the `fallback_profile_id` `ADD COLUMN`. Tests: `history-token-budget.test.ts` (a budget-dropped row reaches the summary request; the older scenarios script the summary calls the budget now triggers), `profile-fallback.test.ts` (two-Profile chain, first answers 400 to tool_choice then without tools; fallback never called), `tool-timeout.test.ts` (three sequential hung nested calls cut at 2× the ceiling), `read-file-range.test.ts` (literal `nextLine` 147 and entry texts; `toLine` past the end refused); each new one failed first. Typecheck 0; full suite 1083 pass, 3 fail, all 5 s timeouts under load (`guardrails`, `availability-api`, `commit-msg-hook`) that pass alone.
 - [x] Spec #213 merged: `spec/213-harness` fast-forwarded into `main` and pushed; #214–#224 closed. Final run on the integration tip: typecheck 0, full suite 1086 pass, 0 fail. During the build, parallel implementers pushed load past 100 and many scenarios timed out at 5 s; each passed alone. #225 (live eval) stays open for a person with keys, and #213 stays open until it lands.
+- [x] Independent re-score after the merge (2026-10-18), read from code only because no live run exists yet: about 69/100 for a group admin and PM assistant. By area: capture 68, recall and answers 79, tasks, reminders and PM 62, group behaviour 78, loop 72, eval and observability 45. Findings to triage, none filed yet:
+  - `walkTasks` (`builtin/taskFile.ts`) counts every `.md` under a channel folder toward its 500 cap, and `daily-logs/`, `decisions/`, `files/`, `minutes/` and `notes/` sort before `tasks/`, so tasks drop out of lists, the turn context and the Digest once a channel holds about 500 kept files. `daily-logs/<day>.md` is flat, so after about 500 days `store.list` throws on that folder (`MAX_LIST_ENTRIES`) and every task walk of the channel fails.
+  - The minutes playbook's only trigger word is `minutes`; "@bot notulen" does not start it. A mention in a channel reads the last 3 hours only.
+  - `reply()` in `discord/client.ts` catches every turn failure without logging or auditing it; Daily log failures reach only `console.error`.
+  - With git and Plane on, every model call carries about 33k tokens of tool schemas (git 93 tools, about 13.5k; Plane 66, about 12.2k). Git hides no tools where no Git scope applies.
+  - `forgetDeleted` returns early when `runtime.guildIds` is empty, which elsewhere means every guild, so deletions never leave Daily logs for such a bot.
+  - Three failed posts end a repeating Reminder or Digest for good, retried on consecutive minutes, and nobody is told (`scheduler.ts` `failed`).
+  - Eval: all 28 recordings are scripted, the judge is uncalibrated (#49), 3 of 26 assistant briefs are Indonesian, and the bilingual vocabulary is gated only by the benchmark whose misses it fixed (no held-out questions).
+
+## Phase 42 — The Rapor and a sturdy floor (planning, spec #226)
+
+Planning is done; implementation follows the sub-issues of [#226](https://github.com/yhagus/pachiware/issues/226). Prompted by the 2026-10-18 re-score of about 69 (Phase 41): the score stays in the 60s and 70s because it is an opinion read from code, with no live run behind it; because the work went to recall while eval, Tasks and capture held the score down; and because of time bombs and silent failures.
+
+- [x] Decided with the user (2026-10-18):
+  - The Rapor, a fixed live exam, becomes the harness score. It runs against DeepSeek (BYOK, the tenants' daily model), judged by a model of another vendor, with three trials a brief.
+  - Daily logs stay off by default; admins are told where they are off.
+  - A Nudge, opt-in per channel by an admin, pings the Assignee the day before a due date and when a task is late. It is a new concept beside the Reminder, built in the next spec; its brief is in the exam now and expected to fail.
+  - Scope of this spec: the Rapor and the floor fixes. Tasks from Minutes action items, Nudges and weekly reports come next.
+- [x] Found while planning: a reply to posted Minutes always goes to `correctMinutes`, so "@bot jadikan task poin 2" from the requester is treated as a correction. Left for the next spec (Tasks from Minutes).
+- [x] Spec #226 cut into 14 tickets, all sub-issues of #226 with native blocking:
+  - #227 Tasks are read only from tasks/ folders (no blockers)
+  - #228 Daily logs are kept in monthly folders (no blockers)
+  - #229 A failed turn and a failed Daily log are audited and logged (no blockers)
+  - #230 The scheduler backs off and never ends a repeating Reminder or Digest for good (no blockers)
+  - #231 "@bot notulen" starts the minutes playbook (no blockers)
+  - #232 Git and Plane tools are offered only where a scope applies (no blockers)
+  - #233 Recall names channels without Daily logs when it finds nothing (no blockers)
+  - #234 Small correctness fixes: deleted messages, Reminder dates, Minutes dates, withTasks (no blockers)
+  - #235 The eval scores per area and as one weighted Rapor number (no blockers)
+  - #236 A brief can start from a channel's talk, and any member can speak a turn (no blockers)
+  - #237 A brief can have a Daily log written from its seeded talk before it asks (after #236)
+  - #238 Human grades are kept beside the rubric, and rejudging prints agreement (no blockers)
+  - #239 The Rapor exam: about 30 briefs across five areas, with holdouts (after #235, #236, #237)
+  - #240 Run the Rapor live before and after the floor fixes, and record both (ready-for-human; after #239; supersedes #225)
