@@ -161,3 +161,60 @@ discordScenario("a day with only bot messages writes no Daily log and asks the m
   expect(await s.workspace.list(FOLDER)).toEqual([]);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Reminder: standup"]);
 });
+
+/** `count` messages from people, one every `every` seconds from 01:00 on 2026-03-06 (+07:00), saying "message 1", "message 2"... */
+const busyDay = (s: Parameters<Parameters<typeof discordScenario>[1]>[0], count: number, every: number) =>
+  s.discord.history(Array.from({ length: count }, (_, i) => ({
+    content: `message ${i + 1}`, author: i % 2 ? s.discord.bob : s.discord.alice, at: Date.parse("2026-03-06T01:00:00+07:00") + i * every * 1000,
+  })));
+/** A part's reply: the topic "Release day" on its first message, and a decision resting on its last. */
+const partReply = (turn: { messages: { content: unknown }[] }) => {
+  const lines = String(turn.messages.at(-1)!.content).match(/^\[\d+\] .*$/gm)!;
+  const last = lines.length, said = lines.at(-1)!.replace(/^.*: /, "");
+  return JSON.stringify({
+    topics: [{ name: "Release day", keywords: { id: ["hari rilis"], en: ["release day"] }, refs: [1] }],
+    decided: [{ text: `Agreed at ${said}`, refs: [last] }], open: [], next: [],
+  });
+};
+
+discordScenario("a day of more than 500 messages is read in parts and joined into one Daily log with each topic once", async (s) => {
+  s.clock.set("2026-03-06T00:30:00+07:00");
+  await s.guildSettings({ dailyLogChannels: [{ channelId: "channel-1", backfill: false }] });
+  const said = busyDay(s, 1200, 30);
+  s.model.script(partReply, partReply, partReply);
+
+  s.clock.set("2026-03-07T00:30:00+07:00");
+  await s.scheduler.tick();
+
+  expect(s.model.calls).toHaveLength(3);
+  const user = (i: number) => s.model.calls[i]!.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+  expect(user(0)).toContain(": message 1\n");
+  expect(user(2)).toContain(": message 1200");
+  const log = (await s.workspace.read(`${FOLDER}/2026-03-06.md`))!;
+  expect(log).toContain("Topics: Release day\n");
+  expect(log).toContain("Keywords: hari rilis, release day\n");
+  expect(log).toContain("1200 messages from Alice, Bob");
+  expect(log.match(/\d+\. Release day/g)).toHaveLength(1);
+  expect(log).toContain(`1. Release day: hari rilis, release day [↗](${link("channel-1", said[0]!.id)}) [↗](${link("channel-1", said[500]!.id)}) [↗](${link("channel-1", said[1000]!.id)})`);
+  expect(log).toContain(`Agreed at message 1200 [↗](${link("channel-1", said[1199]!.id)})`);
+  expect(log).toContain(`Agreed at message 500 [↗](${link("channel-1", said[499]!.id)})`);
+  expect(log).not.toContain("left out");
+});
+
+discordScenario("a day of more than 5,000 messages stops at 5,000 and its Daily log states the time it stopped at", async (s) => {
+  s.clock.set("2026-03-06T00:30:00+07:00");
+  await s.guildSettings({ dailyLogChannels: [{ channelId: "channel-1", backfill: false }] });
+  const said = busyDay(s, 5003, 10);
+  s.model.script(...Array(10).fill(partReply));
+
+  s.clock.set("2026-03-07T00:30:00+07:00");
+  await s.scheduler.tick();
+
+  expect(s.model.calls).toHaveLength(10);
+  const log = (await s.workspace.read(`${FOLDER}/2026-03-06.md`))!;
+  expect(log).toContain("5000 messages from Bob, Alice");
+  // Message 4 was sent 30 seconds after 01:00 +07:00, which is 2026-03-05 18:00:30 UTC.
+  expect(log).toContain("*Only the last 5000 messages were read: everything before 2026-03-05 18:00 UTC was left out.*");
+  expect(log).toContain(`Agreed at message 5003 [↗](${link("channel-1", said[5002]!.id)})`);
+  expect(log).not.toContain(link("channel-1", said[2]!.id));
+});
