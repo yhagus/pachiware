@@ -26,6 +26,30 @@ export function pdf(lines: string[]) {
   return new Uint8Array(Buffer.concat(parts));
 }
 
+/**
+ * A scanned PDF: one page per entry, each only a gray RGB image with no text layer, as a scanner makes it; the shade varies by page so
+ * pages differ. Byte-stable per input.
+ */
+export function scannedPdf(pages: number, side = 200) {
+  const objects: (string | Uint8Array)[][] = [["<< /Type /Catalog /Pages 2 0 R >>"], [`<< /Type /Pages /Kids [${Array.from({ length: pages }, (_, i) => `${3 + i * 3} 0 R`).join(" ")}] /Count ${pages} >>`]];
+  for (let i = 0; i < pages; i++) {
+    const page = 3 + i * 3, contents = page + 1, image = page + 2;
+    const pixels = deflateSync(new Uint8Array(side * side * 3).fill(120 + i * 20)), draw = `q 500 0 0 500 50 150 cm /Im0 Do Q`;
+    objects.push([`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} 0 R /Resources << /XObject << /Im0 ${image} 0 R >> >> >>`]);
+    objects.push([`<< /Length ${draw.length} >>\nstream\n${draw}\nendstream`]);
+    objects.push([`<< /Type /XObject /Subtype /Image /Width ${side} /Height ${side} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${pixels.length} >>\nstream\n`, pixels, "\nendstream"]);
+  }
+  const parts: Uint8Array[] = [enc.encode("%PDF-1.4\n")];
+  let size = parts[0]!.length;
+  const push = (p: string | Uint8Array) => { const b = typeof p === "string" ? enc.encode(p) : p; parts.push(b); size += b.length; };
+  const offsets: number[] = [];
+  objects.forEach((o, i) => { offsets.push(size); push(`${i + 1} 0 obj\n`); o.forEach(push); push("\nendobj\n"); });
+  const xref = size;
+  push(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`);
+  push(`trailer\n<< /Root 1 0 R /Size ${objects.length + 1} >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Uint8Array(Buffer.concat(parts));
+}
+
 /** A DOCX with one paragraph per entry: the three parts Word needs, stored uncompressed. */
 export function docx(paragraphs: string[]) {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");

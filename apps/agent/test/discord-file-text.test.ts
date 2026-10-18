@@ -136,3 +136,25 @@ discordScenario("a large XLSX's text stops at 200 KB on a whole table row and sa
   expect(text).not.toContain("## Later");
   expect(Buffer.byteLength(text)).toBeLessThanOrEqual(200 * 1024);
 });
+
+// A scanned PDF has no text layer: a Profile that sees images reads its pages, and the text lands beside it (#246).
+discordScenario("a scanned PDF sent to a Profile that sees images is read page by page into the .md beside it, marked as read by the model", async (s) => {
+  const { useProfile } = await import("./support/images");
+  const { scannedPdf } = await import("./support/documents");
+  await useProfile(s, { provider: "openai", model: "gpt-vision", acceptsImages: true }, { scripted: true });
+  const scan = attachment(s, "invoice.pdf", scannedPdf(2), { contentType: "application/pdf" });
+  s.model.script("INVOICE 0042\nTotal: Rp 1.200.000", "Paid by transfer on 3 October", "Invoice 0042, Rp 1.200.000, paid.");
+  await s.discord.send(`${s.discord.mention} the invoice`, { attachments: [scan] });
+  // The two page reads come first; the turn is the third model call.
+  expect(turnOf(s, 2)).toBe("Alice (<@user-alice>): the invoice [file: invoice.pdf saved as channel/files/invoice.pdf; text in channel/files/invoice.md]");
+  const text = (await s.workspace.read(`${FILES}/invoice.md`))!;
+  expect(text).toContain("_Read from the scanned pages by the model: check names and numbers against the PDF._\n\n## Page 1\n\nINVOICE 0042\nTotal: Rp 1.200.000\n\n## Page 2\n\nPaid by transfer on 3 October\n");
+});
+
+discordScenario("a scanned PDF sent to a text-only Profile is kept with the note that its text could not be extracted", async (s) => {
+  const { scannedPdf } = await import("./support/documents");
+  const scan = attachment(s, "invoice.pdf", scannedPdf(1), { contentType: "application/pdf" });
+  s.model.script("Kept.");
+  await s.discord.send(`${s.discord.mention} the invoice`, { attachments: [scan] });
+  expect(turnOf(s)).toBe("Alice (<@user-alice>): the invoice [file: invoice.pdf saved as channel/files/invoice.pdf: its text could not be extracted]");
+});

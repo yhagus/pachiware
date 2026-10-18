@@ -8,11 +8,12 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
 import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
-import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachments.js";
+import { gatherTurnImages, fileTurnDocuments, fileTurnImages, withPlaceholders } from "./attachments.js";
+import { describeImage, pageReader } from "./vision.js";
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
@@ -572,7 +573,11 @@ export class DiscordBotManager {
       // The brief's author still gets a round: it asks them to describe the screenshot.
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);
       if (media.blind && !briefAuthor && !items.some((i) => i.text)) { await send(`${t.blind} ${t.describeImage}`); return; }
-      const filed = await fileTurnDocuments(runtime.tenantId, items, language, botCompletion(runtime.tenantId, botId, language));
+      // A Profile that sees images reads scanned PDFs, and the images people send are filed with a description written after the turn (#246).
+      const sees = !media.blind && await llmRouter.acceptsImages(runtime.tenantId, botId).catch(() => false);
+      const filed = await fileTurnDocuments(runtime.tenantId, items, language, botCompletion(runtime.tenantId, botId, language), sees ? pageReader(runtime.tenantId, botId) : undefined);
+      const images = sees && !opts.playbook ? await fileTurnImages(runtime.tenantId, items, media.shots) : null;
+      for (const [id, note] of images?.notes ?? []) filed.set(id, note);
       const lines = items.flatMap((i) => [replyLine(i.replyTo, botUserId), speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed), keepableId(i.text, i.msg.id), i.msg.author.id === botUserId ? undefined : i.msg.author.id)]);
       let turn = [...lines, media.context].filter(Boolean).join("\n");
       const brief = opts.binding && { place: bindingPlace(opts.binding), authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
@@ -598,6 +603,10 @@ export class DiscordBotManager {
           if (p) await target.send(confirmMessage(p, actor.id));
         }
         if (msg.guildId) await tellAssignees(pingPlace(target), assignmentsOf(output.toolCallsExecuted), actor.id, botUserId, configuredLanguage(guild, agent));
+      }
+      for (const f of output.imagesRejected ? [] : images?.filed ?? []) {
+        const seen = await describeImage(runtime.tenantId, botId, f.image);
+        if (seen) await describeImageInto(runtime.tenantId, f.where, f.path, seen, { complete: botCompletion(runtime.tenantId, botId, language) }).catch(() => null);
       }
       // Still inside this conversation's serialized job, so the next turn reads the rewritten summary.
       if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});

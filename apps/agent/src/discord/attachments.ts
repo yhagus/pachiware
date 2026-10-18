@@ -1,5 +1,5 @@
 import type { Message } from "discord.js";
-import { textIn, jumpLink, fileDocument, takenNames, type Completion, type Filed, type Language, type Strings } from "@pachiware/skills";
+import { textIn, jumpLink, fileDocument, fileImage, takenNames, type Completion, type Filed, type Language, type PageReader, type Strings } from "@pachiware/skills";
 import type { ImagePart } from "../llm/types.js";
 import { placeOfChannel, speakerName } from "./routing.js";
 
@@ -15,8 +15,8 @@ const SUPPORTED_NAME = /\.(png|jpe?g|webp|gif)$/i;
 
 
 type Attachment = { id: string; name: string; url: string; contentType?: string | null; size: number; width?: number | null; height?: number | null };
-/** An image of the turn and the message holding it; `sent` when its bytes went to the model. */
-export type TurnShot = { id: string; name: string; link: string; sent: boolean };
+/** An image of the turn and the message holding it; `sent` when its bytes went to the model, then `image` holds them; `own` when an answered message holds it, not the one it replies to. */
+export type TurnShot = { id: string; name: string; link: string; sent: boolean; own?: boolean; image?: ImagePart };
 export type TurnImages = { images: ImagePart[]; context: string; notes: string[]; blind: boolean; shots: TurnShot[] };
 
 const attachmentsOf = (m: Message | null | undefined): Attachment[] => (m?.attachments?.size ? [...m.attachments.values()] as Attachment[] : []);
@@ -31,14 +31,14 @@ export type FiledNotes = Map<string, string>;
 
 /** The message text plus a placeholder per attachment, which is what conversation history keeps. */
 export function withPlaceholders(text: string, msg: Message, filed?: FiledNotes) {
-  return [text, ...attachmentsOf(msg).map((a) => isImage(a) ? placeholder(a, "image") : filed?.get(a.id) ?? filePlaceholder(a, msg))].filter(Boolean).join(" ");
+  return [text, ...attachmentsOf(msg).map((a) => filed?.get(a.id) ?? (isImage(a) ? placeholder(a, "image") : filePlaceholder(a, msg)))].filter(Boolean).join(" ");
 }
 
 /**
  * Files the documents of the messages that address the bot into the turn's `files/` folder before the turn runs,
  * and says per attachment where it landed or why it did not. Attachments of other messages keep their placeholder.
  */
-export async function fileTurnDocuments(tenantId: string, items: { msg: Message; direct?: boolean }[], language?: Language, complete?: Completion): Promise<FiledNotes> {
+export async function fileTurnDocuments(tenantId: string, items: { msg: Message; direct?: boolean }[], language?: Language, complete?: Completion, readPages?: PageReader): Promise<FiledNotes> {
   const t = textIn(language), notes: FiledNotes = new Map();
   const taken = new Map<string, Set<string>>();
   for (const { msg, direct } of items) {
@@ -48,11 +48,32 @@ export async function fileTurnDocuments(tenantId: string, items: { msg: Message;
     for (const a of attachmentsOf(msg).filter((a) => !isImage(a))) {
       const names = taken.get(key) ?? (await takenNames(tenantId, where).catch(() => new Set<string>()));
       taken.set(key, names);
-      const outcome = await fileDocument(tenantId, where, a, { taken: names, givenBy: { name: speakerName(msg), id: msg.author.id }, complete }).catch(() => ({ reason: "download" as const }));
+      const outcome = await fileDocument(tenantId, where, a, { taken: names, givenBy: { name: speakerName(msg), id: msg.author.id }, complete, readPages }).catch(() => ({ reason: "download" as const }));
       notes.set(a.id, "path" in outcome ? `[file: ${a.name} saved as ${outcome.path}${textNote(outcome, t)}]` : filePlaceholder(a, msg, t.notFiled[outcome.reason]));
     }
   }
   return notes;
+}
+
+/**
+ * Files the images an answered message gave the bot (#246), as its Profile saw them, into the turn's `files/` folder; says per image where
+ * it landed, and returns the filed ones for the description written after the turn. Only images the model was sent are filed.
+ */
+export async function fileTurnImages(tenantId: string, items: { msg: Message; direct?: boolean }[], shots: TurnShot[]): Promise<{ notes: FiledNotes; filed: { where: Parameters<typeof fileImage>[1]; path: string; image: ImagePart }[] }> {
+  const notes: FiledNotes = new Map(), filed: { where: Parameters<typeof fileImage>[1]; path: string; image: ImagePart }[] = [];
+  for (const { msg, direct } of items) {
+    if (direct === false) continue;
+    const where = { guildId: msg.guildId ?? undefined, ...placeOfChannel(msg.channel), userId: msg.author.id };
+    for (const a of attachmentsOf(msg).filter(isImage)) {
+      const shot = shots.find((s) => s.id === a.id && s.own && s.image);
+      if (!shot) continue;
+      const kept = await fileImage(tenantId, where, { name: a.name, bytes: Buffer.from(shot.image!.data, "base64"), mediaType: shot.image!.mediaType }, { givenBy: { name: speakerName(msg), id: msg.author.id } }).catch(() => null);
+      if (!kept) continue;
+      notes.set(a.id, `${placeholder(a, "image").slice(0, -1)}; saved as ${kept.path}]`);
+      filed.push({ where, path: kept.path, image: shot.image! });
+    }
+  }
+  return { notes, filed };
 }
 
 /**
@@ -63,7 +84,7 @@ export async function gatherTurnImages(messages: Message[], acceptsImages: () =>
   const t = textIn(language);
   const holding = new Map<string, Message>();
   const of = (m: Message | null) => attachmentsOf(m).map((a) => (holding.set(a.id, holding.get(a.id) ?? m!), a));
-  const own = messages.flatMap(of);
+  const own = messages.flatMap(of), ownIds = new Set(own.map((a) => a.id));
   // A replied-to message already fetched for the turn is reused, so a reply costs no second Discord call.
   const referenceOf = (m: Message) => (fetched?.has(m) ? fetched.get(m)! : m.fetchReference().catch(() => null));
   const referenced = (await Promise.all(messages.filter((m) => m.reference?.messageId).map(referenceOf)))
@@ -77,7 +98,7 @@ export async function gatherTurnImages(messages: Message[], acceptsImages: () =>
   const skipped: string[] = [];
   for (const a of candidates) {
     const from = holding.get(a.id)!;
-    const shot = isImage(a) ? { id: a.id, name: a.name, link: jumpLink(from.guildId, from.channelId, from.id), sent: false } : null;
+    const shot: TurnShot | null = isImage(a) ? { id: a.id, name: a.name, link: jumpLink(from.guildId, from.channelId, from.id), sent: false, ...(ownIds.has(a.id) ? { own: true } : {}) } : null;
     if (shot) result.shots.push(shot);
     if (blind && isImage(a)) { result.blind = true; continue; }
     if (!isSupported(a)) { skipped.push(`${a.name} (${t.skip.format})`); continue; }
@@ -85,7 +106,7 @@ export async function gatherTurnImages(messages: Message[], acceptsImages: () =>
     if (a.size > MAX_DOWNLOAD) { skipped.push(`${a.name} (${t.skip.tooLarge})`); continue; }
     const fitted = await download(a.url).then((bytes) => bytes ? fit(bytes) : "download" as const);
     if (typeof fitted === "string") skipped.push(`${a.name} (${t.skip[fitted]})`);
-    else { result.images.push(fitted); if (shot) shot.sent = true; }
+    else { result.images.push(fitted); if (shot) { shot.sent = true; shot.image = fitted; } }
   }
   if (result.blind) result.notes.push(t.blind);
   if (skipped.length) result.notes.push(t.skipped(skipped));

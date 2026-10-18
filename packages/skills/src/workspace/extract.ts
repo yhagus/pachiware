@@ -1,4 +1,4 @@
-import { extractText, getDocumentProxy } from "unpdf";
+import { extractImages, extractText, getDocumentProxy } from "unpdf";
 import type { Cell, Row } from "exceljs";
 import { MAX_FILE_BYTES } from "./store.js";
 // mammoth and exceljs load on first use: together they add ~140 ms to every process start.
@@ -28,6 +28,41 @@ export async function documentText(name: string, bytes: Uint8Array): Promise<str
     const clean = text.replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
     return clean ? `${type.rows ? clipRows(clean) : clip(clean)}\n` : null;
   } catch { return null; } finally { clearTimeout(timer); }
+}
+
+/** The most pages of a scanned PDF read through a model that sees images, and the longest edge each page image is sent at. */
+export const MAX_SCANNED_PAGES = 10;
+const PAGE_EDGE = 2000;
+
+/**
+ * A PDF with no text layer as one PNG per page (#246): the largest image pdf.js finds on each of its first MAX_SCANNED_PAGES pages, reduced to
+ * PAGE_EDGE. A scan is one picture per page, so this is the page; a page without an image is skipped. Empty when the PDF cannot be read.
+ */
+export async function scannedPages(bytes: Uint8Array): Promise<Uint8Array[]> {
+  try {
+    const doc = await getDocumentProxy(new Uint8Array(bytes), { verbosity: 0 }), pages: Uint8Array[] = [];
+    for (let n = 1; n <= Math.min(doc.numPages, MAX_SCANNED_PAGES); n++) {
+      const images = await extractImages(doc, n).catch(() => []);
+      const largest = images.sort((a, b) => b.width * b.height - a.width * a.height)[0];
+      if (!largest || largest.width < 100 || largest.height < 100) continue;
+      const png = await new Bun.Image(bmpOf(largest.data, largest.width, largest.height, largest.channels)).resize(PAGE_EDGE, PAGE_EDGE, { fit: "inside", withoutEnlargement: true }).png().bytes().catch(() => null);
+      if (png) pages.push(png);
+    }
+    return pages;
+  } catch { return []; }
+}
+
+/** Raw pixels (gray, RGB or RGBA, top row first) as a 24-bit BMP, the one uncompressed format Bun.Image reads. */
+export function bmpOf(data: Uint8ClampedArray | Uint8Array, width: number, height: number, channels: number): Uint8Array {
+  const row = Math.ceil((width * 3) / 4) * 4, size = 54 + row * height, out = new Uint8Array(size), view = new DataView(out.buffer);
+  out.set([0x42, 0x4d]); view.setUint32(2, size, true); view.setUint32(10, 54, true);
+  view.setUint32(14, 40, true); view.setInt32(18, width, true); view.setInt32(22, -height, true); view.setUint16(26, 1, true); view.setUint16(28, 24, true); view.setUint32(34, row * height, true);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const i = (y * width + x) * channels, o = 54 + y * row + x * 3;
+    const [r, g, b] = channels >= 3 ? [data[i]!, data[i + 1]!, data[i + 2]!] : [data[i]!, data[i]!, data[i]!];
+    out[o] = b; out[o + 1] = g; out[o + 2] = r;
+  }
+  return out;
 }
 
 async function fromPdf(bytes: Uint8Array) {

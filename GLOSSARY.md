@@ -157,7 +157,7 @@ Text a person asked the bot to keep that is neither a task, a decision, nor minu
 _Avoid_: Memo, doc, memory
 
 **Document**:
-A file or a long text a person gave the bot in a conversation, or a file an admin chose to mirror from a repository, kept as it was in the Workspace folder of that place so the bot can read it when it needs to. A mirrored file follows its repository: it changes and goes when the file does upstream. Nobody asked to keep a given one; asking turns its content into a note.
+A file or a long text a person gave the bot in a conversation, or a file an admin chose to mirror from a repository, kept as it was in the Workspace folder of that place so the bot can read it when it needs to. A mirrored file follows its repository: it changes and goes when the file does upstream. Where the Profile sees images, an image given to the bot is kept too, with what the model saw in it written beside it, and a scanned PDF's pages are read the same way. Nobody asked to keep a given one; asking turns its content into a note.
 _Avoid_: Attachment (Discord's word for any file on a message), upload, Note
 
 **Team roster**:

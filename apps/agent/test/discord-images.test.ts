@@ -19,7 +19,8 @@ discordScenario("an image-capable OpenAI profile gets the screenshot as a data U
   const [first] = s.http.requests.filter((r) => r.url.endsWith("/chat/completions"));
   const user = first!.body.messages.find((m: any) => Array.isArray(m.content));
   expect(user.role).toBe("user");
-  expect(user.content[0]).toEqual({ type: "text", text: "Alice (<@user-alice>): what is wrong here? [image: screenshot.png, 1170×2532]" });
+  // The image is filed as the model saw it, and the turn says where (#246).
+  expect(user.content[0]).toEqual({ type: "text", text: "Alice (<@user-alice>): what is wrong here? [image: screenshot.png, 1170×2532; saved as channel/files/screenshot.png]" });
   expect(user.content[1].type).toBe("image_url");
   expect(user.content[1].image_url.url).toStartWith("data:image/png;base64,");
   const { width, height } = await new Bun.Image(Buffer.from(user.content[1].image_url.url.split(",")[1], "base64")).metadata();
@@ -29,7 +30,7 @@ discordScenario("an image-capable OpenAI profile gets the screenshot as a data U
   await s.discord.send("and how do I fix it?", { channel: ask.thread });
   const second = s.http.requests.filter((r) => r.url.endsWith("/chat/completions")).at(-1)!;
   expect(JSON.stringify(second.body)).not.toContain("base64");
-  expect(second.body.messages.map((m: any) => m.content)).toContain("Alice (<@user-alice>): what is wrong here? [image: screenshot.png, 1170×2532]");
+  expect(second.body.messages.map((m: any) => m.content)).toContain("Alice (<@user-alice>): what is wrong here? [image: screenshot.png, 1170×2532; saved as channel/files/screenshot.png]");
 });
 
 discordScenario("an image-capable Anthropic profile gets an image block, with a GIF reduced to its first frame", async (s) => {
@@ -41,7 +42,7 @@ discordScenario("an image-capable Anthropic profile gets an image block, with a 
   const [block, text] = request.body.messages.at(-1).content;
   expect(block.type).toBe("image");
   expect(block.source).toMatchObject({ type: "base64", media_type: "image/png" });
-  expect(text).toEqual({ type: "text", text: "Alice (<@user-alice>): what is this? [image: wave.gif, 1×1]" });
+  expect(text).toEqual({ type: "text", text: "Alice (<@user-alice>): what is this? [image: wave.gif, 1×1; saved as channel/files/wave.png]" });
   expect(s.discord.botMessages.at(-1)?.content).toBe("A white pixel.");
 });
 
@@ -63,13 +64,18 @@ discordScenario("images over the limit and unreadable images are skipped and nam
   const huge = attachment(s, "huge.png", null, { size: 30 * 1024 * 1024, width: 9000, height: 9000 });
   const notes = attachment(s, "notes.pdf", pdf(["Notes"]), { contentType: "application/pdf" });
   const shots = await Promise.all(["a.png", "b.png", "c.png", "d.png", "e.png"].map((n) => image(s, n, 10, 10)));
-  s.model.script("Four screenshots of the same dialog.");
+  // After the turn, each image sent to the model is described for search, one call each (#246).
+  s.model.script("Four screenshots of the same dialog.", "Dialog A. Dialog error A.", "Dialog B.", "Dialog C.", "Dialog D.");
   await s.discord.send(`${s.discord.mention} compare these`, { attachments: [broken, huge, notes, ...shots] });
   const turn = s.model.calls[0]!.find((m) => Array.isArray(m.content)) as any;
   expect(turn.content.filter((p: any) => p.type === "image")).toHaveLength(4);
   expect(turn.content[0].text).toContain("[file: notes.pdf saved as channel/files/notes.pdf; text in channel/files/notes.md]");
   expect(s.http.requests.some((r) => r.url.includes("huge.png"))).toBe(false);
   expect(s.discord.botMessages.at(-1)?.content).toBe("Four screenshots of the same dialog.\nSkipped broken.png (could not be read as an image), huge.png (too large to download), e.png (over the 4-image limit).");
+  const files = await s.workspace.files("guilds/guild-1/channels/channel-1/files");
+  for (const name of ["a.png", "b.png", "c.png", "d.png", "a.md", "d.md"]) expect(files).toContain(`guilds/guild-1/channels/channel-1/files/${name}`);
+  expect(files).not.toContain("guilds/guild-1/channels/channel-1/files/e.png");
+  expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/a.md")).toContain("_What the model saw in the image channel/files/a.png._\n\nDialog A. Dialog error A.");
 });
 
 discordScenario("a text-only profile answers the text, sends no image, and says it cannot see images", async (s) => {

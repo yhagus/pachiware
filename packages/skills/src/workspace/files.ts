@@ -1,6 +1,6 @@
 import { MAX_BLOB_BYTES, workspaceStore } from "./store.js";
 import { placeRoot, resolvePath, visibleRoots } from "./paths.js";
-import { documentText, extensionOf, extractsText } from "./extract.js";
+import { documentText, extensionOf, extractsText, scannedPages } from "./extract.js";
 import { addKeywords } from "./keywords.js";
 import type { Completion, SkillContext } from "../types.js";
 
@@ -15,6 +15,8 @@ export type NotFiledReason = "type" | "tooLarge" | "download" | "place";
 export type Extracted = { path: string } | { failed: true };
 /** `path` is the agent-facing path (`channel/files/report.pdf`), which `readFile` and `searchFiles` accept; `text` is set for a PDF, DOCX, XLSX, or a CSV too large for `readFile`. */
 export type Filed = { path: string; bytes: Uint8Array; text?: Extracted };
+/** Reads the text of page images through a model that sees images (#246); null when it cannot. Given only where the bot's Profile accepts images. */
+export type PageReader = (pages: Uint8Array[]) => Promise<string | null>;
 export type NotFiled = { reason: NotFiledReason };
 /** The person who gave a Document to the bot; a Note kept from it names them as its author. */
 export type Giver = { name: string; id: string };
@@ -63,7 +65,7 @@ export function unrecordedTextPath(path: string, siblings: string[]) {
  * Fetches one allowed document and writes it into `files/` under the turn's folder, never over an existing file.
  * The text of a PDF, DOCX, XLSX or large CSV then goes to a sibling `<name>.md` for `readFile` and `searchFiles`; `saveAttachment` calls this for a named message.
  */
-export async function fileDocument(tenantId: string, where: Where, doc: Document, { taken, givenBy, complete }: { taken?: Set<string>; givenBy?: Giver; complete?: Completion } = {}): Promise<Filed | NotFiled> {
+export async function fileDocument(tenantId: string, where: Where, doc: Document, { taken, givenBy, complete, readPages }: { taken?: Set<string>; givenBy?: Giver; complete?: Completion; readPages?: PageReader } = {}): Promise<Filed | NotFiled> {
   const reason = documentReason(doc);
   if (reason) return { reason };
   const root = placeRoot(where);
@@ -79,7 +81,7 @@ export async function fileDocument(tenantId: string, where: Where, doc: Document
     if (extensionOf(name) === "md") await addKeywords(tenantId, resolvePath(where, path), complete);
     return { path, bytes };
   }
-  const text = await extractInto(tenantId, where, root, name, bytes, names);
+  const text = await extractInto(tenantId, where, root, name, bytes, names, readPages);
   if ("path" in text) await addKeywords(tenantId, resolvePath(where, text.path), complete);
   if (givenBy) {
     await recordProvenance(tenantId, where, path, { ...givenBy, ...("path" in text && { textPath: text.path }) });
@@ -112,12 +114,52 @@ export async function provenanceOf(tenantId: string, where: Where, path: string)
   } catch { return null; }
 }
 
-async function extractInto(tenantId: string, where: Where, root: string, name: string, bytes: Uint8Array, names: Set<string>): Promise<Extracted> {
-  const text = await documentText(name, bytes);
+async function extractInto(tenantId: string, where: Where, root: string, name: string, bytes: Uint8Array, names: Set<string>, readPages?: PageReader): Promise<Extracted> {
+  // A scanned PDF has no text layer: its page images are read by a model that sees them, when there is one (#246).
+  const scanned = async () => {
+    const pages = extensionOf(name) === "pdf" && readPages ? await scannedPages(bytes) : [];
+    const read = pages.length ? await readPages!(pages).catch(() => null) : null;
+    return read?.trim() ? `${SCANNED_NOTE}\n\n${read.trim()}\n` : null;
+  };
+  const text = (await documentText(name, bytes)) ?? (await scanned());
   if (!text) return { failed: true };
   const path = `${root}/files/${freeName(textName(name), names)}`;
   try { await workspaceStore().write(tenantId, resolvePath(where, path), text); } catch { return { failed: true }; }
   return { path };
+}
+
+/** The head of a scanned PDF's text, which a model read from its page images. */
+export const SCANNED_NOTE = "_Read from the scanned pages by the model: check names and numbers against the PDF._";
+
+/** An image the bot was given (#246), as its Profile saw it: a name, the bytes, and their media type. */
+export type GivenImage = { name: string; bytes: Uint8Array; mediaType: string };
+const IMAGE_EXTENSION: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+
+/**
+ * Files an image someone sent the bot into `files/`, never over an existing file, so it can be found and named later (#246); the extension
+ * follows the bytes as kept, a GIF reduced to PNG included. Null when the place keeps no files.
+ */
+export async function fileImage(tenantId: string, where: Where, image: GivenImage, { taken, givenBy }: { taken?: Set<string>; givenBy?: Giver } = {}): Promise<{ path: string } | null> {
+  const root = placeRoot(where);
+  if (!root || image.bytes.byteLength > MAX_DOCUMENT_BYTES) return null;
+  const ext = IMAGE_EXTENSION[image.mediaType] ?? extensionOf(image.name);
+  const stem = safeName(image.name).replace(/\.[^.]+$/, "");
+  const names = taken ?? await takenNames(tenantId, where), path = `${root}/files/${freeName(`${stem}.${ext}`, names)}`;
+  await workspaceStore().writeBytes(tenantId, resolvePath(where, path), image.bytes);
+  if (givenBy) await recordProvenance(tenantId, where, path, givenBy);
+  return { path };
+}
+
+/** Writes what a model saw in a filed image beside it, as `<name>.md` with a keyword head, so search finds the image by what it shows. */
+export async function describeImageInto(tenantId: string, where: Where, path: string, description: string, { taken, complete }: { taken?: Set<string>; complete?: Completion } = {}): Promise<{ path: string } | null> {
+  const root = path.split("/")[0]!, name = path.split("/").pop()!, names = taken ?? await takenNames(tenantId, where);
+  const text = `# ${name}\n\n_What the model saw in the image ${path}._\n\n${description.trim()}\n`;
+  const at = `${root}/files/${freeName(textName(name), names)}`;
+  try { await workspaceStore().write(tenantId, resolvePath(where, at), text); } catch { return null; }
+  await addKeywords(tenantId, resolvePath(where, at), complete);
+  const given = await provenanceOf(tenantId, where, path);
+  if (given) { await recordProvenance(tenantId, where, path, { ...given, textPath: at }); await recordProvenance(tenantId, where, at, { name: given.name, id: given.id }); }
+  return { path: at };
 }
 
 /** The names already in the turn's `files/` folder, so several documents of one turn number themselves consistently. */
