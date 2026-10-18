@@ -59,12 +59,14 @@ export async function fileTurnDocuments(tenantId: string, items: { msg: Message;
  * Images for the turn: attachments of the answered messages and of the message each one replies to, checked by
  * metadata, downloaded, and reduced to provider limits. Whatever is not sent is named in `notes`.
  */
-export async function gatherTurnImages(messages: Message[], acceptsImages: () => Promise<boolean>, language?: Language): Promise<TurnImages> {
+export async function gatherTurnImages(messages: Message[], acceptsImages: () => Promise<boolean>, language?: Language, fetched?: Map<Message, Message | null>): Promise<TurnImages> {
   const t = textIn(language);
   const holding = new Map<string, Message>();
   const of = (m: Message | null) => attachmentsOf(m).map((a) => (holding.set(a.id, holding.get(a.id) ?? m!), a));
   const own = messages.flatMap(of);
-  const referenced = (await Promise.all(messages.filter((m) => m.reference?.messageId).map((m) => m.fetchReference().catch(() => null))))
+  // A replied-to message already fetched for the turn is reused, so a reply costs no second Discord call.
+  const referenceOf = (m: Message) => (fetched?.has(m) ? fetched.get(m)! : m.fetchReference().catch(() => null));
+  const referenced = (await Promise.all(messages.filter((m) => m.reference?.messageId).map(referenceOf)))
     .flatMap(of).filter(isImage);
   const seen = new Set<string>();
   const candidates = [...own, ...referenced].filter((a) => isImage(a) && !seen.has(a.id) && !!seen.add(a.id));

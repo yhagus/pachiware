@@ -36,7 +36,11 @@ export interface LLMRequestOptions {
   temperature?: number;
   maxTokens?: number;
   cacheKey?: string;
+  /** The index of the last stored-history message: on Anthropic its last block carries a cache breakpoint, so the history is cached with the prefix. */
+  historyEnd?: number;
   tools?: ToolDefinition[];
+  /** "none" offers the tools but forbids calling them, so the request keeps the cached prefix of one that may. */
+  toolChoice?: "none";
   provider?: "openai" | "anthropic" | "custom";
   /** The configured language of the place, for a fallback answer when the provider fails; the tenant's when absent. */
   language?: Language;

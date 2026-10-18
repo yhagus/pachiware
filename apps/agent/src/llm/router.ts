@@ -25,6 +25,15 @@ const anthropicModelOf = (config: any): string => config?.anthropicModel || (con
 export const DEFAULT_TEMPERATURE = 0.2;
 const CACHED = { cache_control: { type: "ephemeral" } };
 const markLast = (blocks: any[]) => blocks.map((b, i) => (i === blocks.length - 1 ? { ...b, ...CACHED } : b));
+// A message's later blocks (the current turn merged into it) come after the mark, so it still ends the cached history.
+const markLastBlock = (message: any) => {
+  if (!message) return;
+  if (typeof message.content === "string") message.content = message.content ? [{ type: "text", text: message.content }] : [];
+  const last = message.content.at(-1);
+  if (last && (last.type !== "text" || last.text)) message.content[message.content.length - 1] = { ...last, ...CACHED };
+};
+// A response cut at the output limit is "length" whatever else it holds: its text is unfinished and any tool call in it may be.
+const finishOf = (cut: boolean, toolCalls: ToolCall[]): LLMResponse["finishReason"] => (cut ? "length" : toolCalls.length > 0 ? "tool_calls" : "stop");
 
 export class LLMRouter {
   private async getActiveTenantConfig(tenantId: string) {
@@ -168,6 +177,7 @@ export class LLMRouter {
 
     if (options.tools && options.tools.length > 0) {
       body.tools = skillRegistry.toOpenAITools(options.tools);
+      if (options.toolChoice) body.tool_choice = options.toolChoice;
     }
 
     try {
@@ -205,7 +215,7 @@ export class LLMRouter {
       return {
         content: choice.message?.content || null,
         toolCalls,
-        finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        finishReason: finishOf(choice.finish_reason === "length", toolCalls),
         usage: data.usage
           ? {
               promptTokens: data.usage.prompt_tokens,
@@ -249,7 +259,7 @@ export class LLMRouter {
       last.content = [...merged.filter((b) => b.type === "tool_result"), ...merged.filter((b) => b.type !== "tool_result")];
     };
 
-    for (const m of messages) {
+    for (const [i, m] of messages.entries()) {
       if (m.role === "system") {
         const text = textOf(m.content).trim();
         if (text) systemBlocks.push({ type: "text", text });
@@ -276,9 +286,10 @@ export class LLMRouter {
       } else {
         anthropicMessages.push({ role: "user", content: m.content || "" });
       }
+      if (i === options.historyEnd) markLastBlock(anthropicMessages.at(-1));
     }
 
-    // No temperature: current Claude models reject a non-default one. The cache marks cover the stable prefix (tools, then system).
+    // No temperature: current Claude models reject a non-default one. The cache marks cover the stable prefix (tools, system, then stored history).
     const body: any = {
       model,
       system: systemBlocks.length ? markLast(systemBlocks) : undefined,
@@ -289,6 +300,7 @@ export class LLMRouter {
 
     if (options.tools && options.tools.length > 0) {
       body.tools = markLast(skillRegistry.toAnthropicTools(options.tools));
+      if (options.toolChoice) body.tool_choice = { type: options.toolChoice };
     }
 
     try {
@@ -319,7 +331,7 @@ export class LLMRouter {
       return {
         content: textContent || null,
         toolCalls,
-        finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        finishReason: finishOf(data.stop_reason === "max_tokens", toolCalls),
         usage: data.usage
           ? {
               promptTokens: data.usage.input_tokens,
@@ -393,6 +405,7 @@ export class LLMRouter {
 
     if (options.tools && options.tools.length > 0) {
       body.tools = skillRegistry.toOpenAITools(options.tools);
+      if (options.toolChoice) body.tool_choice = options.toolChoice;
     }
 
     try {
@@ -430,7 +443,7 @@ export class LLMRouter {
       return {
         content: choice.message?.content || null,
         toolCalls,
-        finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        finishReason: finishOf(choice.finish_reason === "length", toolCalls),
         usage: data.usage
           ? {
               promptTokens: data.usage.prompt_tokens,
@@ -467,7 +480,10 @@ export class LLMRouter {
     }
     const body: any = { model, input, temperature: options.temperature ?? DEFAULT_TEMPERATURE, max_output_tokens: options.maxTokens ?? 4096, store: false, stream: false };
     // Responses function tools are flat, and strict by default; the skill schemas are not written for strict mode.
-    if (options.tools && options.tools.length > 0) body.tools = skillRegistry.toOpenAITools(options.tools).map((t: any) => ({ type: "function", ...t.function, strict: false }));
+    if (options.tools && options.tools.length > 0) {
+      body.tools = skillRegistry.toOpenAITools(options.tools).map((t: any) => ({ type: "function", ...t.function, strict: false }));
+      if (options.toolChoice) body.tool_choice = options.toolChoice;
+    }
 
     try {
       const response = await providerRequest(`${baseUrl}/responses`, {
@@ -491,7 +507,7 @@ export class LLMRouter {
       return {
         content: text || null,
         toolCalls,
-        finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        finishReason: finishOf(data.status === "incomplete" && data.incomplete_details?.reason === "max_output_tokens", toolCalls),
         usage: data.usage
           ? { promptTokens: data.usage.input_tokens, completionTokens: data.usage.output_tokens, totalTokens: data.usage.total_tokens ?? data.usage.input_tokens + data.usage.output_tokens, cachedTokens: cachedTokensOf(data.usage) }
           : undefined,

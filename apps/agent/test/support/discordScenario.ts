@@ -38,8 +38,10 @@ export type ModelTurn = { messages: ChatMessage[]; toolResults: any[] };
 export type ToolCallStep = { tool: string; args?: Record<string, unknown> };
 /** The provider failed: the router's fallback answer, as a real outage would produce. */
 export type ErrorStep = { error: string };
+/** The answer hit the output limit: its text, or its tool calls, cut off where the model stopped. */
+export type CutStep = { cut: string | ToolCallStep | ToolCallStep[] };
 /** A function step may be async, to change state while the model call is in flight. */
-export type ModelStep = string | ToolCallStep | ToolCallStep[] | ErrorStep | ((turn: ModelTurn) => ModelStep | Promise<ModelStep>);
+export type ModelStep = string | ToolCallStep | ToolCallStep[] | ErrorStep | CutStep | ((turn: ModelTurn) => ModelStep | Promise<ModelStep>);
 export type HttpRequest = { method: string; url: string; body: any };
 
 export type Payload = { content?: string; embeds?: any[]; components?: any[]; files?: any[] };
@@ -119,8 +121,11 @@ export interface Scenario {
     /** Gives a user guild permissions (discord.js names such as "ManageGuild", "ManageMessages", "Administrator"); every user starts with none. */
     grant(user: FakeUser | string, permissions: string[]): void;
     send(content: string, options?: { author?: FakeUser; channel?: FakeChannel | string; replyTo?: FakeMessage; attachments?: any[] }): Promise<FakeMessage>;
-    /** Sends several messages back to back, as a person pasting one long text in parts does; in a shared channel the bot joins them into one turn after the pause. */
-    burst(contents: string[], options?: { author?: FakeUser; channel?: FakeChannel | string }): Promise<FakeMessage[]>;
+    /**
+     * Sends several messages back to back, as a person pasting one long text in parts does; in a shared channel the bot joins them into one turn after the pause.
+     * An entry with its own `author` posts as that person, as when two people write at once; each person's messages form their own turn.
+     */
+    burst(contents: (string | { content: string; author: FakeUser })[], options?: { author?: FakeUser; channel?: FakeChannel | string }): Promise<FakeMessage[]>;
     /** Lifts the ten-messages-a-minute limit for a user, so a scenario can hold a long conversation. */
     unlimited(user: FakeUser): void;
     /** Clicks the button whose label or custom id matches. */
@@ -380,6 +385,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     if (typeof step === "function") return toResponse(await step(turn), turn);
     if (typeof step === "string") return { content: step, toolCalls: [], finishReason: "stop" };
     if ("error" in step) return { content: step.error, toolCalls: [], finishReason: "error" };
+    if ("cut" in step) return { ...(await toResponse(step.cut, turn)), finishReason: "length" };
     const list = Array.isArray(step) ? step : [step];
     return { content: null, finishReason: "tool_calls", toolCalls: list.map((c) => ({ id: `call-${++callId}`, name: c.tool, arguments: c.args ?? {} })) };
   };
@@ -534,12 +540,13 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         granted.set(id, [...new Set([...(granted.get(id) ?? []), ...permissions])]);
       },
       burst: async (contents, { author = alice, channel } = {}) => {
-        if (unlimited.has(author.id)) await CacheService.del(tenantKey(tenant.id, `ratelimit:discord:user:${author.id}`));
+        const entries = contents.map((c) => (typeof c === "string" ? { content: c, author } : c));
+        for (const id of new Set(entries.map((e) => e.author.id))) if (unlimited.has(id)) await CacheService.del(tenantKey(tenant.id, `ratelimit:discord:user:${id}`));
         // The scenario's burst window is 0 so single sends answer at once; a real pause is needed here for the messages to meet in one turn.
         const manager0 = manager as any, window = manager0.burstMs;
         manager0.burstMs = 200;
         try {
-          const messages = contents.map((content) => post(channelOf(channel), { ...author, bot: false }, content));
+          const messages = entries.map((e) => post(channelOf(channel), { ...e.author, bot: false }, e.content));
           for (const message of messages) for (const running of FakeClient.running.values()) running.emit(Events.MessageCreate, as(running.botUser, message));
           await settle();
           return messages;
