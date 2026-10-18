@@ -4,11 +4,12 @@ import { workspaceStore, WorkspaceConflict, type WorkspaceStore } from "../works
 import { labelFolder } from "./workspace.js";
 import { ambiguousAssignee, assigneeFilter, assigneeLabel, nameOnlyNote, resolveAssignee } from "./assignee.js";
 import { checklistOf, checklistLine, tickItem } from "./checklist.js";
-import { noteLine, progressNote } from "./progressNotes.js";
-import { PRIORITIES, STATUSES, dueAtArg, dueBound, dueMoment, isLate, isOpen, loadTasks, parseTask, readInFull, render, slug, taskLine, type Found, type Task, type TaskPriority, type TaskStatus } from "./taskFile.js";
+import { historyEntry, historyLine, noteLine, progressNote } from "./progressNotes.js";
+import { PRIORITIES, STATUSES, dueAtArg, dueBound, dueMoment, isLate, isOpen, loadTasks, parseTask, readInFull, render, slug, taskLine, type Found, type MadeFrom, type Task, type TaskPriority, type TaskStatus } from "./taskFile.js";
 import { findProject, linkHeld, mustHold, personalTasksOf, taskChannelOf } from "./taskAccess.js";
 import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, anywhereSources, groupTasks, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
 import { textIn } from "../language.js";
+import { tasksFromMinutes } from "./minutesTasks.js";
 import { fileWords, holdsQuery, matchWords, queriesTerms, scoreOf, wordingsOf } from "../workspace/terms.js";
 import { DEFAULT_TIMEZONE, now, today } from "../clock.js";
 
@@ -31,6 +32,8 @@ export const taskManagementSkill: SkillModule = {
     showTask: { effect: "read" },
     tickChecklistItem: { effect: "write", requiresConfirmation: false },
     moveTask: { effect: "write", requiresConfirmation: false },
+    tasksFromMinutes: { effect: "write", requiresConfirmation: false },
+    taskSummary: { effect: "read" },
   },
   tools: [
     {
@@ -170,6 +173,23 @@ export const taskManagementSkill: SkillModule = {
       },
     },
     {
+      name: "taskSummary",
+      description: "How a project stands, for a manager's \"how is the project going?\": per channel, how many tasks are pending, in progress, late, due in the next 7 days, and completed in the last 7 days, and who holds the open ones. Scope here is this channel's project; anywhere is every project channel the asker can view.",
+      parameters: { type: "object", properties: { scope: { type: "string", enum: ["here", "anywhere"], description: "Default here" } } },
+    },
+    {
+      name: "tasksFromMinutes",
+      description: "Makes Tasks from the action items of Minutes kept in this channel: all of them, or the item numbers the Minutes show (\"jadikan task poin 2-3\"). Each owner becomes the Assignee when the name fits one member, a due date in words becomes the day it names, and every task remembers the item it came from, so asking again never makes it twice. Use it instead of createTask for Minutes action items.",
+      parameters: {
+        type: "object",
+        properties: {
+          minutes: { type: "string", description: "The Minutes file as recall or listFiles name it, e.g. channel/minutes/2026-10-14-launch-sync.md" },
+          points: { type: "array", items: { type: "number" }, description: "Item numbers as the posted Minutes show them; leave out for every action item" },
+        },
+        required: ["minutes"],
+      },
+    },
+    {
       name: "moveTask",
       description: "Moves a task to another project channel, keeping its id and fields and adding a Progress note saying where it came from. From a DM it moves one of the person's Personal tasks into a project. A server's shared task moves only into a channel of that server; the workspace-wide shared tasks do not move. A task only ever moves into a project channel, never into a DM.",
       parameters: {
@@ -183,7 +203,7 @@ export const taskManagementSkill: SkillModule = {
     },
   ],
   handlers: {
-    createTask: async (args: { title: string; description?: string; priority?: TaskPriority; assignedTo?: string; channel?: string; dueAt?: string | null; discordChannelId?: string }, asker: SkillContext) => {
+    createTask: async (args: { title: string; description?: string; priority?: TaskPriority; assignedTo?: string; channel?: string; dueAt?: string | null; discordChannelId?: string; madeFrom?: MadeFrom }, asker: SkillContext) => {
       checkTitle(args.title);
       if (args.priority !== undefined && !PRIORITIES.includes(args.priority)) throw new Error("Invalid task priority");
       const dueAt = dueAtArg(args.dueAt, zoneOf(asker));
@@ -193,7 +213,9 @@ export const taskManagementSkill: SkillModule = {
       const home = taskHome(ctx);
       if (who && !who.nameOnly) await mustHold(ctx, `${home}/`, who.assignee);
       const at = today().toISOString(), id = crypto.randomUUID();
-      const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: who?.assignee ?? null, dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at };
+      // madeFrom is not in the schema: the Minutes conversion sets it (#253).
+      const madeFrom = args.madeFrom && typeof args.madeFrom === "object" && typeof args.madeFrom.label === "string" ? args.madeFrom : null;
+      const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: who?.assignee ?? null, dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at, ...(madeFrom ? { madeFrom } : {}) };
       await workspaceStore().write(ctx.tenantId, `${home}/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
       await labelTaskFolder(ctx);
       return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.${who?.nameOnly ? nameOnlyNote(who.assignee, ctx) : ""}`, task };
@@ -277,8 +299,12 @@ export const taskManagementSkill: SkillModule = {
     },
 
     showTask: async (args: { taskId: string }, ctx: SkillContext) => {
-      const { task } = await findTask(ctx, args.taskId), notes = task.notes ?? [];
-      return { task: taskLine(task, zoneOf(ctx)), description: task.description, checklist: checklistOf(task.description).map((item, i) => checklistLine(item, i + 1)), notes: notes.slice(-LATEST_NOTES).map(noteLine), olderNotes: Math.max(0, notes.length - LATEST_NOTES) };
+      const { task } = await findTask(ctx, args.taskId), notes = task.notes ?? [], history = task.history ?? [];
+      return {
+        task: taskLine(task, zoneOf(ctx)), description: task.description, checklist: checklistOf(task.description).map((item, i) => checklistLine(item, i + 1)), notes: notes.slice(-LATEST_NOTES).map(noteLine), olderNotes: Math.max(0, notes.length - LATEST_NOTES),
+        createdAt: task.createdAt, ...(task.createdByName ? { createdBy: task.createdByName } : {}), ...(task.completedAt ? { completedAt: task.completedAt } : {}),
+        ...(task.madeFrom ? { madeFrom: task.madeFrom } : {}), ...(history.length ? { history: history.slice(-LATEST_HISTORY).map(historyLine), olderHistory: Math.max(0, history.length - LATEST_HISTORY) } : {}),
+      };
     },
 
     tickChecklistItem: async (args: { taskId: string; item: string | number; done?: boolean | string }, ctx: SkillContext) => {
@@ -286,6 +312,17 @@ export const taskManagementSkill: SkillModule = {
       let ticked!: ReturnType<typeof tickItem>;
       const updated = await change(ctx, args.taskId, (t) => { ticked = tickItem(t.description, args.item, done); return { ...t, description: ticked.description }; });
       return { success: true, message: `${done ? "Ticked" : "Unticked"} "${ticked.item.text}" on "${updated.title}" (${ticked.done}/${ticked.total}).` };
+    },
+
+    taskSummary: async (args: { scope?: "here" | "anywhere" }, ctx: SkillContext) => {
+      if (args.scope !== undefined && args.scope !== "here" && args.scope !== "anywhere") throw new Error('Invalid scope: use "here" or "anywhere"');
+      return summary(ctx, args.scope ?? "here");
+    },
+
+    tasksFromMinutes: async (args: { minutes: string; points?: unknown }, ctx: SkillContext) => {
+      if (typeof args.minutes !== "string" || !args.minutes.trim()) throw new Error("minutes is required: the Minutes file, as recall or listFiles name it");
+      const points = Array.isArray(args.points) ? args.points.filter((n): n is number => Number.isInteger(n)) : [];
+      return minutesToTasks(ctx, args.minutes, points);
     },
 
     moveTask: async (args: { taskId: string; channel: string }, ctx: SkillContext) => {
@@ -346,7 +383,18 @@ async function matching(store: WorkspaceStore, tenantId: string, found: Found[],
   return out;
 }
 
-const LATEST_NOTES = 3;
+/** What a write changed in the fields people track, one phrase each, for the task's History. */
+function changesOf(before: Task, after: Task): string[] {
+  const out: string[] = [], none = "none";
+  if (before.status !== after.status) out.push(`status ${before.status} → ${after.status}`);
+  if (assigneeLabel(before.assignedTo) !== assigneeLabel(after.assignedTo)) out.push(`assignee ${assigneeLabel(before.assignedTo)} → ${assigneeLabel(after.assignedTo)}`);
+  if (before.dueAt !== after.dueAt) out.push(`due ${before.dueAt ?? none} → ${after.dueAt ?? none}`);
+  if (before.title !== after.title) out.push(`title "${before.title}" → "${after.title}"`);
+  if (before.priority !== after.priority) out.push(`priority ${before.priority} → ${after.priority}`);
+  return out;
+}
+
+const LATEST_NOTES = 3, LATEST_HISTORY = 5;
 /** One task by id or id prefix among the folders this turn can see, read in full (description and notes), with the file it was found in. */
 async function findTask(ctx: SkillContext, taskId: string): Promise<{ hit: Found; task: Task }> {
   if (typeof taskId !== "string" || !/^[0-9a-f-]{8,36}$/.test(taskId)) throw new Error(`Task with ID ${taskId} not found.`);
@@ -361,7 +409,11 @@ async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: s
   const edited = await edit(parsed, hit.path);
   // A name-only Assignee the edit kept is linked when its name now matches exactly one member who may hold the task.
   const assignedTo = edited.assignedTo === parsed.assignedTo ? await linkHeld(ctx, hit.path, edited.assignedTo) : edited.assignedTo;
-  const next = { ...edited, assignedTo, updatedAt: today().toISOString() };
+  const at = today().toISOString(), changes = changesOf(parsed, { ...edited, assignedTo });
+  // Each field change is kept as a dated line of the task's History (#250), and completing it stamps completedAt; opening it again clears that.
+  const completedAt = edited.status === "completed" ? (parsed.status === "completed" ? parsed.completedAt ?? null : at) : null;
+  const history = changes.length ? [...(parsed.history ?? []), historyEntry(ctx, changes.join("; "))] : parsed.history;
+  const next: Task = { ...edited, assignedTo, updatedAt: at, completedAt, ...(history?.length ? { history } : {}) };
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
   return next;
@@ -409,4 +461,33 @@ async function sourceOf(ctx: SkillContext, path: string, title: string): Promise
   const view = ctx.discord && ctx.userId ? await ctx.discord.channelView(home.channelId, ctx.userId).catch(() => null) : null;
   if (!view?.canView) throw new Error(`You cannot view #${view?.channel?.name ?? home.channelId}, where this task is, so you cannot move it. Nothing was changed.`);
   return `#${view.channel?.name ?? home.channelId}`;
+}
+
+/** Tasks from a Minutes file's action items (#253), for the tool and for a reply to posted Minutes. */
+export const minutesToTasks = (ctx: SkillContext, minutes: string, points: number[]) =>
+  tasksFromMinutes(ctx, minutes, points, (args, at) => taskManagementSkill.handlers.createTask!(args as any, at));
+
+const WEEK_MS = 7 * 86_400_000;
+/** Counts per project for taskSummary (#250): open by status, late, due within a week, completed within the last week, and open tasks per Assignee. */
+async function summary(ctx: SkillContext, scope: "here" | "anywhere") {
+  const store = workspaceStore(), zone = zoneOf(ctx), at = now();
+  const sources = scope === "anywhere" ? (await anywhereSources(store, ctx)).filter((s) => s.kind === "project") : null;
+  const found = sources ? await tasksIn(store, ctx.tenantId, sources) : await loadTasks(store, ctx);
+  const groups = sources ? sources.map((s) => ({ label: s.label, quotable: s.quotable !== false, tasks: found.filter((f) => s.folders.some((folder) => f.path.startsWith(`${folder}/`))).map((f) => f.task) }))
+    : [{ label: ctx.channelName ? `#${ctx.channelName}` : "here", quotable: true, tasks: found.map((f) => f.task) }];
+  const shown = groups.filter((g) => g.quotable && g.tasks.length), notShownHere = groups.filter((g) => !g.quotable && g.tasks.length).length;
+  return {
+    projects: shown.map((g) => {
+      const open = g.tasks.filter(isOpen), holders = new Map<string, number>();
+      for (const t of open) holders.set(assigneeLabel(t.assignedTo), (holders.get(assigneeLabel(t.assignedTo)) ?? 0) + 1);
+      const due = (t: Task) => dueMoment(t.dueAt, zone);
+      return {
+        project: g.label, pending: open.filter((t) => t.status === "pending").length, inProgress: open.filter((t) => t.status === "in_progress").length,
+        late: open.filter((t) => isLate(t, zone, at)).length, dueThisWeek: open.filter((t) => { const d = due(t); return d !== null && d >= at && d <= at + WEEK_MS; }).length,
+        completedLastWeek: g.tasks.filter((t) => t.status === "completed" && t.completedAt && at - Date.parse(t.completedAt) <= WEEK_MS).length,
+        openByAssignee: Object.fromEntries([...holders].sort((a, b) => b[1] - a[1])),
+      };
+    }),
+    ...(notShownHere ? { notShownHere, suggestion: textIn(ctx.language).tasksNotShownHere(notShownHere) } : {}),
+  };
 }

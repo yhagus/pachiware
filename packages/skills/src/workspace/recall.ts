@@ -129,7 +129,11 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
     };
   }));
   const taskGroups: any[] = "data" in tasks ? (tasks.data.groups ?? []).filter((g: any) => !only || g.group === only.label) : [];
-  const taskItems = taskGroups.flatMap((g) => (g.tasks as any[]).map((task) => ({ ref: refFor(ctx, "T"), label: `${g.group} · ${t.taskCited(clip(task.title, TITLE_CHARS), task.status)}`, line: task.line })));
+  // A completed task carries the day it was completed (#250), and a task made from Minutes says which, with its link (#253).
+  const taskItems = taskGroups.flatMap((g) => (g.tasks as any[]).map((task) => ({
+    ref: refFor(ctx, "T"), label: `${g.group} · ${t.taskCited(clip(task.title, TITLE_CHARS), task.status === "completed" && task.completedAt ? `${task.status} ${isoInZone(zone, Date.parse(task.completedAt)).slice(0, 10)}` : task.status)}`, line: task.line,
+    ...(task.madeFrom ? { madeFrom: task.madeFrom.link ? `${task.madeFrom.label} ${task.madeFrom.link}` : task.madeFrom.label } : {}),
+  })));
   // A merged, closed or committed item's date is when that happened; an open one's is only its last update, so it carries none.
   const settled = (w: any) => (w.state !== "open" && w.date && Date.parse(w.date) ? ` ${isoInZone(zone, Date.parse(w.date)).slice(0, 10)}` : "");
   const workItems = "data" in git ? (git.data.items as any[]).slice(0, RECALL_PART).map((w) => ({

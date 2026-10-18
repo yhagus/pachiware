@@ -17,7 +17,9 @@ type Labels = { decided: string; open: string; actions: string; participants: st
 const LABELS: Labels = { decided: "Decided", open: "Still open", actions: "Action items", participants: "Participants", noOwner: "no owner yet", due: "due", none: "None" };
 export interface MinutesItem { text: string; link: string }
 export interface ActionItem { owner: string | null; task: string; due: string | null; link: string }
-export interface Minutes { title: string; decided: MinutesItem[]; open: MinutesItem[]; actions: ActionItem[]; labels: Labels }
+/** An open point of earlier Minutes this discussion did not settle, raised again (#250); `from` is the day of the Minutes it was first open in. */
+export interface CarriedItem extends MinutesItem { from: string }
+export interface Minutes { title: string; decided: MinutesItem[]; open: MinutesItem[]; actions: ActionItem[]; labels: Labels; carried?: CarriedItem[] }
 /** `language` is the discussion's, for the fixed text around the model's; minutes stored without it read as English. */
 type Header = { from: number; to: number; count: number; participants: string[]; cut: HistoryCut | null; language?: Language };
 type Input = { authorId: string; author: string; text: string; at: string; link: string };
@@ -63,14 +65,17 @@ export async function writeMinutes(run: MinutesRun, now = clockNow()): Promise<s
   if (!messages.some((m) => !m.own)) return t.minutesEmpty;
   const links = messages.map((m) => jumpLink(run.guildId, m.channelId, m.id));
   const corpus = messages.map((m) => `${m.speaker}\n${m.text}`).join("\n");
+  const folder = minutesFolder({ guildId: run.guildId, channelId: run.channelId, parentChannelId: run.parentId ?? undefined, privateThread: run.privateThread });
+  // The open points of this place's previous Minutes go along, so the ones nobody settled are raised again (#250).
+  const previous = await stillOpen(run.tenantId, folder, run.timezone);
+  const earlier = previous.length ? `\n\nOpen points of the previous minutes, by number:\n${previous.map((p, i) => `${i + 1}. ${p.text}`).join("\n")}` : "";
   const response = await llmRouter.complete([
     { role: "system", content: systemPrompt(run.playbook) },
-    { role: "user", content: `Messages, oldest first${cut ? `. ${cutNote(cut, false, "en")}` : ""}:\n${asUntrusted("discord:history", transcript(messages))}` },
+    { role: "user", content: `Messages, oldest first${cut ? `. ${cutNote(cut, false, "en")}` : ""}:\n${asUntrusted("discord:history", transcript(messages))}${earlier}` },
   ], { tenantId: run.tenantId, botId: run.botId }).catch(() => null);
-  const minutes = response && response.finishReason !== "error" ? parseMinutes(response.content, links, corpus) : null;
+  const minutes = response && response.finishReason !== "error" ? parseMinutes(response.content, links, corpus, LABELS, previous) : null;
   if (!minutes) return t.minutesFailed;
   const header: Header = { from: messages[0]!.at, to: messages.at(-1)!.at, count: messages.length, participants: [...new Set(messages.filter((m) => !m.own).map((m) => m.speaker))], cut, language };
-  const folder = minutesFolder({ guildId: run.guildId, channelId: run.channelId, parentChannelId: run.parentId ?? undefined, privateThread: run.privateThread });
   const file = await freeName(run.tenantId, folder, `${isoInZone(run.timezone, now).slice(0, 10)}-${slug(minutes.title)}`);
   const payload = payloadOf(minutes, header, file);
   const posted = await run.post(payload).catch(() => null);
@@ -118,7 +123,9 @@ export async function correctMinutes(c: MinutesReply, now = clockNow()) {
   ], { tenantId: c.tenantId, botId: c.botId }).catch(() => null);
   if (response && response.finishReason !== "error" && replyObject(response.content)?.notACorrection === true) return NOT_A_CORRECTION;
   const corpus = [...record.header.participants, ...m.actions.map((a) => a.owner ?? ""), c.text].join("\n");
-  const next = response && response.finishReason !== "error" ? parseMinutes(response.content, links, corpus, m.labels) : null;
+  const parsed = response && response.finishReason !== "error" ? parseMinutes(response.content, links, corpus, m.labels) : null;
+  // A correction rewrites this discussion's items; what earlier Minutes left open stays as it was.
+  const next = parsed && (m.carried?.length ? { ...parsed, carried: m.carried } : parsed);
   if (!next) return answer(t.minutesCorrectionFailed);
   const edited = await c.minutesMessage.edit({ ...payloadOf(next, record.header, minutesFileOf(c.minutesMessage)!), attachments: [] }).catch(() => null);
   if (!edited) return answer(t.minutesEditFailed);
@@ -172,12 +179,13 @@ const CORRECTION = `The person who asked for these minutes replied to them. When
 
 const FORMAT = `Reply with one JSON object and nothing else, in this shape:
 {"title": "a few words naming the discussion", "decided": [{"text": "...", "ref": 3}], "open": [{"text": "...", "ref": 5}], "actions": [{"owner": "a name from the discussion, or null", "task": "...", "due": "as stated, or null", "ref": 7}], "labels": ${JSON.stringify(LABELS)}}
-"ref" is the number of the message the item comes from. "labels" are the section labels, written in the discussion's language.`;
+"ref" is the number of the message the item comes from. "labels" are the section labels, written in the discussion's language.
+When open points of the previous minutes are listed, add "settled": [their numbers] for the ones this discussion settled or dropped; what it settled goes under "decided" as usual, pointing to its message. Leave out the ones it did not touch: they stay open.`;
 const systemPrompt = (playbook: Playbook) => `### Playbook: ${playbook.name}\n${playbook.body}\n\n${FORMAT}`;
 
 const clean = (v: unknown) => (typeof v === "string" ? redact(v.replace(/\s+/g, " ").trim()) : "");
 /** The model's JSON as minutes; items without a message to point to are dropped, and an owner the discussion never named is cleared. */
-export function parseMinutes(content: string | null, links: string[], corpus: string, base: Labels = LABELS): Minutes | null {
+export function parseMinutes(content: string | null, links: string[], corpus: string, base: Labels = LABELS, previous: CarriedItem[] = []): Minutes | null {
   const raw = replyObject(content);
   if (!raw) return null;
   const linkOf = (ref: unknown) => (typeof ref === "number" && Number.isInteger(ref) ? links[ref - 1] : undefined);
@@ -190,7 +198,24 @@ export function parseMinutes(content: string | null, links: string[], corpus: st
   });
   const labels = { ...LABELS, ...base };
   for (const key of Object.keys(LABELS) as (keyof Labels)[]) { const v = clean(raw.labels?.[key]); if (v && v.length <= 40) labels[key] = v; }
-  return { title: clean(raw.title).slice(0, 200) || "Minutes", decided: items(raw.decided), open: items(raw.open), actions, labels };
+  const settled = new Set(list(raw.settled).filter((n) => Number.isInteger(n)));
+  const carried = previous.filter((_, i) => !settled.has(i + 1));
+  return { title: clean(raw.title).slice(0, 200) || "Minutes", decided: items(raw.decided), open: items(raw.open), actions, labels, ...(carried.length ? { carried } : {}) };
+}
+
+/** The open points of the newest Minutes in `folder`, with those it carried itself, each dated by the Minutes it was first open in. */
+async function stillOpen(tenantId: string, folder: string, timezone: string): Promise<CarriedItem[]> {
+  const names = (await workspaceStore().files(tenantId, folder).catch(() => [])).map((f) => f.path).filter((p) => p.endsWith(".md")).sort();
+  // Files start with their day; several of the newest day are told apart by when their discussion ended.
+  const day = names.at(-1)?.split("/").pop()?.slice(0, 10);
+  const records = (await Promise.all(names.filter((p) => p.split("/").pop()!.startsWith(day ?? "\0")).map(async (p) => {
+    const stored = await workspaceStore().read(tenantId, p).catch(() => null);
+    return stored ? parseRecord(stored.content) : null;
+  }))).filter((r): r is MinutesRecord => !!r);
+  const record = records.sort((a, b) => b.header.to - a.header.to)[0];
+  if (!record) return [];
+  const from = isoInZone(timezone, record.header.from).slice(0, 10);
+  return [...(record.minutes.carried ?? []), ...record.minutes.open.map((o) => ({ ...o, from }))].slice(0, 10);
 }
 
 function cutNote(cut: HistoryCut, embed: boolean, language?: Language) {
@@ -215,7 +240,10 @@ function render(m: Minutes, h: Header, embed: boolean, only?: (keyof ReturnType<
   const head = [`${range} · ${textIn(h.language).minutesCount(h.count)}`, `${m.labels.participants}: ${h.participants.join(", ")}`, ...(h.cut ? [`*${cutNote(h.cut, embed, h.language)}*`] : [])].join("\n");
   const block = (key: keyof typeof rows) => `${embed ? `**${m.labels[key]}**` : `## ${m.labels[key]}`}\n${rows[key].length ? rows[key].join("\n") : `*${m.labels.none}*`}`;
   const keys = only ?? (["decided", "open", "actions"] as const);
-  return [embed ? head : `# ${m.title}\n\n${head}`, ...keys.map(block)].join("\n\n");
+  // Raised again, unnumbered after the action items, so "point 4" still names the same item.
+  const t = textIn(h.language), carried = !only && m.carried?.length
+    ? [`${embed ? `**${t.minutesCarried}**` : `## ${t.minutesCarried}`}\n${m.carried.map((c) => `- ${c.text} (${t.minutesCarriedFrom(c.from)}) [↗](${c.link})`).join("\n")}`] : [];
+  return [embed ? head : `# ${m.title}\n\n${head}`, ...keys.map(block), ...carried].join("\n\n");
 }
 
 /** One embed; when the minutes do not fit, the embed keeps Decided and Action items and the whole text goes along as minutes.md. */

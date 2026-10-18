@@ -75,7 +75,7 @@ export function checkTurn(turn: AssistantTurn, facts: TurnFacts, before: Assista
   const left = turn.reactions ?? [];
   if (facts.reaction && !left.some((r) => facts.reaction!.includes(r))) fail("reaction", [`The bot left ${left.join(", ") || "no reaction"}; expected one of ${facts.reaction.join(", ")}.`]);
   if (turn.confirm) fail("confirm", ["A Confirm button was offered; nothing here needs one."]);
-  if (turn.pings.length) fail("pings", [`The reply pinged ${turn.pings.join(", ")}; only a Reminder post pings.`]);
+  if (turn.pings.length) fail("pings", [`The reply pinged ${turn.pings.join(", ")}; only a Reminder post, or the one ping an Assignee gets, pings.`]);
   if (facts.ambiguous && before && !same(turn.state, before)) fail("acted", ["The request was ambiguous, but the Workspace changed."]);
   if (facts.tasks) fail("tasks", taskFailures(facts.tasks, turn.state.tasks));
   for (const level of ["channel", "guild"] as const) if (facts.memory?.[level]) fail("memory", memoryFailures(level, facts.memory[level]!, turn.state.memory[level]));

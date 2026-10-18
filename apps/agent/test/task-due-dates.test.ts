@@ -52,7 +52,8 @@ discordScenario("status, assignee and due date change without Confirm and the fi
 
   s.model.script({ tool: "assignTask", args: { taskId: id, assignedTo: "Bob" } }, (turn) => turn.toolResults[0].task.assignedTo.name);
   await s.discord.send("Bob takes it", { channel: ask.thread });
-  expect(s.discord.botMessages.at(-1)?.content).toBe("Bob");
+  expect(s.discord.botMessages.at(-2)?.content).toBe("Bob");
+  expect(s.discord.botMessages.at(-1)?.content).toBe("<@user-bob> ada task untukmu:\n- **Book the venue**");
   expect(await taskFile(s)).toContain('assignedTo: {"id":"user-bob","name":"Bob"}');
 
   s.model.script({ tool: "setTaskDueDate", args: { taskId: id, dueAt: "2026-10-20T15:00" } }, (turn) => String(turn.toolResults[0].task.dueAt));

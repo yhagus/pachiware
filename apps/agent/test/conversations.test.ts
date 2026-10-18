@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { respondReason, isNoise, speakerTurn, threadName, requestedWord, type Trigger } from "../src/discord/routing";
+import { respondReason, isNoise, speakerTurn, threadName, requestedWord, asksForTasks, type Trigger } from "../src/discord/routing";
 
 const base: Trigger = { authorIsBot: false, guildId: "g1", allowedGuildIds: [], mentioned: false, repliedToBot: false, inOwnThread: false, channelId: "c1", alwaysChannelIds: [], lastMessageFromBot: false, addressesOthers: false };
 const reason = (o: Partial<Trigger>) => respondReason({ ...base, ...o });
@@ -91,4 +91,9 @@ test("a short request names the one word in it that is not a request word, the t
   expect(requestedWord("notulen rapat vendor kemarin di mana?")).toBeNull();
   expect(requestedWord("tolong dong")).toBeNull();
   expect(requestedWord("catat notulen dan kirim ke Bob")).toBeNull();
+});
+
+test("a reply to Minutes asks for tasks with a verb of making before task or tugas; a correction that only names a task does not (#253)", () => {
+  for (const asks of ["jadikan task poin 2-3", "bikin tugas dari semua tindak lanjut", "tolong buatkan task butir 4", "turn items 4 and 5 into tasks", "make item 3 a task", "add these as todos"]) expect(asksForTasks(asks)).toBe(true);
+  for (const not of ["poin 2 itu task Bob, bukan Alice", "the task in item 3 is wrong", "jadikan issue poin 2", "buat ringkasan saja", "multitasking is hard"]) expect(asksForTasks(not)).toBe(false);
 });

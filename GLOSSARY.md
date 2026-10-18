@@ -53,7 +53,7 @@ One batch of numbered questions the agent asks the author of a brief, each with 
 _Avoid_: Q&A, interview, questionnaire
 
 **Minutes**:
-The record of a discussion the bot wrote from a channel's or thread's messages: what was decided, what is still open, and who does what next. Its action items can become issue drafts. Minutes someone wrote elsewhere and pasted in are a document, not minutes.
+The record of a discussion the bot wrote from a channel's or thread's messages: what was decided, what is still open, and who does what next. Its action items can become issue drafts or Tasks. What the previous Minutes of the place left open and this discussion did not settle is shown again, dated. Minutes someone wrote elsewhere and pasted in are a document, not minutes.
 _Avoid_: Notulen (in English text), summary, recap
 
 **Trusted member**:
@@ -121,7 +121,7 @@ The work a channel exists for. A channel's tasks are its project's tasks, and a 
 _Avoid_: Board, workstream, category (a Discord category only groups channels)
 
 **Task**:
-A piece of work a person asked the bot to track, in a channel or privately: a title, at most one assignee, a status, and optionally a due date, a checklist, and progress notes. A cancelled task stays on record as cancelled; it is never active again and is not late.
+A piece of work a person asked the bot to track, in a channel or privately: a title, at most one assignee, a status, and optionally a due date, a checklist, and progress notes. A cancelled task stays on record as cancelled; it is never active again and is not late. Every change made through the bot to its status, Assignee, due date, title or priority is a dated line of its History, saying who asked; completing it records when. A task made from a Minutes action item remembers that item.
 _Avoid_: Ticket, issue (reserved for git platforms), work item (reserved for Plane), todo
 
 **Personal task**:
@@ -129,7 +129,7 @@ A task a person keeps for themselves from a DM with the bot, in no project. Only
 _Avoid_: Private task, DM task
 
 **Assignee**:
-The one person responsible for a task: a guild member, or a person known only by the name the team gave, such as someone outside the guild. Only a member can be reached by the bot. Two people sharing work means two tasks.
+The one person responsible for a task: a guild member, or a person known only by the name the team gave, such as someone outside the guild. Only a member can be reached by the bot: a member someone else gives a task to is pinged once with it. Two people sharing work means two tasks.
 _Avoid_: Owner (reserved for the person who set a Reminder), PIC, responsible
 
 **Progress note**:
@@ -188,6 +188,7 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A **Playbook thread** belongs to one **Playbook** and one **Bot**; only that bot answers in it.
 - An **Availability rule** narrows **Playbooks** and **Skills** for the tenant and per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too, and for Plane tools a **Plane scope** must allow the Plane project.
 - A **Task** belongs to one **Project**, which is one channel, unless it is a **Personal task**; it has zero or one **Assignee** and any number of **Progress notes**.
+- A **Task** made from **Minutes** belongs to the Project of the channel the Minutes were written in and points at the action item it came from; one action item makes at most one Task.
 - A **Reminder** belongs to the person who asked for it and to the channel or DM it will post in; it is not part of any task.
 - A **Digest** is per channel and reads that channel's tasks and their **Due dates**; it never reads another channel.
 - **Memory** lives in the **Workspace** at the tenant, guild, and channel level; the channel level is read only in that channel.

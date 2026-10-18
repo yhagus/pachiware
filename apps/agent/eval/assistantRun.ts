@@ -34,6 +34,8 @@ export interface AssistantTurn {
   /** The reactions the bot left on this turn's messages; absent when none. */
   reactions?: string[];
   confirm: boolean; pings: string[];
+  /** Members the bot told they were given a task this turn (#250): that one ping is not a reply, so it is kept apart from `replies` and `pings`. */
+  assigned?: string[];
   state: AssistantState;
 }
 export interface AssistantOutput {
@@ -162,6 +164,8 @@ async function stateOf(s: Scenario, channels: string[], seeded: Set<string>): Pr
 }
 
 type Message = Scenario["discord"]["botMessages"][number];
+/** The bot's ping to members someone else gave a task to: "<@id> a task is yours:" then one "- **title**" line per task. */
+const assignmentPing = (m: { content: string; allowedMentions?: { users?: string[] } }) => !!m.allowedMentions?.users?.length && /^<@[\w-]+> [^\n]+:\n- \*\*/.test(m.content);
 const textOf = (m: Message) => [m.content, ...m.embeds.map((e) => `${e.title ?? ""}\n\n${e.description ?? ""}`.trim())].filter(Boolean).join("\n\n");
 
 export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture): Promise<AssistantOutput> {
@@ -190,11 +194,13 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
       : [await s.discord.send(message.replace(BOT_MENTION, s.discord.mention), { author: member(who[0]!), channel: where })];
     const sent = sentAll[0]!, reactions = sentAll.flatMap((m) => m.reactions);
     thread ??= sent.thread;
-    const posted = s.discord.botMessages.slice(seen);
+    const all = s.discord.botMessages.slice(seen), told = all.filter(assignmentPing), posted = all.filter((m) => !assignmentPing(m));
     seen = s.discord.botMessages.length;
+    const assigned = [...new Set(told.flatMap((m) => m.allowedMentions?.users ?? []))];
     turns.push({
       n: i + 1, message, ...(who.join() !== "Alice" && { authors: who }),
-      replies: posted.map(textOf).filter(Boolean), ...(reactions.length && { reactions }), confirm: posted.some((m) => m.components.length > 0), pings: [...new Set(posted.flatMap((m) => m.allowedMentions?.users ?? []))], state: await stateOf(s, channels, seededFiles),
+      replies: posted.map(textOf).filter(Boolean), ...(reactions.length && { reactions }), confirm: posted.some((m) => m.components.length > 0), pings: [...new Set(posted.flatMap((m) => m.allowedMentions?.users ?? []))],
+      ...(assigned.length && { assigned }), state: await stateOf(s, channels, seededFiles),
     });
   }
   const posts: AssistantOutput["posts"] = [];

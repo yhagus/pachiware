@@ -82,14 +82,19 @@ discordScenario("a task in a thread is checked against the thread's parent chann
   // Bob can view #launch but was never added to the private thread: the parent decides, so he can be assigned.
   s.model.script({ tool: "assignTask", args: { taskId: "aaaaaaaa", assignedTo: `<@${s.discord.bob.id}>` } }, lastResult);
   await s.discord.send(`${s.discord.mention} give the flyers to <@${s.discord.bob.id}>`, { channel: thread });
-  expect(JSON.parse(s.discord.botMessages.at(-1)!.content).success).toBe(true);
+  const inThread = () => s.discord.botMessages.filter((m) => m.channelId === thread.id).at(-1)!;
+  expect(JSON.parse(inThread().content).success).toBe(true);
   expect(await s.workspace.read(FILE)).toContain(`assignedTo: {"id":"${s.discord.bob.id}","name":"Bob"}`);
+  // His ping goes to #launch: a mention inside the private thread would add him to it (#250).
+  const ping = s.discord.botMessages.find((m) => m.allowedMentions?.users)!;
+  expect(ping.channelId).toBe("channel-1");
+  expect(ping.allowedMentions).toEqual({ users: [s.discord.bob.id] });
 
   s.discord.history([{ content: "hi", author: { id: "user-carol", name: "Carol" } }]);
   s.discord.deny("channel-1", "user-carol", ["ViewChannel"]);
   const before = await s.workspace.read(FILE);
   s.model.script({ tool: "assignTask", args: { taskId: "aaaaaaaa", assignedTo: "<@user-carol>" } }, lastResult);
   await s.discord.send(`${s.discord.mention} give the flyers to <@user-carol>`, { channel: thread });
-  expect(JSON.parse(s.discord.botMessages.at(-1)!.content).error).toContain("#launch");
+  expect(JSON.parse(inThread().content).error).toContain("#launch");
   expect(await s.workspace.read(FILE)).toBe(before);
 });

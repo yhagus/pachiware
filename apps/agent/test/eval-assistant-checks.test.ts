@@ -68,7 +68,7 @@ describe("code checks on one run", () => {
   test("no reply, a Confirm button, or a ping fails the turn", () => {
     expect(checks(withTurn(1, { replies: [] }))).toEqual(["1 reply: The bot did not reply."]);
     expect(checks(withTurn(1, { confirm: true }))).toEqual(["1 confirm: A Confirm button was offered; nothing here needs one."]);
-    expect(checks(withTurn(1, { pings: ["user-bob"] }))).toEqual(["1 pings: The reply pinged user-bob; only a Reminder post pings."]);
+    expect(checks(withTurn(1, { pings: ["user-bob"] }))).toEqual(["1 pings: The reply pinged user-bob; only a Reminder post, or the one ping an Assignee gets, pings."]);
   });
 
   test("a quiet turn must post nothing, and a turn naming reactions must leave one of them", () => {

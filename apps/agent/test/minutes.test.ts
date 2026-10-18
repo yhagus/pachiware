@@ -260,9 +260,10 @@ discordScenario("the requester's reply asking for something other than a correct
   const day = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); // Jakarta, UTC+7 all year
   const file = `guilds/guild-1/channels/channel-1/minutes/${day}-release-day.md`, stored = await s.workspace.read(file);
 
+  // A request for tasks goes straight to tasksFromMinutes (#253); a question is still the assistant's.
   s.model.script(JSON.stringify({ notACorrection: true }), "Mau saya buatkan tugas Book the venue untuk Bob?");
-  const ask = await s.discord.send(`${s.discord.mention} jadikan task poin 2`, { author: alice, replyTo: minutes });
-  expect(s.model.calls[1]!.map((m) => m.content).join("\n")).toContain("jadikan task poin 2");
+  const ask = await s.discord.send(`${s.discord.mention} poin 2 sudah ada yang pegang belum?`, { author: alice, replyTo: minutes });
+  expect(s.model.calls[1]!.map((m) => m.content).join("\n")).toContain("poin 2 sudah ada yang pegang belum?");
   expect(minutes.edits).toEqual([]);
   expect(minutes.embeds).toEqual(before);
   expect(await s.workspace.read(file)).toBe(stored);

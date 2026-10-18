@@ -47,7 +47,9 @@ discordScenario("a task found by its description among more than ten has its tit
   expect(file).toContain('title: "Call the print shop"');
   expect(file).toContain("Ask about the brochure proofs.");
   expect(file).toContain('updatedAt: "2026-10-14T03:00:00.000Z"');
-  expect(file.replace(/^(title|updatedAt): .*$/gm, "")).toBe(before.replace(/^(title|updatedAt): .*$/gm, ""));
+  // Everything else stays; the new title is also a History line (#250).
+  expect(file.replace(/^(title|updatedAt): .*$/gm, "").replace(/\n\n## History\n[\s\S]*$/, "\n")).toBe(before.replace(/^(title|updatedAt): .*$/gm, ""));
+  expect(file).toContain('## History\n- 2026-10-14 10:00 Alice: title "Call the printer" → "Call the print shop"\n');
 
   s.clock.set("2026-10-15T03:00:00Z");
   s.model.script({ tool: "editTask", args: { taskId: "00000040", description: "Ask about the brochure proofs and the paper stock.", priority: "urgent" } }, (turn) => turn.toolResults[0].task.priority);

@@ -3,14 +3,23 @@ import { visibleRoots } from "../workspace/paths.js";
 import type { WorkspaceStore } from "../workspace/store.js";
 import { assigneeLabel, parseAssignee, renderAssignee, type Assignee } from "./assignee.js";
 import { checklistSuffix } from "./checklist.js";
-import { parseBody, renderBody, type ProgressNote } from "./progressNotes.js";
+import { parseBody, renderBody, type HistoryLine, type ProgressNote } from "./progressNotes.js";
 import { now, offsetText, zoneOffset, zonedTime } from "../clock.js";
 
 export const STATUSES = ["pending", "in_progress", "completed", "cancelled"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 export type TaskStatus = (typeof STATUSES)[number];
 export type TaskPriority = (typeof PRIORITIES)[number];
-export interface Task { id: string; title: string; description: string | null; status: TaskStatus; priority: TaskPriority; assignedTo: Assignee | null; dueAt: string | null; createdBy: string | null; createdByName: string | null; createdAt: string; updatedAt: string; notes?: ProgressNote[] }
+/** What a task was made from (#253): the Minutes action item or message, so an answer can join "decided" to "tracked". ("Source" names a place to read from.) */
+export interface MadeFrom { label: string; link?: string; path?: string; item?: number }
+export interface Task {
+  id: string; title: string; description: string | null; status: TaskStatus; priority: TaskPriority; assignedTo: Assignee | null; dueAt: string | null;
+  createdBy: string | null; createdByName: string | null; createdAt: string; updatedAt: string; notes?: ProgressNote[];
+  /** When it was last marked completed (#250); cleared when it is opened again. */
+  completedAt?: string | null;
+  madeFrom?: MadeFrom | null;
+  history?: HistoryLine[];
+}
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/, DATE_TIME = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:\d{2})?$/;
 
@@ -61,7 +70,9 @@ export const slug = (title: string) => title.toLowerCase().normalize("NFKD").rep
 /** Frontmatter is one `key: JSON value` per line, which is also valid YAML; hand-edited bare values (status: pending) are accepted too. */
 export function render(t: Task) {
   const q = JSON.stringify;
-  return `---\nid: ${q(t.id)}\ntitle: ${q(t.title)}\nstatus: ${q(t.status)}\npriority: ${q(t.priority)}\nassignedTo: ${renderAssignee(t.assignedTo)}\ndueAt: ${q(t.dueAt)}\ncreatedBy: ${q(t.createdBy)}\ncreatedByName: ${q(t.createdByName)}\ncreatedAt: ${q(t.createdAt)}\nupdatedAt: ${q(t.updatedAt)}\n---\n${renderBody(t.description, t.notes)}`;
+  // completedAt and madeFrom are written only when set, so a task without them reads as files always did.
+  const extra = `${t.completedAt ? `completedAt: ${q(t.completedAt)}\n` : ""}${t.madeFrom ? `madeFrom: ${q(t.madeFrom)}\n` : ""}`;
+  return `---\nid: ${q(t.id)}\ntitle: ${q(t.title)}\nstatus: ${q(t.status)}\npriority: ${q(t.priority)}\nassignedTo: ${renderAssignee(t.assignedTo)}\ndueAt: ${q(t.dueAt)}\ncreatedBy: ${q(t.createdBy)}\ncreatedByName: ${q(t.createdByName)}\ncreatedAt: ${q(t.createdAt)}\nupdatedAt: ${q(t.updatedAt)}\n${extra}---\n${renderBody(t.description, t.notes, t.history)}`;
 }
 /** A task file, or null when it is not a valid one: a broken file is skipped, never trusted. */
 export function parseTask(text: string): Task | null {
@@ -78,8 +89,14 @@ export function parseTask(text: string): Task | null {
   const validDate = (v: unknown) => typeof v === "string" && !!v && !Number.isNaN(Date.parse(v));
   if (typeof id !== "string" || !/^[0-9a-f-]{8,36}$/i.test(id) || typeof title !== "string" || !title.trim() || !STATUSES.includes(status) || !PRIORITIES.includes(priority) || !validDate(f.createdAt) || !validDate(f.updatedAt)) return null;
   const str = (v: unknown) => (typeof v === "string" && v ? v : null);
-  const dueAt = str(f.dueAt), { description, notes } = parseBody(m[2]!);
-  return { id, title, description, status, priority, assignedTo: parseAssignee(f.assignedTo), dueAt: dueAt && (DATE_ONLY.test(dueAt) || DATE_TIME.test(dueAt)) ? dueAt : null, createdBy: str(f.createdBy), createdByName: str(f.createdByName), createdAt: str(f.createdAt) ?? "", updatedAt: str(f.updatedAt) ?? "", notes };
+  const dueAt = str(f.dueAt), { description, notes, history } = parseBody(m[2]!);
+  const from = f.madeFrom;
+  const madeFrom = from && typeof from === "object" && typeof from.label === "string" && from.label.trim()
+    ? { label: from.label, ...(typeof from.link === "string" ? { link: from.link } : {}), ...(typeof from.path === "string" ? { path: from.path } : {}), ...(Number.isInteger(from.item) ? { item: from.item } : {}) } : null;
+  return {
+    id, title, description, status, priority, assignedTo: parseAssignee(f.assignedTo), dueAt: dueAt && (DATE_ONLY.test(dueAt) || DATE_TIME.test(dueAt)) ? dueAt : null, createdBy: str(f.createdBy), createdByName: str(f.createdByName), createdAt: str(f.createdAt) ?? "", updatedAt: str(f.updatedAt) ?? "", notes,
+    ...(validDate(f.completedAt) ? { completedAt: f.completedAt } : {}), ...(madeFrom ? { madeFrom } : {}), ...(history.length ? { history } : {}),
+  };
 }
 
 export interface Found { path: string; version: string; task: Task }

@@ -97,6 +97,14 @@ export function replyLine(ref: Replied | null | undefined, botUserId: string | u
   return `(replying to ${refs ? `${who} (${refs})` : who}: "${quote}")`;
 }
 
+/**
+ * Whether a reply to posted Minutes asks for tasks from their action items (#253): a verb of making with "task" or "tugas" after it,
+ * such as "jadikan task poin 2-3", "bikin tugas dari semua", "turn items 4 and 5 into tasks". A correction that only names a task
+ * ("poin 2 itu task Bob") has no such verb, so it stays a correction.
+ */
+export const asksForTasks = (text: string) =>
+  /(?<![\p{L}])(jadikan|jadiin|buat|buatkan|buatin|bikin|bikinkan|bikinin|tambahkan|tambahin|masukkan|masukin|catat|catatkan|create|make|turn|add|log|put)(?![\p{L}])[^\n]{0,40}?(?<![\p{L}])(tasks?|tugas|todos?)(?![\p{L}])/iu.test(text);
+
 /** Words a short request may hold around an in-place playbook's trigger word, in Indonesian and English. */
 const REQUEST_WORDS = new Set(("tolong minta mohon bikin bikinin buat buatin buatkan tulis tulisin tuliskan catat catatin catatkan dong donk ya yah yuk ayo deh sih nih "
   + "rapat tadi ini please pls plz can could you make write take do draft the a some now of this for meeting call").split(" "));

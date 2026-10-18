@@ -14,6 +14,8 @@ A Task is a Markdown file in the Workspace: one-line JSON frontmatter values, th
 
 Files written before spec #120 (plain-text `assignedTo`, no notes section) still parse. Keep it that way.
 
+Since #250 and #253 a task may also carry, written only when set: `completedAt` (stamped by `change()` when the status becomes completed, cleared when it opens again), `madeFrom` (`{ label, link, path, item }`, the Minutes action item it was made from), and a `## History` section after the notes, one `- YYYY-MM-DD HH:MM <name>: <what changed>` line per write through `change()`. History is the task's record of field changes; a Progress note is what a person reported.
+
 ## Modules (`packages/skills/src/builtin/`)
 
 - `tasks.ts`: the `task_management` skill, meaning the tool schemas, the handlers, and `change()`, the one read-edit-write path for an existing task.
@@ -21,7 +23,9 @@ Files written before spec #120 (plain-text `assignedTo`, no notes section) still
 - `assignee.ts`: the Assignee value (a member id plus a name, or a name only), resolving one from a mention, "me", or a name (`resolveAssignee`), and matching one (`isAssignee`).
 - `taskAccess.ts`: who may see or hold a task. This covers `canHold`/`mustHold`, finding a channel by name (`findProject`), and listing the channels a user can view (`viewableProjects`).
 - `taskScopes.ts`: the scopes `here`, `mine`, `delegated` and `anywhere` (`scopeSources`, `anywhereSources`, `inScope`, `groupTasks`, `readGroups`). `anywhere` answers "is it done?": every task of the Sources the asker may read kept material from (`readableSources` in `packages/skills/src/workspace/sources.ts`), every status by default; a Source that is not quotable here has its tasks counted as `notShownHere`, never listed. Change who may see what in `sources.ts`, not here.
-- `progressNotes.ts` and `checklist.ts`: the body's notes section and its checklist.
+- `progressNotes.ts` and `checklist.ts`: the body's notes and History sections, and its checklist.
+- `minutesTasks.ts`: `tasksFromMinutes`, Tasks from a Minutes file's action items (owner → Assignee, due words → a day via `packages/skills/src/dueWords.ts`, `madeFrom`, no second task per item). The tool and a reply to posted Minutes (`asksForTasks` in `apps/agent/src/discord/routing.ts`) both go through `minutesToTasks` in `tasks.ts`.
+- The ping an Assignee gets when someone else gives them a task is the Discord host's, after the turn: `assignmentsOf` and `tellAssignees` in `apps/agent/src/discord/client.ts` (a private thread's ping goes to its parent channel).
 
 The Discord side is the adapter methods `channelView`, `findChannels`, `sharedGuilds` and `forGuild` (interface in `packages/skills/src/types.ts`). Each works across every guild the bot serves, and a channel it cannot resolve counts as not viewable.
 

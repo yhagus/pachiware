@@ -249,6 +249,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       sendTyping: async () => {},
       send: async (payload: string | Payload) => post(channel, BOT_USER, payload),
     };
+    // Like discord.js's, a thread's parent channel object.
+    Object.defineProperty(channel, "parent", { get: () => (channel.parentId ? channels.get(channel.parentId) ?? null : null) });
     channel.messages.fetch = async (query?: string | { limit?: number; before?: string; after?: string }) => {
       if (typeof query === "string") { const found = channel.messages.find((m: FakeMessage) => m.id === query); if (!found) throw new Error("Unknown Message"); return found; }
       channel.fetches++;

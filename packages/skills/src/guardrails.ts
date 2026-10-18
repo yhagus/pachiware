@@ -167,7 +167,7 @@ export const GuardrailService = {
 };
 
 /** Task writes that count toward a bulk change: more than BULK_TASK_LIMIT of them in one turn wait for the user's yes. */
-export const BULK_TASK_TOOLS = new Set(["updateTaskStatus", "assignTask", "setTaskDueDate", "editTask", "moveTask", "createTask"]);
+export const BULK_TASK_TOOLS = new Set(["updateTaskStatus", "assignTask", "setTaskDueDate", "editTask", "moveTask", "createTask", "tasksFromMinutes"]);
 export const BULK_TASK_LIMIT = 3;
 /** A task write as the bulk guard remembers it: the task id's first eight characters (its short form), or the title for a new task, and the change it makes. */
 export type BulkItem = { tool: string; target: string; change: string };

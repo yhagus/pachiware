@@ -34,7 +34,9 @@ discordScenario("cancelling a task without a reason only changes its status and 
 
   const file = (await s.workspace.read(`${TASKS}/venue-aaaaaaaa.md`))!;
   expect(file).toContain('status: "cancelled"');
-  expect(file).toEndWith("---\nTwo quotes, under 5 million.\n");
+  // No Progress note; the change itself is a History line (#250).
+  expect(file).toMatch(/---\nTwo quotes, under 5 million\.\n\n## History\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2} Alice: status pending → cancelled\n$/);
+  expect(file).not.toContain("## Progress notes");
   expect(s.model.calls).toHaveLength(2);
 });
 

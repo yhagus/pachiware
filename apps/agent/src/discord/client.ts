@@ -4,11 +4,11 @@ import { DiscordJSAdapter } from "./adapter.js";
 import { catchUpDailyLogs } from "./dailyLogDays.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
-import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel, replyLine, requestedWord } from "./routing.js";
+import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel, replyLine, requestedWord, asksForTasks } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
 import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
@@ -54,6 +54,27 @@ const commandTurn = (i: ChatInputCommandInteraction, channel: SendableChannels, 
   attachments: attachmentsOf(file), reply: (payload: any) => channel.send(payload), react: async () => {},
 }) as unknown as Message;
 // A guild member from the cache has a roles collection; one sent raw with an interaction has an id array.
+type Assignment = { assigneeId: string; title: string; dueAt: string | null };
+/** The member Assignees this turn's task writes gave work to, from createTask, assignTask and tasksFromMinutes results (#250). */
+function assignmentsOf(executed: { call: { name: string }; result: { success: boolean; data?: any } }[]): Assignment[] {
+  return executed.flatMap(({ call, result }): Assignment[] => {
+    if (!result.success) return [];
+    if (call.name === "tasksFromMinutes") return (result.data?.created ?? []).filter((c: any) => c.assigneeId).map((c: any) => ({ assigneeId: c.assigneeId, title: c.title, dueAt: c.dueAt }));
+    const task = (call.name === "createTask" || call.name === "assignTask") && result.data?.success !== false ? result.data?.task : null;
+    return task?.assignedTo?.id ? [{ assigneeId: task.assignedTo.id, title: task.title, dueAt: task.dueAt }] : [];
+  });
+}
+/** Where an Assignee's ping goes: a private thread's parent channel, since a mention there would add them to the thread, and the task is the parent's anyway. */
+const pingPlace = (channel: any) => (channel.type === ChannelType.PrivateThread && channel.parent?.isSendable?.() ? channel.parent : channel);
+/** One message per turn pinging each member someone else gave a task to, listing theirs; the asker and the bot are never pinged. */
+async function tellAssignees(channel: { send(payload: any): Promise<unknown> }, assignments: Assignment[], actorId: string, botUserId: string | undefined, language: Language) {
+  const byPerson = new Map<string, Assignment[]>();
+  for (const a of assignments) if (a.assigneeId !== actorId && a.assigneeId !== botUserId) byPerson.set(a.assigneeId, [...(byPerson.get(a.assigneeId) ?? []), a]);
+  if (!byPerson.size) return;
+  const t = textIn(language), content = [...byPerson].map(([id, tasks]) => t.assigned(`<@${id}>`, tasks)).join("\n");
+  await channel.send({ content, allowedMentions: { users: [...byPerson.keys()] } }).catch(() => {});
+}
+
 const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
 const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
@@ -323,6 +344,7 @@ export class DiscordBotManager {
     if (text && msg.guildId && msg.reference?.messageId) {
       const ref = await reference();
       if (ref?.author.id === botUserId && minutesFileOf(ref)) {
+        if (asksForTasks(text)) { await this.tasksFromMinutesReply(runtime, botId, msg, ref, text); return; }
         if (await this.briefFromMinutes(runtime, botId, msg, ref, text)) return;
         const corrected = await this.serialize(`minutes:${ref.id}`, () => correctMinutes({ tenantId: runtime.tenantId, botId, guildId: msg.guildId!, minutesMessage: ref, reply: msg, text }));
         if (corrected !== NOT_A_CORRECTION) return;
@@ -386,6 +408,21 @@ export class DiscordBotManager {
     if ("error" in opened) await say(opened.error);
     else await opened.start();
     return true;
+  }
+  /** "jadikan task poin 2-3" replying to Minutes: those action items become Tasks of the Minutes' channel, with no model turn (#253). */
+  private async tasksFromMinutesReply(runtime: BotRuntime, botId: string, msg: Message, minutes: Message, text: string) {
+    const actor = actorOf(msg), place = placeOfChannel(msg.channel);
+    const guild = await loadGuildSettings(runtime.tenantId, botId, msg.guildId!), agent = await repositories().agentConfig.get(runtime.tenantId);
+    // "jadikan task semua" holds no function word to tell its language by: the place's language answers it then.
+    const detected = languageOf(text, 1), language = detected === "unknown" ? configuredLanguage(guild, agent) : detected;
+    const ctx = {
+      tenantId: runtime.tenantId, botId, guildId: msg.guildId!, guildName: msg.guild?.name, channelId: msg.channelId, parentChannelId: place.parentChannelId, privateThread: place.privateThread,
+      userId: actor.id, userName: actor.name, timezone: configuredTimezone(guild, agent), language, discord: adapterFor(runtime, msg.guildId),
+      auth: { tenantId: runtime.tenantId, botId, userId: actor.id, guildId: msg.guildId!, channelId: msg.channelId, parentChannelId: place.parentChannelId, ...memberAuth(actor.member) },
+    };
+    const result = await this.serialize(`minutes:${minutes.id}`, () => minutesToTasks(ctx, minutesFileOf(minutes)!, namedNumbers(text.replace(/<[@#][!&]?\d+>/g, " "))));
+    await replyQuietly(msg)(result.message);
+    if (msg.channel.isSendable()) await tellAssignees(pingPlace(msg.channel), assignmentsOf([{ call: { name: "tasksFromMinutes" }, result: { success: true, data: result } }]), actor.id, runtime.client.user?.id, configuredLanguage(guild, agent));
   }
   /** "@bot turn points 2 and 3 into issues" replying to minutes: an explicit mention naming a playbook's word starts it from those action items. */
   private async briefFromMinutes(runtime: BotRuntime, botId: string, msg: Message, minutes: Message, text: string) {
@@ -560,6 +597,7 @@ export class DiscordBotManager {
           const p = result.success ? pendingOf(result.data) : null;
           if (p) await target.send(confirmMessage(p, actor.id));
         }
+        if (msg.guildId) await tellAssignees(pingPlace(target), assignmentsOf(output.toolCallsExecuted), actor.id, botUserId, configuredLanguage(guild, agent));
       }
       // Still inside this conversation's serialized job, so the next turn reads the rewritten summary.
       if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});
