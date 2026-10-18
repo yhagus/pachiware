@@ -5,8 +5,12 @@ import { DAY_MS, wallClock, wallToInstant } from "./clock.js";
 export const LATE_LIMIT_MS = 6 * 60 * 60_000;
 /** A row later than this posts with the late note; under it is the minute loop's own delay. */
 export const LATE_NOTE_MS = 5 * 60_000;
-/** Posting failures before a row is marked done with an error note. */
-export const MAX_POST_ATTEMPTS = 3;
+/** The waits between a failed post and the next attempt. nextAt keeps the due time, so each wait counts from the due time on: 1, 6, then 36 minutes past it. */
+export const RETRY_AFTER_MS = [60_000, 5 * 60_000, 30 * 60_000];
+/** Posting failures before a row gives up on this time: a repeating row moves to its next time, a one-off ends with an error note. */
+export const MAX_POST_ATTEMPTS = RETRY_AFTER_MS.length + 1;
+/** How long past its due time a row that failed `attempts` times waits before trying again. */
+export const retryDelay = (attempts: number) => RETRY_AFTER_MS.slice(0, attempts).reduce((sum, ms) => sum + ms, 0);
 
 export type Recurrence = Pick<Schedule, "recurrence" | "weekdays" | "dayOfMonth" | "timeOfDay" | "timezone" | "until">;
 

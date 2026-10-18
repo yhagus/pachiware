@@ -1,5 +1,5 @@
 import { repositories, type Schedule } from "@pachiware/db";
-import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, readGroups, MAX_SCOPED, workspaceStore, taskLine, isOpen, scopeSources, tasksIn, inScope, groupTasks, type DiscordClientAdapter, type TaskSource, type Strings } from "@pachiware/skills";
+import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, retryDelay, MESSAGE_LIMIT, configuredLanguage, textIn, readGroups, MAX_SCOPED, workspaceStore, taskLine, isOpen, scopeSources, tasksIn, inScope, groupTasks, type DiscordClientAdapter, type TaskSource, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines, syncDigestSchedules } from "./digest.js";
 import { writeOwedDays, syncDailyLogSchedules } from "./discord/dailyLogDays.js";
@@ -43,8 +43,9 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
   if (row.kind === "daily-log") { await moveOn(row, at, row.guildId ? await writeOwedDays(manager, { ...row, guildId: row.guildId }, at) : new Date(at)); return; }
   const late = at - row.nextAt.getTime();
   if (late > LATE_LIMIT_MS) { await moveOn(row, at, null); return; }
+  if (late < retryDelay(row.attempts)) return;
   try { await post(client, manager.adapterOf(row.botId, row.guildId ?? undefined), row, at, late > LATE_NOTE_MS); }
-  catch (error: any) { await failed(row, error?.message || String(error)); return; }
+  catch (error: any) { await failed(row, at, error?.message || String(error)); return; }
   await moveOn(row, at, new Date(at));
 }
 
@@ -106,8 +107,10 @@ async function moveOn(row: Schedule, at: number, firedAt: Date | null) {
   await repositories().schedules.update(row.id, { nextAt: next === null ? row.nextAt : new Date(next), status: next === null ? "done" : "active", lastFiredAt: firedAt ?? row.lastFiredAt, attempts: 0, error: null });
 }
 
-async function failed(row: Schedule, reason: string) {
+/** Counts a failed post; the last allowed one gives up on this time: a repeating row keeps coming at its next time with the error kept, a one-off ends. */
+async function failed(row: Schedule, at: number, reason: string) {
   const attempts = row.attempts + 1;
-  const over = attempts >= MAX_POST_ATTEMPTS;
-  await repositories().schedules.update(row.id, { attempts, ...(over ? { status: "done" as const, error: `Could not post after ${attempts} attempts: ${reason.slice(0, 200)}` } : {}) });
+  if (attempts < MAX_POST_ATTEMPTS) { await repositories().schedules.update(row.id, { attempts }); return; }
+  const error = `Could not post after ${attempts} attempts: ${reason.slice(0, 200)}`, next = nextOccurrence(row, at);
+  await repositories().schedules.update(row.id, next === null ? { attempts, status: "done", error } : { attempts: 0, nextAt: new Date(next), error });
 }

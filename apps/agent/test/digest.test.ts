@@ -77,3 +77,12 @@ discordScenario("a Digest in English posts its sections in English and skips a d
     "pending | due 2026-02-28, late | unassigned | cccccccc | File the report · 8 days late",
   ].join("\n"));
 });
+
+discordScenario("a Digest whose channel is gone keeps its row for the next day, with the error recorded", async (s) => {
+  const { repositories } = await import("@pachiware/db");
+  s.clock.set("2026-03-06T20:00:00+07:00");
+  await s.guildSettings({ digestChannels: [{ channelId: "channel-9", hour: 8 }] });
+  for (const time of ["08:00:30", "08:01:30", "08:06:30", "08:36:30"]) { s.clock.set(`2026-03-07T${time}+07:00`); await s.scheduler.tick(); }
+  const [row] = (await repositories().schedules.list()).filter((r: any) => r.kind === "digest");
+  expect([row!.status, row!.attempts, row!.nextAt.toISOString(), row!.error]).toEqual(["active", 0, "2026-03-08T01:00:00.000Z", "Could not post after 4 attempts: The channel is gone or cannot be posted in."]);
+});

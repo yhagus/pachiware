@@ -53,7 +53,7 @@ discordScenario("a tick more than six hours late skips a once Reminder and advan
   expect(posts(s).at(-1)).toBe(`<@${s.discord.alice.id}> Reminder: daily one\n-# Posted late: this was due 7 Mar, 09:00.`);
 });
 
-discordScenario("a post Discord refuses keeps its time and is retried next tick; after three failures the row is done with an error note", async (s) => {
+discordScenario("a post Discord refuses keeps its time and is retried 1, 6 and 36 minutes past it; after the fourth failure a one-off Reminder is done with an error note", async (s) => {
   s.clock.set("2026-03-06T08:00:00+07:00");
   s.model.script({ tool: "createReminder", args: { text: "fragile", at: "09:00" } }, "ok");
   const ask = await s.discord.send(`${s.discord.mention} remind me at 09:00: fragile`, { channel: "channel-2" });
@@ -62,21 +62,46 @@ discordScenario("a post Discord refuses keeps its time and is retried next tick;
   channel.send = async () => { throw new Error("Missing Access"); };
   const schedules = await SCHEDULES();
   const row = async () => { const [r] = await schedules.list(); return [r.status, r.attempts, r.nextAt.toISOString(), r.error]; };
+  const tickAt = async (time: string) => { s.clock.set(`2026-03-06T${time}+07:00`); await s.scheduler.tick(); };
 
-  s.clock.set("2026-03-06T09:00:10+07:00");
-  await s.scheduler.tick();
+  await tickAt("09:00:10");
   expect(await row()).toEqual(["active", 1, "2026-03-06T02:00:00.000Z", null]);
-  s.clock.advance(60_000);
-  await s.scheduler.tick();
+  await tickAt("09:00:50");
+  expect(await row()).toEqual(["active", 1, "2026-03-06T02:00:00.000Z", null]);
+  await tickAt("09:01:10");
   expect(await row()).toEqual(["active", 2, "2026-03-06T02:00:00.000Z", null]);
-  s.clock.advance(60_000);
-  await s.scheduler.tick();
-  expect(await row()).toEqual(["done", 3, "2026-03-06T02:00:00.000Z", "Could not post after 3 attempts: Missing Access"]);
+  await tickAt("09:05:10");
+  expect(await row()).toEqual(["active", 2, "2026-03-06T02:00:00.000Z", null]);
+  await tickAt("09:06:10");
+  expect(await row()).toEqual(["active", 3, "2026-03-06T02:00:00.000Z", null]);
+  await tickAt("09:35:10");
+  expect(await row()).toEqual(["active", 3, "2026-03-06T02:00:00.000Z", null]);
+  await tickAt("09:36:10");
+  expect(await row()).toEqual(["done", 4, "2026-03-06T02:00:00.000Z", "Could not post after 4 attempts: Missing Access"]);
 
   channel.send = send;
-  s.clock.advance(60_000);
-  await s.scheduler.tick();
+  await tickAt("09:37:10");
   expect(posts(s)).toEqual([]);
+});
+
+discordScenario("a weekly Reminder whose channel refuses posts is retried, then moves to next week with the error kept, and posts there", async (s) => {
+  s.clock.set("2026-03-06T14:00:00+07:00"); // Friday
+  s.model.script({ tool: "createReminder", args: { text: "standup", recurrence: "weekly", weekdays: ["monday"], time: "09:00" } }, "ok");
+  const ask = await s.discord.send(`${s.discord.mention} remind me every Monday at 09:00: standup`, { channel: "channel-2" });
+  const channel: any = s.discord.channel(ask.thread!.id);
+  const send = channel.send;
+  channel.send = async () => { throw new Error("Missing Access"); };
+  const schedules = await SCHEDULES();
+  const row = async () => { const [r] = await schedules.list(); return [r.status, r.attempts, r.nextAt.toISOString(), r.error]; };
+
+  for (const time of ["09:00:10", "09:01:10", "09:06:10", "09:36:10"]) { s.clock.set(`2026-03-09T${time}+07:00`); await s.scheduler.tick(); }
+  expect(await row()).toEqual(["active", 0, "2026-03-16T02:00:00.000Z", "Could not post after 4 attempts: Missing Access"]);
+
+  channel.send = send;
+  s.clock.set("2026-03-16T09:00:10+07:00");
+  await s.scheduler.tick();
+  expect(posts(s)).toEqual([`<@${s.discord.alice.id}> Pengingat: standup`]);
+  expect(await row()).toEqual(["active", 0, "2026-03-23T02:00:00.000Z", null]);
 });
 
 discordScenario("a monthly Reminder on the 31st lands on the last day of a shorter month, and ends after its until date", async (s) => {
