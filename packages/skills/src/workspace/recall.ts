@@ -23,7 +23,7 @@ export const RECALL_BUDGET = 11_000;
 
 export const recallTool: ToolDefinition = {
   name: "recall",
-  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A kept file marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are.",
+  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A kept file marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are. notLogged, given when no kept file answers, names the channels searched that keep no Daily logs.",
   parameters: {
     type: "object",
     properties: {
@@ -110,6 +110,7 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
   })) : [];
   const planeItems = "data" in plane ? (plane.data.items as any[]).slice(0, RECALL_PART).map((w) => ({ ref: refFor(ctx, "P"), label: `${w.key} "${clip(w.name, TITLE_CHARS)}" (${w.state ?? "?"})`, url: w.url })) : [];
 
+  const notLogged = !keptItems.length || kept.nothingStrong ? await unlogged(store, ctx.tenantId, sources) : [];
   const notShownHere = kept.notShown + ("data" in tasks ? tasks.data.notShownHere ?? 0 : 0);
   const unavailable = Object.fromEntries(([["tasks", tasks], ["git", git], ["plane", plane]] as const).flatMap(([name, p]) => ("unavailable" in p ? [[name, p.unavailable]] : [])));
   const nothingFound = [["kept", keptItems], ["tasks", taskItems], ["git", workItems], ["plane", planeItems]]
@@ -120,8 +121,16 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
     ...(nothingFound.length ? { nothingFound } : {}),
     ...(Object.keys(unavailable).length ? { unavailable } : {}),
     ...(notShownHere ? { notShownHere, suggestion: t.notShownHere(notShownHere) } : {}),
+    ...(notLogged.length ? { notLogged } : {}),
   };
   return withinBudget(result);
+}
+
+/** The quotable channels among `sources` that keep no Daily logs: talk there that nobody asked to keep cannot be found after a day. */
+async function unlogged(store: ReturnType<typeof workspaceStore>, tenantId: string, sources: Source[]) {
+  const channels = sources.filter((s) => s.channelId && !s.threadId && s.quotable);
+  const empty = await Promise.all(channels.map(async (s) => !(await store.files(tenantId, `${s.folder}/daily-logs`)).length));
+  return channels.filter((_, i) => empty[i]).map((s) => s.label);
 }
 
 /** Drops matching lines, then the lowest-ranked item of the longest part, until the result fits RECALL_BUDGET characters. */

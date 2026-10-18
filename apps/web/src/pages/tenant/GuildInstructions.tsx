@@ -134,7 +134,7 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
               </fieldset>
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">Daily logs</legend>
-                <p className="text-xs text-muted-foreground">Every night after midnight, writes a record of the day's talk in this channel that people can ask about later. It is never posted. Turning it on posts one notice in the channel. Another bot of this tenant cannot log the same channel.</p>
+                <p className="text-xs text-muted-foreground">Every night after midnight, writes a record of the day's talk in this channel that people can ask about later. It is never posted. Turning it on posts one notice in the channel. Another bot of this tenant cannot log the same channel. In a channel without Daily logs, talk nobody asked the bot to keep cannot be found after a day; the bot says so when a search there finds nothing.</p>
                 {textChannels.length === 0 ? <p className="text-sm text-muted-foreground">No text channels visible to this bot.</p> : (
                   <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
                     {textChannels.map((c) => {

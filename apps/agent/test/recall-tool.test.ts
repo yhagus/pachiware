@@ -139,3 +139,29 @@ discordScenario("two recall calls in one turn give refs that do not repeat", asy
   expect(first.kept.map((k: any) => k.ref)).toEqual(["K1"]);
   expect(second.kept.map((k: any) => k.ref)).toEqual(["K2"]);
 });
+
+const DAILY_LOG = "# Daily log #audio, 2026-10-05\n\n## Topics\n1. Mixing: stems [↗](https://discord.com/channels/guild-1/channel-2/7001)\n";
+
+discordScenario("recall that finds nothing kept names the quotable channels it searched that keep no Daily logs, never a channel it cannot show here", async (s) => {
+  await channels(s);
+  await s.workspace.write(`${GENERAL}/notes/2026-10-01-lunch.md`, "Lunch is at noon on Fridays.\n");
+  await s.workspace.write(`${AUDIO}/daily-logs/2026-10/2026-10-05.md`, DAILY_LOG);
+  await s.workspace.write(`${DIREKSI}/notes/2026-10-02-board.md`, "The board meets quarterly.\n");
+  const [result] = await recall(s, [{ queries: ["anggaran kantor", "office budget"] }]);
+  expect(result.kept).toEqual([]);
+  expect(result.notLogged).toEqual(["#general"]);
+});
+
+discordScenario("recall with a strong match, or from channels that all keep Daily logs, names nothing under notLogged", async (s) => {
+  await channels(s);
+  await s.workspace.write(`${AUDIO}/minutes/2026-09-01-loudness.md`, MINUTES);
+  const [strong] = await recall(s, [QUERIES]);
+  expect(strong.kept).toHaveLength(1);
+  expect(strong.notLogged).toBeUndefined();
+
+  await s.workspace.write(`${GENERAL}/daily-logs/2026-10-04.md`, "# Daily log #general, 2026-10-04\n\n## Topics\n1. Lunch [↗](https://discord.com/channels/guild-1/channel-1/7000)\n");
+  await s.workspace.write(`${AUDIO}/daily-logs/2026-10/2026-10-05.md`, DAILY_LOG);
+  const [none] = await recall(s, [{ queries: ["anggaran kantor", "office budget"] }]);
+  expect(none.kept).toEqual([]);
+  expect(none.notLogged).toBeUndefined();
+});
