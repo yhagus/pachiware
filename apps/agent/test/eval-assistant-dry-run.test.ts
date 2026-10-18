@@ -319,6 +319,26 @@ discordScenario("dry run: recall-daily-log-only finds the #podcast Daily log by 
   expect(output.turns[0].replies).toEqual(["Decided: #podcast, 2026-10-09 (Daily log): the podcast moves from Anchor to Transistor after episode 45. Who moves the RSS feed was still open."]);
 });
 
+discordScenario("dry run: recall-done-pull-request finds no kept material or Task, and the merged pull request in a repository open here", async (s) => {
+  const queries = ["podcast audio normalization", "normalize podcast audio", "normalisasi audio podcast"];
+  s.model.script(
+    [{ tool: "searchFiles", args: { queries } }, { tool: "listTasks", args: { scope: "anywhere", queries } }, { tool: "repoSearchWork", args: { queries } }],
+    (turn) => {
+      const [files, tasks, git] = turn.toolResults;
+      const pr = git.items[0];
+      return [
+        `Done or not: pull request #${pr.number} "${pr.title}" in ${pr.repo}, ${pr.state} on ${pr.date.slice(0, 10)}: ${pr.url}`,
+        `Nothing found: ${files.groups?.length ?? 0} kept files and ${tasks.total} Tasks mention it.`,
+      ].join("\n");
+    },
+  );
+  const output = await dryRun(s, "recall-done-pull-request");
+  expect(output.turns[0].replies).toEqual([[
+    `Done or not: pull request #42 "Normalize podcast audio to -16 LUFS" in acme/podcast, merged on 2026-10-12: https://github.com/acme/podcast/pull/42`,
+    "Nothing found: 0 kept files and 0 Tasks mention it.",
+  ].join("\n")]);
+});
+
 discordScenario("dry run: a judge over HTTP grades a daily-behaviour trial, and the report reads per turn", async (s) => {
   const { runAssistantTrial } = await import(`${EVAL()}/assistantRun.ts`);
   const { loadAssistantFixtures } = await import(`${EVAL()}/assistantFixtures.ts`);

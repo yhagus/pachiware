@@ -581,6 +581,41 @@ export async function searchIssues(c: GitConn, repo: string, query: string, page
     : (await call(c, `${repoRef(c, repo)}/issues?state=opened&${paged(page)}&search=${encodeURIComponent(query)}`)) ?? [];
   return pageOf(rows, rows.map((r) => ({ number: r.number ?? r.iid, title: r.title, state: normState(r.state), url: r.html_url ?? r.web_url })));
 }
+/** One issue, pull/merge request or commit that may answer "is it done?". A pull request's state is merged, open or closed; a commit's is committed. */
+export interface WorkHit { repo: string; kind: "issue" | "pull_request" | "commit"; number?: number; sha?: string; title: string; state: string; date: string | null; url: string }
+const RECENT_COMMITS = 100;
+/**
+ * Issues and pull/merge requests of every state that the provider's search matches to one of `queries`, plus those of the
+ * latest 100 commits on the default branch whose message holds every word of one of them. Newest first.
+ */
+export async function searchWork(c: GitConn, repo: string, queries: string[]): Promise<WorkHit[]> {
+  const gh = c.provider === "github", ref = repoRef(c, repo), hits = new Map<string, WorkHit>();
+  const add = (h: WorkHit) => { if (!hits.has(h.url)) hits.set(h.url, h); };
+  for (const q of queries) {
+    if (gh) {
+      const rows: any[] = (await call(c, `/search/issues?per_page=20&q=${encodeURIComponent(`${q} repo:${repo}`)}`))?.items ?? [];
+      for (const r of rows) {
+        const mergedAt = r.pull_request?.merged_at ?? null;
+        add({ repo, kind: r.pull_request ? "pull_request" : "issue", number: r.number, title: r.title, state: mergedAt ? "merged" : r.state, date: mergedAt ?? r.closed_at ?? r.updated_at ?? null, url: r.html_url });
+      }
+    } else {
+      const search = `state=all&per_page=20&search=${encodeURIComponent(q)}`;
+      for (const r of ((await call(c, `${ref}/merge_requests?${search}`)) ?? []) as any[])
+        add({ repo, kind: "pull_request", number: r.iid, title: r.title, state: normState(r.state), date: r.merged_at ?? r.closed_at ?? r.updated_at ?? null, url: r.web_url });
+      for (const r of ((await call(c, `${ref}/issues?${search}`)) ?? []) as any[])
+        add({ repo, kind: "issue", number: r.iid, title: r.title, state: normState(r.state), date: r.closed_at ?? r.updated_at ?? null, url: r.web_url });
+    }
+  }
+  const wanted = queries.map((q) => q.toLowerCase().split(/\s+/).filter(Boolean)).filter((w) => w.length);
+  const commits: any[] = (await call(c, `${ref}/${gh ? "commits" : "repository/commits"}?per_page=${RECENT_COMMITS}`)) ?? [];
+  for (const r of commits) {
+    const message = String((gh ? r.commit?.message : r.message ?? r.title) ?? "");
+    const text = message.toLowerCase();
+    if (!wanted.some((words) => words.every((w) => text.includes(w)))) continue;
+    add({ repo, kind: "commit", sha: String(r.sha ?? r.id).slice(0, 10), title: message.split("\n")[0]!, state: "committed", date: (gh ? r.commit?.author?.date : r.created_at) ?? null, url: r.html_url ?? r.web_url });
+  }
+  return [...hits.values()].sort((a, b) => (Date.parse(b.date ?? "") || 0) - (Date.parse(a.date ?? "") || 0));
+}
 /** A link to `path` as it was at commit `sha`, so it keeps showing what was read. */
 export function blobUrl(c: GitConn, repo: string, sha: string, path: string) {
   const host = c.baseUrl?.replace(/\/+$/, "") ?? (c.provider === "github" ? "https://github.com" : "https://gitlab.com");

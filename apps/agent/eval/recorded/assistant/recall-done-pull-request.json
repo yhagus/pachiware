@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "recall-done-pull-request",
+  "turns": [
+    {
+      "n": 1,
+      "message": "is the audio normalization for the podcast done? I don't think it ever came up in a meeting.",
+      "replies": [
+        "Done or not: pull request #42 \"Normalize podcast audio to -16 LUFS\" in acme/podcast, merged on 2026-10-12: https://github.com/acme/podcast/pull/42\nNothing found: 0 kept files and 0 Tasks mention it."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}
