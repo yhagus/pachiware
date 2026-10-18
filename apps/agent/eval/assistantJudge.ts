@@ -49,6 +49,20 @@ const supportedPrompt = (f: AssistantFixture, r: AssistantResult, t: AssistantTu
 
 const QUIET: Graded = { reasoning: "A quiet turn: the code checks grade it.", verdict: "yes" };
 
+/** One question the judge is asked about a run, named as calibration names it: `fact <n>`, or `behaviour` or `supported` with its turn. */
+export interface JudgeQuestion { criterion: string; turn?: number; system: string; user: string }
+/** Every question the judge is asked about a run, word for word: per must-cover fact, then per turn that is not quiet. A run with no turn asks none. */
+export function judgeQuestions(result: AssistantResult, fixture: AssistantFixture): JudgeQuestion[] {
+  if (!result.turns.length) return [];
+  return [
+    ...fixture.facts.mustCover.map((fact, i) => ({ criterion: `fact ${i + 1}`, system: SYSTEM, user: factPrompt(fixture, result, fact) })),
+    ...result.turns.filter((t) => !fixture.facts.turns[t.n - 1]?.quiet).flatMap((t) => [
+      { criterion: "behaviour", turn: t.n, system: SYSTEM, user: behaviourPrompt(fixture, result, t) },
+      { criterion: "supported", turn: t.n, system: SYSTEM, user: supportedPrompt(fixture, result, t) },
+    ]),
+  ];
+}
+
 export interface AssistantJudgement {
   facts: ({ fact: string } & Graded)[];
   turns: { n: number; behaviour: Graded; supported: Graded }[];

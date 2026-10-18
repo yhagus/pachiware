@@ -31,10 +31,10 @@ export function loadCalibration(version: string, dir = join(EVAL_DIR, "calibrati
   return raw;
 }
 
-const key = (criterion: string, turn?: number) => (turn === undefined ? criterion : `${criterion}@${turn}`);
+export const key = (criterion: string, turn?: number) => (turn === undefined ? criterion : `${criterion}@${turn}`);
 
-/** Every verdict the judge gave on a trial, by criterion and turn. */
-function verdictsOf(result: ScoredResult): Map<string, Verdict> {
+/** Every verdict the judge gave on a trial, by criterion and turn (`criterion@turn`). */
+export function verdictsOf(result: ScoredResult): Map<string, Verdict> {
   const j = result.judged as any, out = new Map<string, Verdict>();
   (j.facts ?? []).forEach((f: any, i: number) => out.set(key(`fact ${i + 1}`), f.verdict));
   for (const t of j.turns ?? []) { out.set(key("behaviour", t.n), t.behaviour.verdict); out.set(key("supported", t.n), t.supported.verdict); }
@@ -45,8 +45,8 @@ function verdictsOf(result: ScoredResult): Map<string, Verdict> {
 
 const share = (agreed: number, of: number, noun = "") => `${agreed} of ${of}${noun}${of ? ` (${Math.round((agreed / of) * 100)}%)` : ""}`;
 
-/** The agreement text for the items of `run`, or null when the file grades nothing of it. */
-export function agreementText(version: string, run: string, trials: Map<string, ScoredResult>, items: CalibrationItem[]): string | null {
+/** The agreement text for the items of `run`, or null when the file grades nothing of it. `source` names where the grades were read. */
+export function agreementText(version: string, run: string, trials: Map<string, ScoredResult>, items: CalibrationItem[], source = `calibration/${version}.yaml`): string | null {
   const mine = items.filter((i) => i.run === run);
   if (!mine.length) return null;
   const where = (i: CalibrationItem) => `${i.trial}, ${i.criterion}${i.turn === undefined ? "" : `, turn ${i.turn}`}`;
@@ -62,7 +62,7 @@ export function agreementText(version: string, run: string, trials: Map<string, 
   const graded = [...criteria.values()].reduce((a, c) => a + c.graded, 0), agreed = [...criteria.values()].reduce((a, c) => a + c.agreed, 0);
   const frozen = graded >= FREEZE.items && agreed / graded >= FREEZE.agreement;
   return [
-    `Agreement with the human grades in calibration/${version}.yaml: ${share(agreed, graded, " items")}.`,
+    `Agreement with the human grades in ${source}: ${share(agreed, graded, " items")}.`,
     ...[...criteria].sort(([a], [b]) => a.localeCompare(b)).map(([kind, c]) => `- ${kind}: ${share(c.agreed, c.graded)}`),
     `The rubric freezes at 1.0 at ${FREEZE.agreement * 100}% or more on at least ${FREEZE.items} items: ${frozen ? "met; set it to 1.0 and record it under Frozen rubric versions in README.md" : `not yet, ${graded} graded`}.`,
     ...(disagreements.length ? ["", "Disagreements:", ...disagreements] : []),
