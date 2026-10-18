@@ -1,4 +1,4 @@
-import { workspaceStore, renderFrontmatter, asUntrusted, redact, loadPlaybook, listPlaybooks, availabilityPlace, skillRegistry, jumpLink, wallClock, wallToInstant, type Playbook } from "@pachiware/skills";
+import { workspaceStore, WorkspaceConflict, parseFrontmatter, renderFrontmatter, asUntrusted, redact, loadPlaybook, listPlaybooks, availabilityPlace, skillRegistry, jumpLink, wallClock, wallToInstant, type Playbook } from "@pachiware/skills";
 import { botCompletion } from "../llm/completion.js";
 import { stamp, transcript, type DiscordJSAdapter, type HistoryCut } from "./adapter.js";
 
@@ -97,8 +97,8 @@ export function parseDailyLog(content: string | null, links: string[], corpus: s
 
 type Header = { count: number; participants: string[]; cut: HistoryCut | null };
 
-/** Items are numbered across all sections, as in Minutes; every item ends with its message links. */
-function render(run: DailyLogRun, h: Header, log: DailyLog) {
+/** Items are numbered across all sections, as in Minutes; every item ends with its message links. `leaveOutEmpty` drops a part with no items instead of saying "None". */
+function render(run: DailyLogRun, h: Header, log: DailyLog, leaveOutEmpty = false) {
   let n = 0;
   const row = (text: string, links: string[]) => `${++n}. ${text} ${links.map((l) => `[↗](${l})`).join(" ")}`;
   const keywords = (t: Topic) => [...t.keywords.id, ...t.keywords.en];
@@ -109,12 +109,15 @@ function render(run: DailyLogRun, h: Header, log: DailyLog) {
     `${h.count} messages from ${h.participants.join(", ")}`,
     ...(h.cut ? [`*Only the last ${h.count} messages were read: everything before ${stamp(h.cut.keptFrom)} UTC was left out.*`] : []),
   ].join("\n");
+  const parts: [string, string[]][] = [
+    [log.labels.topics, log.topics.map((t) => row(keywords(t).length ? `${t.name}: ${keywords(t).join(", ")}` : t.name, t.links))],
+    [log.labels.decided, log.decided.map((i) => row(i.text, i.links))],
+    [log.labels.open, log.open.map((i) => row(i.text, i.links))],
+    [log.labels.next, log.next.map((a) => row(`${a.owner ? `**${a.owner}**` : `*${log.labels.noOwner}*`}: ${a.task}${a.due ? ` (${log.labels.due} ${a.due})` : ""}`, a.links))],
+  ];
   return [
     `# Daily log #${run.channelName}, ${run.day}\n\n${head}`,
-    block(log.labels.topics, log.topics.map((t) => row(keywords(t).length ? `${t.name}: ${keywords(t).join(", ")}` : t.name, t.links))),
-    block(log.labels.decided, log.decided.map((i) => row(i.text, i.links))),
-    block(log.labels.open, log.open.map((i) => row(i.text, i.links))),
-    block(log.labels.next, log.next.map((a) => row(`${a.owner ? `**${a.owner}**` : `*${log.labels.noOwner}*`}: ${a.task}${a.due ? ` (${log.labels.due} ${a.due})` : ""}`, a.links))),
+    ...parts.filter(([, rows]) => rows.length || !leaveOutEmpty).map(([label, rows]) => block(label, rows)),
   ].join("\n\n");
 }
 
@@ -122,11 +125,36 @@ function render(run: DailyLogRun, h: Header, log: DailyLog) {
  * The fields at the top keep the log whole, so a later change (a deleted message) can rewrite the file from them.
  * `topics` and `keywords` end the head, as `addKeywords` writes them on other kept material.
  */
-function recordText(run: DailyLogRun, h: Header, log: DailyLog) {
+function recordText(run: Omit<DailyLogRun, "adapter" | "botId" | "tenantId">, h: Header, log: DailyLog, leaveOutEmpty = false) {
   const fields = {
     kind: "daily-log", guildId: run.guildId, channelId: run.channelId, channel: run.channelName, day: run.day, timezone: run.timezone,
     header: h, log,
     topics: log.topics.map((t) => t.name), keywords: [...new Set(log.topics.flatMap((t) => [...t.keywords.id, ...t.keywords.en]))],
   };
-  return renderFrontmatter(fields, `${render(run, h, log)}\n`);
+  return renderFrontmatter(fields, `${render(run as DailyLogRun, h, log, leaveOutEmpty)}\n`);
+}
+
+/** A message deleted in Discord: its link leaves `channelId`'s Daily logs, i.e. the parent channel's for a thread's message. */
+export interface DeletedMessage { tenantId: string; guildId: string; channelId: string; messageChannelId: string; messageId: string; createdAt: number }
+
+/**
+ * Takes a deleted message's link out of the Daily log holding it; an item left with no link goes, and so does a part left empty.
+ * Only the files of the days around the message's creation are read: any place's zone puts it within a day of its UTC date.
+ */
+export async function forgetDeletedMessage(m: DeletedMessage) {
+  const store = workspaceStore(), link = jumpLink(m.guildId, m.messageChannelId, m.messageId);
+  const days = [-DAY_MS, 0, DAY_MS].map((d) => new Date(m.createdAt + d).toISOString().slice(0, 10));
+  for (const day of days) {
+    const path = dailyLogPath(m.guildId, m.channelId, day);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const file = await store.read(m.tenantId, path);
+      if (!file?.content.includes(link)) break;
+      const fields = parseFrontmatter(file.content)?.fields as any;
+      if (!fields?.log) break;
+      const keep = <T extends { links: string[] }>(items: T[]) => items.map((i) => ({ ...i, links: i.links.filter((l) => l !== link) })).filter((i) => i.links.length);
+      const log: DailyLog = { ...fields.log, topics: keep(fields.log.topics), decided: keep(fields.log.decided), open: keep(fields.log.open), next: keep(fields.log.next) };
+      const run = { guildId: fields.guildId, channelId: fields.channelId, channelName: fields.channel, day: fields.day, timezone: fields.timezone };
+      try { await store.write(m.tenantId, path, recordText(run, fields.header, log, true), file.version); return; } catch (e) { if (!(e instanceof WorkspaceConflict)) throw e; }
+    }
+  }
 }
