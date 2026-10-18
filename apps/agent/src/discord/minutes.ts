@@ -10,6 +10,8 @@ import { HISTORY_PAGE, HISTORY_PAGES, HISTORY_SPAN_MS, stamp, transcript, type D
 export const MINUTES_PLAYBOOK = "minutes";
 /** "@bot minutes" in a channel with no start point covers this much. */
 export const RECENT_MS = 3 * 3600_000;
+/** Minutes read up to this many pages of 100 messages (still 24 hours at most), and one model call reads PART of them; a longer discussion is read in parts and the parts joined (#246). */
+const MINUTES_PAGES = 20, PART = 500;
 const EMBED_LIMIT = 4096;
 const FILE_NAME = "minutes.md";
 
@@ -60,21 +62,27 @@ export type MinutesPayload = { embeds: any[]; files: { attachment: Buffer; name:
 /** Reads the range, has the model write the content, then posts and stores the minutes. Returns what to tell the requester when it could not. */
 export async function writeMinutes(run: MinutesRun, now = clockNow()): Promise<string | null> {
   const range = run.parentId ? {} : run.startId ? { startId: run.startId } : { since: now - RECENT_MS };
-  const { messages, cut } = await run.adapter.readHistory(run.channelId, { ...range, skipIds: run.skipIds }, now);
+  const { messages, cut } = await run.adapter.readHistory(run.channelId, { ...range, skipIds: run.skipIds }, now, MINUTES_PAGES);
   const language = replyLanguage(messages.filter((m) => !m.own).map((m) => m.text).join("\n")), t = textIn(language);
   if (!messages.some((m) => !m.own)) return t.minutesEmpty;
-  const links = messages.map((m) => jumpLink(run.guildId, m.channelId, m.id));
-  const corpus = messages.map((m) => `${m.speaker}\n${m.text}`).join("\n");
   const folder = minutesFolder({ guildId: run.guildId, channelId: run.channelId, parentChannelId: run.parentId ?? undefined, privateThread: run.privateThread });
   // The open points of this place's previous Minutes go along, so the ones nobody settled are raised again (#250).
   const previous = await stillOpen(run.tenantId, folder, run.timezone);
   const earlier = previous.length ? `\n\nOpen points of the previous minutes, by number:\n${previous.map((p, i) => `${i + 1}. ${p.text}`).join("\n")}` : "";
-  const response = await llmRouter.complete([
-    { role: "system", content: systemPrompt(run.playbook) },
-    { role: "user", content: `Messages, oldest first${cut ? `. ${cutNote(cut, false, "en")}` : ""}:\n${asUntrusted("discord:history", transcript(messages))}${earlier}` },
-  ], { tenantId: run.tenantId, botId: run.botId }).catch(() => null);
-  const minutes = response && response.finishReason !== "error" ? parseMinutes(response.content, links, corpus, LABELS, previous) : null;
-  if (!minutes) return t.minutesFailed;
+  const parts: Minutes[] = [], count = Math.ceil(messages.length / PART);
+  for (let from = 0; from < messages.length; from += PART) {
+    const part = messages.slice(from, from + PART);
+    const which = count > 1 ? `, part ${from / PART + 1} of ${count} (messages ${from + 1}-${from + part.length} of ${messages.length})` : "";
+    const response = await llmRouter.complete([
+      { role: "system", content: systemPrompt(run.playbook) },
+      { role: "user", content: `Messages, oldest first${which}${cut ? `. ${cutNote(cut, false, "en")}` : ""}:\n${asUntrusted("discord:history", transcript(part))}${earlier}` },
+    ], { tenantId: run.tenantId, botId: run.botId }).catch(() => null);
+    const links = part.map((m) => jumpLink(run.guildId, m.channelId, m.id)), corpus = part.map((m) => `${m.speaker}\n${m.text}`).join("\n");
+    const minutes = response && response.finishReason !== "error" ? parseMinutes(response.content, links, corpus, LABELS, previous) : null;
+    if (!minutes) return t.minutesFailed;
+    parts.push(minutes);
+  }
+  const minutes = joinMinutes(parts);
   const header: Header = { from: messages[0]!.at, to: messages.at(-1)!.at, count: messages.length, participants: [...new Set(messages.filter((m) => !m.own).map((m) => m.speaker))], cut, language };
   const file = await freeName(run.tenantId, folder, `${isoInZone(run.timezone, now).slice(0, 10)}-${slug(minutes.title)}`);
   const payload = payloadOf(minutes, header, file);
@@ -203,6 +211,21 @@ export function parseMinutes(content: string | null, links: string[], corpus: st
   return { title: clean(raw.title).slice(0, 200) || "Minutes", decided: items(raw.decided), open: items(raw.open), actions, labels, ...(carried.length ? { carried } : {}) };
 }
 
+/**
+ * One Minutes from the parts of a long discussion, in order: the first part's title and labels, every part's items with an item said twice
+ * kept once, and an earlier open point carried only when no part settled it.
+ */
+export function joinMinutes(parts: Minutes[]): Minutes {
+  if (parts.length === 1) return parts[0]!;
+  const once = <T extends { link: string }>(items: T[], key: (i: T) => string) => { const seen = new Set<string>(); return items.filter((i) => !seen.has(key(i).toLowerCase()) && !!seen.add(key(i).toLowerCase())); };
+  const carried = (parts[0]!.carried ?? []).filter((c) => parts.every((p) => p.carried?.some((x) => x.text === c.text && x.link === c.link)));
+  return {
+    title: parts[0]!.title, labels: parts[0]!.labels,
+    decided: once(parts.flatMap((p) => p.decided), (i) => i.text), open: once(parts.flatMap((p) => p.open), (i) => i.text), actions: once(parts.flatMap((p) => p.actions), (a) => `${a.owner ?? ""}:${a.task}`),
+    ...(carried.length ? { carried } : {}),
+  };
+}
+
 /** The open points of the newest Minutes in `folder`, with those it carried itself, each dated by the Minutes it was first open in. */
 async function stillOpen(tenantId: string, folder: string, timezone: string): Promise<CarriedItem[]> {
   const names = (await workspaceStore().files(tenantId, folder).catch(() => [])).map((f) => f.path).filter((p) => p.endsWith(".md")).sort();
@@ -220,7 +243,7 @@ async function stillOpen(tenantId: string, folder: string, timezone: string): Pr
 
 function cutNote(cut: HistoryCut, embed: boolean, language?: Language) {
   const when = embed ? `<t:${Math.floor(cut.keptFrom / 1000)}:f>` : `${stamp(cut.keptFrom)} UTC`, t = textIn(language);
-  return cut.reason === "count" ? t.minutesCutCount(HISTORY_PAGE * HISTORY_PAGES, when) : t.minutesCutHours(HISTORY_SPAN_MS / 3600_000, when);
+  return cut.reason === "count" ? t.minutesCutCount(cut.limit ?? HISTORY_PAGE * HISTORY_PAGES, when) : t.minutesCutHours(HISTORY_SPAN_MS / 3600_000, when);
 }
 
 /** Items are numbered across all sections, so "point 2" names one item. */

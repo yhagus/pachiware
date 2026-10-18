@@ -68,20 +68,41 @@ discordScenario("any minutes trigger inside a thread covers the whole thread fro
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/threads")).toEqual([]);
 });
 
-discordScenario("a range over 500 messages keeps the latest 500, in at most 5 reads, and says what was cut", async (s) => {
+// A long discussion is read in parts of 500 messages and the parts joined, up to 2,000 messages (#246).
+discordScenario("a range over 500 messages is read in parts of 500, each part's items keep their own links, and the parts are joined in order", async (s) => {
   const now = Date.now();
   const sent = s.discord.history(Array.from({ length: 520 }, (_, i) => ({ content: `point number ${i}`, at: now - (600 - i) * 1000 })));
-  s.model.script(JSON.stringify({ title: "Long talk", decided: [], open: [{ text: "Nothing settled", ref: 1 }], actions: [] }));
+  s.model.script(
+    JSON.stringify({ title: "Long talk", decided: [{ text: "Ship on Friday", ref: 3 }], open: [{ text: "Nothing settled", ref: 1 }], actions: [] }),
+    JSON.stringify({ title: "Long talk, part two", decided: [{ text: "Ship on Friday", ref: 2 }], open: [], actions: [{ owner: null, task: "Write the notes", due: null, ref: 20 }] }),
+  );
   await s.discord.contextMenu("Write minutes", sent[0]!);
 
-  const transcript = s.model.calls[0]!.filter((m) => m.role === "user").map((m) => m.content).join("\n");
-  expect(transcript).toContain("point number 519");
-  expect(transcript).toContain("point number 20");
-  expect(transcript).not.toContain("point number 19\n");
-  expect(s.discord.channel("channel-1").fetches).toBeLessThanOrEqual(5);
-  const description = s.discord.botMessages[0]!.embeds[0].description;
-  expect(description).toContain("Cut to the latest 500 messages");
-  expect(description).toContain(`https://discord.com/channels/guild-1/channel-1/${sent[20]!.id}`);
+  const first = s.model.calls[0]!.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+  const second = s.model.calls[1]!.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+  expect(first).toContain("part 1 of 2 (messages 1-500 of 520)");
+  expect(first).toContain("point number 0\n");
+  expect(first).toContain("point number 499");
+  expect(second).toContain("part 2 of 2 (messages 501-520 of 520)");
+  expect(second).toContain("point number 519");
+  const description = s.discord.botMessages[0]!.embeds[0].description as string;
+  expect(description).not.toContain("Cut to the latest");
+  expect(description).toContain(`1. Ship on Friday [↗](https://discord.com/channels/guild-1/channel-1/${sent[2]!.id})`);
+  expect(description).not.toContain(sent[501]!.id);
+  expect(description).toContain(`3. *no owner yet*: Write the notes [↗](https://discord.com/channels/guild-1/channel-1/${sent[519]!.id})`);
+});
+
+discordScenario("a range over 2,000 messages keeps the latest 2,000, in at most 20 reads, and says what was cut", async (s) => {
+  const now = Date.now();
+  const sent = s.discord.history(Array.from({ length: 2010 }, (_, i) => ({ content: `point number ${i}`, at: now - (3000 - i) * 1000 })));
+  const part = JSON.stringify({ title: "Very long talk", decided: [], open: [{ text: "Nothing settled", ref: 1 }], actions: [] });
+  s.model.script(part, part, part, part);
+  await s.discord.contextMenu("Write minutes", sent[0]!);
+  expect(s.model.calls).toHaveLength(4);
+  expect(s.discord.channel("channel-1").fetches).toBeLessThanOrEqual(20);
+  const description = s.discord.botMessages[0]!.embeds[0].description as string;
+  expect(description).toContain("Cut to the latest 2000 messages");
+  expect(description).toContain(`https://discord.com/channels/guild-1/channel-1/${sent[10]!.id}`);
 });
 
 discordScenario("a thread longer than 24 hours keeps the last 24 hours and says what was cut", async (s) => {

@@ -41,7 +41,8 @@ export interface HistoryMessage {
 /** Where the stretch to read starts: a message (inclusive), a time, or neither for a whole thread. */
 export type HistoryRange = { startId?: string; since?: number; skipIds?: string[] };
 /** Why the read stopped before the start of the range, and the oldest time it kept. */
-export type HistoryCut = { reason: "count" | "time"; keptFrom: number };
+/** Why reading stopped early; `limit` is how many messages a count cut stopped at, when not the usual 500. */
+export type HistoryCut = { reason: "count" | "time"; keptFrom: number; limit?: number };
 export type HistoryAccess = { ok: true } | { ok: false; who: "requester" | "bot"; missing: string[] } | { ok: false; who: "dm" };
 
 export const HISTORY_PAGE = 100;
@@ -338,15 +339,15 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
   }
 
   /**
-   * Reads a channel or thread backwards, 100 messages per call, at most 5 calls and 24 hours back.
+   * Reads a channel or thread backwards, 100 messages per call, at most `pages` calls (5 unless a caller such as Minutes reads more) and 24 hours back.
    * Other bots and system messages are skipped; a whole thread includes its starter message.
    */
-  async readHistory(channelId: string, range: HistoryRange = {}, now = clockNow()): Promise<{ messages: HistoryMessage[]; cut: HistoryCut | null }> {
+  async readHistory(channelId: string, range: HistoryRange = {}, now = clockNow(), pages = HISTORY_PAGES): Promise<{ messages: HistoryMessage[]; cut: HistoryCut | null }> {
     const channel: any = await this.client.channels.fetch(channelId);
     const inRange = (m: Message) => (!range.startId || BigInt(m.id) >= BigInt(range.startId)) && m.createdTimestamp >= (range.since ?? 0);
     const read: Message[] = [];
     let before: string | undefined, cut: HistoryCut | null = null, done = false;
-    for (let page = 0; page < HISTORY_PAGES && !done; page++) {
+    for (let page = 0; page < pages && !done; page++) {
       const batch: Message[] = [...(await channel.messages.fetch({ limit: HISTORY_PAGE, before, cache: false })).values()];
       for (const m of batch) {
         if (!inRange(m)) { done = true; break; }
@@ -356,7 +357,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
       if (batch.length < HISTORY_PAGE) done = true;
       before = batch.at(-1)?.id;
     }
-    if (!done) cut = { reason: "count", keptFrom: read.at(-1)?.createdTimestamp ?? now };
+    if (!done) cut = { reason: "count", keptFrom: read.at(-1)?.createdTimestamp ?? now, ...(pages !== HISTORY_PAGES ? { limit: pages * HISTORY_PAGE } : {}) };
     if (!cut && channel.isThread() && !range.startId && !range.since) {
       const starter = await channel.fetchStarterMessage?.().catch(() => null);
       if (starter && !read.some((m) => m.id === starter.id)) read.push(starter);
