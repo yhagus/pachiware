@@ -7,6 +7,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_TIMEZONE } from "../../../packages/skills/src/clock";
 import type { Language } from "../../../packages/skills/src/language";
 import { EVAL_DIR } from "./repository";
 
@@ -76,7 +77,11 @@ export interface AssistantFacts {
   attachments?: { name: string; pdf: string[] }[];
   mustCover: string[];
   turns: TurnFacts[];
-  then?: { clock: string; posts: { contains: string; pings: string[] }[] };
+  /**
+   * `dailyLog`: the day whose Daily log of the brief's channel the bot writes from the seeded talk before the brief is sent.
+   * `clock` and `posts`: the instant the scheduler ticks once after the conversation, and the Reminder posts expected then.
+   */
+  then?: { dailyLog?: string; clock?: string; posts?: { contains: string; pings: string[] }[] };
 }
 /** `authors` names who sends each message: Alice, unless a follow-up block names someone; a burst names one per line of its message. */
 export interface AssistantFixture { name: string; messages: string[]; authors?: string[][]; facts: AssistantFacts }
@@ -92,6 +97,9 @@ const memberNames = (facts: { members?: { name: string }[] }) => ["Alice", "Bob"
 const bare = (channel?: string) => (channel ?? "").replace(/^#/, "");
 /** When a seeded message was posted: its ISO time, or that many minutes before the clock. */
 export const seedTime = (at: string | number, clock: string) => (typeof at === "number" ? Date.parse(clock) - at * 60_000 : Date.parse(at));
+/** The place's zone, which says what day a message was posted on. */
+export const zoneOf = (facts: Pick<AssistantFacts, "settings">) => facts.settings?.timezone ?? DEFAULT_TIMEZONE;
+const dayIn = (zone: string, at: number) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
 
 const HEAD = /^@([^\n:]+):[ \t]*/;
 function spoken(name: string, block: string, n: number, members: string[]) {
@@ -150,7 +158,13 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
     checkTalk(name, raw);
     if (raw.seed?.git && !strings(raw.seed.git.repos, `${name} seed.git.repos`)?.length) throw new Error(`Fixture ${name}: seed.git needs the repository patterns its Git scope opens`);
     for (const f of raw.seed?.files ?? []) if (typeof f?.path !== "string" || typeof f.content !== "string" || f.path.startsWith("/") || f.path.split("/").includes("..")) throw new Error(`Fixture ${name}: each seed file needs a path below its channel's folder and a content`);
-    if (raw.then && (typeof raw.then.clock !== "string" || Number.isNaN(Date.parse(raw.then.clock)) || !Array.isArray(raw.then.posts))) throw new Error(`Fixture ${name}: then needs a clock and a list of posts`);
+    const then = raw.then;
+    if (then && (then.clock !== undefined || then.posts !== undefined) && (typeof then.clock !== "string" || Number.isNaN(Date.parse(then.clock)) || !Array.isArray(then.posts))) throw new Error(`Fixture ${name}: then needs a clock and a list of posts`);
+    if (then?.dailyLog !== undefined) {
+      if (typeof then.dailyLog !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(then.dailyLog)) throw new Error(`Fixture ${name}: then.dailyLog is a day, such as 2026-10-13`);
+      const zone = zoneOf(raw);
+      if (!(raw.seed?.messages ?? []).some((m: SeedMessage) => !bare(m.channel) && dayIn(zone, seedTime(m.at, raw.clock)) === then.dailyLog)) throw new Error(`Fixture ${name}: then.dailyLog ${then.dailyLog} has no seeded talk in the brief's channel that day`);
+    }
     const facts: AssistantFacts = { language: raw.language, area: raw.area, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), members: raw.members, seed: raw.seed, attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
     return { name, messages, authors, facts };
   });

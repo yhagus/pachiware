@@ -381,6 +381,33 @@ discordScenario("dry run: member-joins-thread files Bob's task as his, then answ
   expect(output.turns[2].replies).toEqual(["Dicatat di tugas cetak name tag peserta: dicetak 60 buah."]);
 });
 
+discordScenario("dry run: daily-log-from-talk writes the seeded day's Daily log before the brief, and the answer links the decision's message from it", async (s) => {
+  s.model.script(
+    (turn) => JSON.stringify({
+      topics: [{ name: "Vendor kaos gathering", keywords: { id: ["vendor kaos", "sablon"], en: ["t-shirt vendor"] }, refs: [numberOf(turn, "jadi siapa"), numberOf(turn, "sepakat")] }],
+      decided: [{ text: "Kaos gathering pakai Sablon Jaya", refs: [numberOf(turn, "sepakat")] }],
+      open: [],
+      next: [{ owner: "Dewi", task: "Kirim desain ke Sablon Jaya", due: "besok pagi", refs: [numberOf(turn, "desainnya")] }],
+    }),
+    { tool: "recall", args: { queries: ["vendor kaos", "Sablon Jaya", "t-shirt vendor"] } },
+    (turn) => ({ tool: "readFile", args: { path: turn.toolResults[0].kept[0].path } }),
+    (turn) => {
+      const [found, read] = turn.toolResults, line = (read.content as string).split("\n").find((l) => /^\d+\. .*pakai Sablon Jaya/.test(l))!;
+      return `Kemarin diputuskan pakai Sablon Jaya untuk kaos gathering (${line.match(/\[↗\]\([^)]+\)/)![0]}), menurut ${found.kept[0].label}.`;
+    },
+  );
+  const output = await dryRun(s, "daily-log-from-talk");
+  const read = String(s.model.calls[0]!.findLast((m) => m.role === "user")!.content);
+  expect(read).toContain("Messages of #channel-1 on 2026-10-13");
+  expect(read).toMatch(/^\[2\] .* Bob \(reply to \[1\]\): Sablon Jaya lebih murah/m);
+  expect(output.dailyLog).toBe("written");
+  const decided = output.seeded[2], [log] = output.turns[0].state.kept;
+  expect(output.turns[0].state.kept).toHaveLength(1);
+  expect(log.path).toMatch(/^daily-logs\/.*2026-10-13\.md$/);
+  expect(log.text).toContain(`Kaos gathering pakai Sablon Jaya [↗](${decided})`);
+  expect(output.turns[0].replies).toEqual([`Kemarin diputuskan pakai Sablon Jaya untuk kaos gathering ([↗](${decided})), menurut #channel-1 · Log harian 2026-10-13.`]);
+});
+
 discordScenario("dry run: a judge over HTTP grades a daily-behaviour trial, and the report reads per turn", async (s) => {
   const { runAssistantTrial } = await import(`${EVAL()}/assistantRun.ts`);
   const { loadAssistantFixtures } = await import(`${EVAL()}/assistantFixtures.ts`);

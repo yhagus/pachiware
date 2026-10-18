@@ -110,7 +110,7 @@ export function citationFailures(reply: string, links: string): string[] {
   return [...refs.map((r) => `The reply leaves the ref ${r} unrendered.`), ...made.map((u) => `The reply links ${u}, which nothing seeded holds.`)];
 }
 
-/** The checks over a whole run: every turn the facts name, then the Reminder posts after the tick, charged to the last turn. */
+/** The checks over a whole run: every turn the facts name, a Daily log that was asked for and not written (charged to the first), then the Reminder posts after the tick, charged to the last. */
 export function checkAssistantOutput(output: AssistantOutput, fixture: AssistantFixture): AssistantFailure[] {
   const out: AssistantFailure[] = [];
   const turns = fixture.facts.turns, last = turns.length, talk = output.seeded ?? [], links = [seedLinks(fixture), ...talk].join("\n");
@@ -123,7 +123,8 @@ export function checkAssistantOutput(output: AssistantOutput, fixture: Assistant
     for (const reply of turn.replies) for (const message of citationFailures(reply, links)) cite(message);
   });
   const then = fixture.facts.then;
-  if (then) {
+  if (then?.dailyLog && output.dailyLog !== "written") out.unshift({ turn: 1, check: "kept", message: `The Daily log of ${then.dailyLog} was not written: ${output.dailyLog ?? "it never ran"}.` });
+  if (then?.clock && then.posts) {
     const fail = (message: string) => out.push({ turn: last, check: "posts", message });
     if (output.posts.length !== then.posts.length) fail(`${output.posts.length} Reminder posts after the tick, expected ${then.posts.length}.`);
     then.posts.forEach((e, i) => {

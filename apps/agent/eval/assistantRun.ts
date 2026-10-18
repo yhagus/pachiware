@@ -7,7 +7,7 @@
  */
 import type { FakeUser, Scenario } from "../test/support/discordScenario";
 import { checkAssistantOutput, type AssistantFailure } from "./assistantChecks";
-import { seedTime, type AssistantFacts, type AssistantFixture, type SeedFile, type SeedGit, type SeedPullRequest, type SeedTask } from "./assistantFixtures";
+import { seedTime, zoneOf, type AssistantFacts, type AssistantFixture, type SeedFile, type SeedGit, type SeedPullRequest, type SeedTask } from "./assistantFixtures";
 import { gradeAssistantWithJudge } from "./assistantJudge";
 import type { TrialResult } from "./compare";
 import type { Ask } from "./judge";
@@ -38,6 +38,8 @@ export interface AssistantOutput {
   kind: "assistant"; fixture: string;
   /** The link of each `seed.messages` entry, in order; absent when the brief seeds no talk. */
   seeded?: string[];
+  /** How writing the Daily log `then.dailyLog` names went, before the brief: "written", or why not. */
+  dailyLog?: string;
   turns: AssistantTurn[];
   /** Reminder posts after the `then` tick. */
   posts: { text: string; pings: string[] }[];
@@ -73,6 +75,15 @@ function seedTalk(s: Scenario, facts: AssistantFacts): string[] {
     posted.push(message!);
   }
   return posted.map((m) => m.url);
+}
+
+/** The brief's channel's Daily log of `day`, written from its talk with the bot's own profile, as the overnight run would. */
+async function writeDay(s: Scenario, facts: AssistantFacts, day: string): Promise<string> {
+  const { writeDailyLog } = await import("../src/discord/dailyLog.ts");
+  const { discordBotManager } = await import("../src/discord/client.ts");
+  const adapter = discordBotManager.adapterOf(s.bot.id, GUILD);
+  if (!adapter) return "the bot is not connected";
+  return writeDailyLog({ tenantId: s.tenant.id, botId: s.bot.id, guildId: GUILD, channelId: CHANNEL_ID, channelName: CHANNEL_ID, timezone: zoneOf(facts), day, adapter }).catch((e) => `failed: ${e instanceof Error ? e.message : String(e)}`);
 }
 
 async function seedFiles(s: Scenario, files: SeedFile[]) {
@@ -164,6 +175,7 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
   if (facts.seed?.tasks?.length) await seedTasks(s, facts.seed.tasks);
   if (facts.seed?.files?.length) await seedFiles(s, facts.seed.files);
   if (facts.seed?.git) await seedGit(s, facts.seed.git);
+  const dailyLog = facts.then?.dailyLog ? await writeDay(s, facts, facts.then.dailyLog) : undefined;
   const seededFiles = new Set((facts.seed?.files ?? []).filter((f) => !f.channel).map((f) => f.path));
   const speakers = fixture.authors ?? [], member = (name: string) => memberNamed(s, facts, name);
   for (const name of new Set(["Alice", ...speakers.flat()])) s.discord.unlimited(member(name));
@@ -183,12 +195,12 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
     });
   }
   const posts: AssistantOutput["posts"] = [];
-  if (facts.then) {
+  if (facts.then?.clock) {
     s.clock.set(facts.then.clock);
     await s.scheduler.tick();
     for (const m of s.discord.botMessages.slice(seen)) posts.push({ text: textOf(m), pings: m.allowedMentions?.users ?? [] });
   }
-  return { kind: "assistant", fixture: fixture.name, ...(seeded.length && { seeded }), turns, posts };
+  return { kind: "assistant", fixture: fixture.name, ...(seeded.length && { seeded }), ...(dailyLog && { dailyLog }), turns, posts };
 }
 
 export function gradeAssistantRun(output: AssistantOutput, fixture: AssistantFixture): AssistantResult {

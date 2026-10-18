@@ -135,6 +135,13 @@ describe("code checks on one run", () => {
     ]);
   });
 
+  test("a Daily log the facts ask for that was not written fails the first turn", () => {
+    const f: AssistantFixture = { ...fixture, facts: { ...fixture.facts, then: { dailyLog: "2026-10-13" } } };
+    expect(checks({ ...output, dailyLog: "written" }, f)).toEqual([]);
+    expect(checks({ ...output, dailyLog: "failed" }, f)).toEqual(["1 kept: The Daily log of 2026-10-13 was not written: failed."]);
+    expect(checks(output, f)).toEqual(["1 kept: The Daily log of 2026-10-13 was not written: it never ran."]);
+  });
+
   test("a run with fewer turns than the facts fails every missing turn", () => {
     expect(checks({ ...output, turns: output.turns.slice(0, 1) })).toEqual(["2 reply: The bot did not reply."]);
   });
@@ -151,7 +158,7 @@ describe("fixtures and recorded runs", () => {
       "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels", "bulk-cancel",
       "decision-other-channel", "action-items-across-meetings", "nothing-found", "private-channel-dm", "minutes-as-document",
       "recall-asked-in-indonesian", "recall-asked-in-english", "recall-decision-replaced", "recall-done-other-channel", "recall-done-pull-request",
-      "minutes-from-talk", "member-joins-thread"]) expect(names).toContain(name);
+      "minutes-from-talk", "member-joins-thread", "daily-log-from-talk"]) expect(names).toContain(name);
     expect(new Set(fixtures.map((f) => f.facts.language))).toEqual(new Set(["en", "id"]));
     for (const f of fixtures) {
       expect(f.facts.mustCover.length).toBeGreaterThan(0);
@@ -203,6 +210,19 @@ describe("fixtures and recorded runs", () => {
     expect(talk("[{ author: Bob, text: halo, at: 30 }, { author: Dewi, text: ya, at: 40 }]")).toThrow("Fixture x: seed.messages are listed oldest first, none after the clock");
     expect(talk("[{ author: Bob, text: halo, at: '2026-10-14T09:30:00+07:00' }]")).toThrow("Fixture x: seed.messages are listed oldest first, none after the clock");
     expect(talk("[{ author: Bob, text: halo, at: soon }]")).toThrow("Fixture x: seed.messages[0] needs a text and an at, an ISO time or minutes before the clock");
+  });
+
+  test("a Daily log written before the brief needs seeded talk in the brief's channel that day, in the place's zone", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "kemarin diputuskan apa?");
+    const day = (then: string, settings = "{}") => { writeFileSync(join(tmp, "x", "facts.yaml"), `language: id\narea: capture\nclock: 2026-10-14T02:00:00Z\nsettings: ${settings}\nmustCover: [m]\nturns: [{}]\nthen: ${then}\nseed: { messages: [{ author: Bob, text: sepakat, at: '2026-10-13T23:30:00+07:00' }, { channel: ops, author: Bob, text: oke, at: '2026-10-14T08:00:00+07:00' }] }\n`); return () => loadAssistantFixtures(tmp)[0]!.facts.then; };
+    expect(day("{ dailyLog: 2026-10-13 }")()).toEqual({ dailyLog: "2026-10-13" });
+    expect(day("{ dailyLog: 2026-10-14 }")).toThrow("Fixture x: then.dailyLog 2026-10-14 has no seeded talk in the brief's channel that day");
+    // 23:30 in Jakarta is 16:30 UTC, still the 13th; in Tokyo it is 01:30 on the 14th.
+    expect(day("{ dailyLog: 2026-10-13 }", "{ timezone: Asia/Tokyo }")).toThrow("Fixture x: then.dailyLog 2026-10-13 has no seeded talk in the brief's channel that day");
+    expect(day("{ dailyLog: yesterday }")).toThrow("Fixture x: then.dailyLog is a day, such as 2026-10-13");
+    expect(day("{ dailyLog: 2026-10-13, clock: '2026-10-15T09:00:00+07:00' }")).toThrow("Fixture x: then needs a clock and a list of posts");
   });
 
   test("a fixture without an area of the Rapor is refused", () => {

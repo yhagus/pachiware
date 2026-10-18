@@ -1,0 +1,42 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "daily-log-from-talk",
+  "seeded": [
+    "https://discord.com/channels/guild-1/channel-1/1559400284160000000",
+    "https://discord.com/channels/guild-1/channel-1/1559401542451200000",
+    "https://discord.com/channels/guild-1/channel-1/1559402800742400000",
+    "https://discord.com/channels/guild-1/channel-1/1559404059033600000"
+  ],
+  "dailyLog": "written",
+  "turns": [
+    {
+      "n": 1,
+      "message": "kemarin kita jadi pakai vendor kaos yang mana?",
+      "replies": [
+        "Kemarin diputuskan pakai Sablon Jaya untuk kaos gathering ([↗](https://discord.com/channels/guild-1/channel-1/1559402800742400000)), menurut #channel-1 · Log harian 2026-10-13."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": [],
+        "kept": [
+          {
+            "path": "daily-logs/2026-10/2026-10-13.md",
+            "text": "# Daily log #channel-1, 2026-10-13\n\nTopics: Vendor kaos gathering\nKeywords: vendor kaos, sablon, t-shirt vendor\n4 messages from Dewi, Bob, Alice\n\n## Topics\n1. Vendor kaos gathering: vendor kaos, sablon, t-shirt vendor [↗](https://discord.com/channels/guild-1/channel-1/1559400284160000000) [↗](https://discord.com/channels/guild-1/channel-1/1559402800742400000)\n\n## Decided\n2. Kaos gathering pakai Sablon Jaya [↗](https://discord.com/channels/guild-1/channel-1/1559402800742400000)\n\n## Still open\n*None*\n\n## Who does what next\n3. **Dewi**: Kirim desain ke Sablon Jaya (due besok pagi) [↗](https://discord.com/channels/guild-1/channel-1/1559404059033600000)"
+          }
+        ]
+      }
+    }
+  ],
+  "posts": []
+}

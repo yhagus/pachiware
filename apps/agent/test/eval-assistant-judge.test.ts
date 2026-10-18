@@ -128,7 +128,7 @@ test("the report of the recorded runs, every criterion judged yes, opens with th
   expect(md).toContain([
     "| Area | Weight | Score | Briefs | Holdout score |",
     "|---|---|---|---|---|",
-    "| capture | 20 | 100.0 | 3 |  |",
+    "| capture | 20 | 100.0 | 4 |  |",
     "| recall | 25 | 100.0 | 11 |  |",
     "| tasks | 20 | 100.0 | 12 |  |",
     "| group | 10 | 100.0 | 1 |  |",

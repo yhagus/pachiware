@@ -10,6 +10,7 @@ weights:
   loop: 15
 briefs:
   # capture
+  - daily-log-from-talk
   - file-search
   - minutes-as-document
   - minutes-from-talk
