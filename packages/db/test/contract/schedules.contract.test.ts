@@ -86,6 +86,7 @@ contract("Schedules", (use) => {
     expect(failed).toEqual({ ...created, attempts: 2, error: "Could not post" });
     const moved = await schedules.update(created.id, { timeOfDay: "09:00", timezone: "Asia/Jakarta", nextAt: new Date("2026-03-07T02:00:00Z"), lastFiredAt: new Date("2026-03-06T08:00:05Z"), attempts: 0, error: null });
     expect(moved).toEqual({ ...created, timeOfDay: "09:00", timezone: "Asia/Jakarta", nextAt: new Date("2026-03-07T02:00:00Z"), lastFiredAt: new Date("2026-03-06T08:00:05Z") });
+    expect(await schedules.update(created.id, { text: "Send the invoice to Acme" })).toMatchObject({ text: "Send the invoice to Acme", timeOfDay: "09:00" });
     expect(await schedules.update(created.id, { status: "cancelled" })).toMatchObject({ status: "cancelled", timeOfDay: "09:00" });
     expect(await schedules.get(created.id)).toMatchObject({ status: "cancelled" });
     expect(await schedules.update("missing", { status: "done" })).toBeNull();

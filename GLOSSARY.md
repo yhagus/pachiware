@@ -141,7 +141,7 @@ The day, and optionally the time, by which a task should be done. A task without
 _Avoid_: Deadline (reserved for people's wording in minutes), ETA
 
 **Reminder**:
-A message the bot sends to a channel or a DM at a time a person chose, once or on a repeating schedule. It is created from chat and belongs to the person who asked. A task's due date never creates one.
+A message the bot sends to a channel or a DM at a time a person chose, once or on a repeating schedule. It is created from chat and belongs to the person who asked, who alone can move (snooze) or reword it. A task's due date never creates one.
 _Avoid_: Alarm, notification, scheduled message
 
 **Digest**:

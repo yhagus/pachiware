@@ -73,6 +73,7 @@ export const remindersSkill: SkillModule = {
     createReminder: { effect: "write", requiresConfirmation: false },
     listReminders: { effect: "read" },
     cancelReminder: { effect: "write", requiresConfirmation: false },
+    editReminder: { effect: "write", requiresConfirmation: false },
   },
   tools: [
     {
@@ -103,6 +104,19 @@ export const remindersSkill: SkillModule = {
       name: "cancelReminder",
       description: "Cancels a Reminder by id. Allowed for its owner, or for anyone with Manage Messages in this server.",
       parameters: { type: "object", properties: { id: { type: "string", description: "The Reminder's id, from listReminders or from when it was set" } }, required: ["id"] },
+    },
+    {
+      name: "editReminder",
+      description: "Changes the asker's own Reminder by id (#250): `at` moves its next post (\"snooze it 30 minutes\", \"move it to 16:00\"); a repeating one keeps its schedule after that post. `text` rewrites what it posts. Only its owner can change it.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The Reminder's id, from listReminders or from when it was set" },
+          at: { type: "string", description: 'When it next posts, e.g. "2026-03-06T15:30" or "15:30", in this place\'s time zone unless it carries an offset' },
+          text: { type: "string", description: "What it posts from now on, in the asker's words" },
+        },
+        required: ["id"],
+      },
     },
   ],
   handlers: {
@@ -156,6 +170,26 @@ export const remindersSkill: SkillModule = {
       if (row.ownerId !== ctx.userId && !(canModerate(ctx) && row.guildId && row.guildId === ctx.guildId)) throw new Error(t.reminderNotYours);
       await repositories().schedules.update(row.id, { status: "cancelled" });
       return { id: row.id, cancelled: true, text: row.text };
+    },
+    editReminder: async (args, ctx) => {
+      if (!ctx.userId) throw new Error("Reminders can only be changed from a Discord channel or DM.");
+      const t = textIn(ctx.language), id = typeof args.id === "string" ? args.id.trim() : "";
+      const [row] = id ? await repositories().schedules.list({ ...activeReminders(ctx), id }) : [];
+      if (!row) throw new Error(t.reminderNotFound);
+      if (row.ownerId !== ctx.userId) throw new Error(t.reminderNotYoursToEdit);
+      const text = typeof args.text === "string" ? args.text.replace(/\s+/g, " ").trim() : undefined;
+      if (text !== undefined && (!text || text.length > MAX_TEXT)) throw new Error(`text must be 1 to ${MAX_TEXT} characters`);
+      const from = now(), at = args.at === undefined || args.at === null ? null : parseWhen(args.at, row.timezone, from);
+      if (args.at !== undefined && args.at !== null && at === null) throw new Error('at must be a date and time such as "2026-03-06T15:30"');
+      if (at !== null && at <= from) throw new Error("That time has already passed; pick a later one.");
+      if (at === null && text === undefined) throw new Error("Give a new time (at) or new text.");
+      // A once Reminder's time of day follows its one post; a repeating one keeps its own, so only this post moves.
+      const wall = at === null ? null : wallClock(row.timezone, at);
+      const changed = await repositories().schedules.update(row.id, {
+        ...(text !== undefined ? { text } : {}),
+        ...(at !== null ? { nextAt: new Date(at), attempts: 0, error: null, ...(row.recurrence === "once" ? { timeOfDay: hhmm(wall!.hour, wall!.minute) } : {}) } : {}),
+      });
+      return { ...describe(changed ?? row), changed: true };
     },
   },
 };

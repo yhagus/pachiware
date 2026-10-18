@@ -67,3 +67,21 @@ discordScenario("the 51st active Reminder of a person and the 501st of a tenant 
   expect(await set(s, "tenant full", "2026-03-06T16:00", { author: s.discord.bob })).toBe("error: Reminders here are at their limit of 500 active. Cancel one before setting another.");
   expect((await schedules.list()).filter((r: any) => r.status === "active").length).toBe(500);
 });
+
+// A Reminder can be snoozed or reworded by its owner (#250).
+discordScenario("editReminder snoozes a Reminder to a later time and rewords it; it posts then with the new text, and a stranger cannot change it", async (s) => {
+  s.clock.set("2026-03-06T09:00:00+07:00");
+  const id = await set(s, "send the invoice", "2026-03-06T15:00");
+  const change = (args: Record<string, unknown>, author?: any) => {
+    s.model.script({ tool: "editReminder", args: { id, ...args } }, (turn: any) => turn.toolResults[0].error ?? `${turn.toolResults[0].nextAt} ${turn.toolResults[0].text}`);
+    return s.discord.send(`${s.discord.mention} change that reminder`, { author }).then(() => s.discord.botMessages.at(-1)!.content);
+  };
+  expect(await change({ at: "16:30" }, s.discord.bob)).toBe("Pengingat itu milik orang lain; hanya pemiliknya yang bisa mengubahnya.");
+  expect(await change({ at: "16:30", text: "send the invoice to Acme" })).toBe("2026-03-06T16:30:00+07:00 send the invoice to Acme");
+  expect(await change({ at: "08:00" })).toBe("2026-03-07T08:00:00+07:00 send the invoice to Acme");
+  expect(await change({ at: "2026-03-06T10:00" })).toBe("2026-03-06T10:00:00+07:00 send the invoice to Acme");
+
+  s.clock.set("2026-03-06T10:00:30+07:00");
+  await s.scheduler.tick();
+  expect(s.discord.botMessages.at(-1)!.content).toContain("send the invoice to Acme");
+});

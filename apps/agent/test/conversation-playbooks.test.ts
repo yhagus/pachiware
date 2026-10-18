@@ -125,3 +125,4 @@ discordScenario("a playbook that loads a reference the tenant has not turned on 
   expect(run.responses.at(-1)).toEqual({ kind: "editReply", payload: expect.objectContaining({ content: "The design-review playbook loads codebase-design, which is off here. An admin can turn it on in the console." }) });
   expect(s.model.calls).toEqual([]);
 });
+

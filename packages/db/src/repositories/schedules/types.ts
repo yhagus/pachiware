@@ -59,7 +59,7 @@ export type NewSchedule = {
   status?: ScheduleStatus;
 };
 
-export type ScheduleUpdate = Partial<Pick<Schedule, "timeOfDay" | "timezone" | "nextAt" | "lastFiredAt" | "status" | "attempts" | "error">>;
+export type ScheduleUpdate = Partial<Pick<Schedule, "text" | "timeOfDay" | "timezone" | "nextAt" | "lastFiredAt" | "status" | "attempts" | "error">>;
 
 /** Every field given must match. */
 export type ScheduleFilter = {
