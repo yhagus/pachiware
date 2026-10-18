@@ -66,11 +66,12 @@ export const LONG_TEXT = 2000;
 /** The message id a turn line shows for `text`: only for long text, which keepAsNote keeps by id. */
 export const keepableId = (text: string, messageId: string) => (text.length > LONG_TEXT ? messageId : undefined);
 
-// Guild conversations are shared by everyone in the channel/thread, so turns carry the speaker.
-export function speakerTurn(guildId: string | null, name: string, text: string, messageId?: string) {
-  const ref = messageId ? `(message ${messageId})` : "";
-  if (!guildId) return ref ? `${ref}: ${text}` : text;
-  return `${ref ? `${name} ${ref}` : name}: ${text}`;
+// Guild conversations are shared by everyone in the channel/thread, so turns carry the speaker, with their member id as a mention:
+// two members sharing a name, or one who changed it, stay apart in history, and a later turn can assign work to the right one (#256).
+export function speakerTurn(guildId: string | null, name: string, text: string, messageId?: string, userId?: string) {
+  if (!guildId) return messageId ? `(message ${messageId}): ${text}` : text;
+  const refs = [userId ? `<@${userId}>` : "", messageId ? `message ${messageId}` : ""].filter(Boolean).join(", ");
+  return `${refs ? `${name} (${refs})` : name}: ${text}`;
 }
 
 /** How much of a replied-to message its line quotes; a longer one is also named by id, so keepAsNote can keep it whole. */
@@ -87,12 +88,13 @@ export function replyLine(ref: Replied | null | undefined, botUserId: string | u
   const content = ref ? withoutMention(ref.content, botUserId).trim() : "";
   const text = content || (ref?.embeds ?? []).flatMap((e) => [e.title, e.description]).filter(Boolean).join("\n").trim();
   if (!ref || !text) return "";
-  const who = ref.author.id === botUserId ? "you" : speakerName(ref);
-  // keepAsNote keeps a message's own text, so only long content names the message.
+  const own = ref.author.id === botUserId, who = own ? "you" : speakerName(ref);
+  // keepAsNote keeps a message's own text, so only long content names the message; a person is named with their member id too (#256).
   const id = keepableId(content, ref.id);
+  const refs = [own ? "" : `<@${ref.author.id}>`, id ? `message ${id}` : ""].filter(Boolean).join(", ");
   const flat = text.replace(/\s+/g, " ");
   const quote = flat.length > REPLY_QUOTE ? `${flat.slice(0, REPLY_QUOTE)}…` : flat;
-  return `(replying to ${id ? `${who} (message ${id})` : who}: "${quote}")`;
+  return `(replying to ${refs ? `${who} (${refs})` : who}: "${quote}")`;
 }
 
 /** Words a short request may hold around an in-place playbook's trigger word, in Indonesian and English. */

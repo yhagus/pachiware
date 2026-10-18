@@ -108,8 +108,8 @@ discordScenario("a non-author's answer is recorded as input with 👀 and accept
   s.model.script("Noted.");
   await s.discord.send("Safari 16 too, please", { channel: brief.thread });
   const turn = s.model.calls.at(-1)!.map((m) => m.content).join("\n");
-  expect(turn).toContain("Bob: yes");
-  expect(turn).toContain("Alice: Safari 16 too, please");
+  expect(turn).toContain("- Bob: yes");
+  expect(turn).toContain("Alice (<@user-alice>): Safari 16 too, please");
   expect(s.discord.botMessages.at(-1)).toMatchObject({ channelId: brief.thread!.id, content: "Noted." });
 });
 

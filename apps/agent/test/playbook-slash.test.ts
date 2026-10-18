@@ -38,7 +38,7 @@ discordScenario("a slash start defers privately, posts one public line, opens an
     { kind: "editReply", payload: expect.objectContaining({ content: `Following the issue-draft playbook in <#${thread.id}>.` }) },
   ]);
   expect(s.model.calls[0]![0]!.content).toContain("### Playbook: issue-draft");
-  expect(s.model.calls[0]!.at(-2)!.content).toBe("Alice: login loops on Safari");
+  expect(s.model.calls[0]!.at(-2)!.content).toBe("Alice (<@user-alice>): login loops on Safari");
 
   const binding = await s.workspace.read(`guilds/guild-1/channels/channel-1/threads/${thread.id}.md`);
   expect(binding).toContain(`authorId: "${s.discord.alice.id}"`);
@@ -91,7 +91,7 @@ discordScenario("a file attached to a slash start reaches the playbook's first t
   s.model.script("Drafting from the report.");
   await s.discord.slash("issue-draft", { file: report });
 
-  expect(s.model.calls[0]!.at(-2)!.content).toBe("Alice: [file: report.pdf saved as channel/files/report.pdf; text in channel/files/report.md]");
+  expect(s.model.calls[0]!.at(-2)!.content).toBe("Alice (<@user-alice>): [file: report.pdf saved as channel/files/report.pdf; text in channel/files/report.md]");
   expect(await s.workspace.read("guilds/guild-1/channels/channel-1/files/report.md")).toBe("Login loops on Safari 17\n");
   const line = s.discord.botMessages.find((m) => m.channelId === "channel-1")!;
   expect(line.thread!.name).toBe("issue-draft");
@@ -127,10 +127,10 @@ discordScenario("a run: in-place playbook answers where it was started, from a s
   const ask = await s.discord.send(`${s.discord.mention} plainer: eventual consistency`);
 
   for (const call of s.model.calls) expect(call[0]!.content).toContain("Rewrite the message in plain words.");
-  expect(s.model.calls[0]!.map((m) => m.content)).toContain("Alice: the deploy is idempotent");
-  expect(s.model.calls[1]!.map((m) => m.content)).toContain("Bob: We shard by tenant hash");
+  expect(s.model.calls[0]!.map((m) => m.content)).toContain("Alice (<@user-alice>): the deploy is idempotent");
+  expect(s.model.calls[1]!.map((m) => m.content)).toContain("Bob (<@user-bob>): We shard by tenant hash");
   // Like the slash command, a mention that replies to nothing is about the bot's last message here.
-  expect(s.model.calls[2]!.map((m) => m.content)).toContain("Pachiware: Plain from menu.\nAlice: eventual consistency");
+  expect(s.model.calls[2]!.map((m) => m.content)).toContain("Pachiware: Plain from menu.\nAlice (<@user-alice>): eventual consistency");
   expect(s.discord.botMessages.map((m) => [m.channelId, m.content, m.reference?.messageId])).toEqual([
     ["channel-1", "Plain from slash.", undefined],
     ["channel-1", "Plain from menu.", target!.id],

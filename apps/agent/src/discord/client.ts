@@ -536,7 +536,7 @@ export class DiscordBotManager {
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);
       if (media.blind && !briefAuthor && !items.some((i) => i.text)) { await send(`${t.blind} ${t.describeImage}`); return; }
       const filed = await fileTurnDocuments(runtime.tenantId, items, language, botCompletion(runtime.tenantId, botId, language));
-      const lines = items.flatMap((i) => [replyLine(i.replyTo, botUserId), speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed), keepableId(i.text, i.msg.id))]);
+      const lines = items.flatMap((i) => [replyLine(i.replyTo, botUserId), speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed), keepableId(i.text, i.msg.id), i.msg.author.id === botUserId ? undefined : i.msg.author.id)]);
       let turn = [...lines, media.context].filter(Boolean).join("\n");
       const brief = opts.binding && { place: bindingPlace(opts.binding), authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
       if (brief?.outsider) turn = outsiderTurn(turn);

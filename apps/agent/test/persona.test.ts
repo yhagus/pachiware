@@ -43,7 +43,7 @@ discordScenario("the persona keeps long text a person asks to keep with keepAsNo
   const noteLine = persona.split("\n").find((line) => line.includes("Keep this as a note"));
   expect(noteLine).toContain("keepAsNote");
   expect(noteLine).toContain("writeFile");
-  expect(noteLine).toContain("(message <id>)");
+  expect(noteLine).toContain("whose turn line shows message <id>");
 });
 
 discordScenario("the persona answers questions about past meetings from kept material, in the glossary's terms, and never offers threads/ as a folder", async (s) => {

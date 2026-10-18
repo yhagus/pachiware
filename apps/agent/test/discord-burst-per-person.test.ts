@@ -19,13 +19,13 @@ discordScenario("Alice and Bob posting together each get their own turn, run as 
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([expect.stringMatching(/^refused: .*ManageMessages/), "The plan is to ship on Friday."]);
   expect(decision!.pinned).toBe(false);
   const [alice, , bob] = s.model.calls;
-  expect(turnOf(alice!)).toBe("Alice: pin that decision");
+  expect(turnOf(alice!)).toBe("Alice (<@user-alice>): pin that decision");
   expect(contextOf(alice!)).toContain("User: Alice (ID: user-alice)");
-  expect(turnOf(bob!)).toBe("Bob: what is the plan?");
+  expect(turnOf(bob!)).toBe("Bob (<@user-bob>): what is the plan?");
   expect(contextOf(bob!)).toContain("User: Bob (ID: user-bob)");
   // Alice's turn and its answer are already in the history before Bob's turn: the two never interleave.
   const history = bob!.map((m: any) => (typeof m.content === "string" ? m.content : ""));
-  const asked = history.indexOf("Alice: pin that decision"), answered = history.findIndex((c) => /^refused: /.test(c)), next = history.lastIndexOf("Bob: what is the plan?");
+  const asked = history.indexOf("Alice (<@user-alice>): pin that decision"), answered = history.findIndex((c) => /^refused: /.test(c)), next = history.lastIndexOf("Bob (<@user-bob>): what is the plan?");
   expect(asked).toBeGreaterThan(-1);
   expect(answered).toBeGreaterThan(asked);
   expect(next).toBeGreaterThan(answered);
@@ -63,7 +63,7 @@ discordScenario("in the bot's thread, a member's line after its reply is answere
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Dicatat: siapkan rundown, tenggat Jumat.", "Booking tempat dicatat untuk Bob.", "Rundown-nya tenggat Jumat 16 Oktober."]);
   const [, alice, bob] = s.model.calls;
   expect(contextOf(alice!)).toContain("Addresses you: yes");
-  expect(turnOf(bob!)).toBe("Bob: rundown-nya tenggat kapan ya?");
+  expect(turnOf(bob!)).toBe("Bob (<@user-bob>): rundown-nya tenggat kapan ya?");
   expect(contextOf(bob!)).toContain("Addresses you: no, but it follows your last reply");
 });
 

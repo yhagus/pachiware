@@ -220,7 +220,7 @@ discordScenario("dry run: tanpa-link-karangan says no git account is open here a
 
 discordScenario("dry run: tempel-teks-panjang keeps the pasted transcript as a Note word for word with keepAsNote", async (s) => {
   s.model.script(
-    (turn) => ({ tool: "keepAsNote", args: { messageIds: [turn.messages.filter((m) => m.role === "user").map((m) => String(m.content)).join("\n").match(/\(message (\d+)\)/)![1]], path: "channel/notes/2026-10-14-evaluasi-event-oktober.md" } }),
+    (turn) => ({ tool: "keepAsNote", args: { messageIds: [turn.messages.filter((m) => m.role === "user").map((m) => String(m.content)).join("\n").match(/message (\d+)\)/)![1]], path: "channel/notes/2026-10-14-evaluasi-event-oktober.md" } }),
     "Disimpan sebagai catatan notes/2026-10-14-evaluasi-event-oktober.md.",
   );
   const output = await dryRun(s, "tempel-teks-panjang");

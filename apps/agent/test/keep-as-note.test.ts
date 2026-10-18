@@ -103,8 +103,8 @@ discordScenario("a turn names the message of text longer than 2000 characters, s
   const long = await s.discord.send(`${s.discord.mention} ${"x".repeat(2001)}`);
   const short = await s.discord.send(`${s.discord.mention} ${"y".repeat(2000)}`, { author: s.discord.bob });
   const said = (call: number) => s.model.calls[call]!.filter((m) => m.role === "user").map((m) => String(m.content)).join("\n");
-  expect(said(0)).toContain(`Alice (message ${long.id}): ${"x".repeat(2001)}`);
-  expect(said(1)).toContain(`Bob: ${"y".repeat(2000)}`);
+  expect(said(0)).toContain(`Alice (<@user-alice>, message ${long.id}): ${"x".repeat(2001)}`);
+  expect(said(1)).toContain(`Bob (<@user-bob>): ${"y".repeat(2000)}`);
   expect(said(1)).not.toContain(short.id);
 });
 

@@ -19,7 +19,7 @@ discordScenario("an image-capable OpenAI profile gets the screenshot as a data U
   const [first] = s.http.requests.filter((r) => r.url.endsWith("/chat/completions"));
   const user = first!.body.messages.find((m: any) => Array.isArray(m.content));
   expect(user.role).toBe("user");
-  expect(user.content[0]).toEqual({ type: "text", text: "Alice: what is wrong here? [image: screenshot.png, 1170×2532]" });
+  expect(user.content[0]).toEqual({ type: "text", text: "Alice (<@user-alice>): what is wrong here? [image: screenshot.png, 1170×2532]" });
   expect(user.content[1].type).toBe("image_url");
   expect(user.content[1].image_url.url).toStartWith("data:image/png;base64,");
   const { width, height } = await new Bun.Image(Buffer.from(user.content[1].image_url.url.split(",")[1], "base64")).metadata();
@@ -29,7 +29,7 @@ discordScenario("an image-capable OpenAI profile gets the screenshot as a data U
   await s.discord.send("and how do I fix it?", { channel: ask.thread });
   const second = s.http.requests.filter((r) => r.url.endsWith("/chat/completions")).at(-1)!;
   expect(JSON.stringify(second.body)).not.toContain("base64");
-  expect(second.body.messages.map((m: any) => m.content)).toContain("Alice: what is wrong here? [image: screenshot.png, 1170×2532]");
+  expect(second.body.messages.map((m: any) => m.content)).toContain("Alice (<@user-alice>): what is wrong here? [image: screenshot.png, 1170×2532]");
 });
 
 discordScenario("an image-capable Anthropic profile gets an image block, with a GIF reduced to its first frame", async (s) => {
@@ -41,7 +41,7 @@ discordScenario("an image-capable Anthropic profile gets an image block, with a 
   const [block, text] = request.body.messages.at(-1).content;
   expect(block.type).toBe("image");
   expect(block.source).toMatchObject({ type: "base64", media_type: "image/png" });
-  expect(text).toEqual({ type: "text", text: "Alice: what is this? [image: wave.gif, 1×1]" });
+  expect(text).toEqual({ type: "text", text: "Alice (<@user-alice>): what is this? [image: wave.gif, 1×1]" });
   expect(s.discord.botMessages.at(-1)?.content).toBe("A white pixel.");
 });
 
@@ -53,7 +53,7 @@ discordScenario("images of the replied-to message reach the model", async (s) =>
   s.model.script("p99 doubled at 14:05.");
   await s.discord.send(`${s.discord.mention} what does this show?`, { replyTo: post });
   const turn = s.model.calls[0]!.find((m) => Array.isArray(m.content)) as any;
-  expect(turn.content[0].text).toBe('(replying to Bob: "latency after the deploy")\nAlice: what does this show?\n[image in the replied-to message: chart.png, 640×480]');
+  expect(turn.content[0].text).toBe('(replying to Bob (<@user-bob>): "latency after the deploy")\nAlice (<@user-alice>): what does this show?\n[image in the replied-to message: chart.png, 640×480]');
   expect(turn.content.slice(1).map((p: any) => [p.type, p.mediaType])).toEqual([["image", "image/png"]]);
 });
 
@@ -78,7 +78,7 @@ discordScenario("a text-only profile answers the text, sends no image, and says 
   await s.discord.send(`${s.discord.mention} the login page errors, see screenshot`, { attachments: [shot] });
   expect(s.http.requests).toEqual([]);
   expect(s.model.calls[0]!.some((m) => Array.isArray(m.content))).toBe(false);
-  expect(s.model.calls[0]!.map((m) => m.content)).toContain("Alice: the login page errors, see screenshot [image: screenshot.png, 300×200]");
+  expect(s.model.calls[0]!.map((m) => m.content)).toContain("Alice (<@user-alice>): the login page errors, see screenshot [image: screenshot.png, 300×200]");
   expect(s.discord.botMessages.at(-1)?.content).toBe("Restart the api pod.\nI can't see images with this profile.");
 });
 

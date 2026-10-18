@@ -33,6 +33,9 @@ describe("respondReason", () => {
     expect(speakerTurn(null, "Ana", "hi")).toBe("hi");
     expect(speakerTurn("g1", "Ana", "hi", "42")).toBe("Ana (message 42): hi");
     expect(speakerTurn(null, "Ana", "hi", "42")).toBe("(message 42): hi");
+    expect(speakerTurn("g1", "Ana", "hi", undefined, "u7")).toBe("Ana (<@u7>): hi");
+    expect(speakerTurn("g1", "Ana", "hi", "42", "u7")).toBe("Ana (<@u7>, message 42): hi");
+    expect(speakerTurn(null, "Ana", "hi", undefined, "u7")).toBe("hi");
     expect(threadName("  a\n\n b ")).toBe("a b");
     expect(threadName("x".repeat(100))).toHaveLength(60);
     expect(threadName("   ")).toBe("Conversation");
