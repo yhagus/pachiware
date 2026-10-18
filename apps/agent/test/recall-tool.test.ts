@@ -84,8 +84,10 @@ const dl = (id: number) => `[↗](https://discord.com/channels/guild-1/channel-1
 discordScenario("a Daily log is cited by the latest message of a matching decision, not by its topic row; a topic row alone by its first message", async (s) => {
   await channels(s);
   // As the Daily log writer renders one (#237's brief): the topic row links every message of its topic, the question first.
-  await s.workspace.write(`${GENERAL}/daily-logs/2026-10/2026-10-05.md`, "---\nkind: \"daily-log\"\n---\n# Daily log #general, 2026-10-05\n\nTopics: Audio normalization\nKeywords: loudness\n4 messages from Dewi, Bob, Alice\n\n"
-    + `## Topics\n1. Audio normalization: loudness ${dl(7001)} ${dl(7002)} ${dl(7003)} ${dl(7004)}\n\n## Decided\n2. Audio normalization goes to -14 LUFS. ${dl(7002)} ${dl(7003)}\n\n`
+  // The head's Topics and Keywords lines and the topic row hold the most query words, so they fill the three lines a match shows.
+  await s.workspace.write(`${GENERAL}/daily-logs/2026-10/2026-10-05.md`, `---\nkind: "daily-log"\nlog: {"decided":[{"text":"Audio normalization goes to -14 LUFS.","links":["${dl(7002).slice(4, -1)}"]}]}\ntopics: ["Audio normalization"]\nkeywords: ["audio normalization", "normalisasi audio", "loudness"]\n---\n`
+    + "# Daily log #general, 2026-10-05\n\nTopics: Audio normalization\nKeywords: audio normalization, normalisasi audio, loudness\n4 messages from Dewi, Bob, Alice\n\n"
+    + `## Topics\n1. Audio normalization: audio normalization, normalisasi audio, loudness ${dl(7001)} ${dl(7002)} ${dl(7003)} ${dl(7004)}\n\n## Decided\n2. Audio normalization goes to -14 LUFS. ${dl(7002)} ${dl(7003)}\n\n`
     + `## Who does what next\n3. **Dewi**: Send the mastering notes. ${dl(7004)}\n`);
   await s.workspace.write(`${GENERAL}/daily-logs/2026-10/2026-10-06.md`, `# Daily log #general, 2026-10-06\n\n## Topics\n1. Audio normalization: plugins ${dl(7101)} ${dl(7102)}\n\n## Decided\n*None*\n`);
   const [result] = await recall(s, [QUERIES]);

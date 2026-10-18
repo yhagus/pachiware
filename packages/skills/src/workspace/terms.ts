@@ -261,13 +261,16 @@ export function matchWords(terms: string[], name: string, words: FileWords): { h
   }
   const held = Object.keys(counts);
   if (!held.length) return null;
-  const lines = words.lines
-    .map((l) => { const line = tally(textWords(l.text).keys); return { l, held: held.filter((t) => countOf(line, t) > 0).length }; })
-    .filter((x) => x.held > 0)
-    .sort((a, b) => b.held - a.held || a.l.line - b.l.line)
-    .slice(0, MAX_LINES)
-    .map(({ l }) => ({ line: l.line, text: l.text.slice(0, MAX_LINE_CHARS) }));
+  const lines = linesHolding(held, words.lines).slice(0, MAX_LINES).map((l) => ({ line: l.line, text: l.text.slice(0, MAX_LINE_CHARS) }));
   return { held, counts, length: words.length, lines };
+}
+
+/** The lines holding any of `terms`, with how many of them each holds: the most first, ties to the earlier line. */
+export function linesHolding<L extends { line: number; text: string }>(terms: string[], lines: L[]): (L & { held: number })[] {
+  return lines
+    .map((l) => { const words = tally(textWords(l.text).keys); return { ...l, held: terms.filter((t) => countOf(words, t) > 0).length }; })
+    .filter((l) => l.held > 0)
+    .sort((a, b) => b.held - a.held || a.line - b.line);
 }
 
 /**

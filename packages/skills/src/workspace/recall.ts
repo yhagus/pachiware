@@ -4,6 +4,7 @@ import { textIn } from "../language.js";
 import { jumpLink, parseFrontmatter } from "../playbooks.js";
 import { agentPaths } from "./paths.js";
 import { dateRange, nameDate, queriesTerms, titleDate, wordingsOf } from "./search.js";
+import { linesHolding } from "./terms.js";
 import { rankKept, readableSources, sourcePath, type Source } from "./sources.js";
 import { workspaceStore } from "./store.js";
 import { GIT_NOT_ENABLED, loadGitAccess } from "../gitScope.js";
@@ -57,11 +58,13 @@ const newest = (links: string[]) => links.reduce((a, b) => {
 });
 
 /**
- * How a kept file is cited and dated. Minutes by their posted message. A Daily log by the newest message of its first matching
- * decision, open point or next step, where it was settled; a topic row links every message of its topic, so it is cited only when
- * nothing else matched, by its first message, where the talk began. A Document whose name holds no date by the date its first line gives.
+ * How a kept file is cited and dated. Minutes by their posted message. A Daily log by the newest message of the decision, open point
+ * or next step holding the most of the query words it holds (`held`), where it was settled. Every row of the log is weighed, since the
+ * head and the topic rows, which repeat its keywords, fill the few lines a match shows. A topic row links every message of its topic,
+ * so it is cited only when no other row holds a query word, by its first message, where the talk began. A Document whose name holds
+ * no date is dated by the date its first line gives.
  */
-async function keptSource(tenantId: string, path: string, kind: Kind, lines: number[]): Promise<{ url?: string; day?: string }> {
+async function keptSource(tenantId: string, path: string, kind: Kind, held: string[]): Promise<{ url?: string; day?: string }> {
   const named = nameDate(path);
   if (kind !== "minutes" && kind !== "daily-log" && (kind !== "document" || named)) return {};
   const file = await workspaceStore().read(tenantId, path).catch(() => null);
@@ -74,11 +77,16 @@ async function keptSource(tenantId: string, path: string, kind: Kind, lines: num
   const text = file.content.split("\n"), title = text.findIndex((l) => l.startsWith("# "));
   const topicsShown = !(Array.isArray(head.leftOut) && head.leftOut.includes("topics"));
   let heading = 0;
-  const section = text.map((l, i) => (i > title && l.startsWith("## ") ? ++heading : heading));
-  const topicRow = (n: number) => topicsShown && section[n - 1] === 1, linksOn = (n: number) => text[n - 1]?.match(DISCORD_LINKS) ?? [];
-  for (const n of lines.filter((n) => !topicRow(n))) { const links = linksOn(n); if (links.length) return { url: newest(links) }; }
-  for (const n of lines) { const links = linksOn(n); if (links.length) return { url: links[0] }; }
-  return {};
+  // The rows of the log's body: the frontmatter before its title holds the same links as data.
+  const rows = text.flatMap((t, i) => {
+    if (i <= title) return [];
+    if (t.startsWith("## ")) heading++;
+    const links = t.match(DISCORD_LINKS);
+    return links ? [{ line: i + 1, text: t, links, topic: topicsShown && heading === 1 }] : [];
+  });
+  const matched = linesHolding(held, rows), settled = matched.find((r) => !r.topic);
+  if (settled) return { url: newest(settled.links) };
+  return matched[0] ? { url: matched[0].links[0] } : {};
 }
 
 /** Why a part whose tool is not offered here is not searched, when the cause is that no scope opens its accounts (its tools are then hidden). */
@@ -112,7 +120,7 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
 
   const keptItems = await Promise.all(kept.matches.map(async (m) => {
     const rel = m.path.slice(m.source.folder.length + 1), kind = KIND_OF[rel.split("/")[0]!] ?? "document";
-    const { url, day } = await keptSource(ctx.tenantId, m.path, kind, m.lines.map((l) => l.line)), named = nameDate(m.path) || day;
+    const { url, day } = await keptSource(ctx.tenantId, m.path, kind, m.held), named = nameDate(m.path) || day;
     const dated = named ? `${t.keptKinds[kind]} ${named}` : t.keptFiled(t.keptKinds[kind], isoInZone(zone, m.modified).slice(0, 10));
     return {
       ref: refFor(ctx, "K"), label: `${m.source.label} · ${dated}`, ...(url ? { url } : {}),

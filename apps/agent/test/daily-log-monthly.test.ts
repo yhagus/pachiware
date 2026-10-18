@@ -6,11 +6,11 @@ const link = (id: string) => `https://discord.com/channels/guild-1/channel-1/${i
 const at = (time: string) => Date.parse(`2026-03-06T${time}:00+07:00`);
 const LOG = JSON.stringify({ topics: [{ name: "Release day", keywords: { id: ["hari rilis"], en: ["release day"] }, refs: [1, 2] }], decided: [{ text: "Release on Friday", refs: [2] }], open: [], next: [] });
 
-discordScenario("a Daily log is kept in its month's folder, and recall finds it there with its date and message link", async (s) => {
+discordScenario("a Daily log is kept in its month's folder, and recall finds it there with its date and the decision's message link", async (s) => {
   const { alice, bob } = s.discord;
   s.clock.set("2026-03-06T08:00:00+07:00");
   await s.guildSettings({ language: "en", useThreads: false, dailyLogChannels: [{ channelId: "channel-1", backfill: false }] });
-  const [question] = s.discord.history([
+  const [, friday] = s.discord.history([
     { content: "Which day do we release?", author: alice, at: at("10:00") },
     { content: "Friday, after the review", author: bob, at: at("10:05") },
   ]);
@@ -21,7 +21,7 @@ discordScenario("a Daily log is kept in its month's folder, and recall finds it 
 
   s.model.script({ tool: "recall", args: { queries: ["release day", "hari rilis"] } }, (turn) => JSON.stringify(turn.toolResults[0].kept));
   await s.discord.send(`${s.discord.mention} when do we release?`);
-  expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toMatchObject([{ label: "#channel-1 · Daily log 2026-03-06", url: link(question!.id), path: "channel/daily-logs/2026-03/2026-03-06.md" }]);
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toMatchObject([{ label: "#channel-1 · Daily log 2026-03-06", url: link(friday!.id), path: "channel/daily-logs/2026-03/2026-03-06.md" }]);
 });
 
 discordScenario("a day kept at the old flat path is not written again, and a deleted message still leaves it", async (s) => {
