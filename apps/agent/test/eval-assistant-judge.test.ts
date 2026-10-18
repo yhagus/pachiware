@@ -26,6 +26,16 @@ function scriptedJudge(answers: [RegExp, string][]) {
 }
 
 describe("grading a daily-behaviour run with the judge", () => {
+  test("a quiet turn is graded by code alone: the judge is asked nothing about it", async () => {
+    const quiet = { ...fixture, facts: { ...fixture.facts, turns: [fixture.facts.turns[0]!, { quiet: true as const, reaction: ["👍"] }] } };
+    const output: AssistantOutput = { ...recorded, turns: [recorded.turns[0]!, { ...recorded.turns[1]!, replies: [], reactions: ["👍"] }] };
+    const { ask, prompts } = scriptedJudge([]);
+    const graded = await gradeAssistantWithJudge(gradeAssistantRun(output, quiet), quiet, ask);
+    expect(prompts).toHaveLength(fixture.facts.mustCover.length + 2);
+    expect(prompts.some((p) => p.user.includes("Look only at turn 2"))).toBe(false);
+    expect(graded.verdicts.map((v) => [v.n, v.passed])).toEqual([[1, true], [2, true]]);
+  });
+
   test("asks one question per must-cover fact and two per turn, with the conversation and the recorded state in the prompt", async () => {
     const { ask, prompts } = scriptedJudge([]);
     const graded = await gradeAssistantWithJudge(gradeAssistantRun(recorded, fixture), fixture, ask);

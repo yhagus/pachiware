@@ -71,6 +71,14 @@ describe("code checks on one run", () => {
     expect(checks(withTurn(1, { pings: ["user-bob"] }))).toEqual(["1 pings: The reply pinged user-bob; only a Reminder post pings."]);
   });
 
+  test("a quiet turn must post nothing, and a turn naming reactions must leave one of them", () => {
+    const quiet: AssistantFixture = { ...fixture, facts: { ...fixture.facts, turns: [fixture.facts.turns[0]!, { quiet: true, reaction: ["👍", "✅"], tasks: [{ title: "venue" }] }] } };
+    expect(checks(withTurn(2, { replies: [], reactions: ["✅"] }), quiet)).toEqual([]);
+    expect(checks(withTurn(2, { replies: ["Sama-sama!"], reactions: ["👍"] }), quiet)).toEqual(['2 quiet: The bot posted "Sama-sama!"; this message was not for it to answer.']);
+    expect(checks(withTurn(2, { replies: [] }), quiet)).toEqual(["2 reaction: The bot left no reaction; expected one of 👍, ✅."]);
+    expect(checks(withTurn(2, { replies: [], reactions: ["👀"] }), quiet)).toEqual(["2 reaction: The bot left 👀; expected one of 👍, ✅."]);
+  });
+
   test("filler and the other language fail", () => {
     expect(checks(withTurn(1, { replies: ["Added: Book the venue, Bob, due Thursday. Hope this helps!"] }))).toEqual(['1 filler: Filler: "Added: Book the venue, Bob, due Thursday. Hope this helps!"']);
     expect(checks(withTurn(1, { replies: ["Sudah saya catat: Book the venue untuk Bob, jatuh tempo besok, dan ini tidak perlu konfirmasi dari kamu."] }))).toEqual(["1 language: The reply reads as Indonesian; the brief is in English."]);

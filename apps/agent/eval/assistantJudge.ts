@@ -47,6 +47,8 @@ const behaviourPrompt = (f: AssistantFixture, r: AssistantResult, t: AssistantTu
 const supportedPrompt = (f: AssistantFixture, r: AssistantResult, t: AssistantTurn) =>
   `${conversation(f, r.turns, t.n)}\n\n## Recorded state after turn ${t.n}\n${stateText(t.state)}\n\n## Reference facts\n${bullets(f.facts.mustCover)}\n\n## Question\nLook only at the bot's replies in turn ${t.n}. Is every statement they make about tasks, Memory, files or Reminders supported by the recorded state, the reference facts, or the conversation? Answer "no" when a reply claims something the state does not show, such as a task, due date, assignee, Memory line, file or Reminder that is not there.`;
 
+const QUIET: Graded = { reasoning: "A quiet turn: the code checks grade it.", verdict: "yes" };
+
 export interface AssistantJudgement {
   facts: ({ fact: string } & Graded)[];
   turns: { n: number; behaviour: Graded; supported: Graded }[];
@@ -67,7 +69,9 @@ export async function gradeAssistantWithJudge(result: AssistantResult, fixture: 
   const turns = result.turns, mustCover = fixture.facts.mustCover;
   const [facts, judgedTurns] = await Promise.all([
     Promise.all(mustCover.map(async (fact) => ({ fact, ...(turns.length ? await grade(ask, factPrompt(fixture, result, fact), SYSTEM) : { reasoning: "The bot never replied.", verdict: "no" as const }) }))),
-    Promise.all(turns.map(async (t) => ({ n: t.n, behaviour: await grade(ask, behaviourPrompt(fixture, result, t), SYSTEM), supported: await grade(ask, supportedPrompt(fixture, result, t), SYSTEM) }))),
+    // A quiet turn says nothing to judge: code checks that the bot posted nothing and reacted as asked.
+    Promise.all(turns.map(async (t) => (fixture.facts.turns[t.n - 1]?.quiet ? { n: t.n, behaviour: QUIET, supported: QUIET }
+      : { n: t.n, behaviour: await grade(ask, behaviourPrompt(fixture, result, t), SYSTEM), supported: await grade(ask, supportedPrompt(fixture, result, t), SYSTEM) }))),
   ]);
   const covered = facts.filter((f) => f.verdict === "yes").length, coverage = mustCover.length ? covered / mustCover.length : 0;
   const missing = facts.filter((f) => f.verdict !== "yes").map((f) => `${f.fact} (${f.reasoning})`).join("; ");

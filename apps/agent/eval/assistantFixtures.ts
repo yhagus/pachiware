@@ -36,6 +36,10 @@ export interface TurnFacts {
   cites?: number[];
   /** Phrases each held by a Minutes or Daily log the bot wrote in the brief's channel. */
   kept?: string[];
+  /** The message is not for the bot to answer (it is aimed at someone else, or only thanks): the bot posts nothing. */
+  quiet?: true;
+  /** The bot leaves one of these reactions on the message, such as 👍 for a thanks. */
+  reaction?: string[];
 }
 /** A message of the channel's talk before the brief, posted without the bot seeing it arrive. */
 export interface SeedMessage {
@@ -151,7 +155,9 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
     const mustCover = strings(raw.mustCover, `${name} mustCover`) ?? [];
     if (!mustCover.length) throw new Error(`Fixture ${name} names no must-cover fact`);
     for (const [i, t] of (raw.turns as any[]).entries()) {
-      for (const key of ["replyContains", "replyLacks", "files", "kept"]) strings(t[key], `${name} turn ${i + 1} ${key}`);
+      for (const key of ["replyContains", "replyLacks", "files", "kept", "reaction"]) strings(t[key], `${name} turn ${i + 1} ${key}`);
+      if (t.quiet !== undefined && t.quiet !== true) throw new Error(`Fixture ${name}: turn ${i + 1} quiet is true or left out`);
+      if (t.quiet && (t.replyContains || t.cites || t.taskList || t.ambiguous)) throw new Error(`Fixture ${name}: turn ${i + 1} is quiet, so it asks nothing of a reply`);
       for (const c of t.cites ?? []) if (!Number.isInteger(c) || !raw.seed?.messages?.[c]) throw new Error(`Fixture ${name}: turn ${i + 1} cites ${c}, which is no seeded message`);
     }
     strings(raw.seed?.hidden, `${name} seed.hidden`);

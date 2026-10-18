@@ -31,6 +31,8 @@ export interface AssistantTurn {
   authors?: string[];
   /** What the bot posted during this turn, oldest first. */
   replies: string[];
+  /** The reactions the bot left on this turn's messages; absent when none. */
+  reactions?: string[];
   confirm: boolean; pings: string[];
   state: AssistantState;
 }
@@ -183,15 +185,16 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
   let thread: Message["thread"], seen = s.discord.botMessages.length;
   for (const [i, message] of fixture.messages.entries()) {
     const who = speakers[i] ?? ["Alice"], where = thread ?? CHANNEL_ID;
-    const sent = i === 0 ? await s.discord.send(`${s.discord.mention} ${message}`, { attachments: await attachmentsOf(s, fixture) })
-      : who.length > 1 ? (await s.discord.burst(message.split("\n").map((content, j) => ({ content, author: member(who[j]!) })), { channel: where }))[0]!
-      : await s.discord.send(message, { author: member(who[0]!), channel: where });
+    const sentAll = i === 0 ? [await s.discord.send(`${s.discord.mention} ${message}`, { attachments: await attachmentsOf(s, fixture) })]
+      : who.length > 1 ? await s.discord.burst(message.split("\n").map((content, j) => ({ content, author: member(who[j]!) })), { channel: where })
+      : [await s.discord.send(message, { author: member(who[0]!), channel: where })];
+    const sent = sentAll[0]!, reactions = sentAll.flatMap((m) => m.reactions);
     thread ??= sent.thread;
     const posted = s.discord.botMessages.slice(seen);
     seen = s.discord.botMessages.length;
     turns.push({
       n: i + 1, message, ...(who.join() !== "Alice" && { authors: who }),
-      replies: posted.map(textOf).filter(Boolean), confirm: posted.some((m) => m.components.length > 0), pings: [...new Set(posted.flatMap((m) => m.allowedMentions?.users ?? []))], state: await stateOf(s, channels, seededFiles),
+      replies: posted.map(textOf).filter(Boolean), ...(reactions.length && { reactions }), confirm: posted.some((m) => m.components.length > 0), pings: [...new Set(posted.flatMap((m) => m.allowedMentions?.users ?? []))], state: await stateOf(s, channels, seededFiles),
     });
   }
   const posts: AssistantOutput["posts"] = [];

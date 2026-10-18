@@ -8,7 +8,7 @@ import { fillerIn } from "../src/discord/replyStyle";
 import type { AssistantFixture, ExpectedReminder, ExpectedTask, MemoryFacts, TurnFacts } from "./assistantFixtures";
 import type { AssistantOutput, AssistantState, AssistantTurn } from "./assistantRun";
 
-export type AssistantCheck = "reply" | "confirm" | "pings" | "acted" | "tasks" | "memory" | "files" | "reminders" | "kept" | "format" | "filler" | "language" | "posts" | "citations";
+export type AssistantCheck = "reply" | "quiet" | "reaction" | "confirm" | "pings" | "acted" | "tasks" | "memory" | "files" | "reminders" | "kept" | "format" | "filler" | "language" | "posts" | "citations";
 export interface AssistantFailure { turn: number; check: AssistantCheck; message: string }
 
 const LANGUAGE_NAMES: Record<Language, string> = { en: "English", id: "Indonesian" };
@@ -70,7 +70,10 @@ function replyFailures(facts: TurnFacts, replies: string[]): string[] {
 export function checkTurn(turn: AssistantTurn, facts: TurnFacts, before: AssistantState | null, language: Language): AssistantFailure[] {
   const out: AssistantFailure[] = [];
   const fail = (check: AssistantCheck, messages: string[]) => { for (const message of messages) out.push({ turn: turn.n, check, message }); };
-  if (!turn.replies.length) fail("reply", ["The bot did not reply."]);
+  if (facts.quiet) fail("quiet", turn.replies.map((r) => `The bot posted "${r.slice(0, 120)}"; this message was not for it to answer.`));
+  else if (!turn.replies.length) fail("reply", ["The bot did not reply."]);
+  const left = turn.reactions ?? [];
+  if (facts.reaction && !left.some((r) => facts.reaction!.includes(r))) fail("reaction", [`The bot left ${left.join(", ") || "no reaction"}; expected one of ${facts.reaction.join(", ")}.`]);
   if (turn.confirm) fail("confirm", ["A Confirm button was offered; nothing here needs one."]);
   if (turn.pings.length) fail("pings", [`The reply pinged ${turn.pings.join(", ")}; only a Reminder post pings.`]);
   if (facts.ambiguous && before && !same(turn.state, before)) fail("acted", ["The request was ambiguous, but the Workspace changed."]);
