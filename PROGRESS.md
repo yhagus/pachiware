@@ -1236,3 +1236,18 @@ Planning is done; implementation follows the sub-issues of [#178](https://github
   - No regression test: a timing assertion would be flaky, and the import order is not behaviour. The check is timing one scenario file: `bun test apps/agent/test/availability-confirm.test.ts`.
   - Left: `discord.js` (~78 ms) and the db modules (~40 ms) load in every scenario process, and starting ~480 processes costs ~80 s of system CPU. The suite now uses ~290 s of CPU on 11 cores, so it cannot go much under ~27 s while each scenario has its own process.
   - Verification: `bun run typecheck` exits 0; `bun run test` 947 pass, 270 skip, 0 fail in 32–37 s over six runs (was 46–59 s).
+
+## Phase 39 — Recall: Daily logs and finding past talk, decisions and done work (spec #195)
+
+Started from a review of the harness as an administrative assistant (2026-10-18): asking about past work ("was audio normalization discussed, and is it done?") scored 9/20, the lowest area and the one people use most. Causes: only talk someone asked to keep is findable after 24 hours, `searchFiles` needs every word (Indonesian and English wordings miss each other), and "is it done?" never reaches Tasks of other channels, git or Plane. A grilling session the same day settled the model; the spec is issue [#195](https://github.com/yhagus/pachiware/issues/195). Tickets are cut in a later step.
+
+- [x] Constraints from the user: only text, images and Documents are processed (no audio or video); no embedding model, the tenant's own chat model only (e.g. DeepSeek BYOK).
+- [x] Glossary: new term Daily log (written nightly by one bot from a schedule-started Playbook, never posted, owned by nobody, part of Kept material); Playbook may be started by the schedule; another channel's Tasks are read under the Source rules when someone asks whether work was done.
+- [x] ADR 0012: Discord keeps the messages, the bot keeps Daily logs; a 30-day Message archive rejected.
+- [x] ADR 0013: recall uses no embedding model and no Database engine full-text index; Workspace files are scored in code.
+- [x] Decisions recorded in the spec:
+  - Daily logs: off by default, turned on per channel by an admin in one bot's guild settings; one notice on turning on; 30-day backfill (can be unticked); written at 00:30 in the place's zone for the day before, never posted, empty days skipped; kept with no time limit; missed nights caught up to 7 days; turning on again backfills only missing days.
+  - Content: Topics with Indonesian and English keywords, Decided, Still open, Who does what next, every item linked to its messages. People's and webhook messages in; other bots and the bot out; public threads in; private threads and DMs never. A busy day read in parts, cut past 5,000 messages with a note. A deleted message loses its link and an item left with none goes; edits ignored. Steps are a built-in, tenant-editable Playbook; an Availability rule turning it off stops the Daily log.
+  - Recall: ranked search over files (no AND), several query variants per search, server-written topics and keywords on newly kept material, no topic list for now, "is it done?" reads Tasks of viewable channels under the Source rules plus git and Plane within their scopes, a four-part answer with the newest source winning.
+- [x] Test seams: the Discord scenario harness for behaviour and the assistant eval for recall quality with a real model; no new seam.
+- [ ] Cut spec #195 into tickets (`/to-tickets`).

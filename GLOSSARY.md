@@ -97,7 +97,7 @@ What calling a tool can do: read (changes nothing), write (changes something tha
 _Avoid_: Risk level, destructive (too narrow: a webhook change deletes nothing)
 
 **Playbook**:
-Written guidance the agent follows for one kind of work, such as turning a brief into issue drafts or writing minutes. It says how to think and in what steps; the tools it uses come from skills. A person starts one by name from chat, unless it is only a reference other playbooks load; the agent never picks one on its own, but a playbook may load another playbook that is also available.
+Written guidance the agent follows for one kind of work, such as turning a brief into issue drafts or writing minutes. It says how to think and in what steps; the tools it uses come from skills. A person starts one by name from chat, unless it is only a reference other playbooks load or one the schedule starts, such as the Daily log's; the agent never picks one on its own, but a playbook may load another playbook that is also available.
 _Avoid_: Skill (a skill is tools, even though other agent tools call this a skill), prompt, template
 
 **Playbook thread**:
@@ -164,8 +164,12 @@ _Avoid_: Attachment (Discord's word for any file on a message), upload, Note
 What the bot keeps about a place to answer better later: the team's decisions, how people like to be addressed and to work, and the conventions of the place. One memory per tenant, per guild, and per channel; a channel's memory is not read in another channel. Conversation itself and private details are never memory.
 _Avoid_: Notes (notes are files a person asked for), context, history
 
+**Daily log**:
+The record the bot writes on its own, each night, of one channel's talk on the day before, with links to the messages it rests on. Nobody asks for it, it is never posted, and nobody owns it; an admin turns it on per channel.
+_Avoid_: Summary, recap, journal, automatic minutes
+
 **Kept material**:
-The Minutes, Decisions, Notes and Documents the bot kept for a place, which people can ask about later. Memory and Tasks are not kept material.
+The Minutes, Daily logs, Decisions, Notes and Documents the bot kept for a place, which people can ask about later. Memory and Tasks are not kept material.
 _Avoid_: Records, archive, files (a place's files also hold its tasks and memory)
 
 **Source**:
@@ -189,5 +193,7 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - **Memory** lives in the **Workspace** at the tenant, guild, and channel level; the channel level is read only in that channel.
 - A **Document** is kept in the Workspace folder of the channel or DM it was given in; a **Note** may be made from it, never the other way round.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.
-- **Minutes**, **Decisions**, **Notes** and **Documents** of a channel can be read from another channel of the same guild, or from a DM, by someone who can view that channel, unless an **Availability rule** turns the Workspace off there; only a **Public channel**'s may be quoted in a channel other than their own. **Memory** and **Tasks** are never read this way.
+- A **Daily log** is written by one **Bot** of the tenant, following a **Playbook** that only the schedule starts; it covers one channel and one day, with the channel's public threads; a private thread and a DM never get one. The messages stay in Discord: the Daily log links to them and keeps no copy, and what rests only on a deleted message leaves it.
+- **Minutes**, **Daily logs**, **Decisions**, **Notes** and **Documents** of a channel can be read from another channel of the same guild, or from a DM, by someone who can view that channel, unless an **Availability rule** turns the Workspace off there; only a **Public channel**'s may be quoted in a channel other than their own. **Memory** is never read this way.
+- When someone asks whether work was done, the **Tasks** of the channels they can view are read under the same rules as **Sources**: only a **Public channel**'s may be quoted in a channel other than their own.
 - What the bot kept from a private thread belongs to that thread: only people added to it can have it read, in its parent channel too. Inside another private thread of the same channel it is a **Source** that is not quotable.
