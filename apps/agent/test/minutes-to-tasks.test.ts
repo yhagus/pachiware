@@ -19,7 +19,7 @@ async function postMinutes(s: Scenario) {
     decided: [{ text: "Release on Friday", ref: 2 }],
     open: [{ text: "Who announces it", ref: 1 }],
     actions: [
-      { owner: "Bob", task: "Write the release notes", due: "Thursday", ref: 2 },
+      { owner: "Bob", task: "Write the release notes.", due: "Thursday", ref: 2 },
       { owner: null, task: "Fix the flaky login test", due: null, ref: 1 },
       { owner: "Dewi", task: "Order the banners", due: "minggu depan", ref: 2 },
     ],

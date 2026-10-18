@@ -60,7 +60,8 @@ export async function tasksFromMinutes(ctx: SkillContext, minutes: string, point
     const dueAt = dueFromWords(a.due, said);
     if (a.due && !dueAt) notes.push(t.minutesTasksDueKept(a.n, a.due));
     const madeFrom: MadeFrom = { label: t.minutesTasksFrom(m.title, a.n), link: a.link, path, item: a.n };
-    const args = { title: a.task.slice(0, 200), description: t.minutesTasksDescription(m.title, a.link, a.due && !dueAt ? a.due : null), ...(dueAt ? { dueAt } : {}), madeFrom };
+    // A Minutes item is a sentence; a task title carries no closing full stop.
+    const args = { title: a.task.replace(/[.。]+\s*$/u, "").slice(0, 200), description: t.minutesTasksDescription(m.title, a.link, a.due && !dueAt ? a.due : null), ...(dueAt ? { dueAt } : {}), madeFrom };
     let result = a.owner ? await create({ ...args, assignedTo: a.owner }, ctx).catch((e: Error) => ({ refused: e.message })) : await create(args, ctx);
     // A name that fits several members, or a member who cannot view the channel, leaves the task unassigned rather than not made.
     if (a.owner && result?.candidates) { notes.push(t.minutesTasksAmbiguous(a.owner)); result = await create(args, ctx); }
