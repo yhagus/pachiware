@@ -1648,11 +1648,25 @@ The issues filed from the harness review after Phase 43, plus #144. Asked by the
 - [x] #254 Turn deadline (801e622): `TURN_DEADLINE_SECONDS` (default 180). Past it no model call, retry, fallback Profile or tool call starts; the request in flight is cut at the deadline; the turn ends with the action-budget summary (30 s of its own), audited with `source: "deadline"`. Discord's `|| 12` is gone: Discord, web chat and the loop share `DEFAULT_REACT_ITERATIONS` (32) from `@pachiware/db`.
 - [x] #255 Quoted injection (eb212b5): `injectionPhrases`, `onlyInjection` in `guardrails.ts`; audited as `prompt_injection_detected` with `quoted: true`.
 - [x] #256 Speaker ids (36270ae): `speakerTurn` and `replyLine` carry `<@id>`. The persona's Assignees line says to pass a speaker's mention. The previous default is frozen as `PERSONA_REMEMBER_ASKED` (migration indices 18→19); later persona changes in this phase edit the default only.
-- [ ] #251 Git and Plane administration tools off by default
-- [ ] #253 Tasks from Minutes action items, and a Task's source
-- [ ] #250 Task history, `completedAt`, the Assignee told
+- [x] #251 Administration off by default (504dd64): a tool policy may say `defaultOff`; such a tool is off at the tenant until a tenant `on` rule (ADR 0005 updated, Glossary's Availability rule too). Off: git Repo admin and Org groups, CI variables/secrets/runners/packages/schedules, snippets, writing the default branch; Plane project and workspace admin. 45 of 190 tools; schemas with every skill on went from about 32.6k to 25.6k tokens (chars/4). Code writes and pull request management stay on: the code-review, pr and triage playbooks use them. The console switches each with a tenant `on` rule; the harness has `s.adminTools()`.
+- [x] #253 Tasks from Minutes (23f59cc):
+  - `tasksFromMinutes` (tool) and a reply to posted Minutes that asks for tasks (`asksForTasks`: a verb of making before "task"/"tugas", so "poin 2 itu task Bob" stays a correction) make Tasks of the chosen action items with no model turn. Numbers count as the embed shows them.
+  - The person named becomes the Assignee when the name fits one member who can view the channel; otherwise the task is unassigned and the reply says why. A due date in words becomes a day by `dueFromWords` (`packages/skills/src/dueWords.ts`), counted from the discussion's day; words naming no single day ("minggu depan") stay in the description.
+  - A task keeps `madeFrom` (`{ label, link, path, item }`; "source" is the Glossary's word for a place), so one action item never makes two tasks; recall shows it.
+  - Decided: the reply's language is the request's, else the place's when the request has no function word ("jadikan task semua").
+- [x] #250 Tasks and Assignees (23f59cc, 3e97a26):
+  - `change()` writes a `## History` line per field change (`- 2026-10-19 10:05 Alice: status pending → completed`) and stamps `completedAt`, cleared when the task opens again. showTask shows both; recall's task label carries the completion day.
+  - A member someone else gives a task to is pinged once per turn, one message listing their tasks; the asker and the bot never are. In a private thread the ping goes to the parent channel, since a mention would add them to the thread. Decided: on by default, with no setting; the eval keeps these pings apart from replies (`assigned` on a turn).
+  - `taskSummary`: per project, pending, in progress, late, due within a week, completed in the last week, and open tasks per Assignee.
+  - The next Minutes of a place get the previous Minutes' open points; the model lists the ones it settled, and the rest are shown again, dated, unnumbered after the action items (`carried`), and survive corrections.
+  - `editReminder`: the owner moves the next post (snooze) or rewords it; the schedule repository's `update` takes `text` on every engine (contract test).
+  - A weekly report is a persona line (taskSummary, late tasks, one recall since the week's start), not a playbook: a new built-in playbook changes every guild's slash commands.
+  - Not built: recurring tasks, and a time zone per person beyond the roster (#249).
+- [x] #248 Repository documentation mirror, built by a subagent on `feat/docs-mirror-248` and cherry-picked (437fdc2..d87434a, 4edd4ff):
+  - A guild setting `docSources` (`{ channelId, repo, account?, paths }`, every engine) picks per channel a repository and path patterns. Matching text files of the default branch are mirrored under `files/docs/<owner>/<repo>/` as Documents, so recall finds them unchanged; a hidden `.mirror.json` keeps blob shas, so a refresh reads only what changed and deletes what left upstream. At most 200 files a source; over 256 KB or too deep is skipped and listed.
+  - The channel's Git scope decides: saving a source it does not allow is a 400; a source it stops allowing is skipped and audited once. Refreshed nightly at the Daily log time (own `docs-mirror` schedule row) and right after saving; removing a source deletes its mirror.
+  - Web console: "Documentation from repositories" in a server's settings (typechecked, not viewed in a browser). Glossary: a Document may be mirrored. Persona: files/docs/ is the server's.
 - [ ] #249 Team roster
 - [ ] #246 Today's talk in recall, images and scanned PDFs, long Minutes in parts
 - [ ] #247 Git hits ranked by relevance, commits searched beyond the latest 100
-- [ ] #248 Repository documentation mirrored as Documents
 - [ ] #252 A lived-in exam
