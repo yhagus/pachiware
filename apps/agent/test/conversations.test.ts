@@ -67,7 +67,7 @@ describe("guild config", () => {
       assert((await put({ systemPrompt: "Answer in Indonesian", alwaysChannelIds: ["c9"], useThreads: false })).status === 200, "save failed");
       const p1 = await SystemPromptBuilder.build(ctx);
       assert(p1.includes("Answer in Indonesian"), "prompt missing server instructions");
-      assert(!(await SystemPromptBuilder.build({ ...ctx, guildId: "g2" })).includes("Indonesian"), "leaked to other server");
+      assert(!(await SystemPromptBuilder.build({ ...ctx, guildId: "g2" })).includes("Answer in Indonesian"), "leaked to other server");
       await put({ systemPrompt: "Answer in French" });
       assert((await SystemPromptBuilder.build(ctx)).includes("French"), "cache not invalidated");
       got = (await (await app.request(url, { headers: admin })).json()).config;

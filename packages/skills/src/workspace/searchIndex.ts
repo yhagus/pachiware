@@ -1,6 +1,6 @@
 import type { SearchableWorkspaceStore, WorkspaceStore } from "./store.js";
 import { isBinaryDocument } from "./extract.js";
-import { matchFile, type FileMatch } from "./search.js";
+import { matchFile, type FileMatch, type FolderSearch } from "./search.js";
 
 type Indexed = { version: string; text: string };
 const under = (path: string, folder: string) => !folder || path === folder || path.startsWith(folder + "/");
@@ -54,11 +54,11 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
   }
 
   /**
-   * Every file under a folder (a tenant-relative store path) that matches the words, in the order a walk of the folder
+   * Every file under a folder (a tenant-relative store path) that holds any of the words, in the order a walk of the folder
    * gives. Hidden files and folders are skipped, and a binary Document matches by name only (its text is searched in the
    * .md beside it). `nameOf` gives the name a file is matched by, from its store path. Uncapped: the caller caps.
    */
-  async searchFolder(tenantId: string, folder: string, words: string[], nameOf: (path: string) => string): Promise<FileMatch[]> {
+  async searchFolder(tenantId: string, folder: string, words: string[], nameOf: (path: string) => string): Promise<FolderSearch> {
     const index = this.index(tenantId), files = await this.inner.files(tenantId, folder);
     const matches: FileMatch[] = [];
     for (const file of files) {
@@ -68,11 +68,11 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
         entry = { version: read?.version ?? file.version, text: read?.content ?? "" };
         index.set(file.path, entry);
       }
-      const lines = matchFile(words, nameOf(file.path), entry.text);
-      if (lines) matches.push({ path: file.path, lines, modified: file.modified });
+      const hit = matchFile(words, nameOf(file.path), entry.text);
+      if (hit) matches.push({ path: file.path, ...hit, modified: file.modified });
     }
     const present = new Set(files.map((f) => f.path));
     for (const path of [...index.keys()]) if (under(path, folder) && !present.has(path)) index.delete(path);
-    return matches;
+    return { matches, searched: files.length };
   }
 }

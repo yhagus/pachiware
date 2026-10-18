@@ -23,12 +23,38 @@ discordScenario("case does not matter in the query or the file", async (s) => {
   ]);
 });
 
-discordScenario("a file missing any one query word is not returned", async (s) => {
-  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-01-weekly.md", "We decided the pricing for Q4.\n");
-  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-08-weekly.md", "Pricing decision: flat for Q4.\n");
-  s.model.script({ tool: "searchFiles", args: { query: "pricing decision", path: "channel/minutes" } }, shown);
-  await s.discord.send(`${s.discord.mention} pricing decision?`);
-  expect(JSON.parse(s.discord.botMessages.at(-1)!.content).map((m: any) => m.path)).toEqual(["channel/minutes/2026-10-08-weekly.md"]);
+discordScenario("a file holding most but not all words of a query is found, ranked below a file holding all of them", async (s) => {
+  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-01-weekly.md", "Audio normalization target agreed at -14 LUFS.\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-08-weekly.md", "Audio normalization still open.\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-09-weekly.md", "Pricing stays flat.\n");
+  s.model.script({ tool: "searchFiles", args: { query: "audio normalization target", path: "channel/minutes" } }, shown);
+  await s.discord.send(`${s.discord.mention} audio normalization target?`);
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content).map((m: any) => m.path)).toEqual([
+    "channel/minutes/2026-10-01-weekly.md", "channel/minutes/2026-10-08-weekly.md",
+  ]);
+});
+
+discordScenario("a search with several queries returns files matching any of them, best matching first", async (s) => {
+  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-09-01-sync.md", "Audio normalization: we target -14 LUFS.\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/notes/2026-09-20-audio.md", "Normalisasi audio dibahas lagi minggu depan.\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/decisions/2026-10-10-gear.md", "We buy a new audio interface.\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/decisions/2026-10-12-pricing.md", "Pricing stays flat.\n");
+  s.model.script({ tool: "searchFiles", args: { queries: ["normalisasi audio", "audio normalization"], path: "channel/" } }, shown);
+  await s.discord.send(`${s.discord.mention} normalisasi audio sudah pernah dibahas?`);
+  const paths = JSON.parse(s.discord.botMessages.at(-1)!.content).map((m: any) => m.path);
+  expect(paths.slice(0, 2).sort()).toEqual(["channel/minutes/2026-09-01-sync.md", "channel/notes/2026-09-20-audio.md"]);
+  expect(paths.slice(2)).toEqual(["channel/decisions/2026-10-10-gear.md"]);
+});
+
+discordScenario("files that match equally well come newest first", async (s) => {
+  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-01-weekly.md", "Pricing stays flat.\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-15-weekly.md", "Pricing stays flat.\n");
+  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-08-weekly.md", "Pricing stays flat.\n");
+  s.model.script({ tool: "searchFiles", args: { queries: ["pricing flat"], path: "channel/minutes" } }, shown);
+  await s.discord.send(`${s.discord.mention} pricing?`);
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content).map((m: any) => m.path)).toEqual([
+    "channel/minutes/2026-10-15-weekly.md", "channel/minutes/2026-10-08-weekly.md", "channel/minutes/2026-10-01-weekly.md",
+  ]);
 });
 
 discordScenario("each match returns at most three lines, those holding the most query words, with line numbers", async (s) => {

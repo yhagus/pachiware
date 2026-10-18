@@ -51,6 +51,19 @@ discordScenario("the persona answers questions about past meetings from kept mat
   expect(persona).not.toContain("threads/");
 });
 
+discordScenario("the persona searches kept material with Indonesian, English and same-meaning variants, answers in four parts, and lets the newest source win", async (s) => {
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const persona = systemPrompt(s.model.calls[0]!).split("### Policy")[0]!;
+  const section = persona.slice(persona.indexOf("Asking about kept material"));
+  expect(section).toContain("queries");
+  expect(section).toMatch(/Indonesian, English and same-meaning/);
+  for (const part of ["Discussed", "Decided", "Done or not", "Nothing found"]) expect(section).toContain(part);
+  expect(section).toMatch(/left out when (it is )?empty/i);
+  expect(section).toMatch(/newest/i);
+  expect(section).toMatch(/replaced/i);
+});
+
 discordScenario("a question about channels reaches the model when the Discord skill is off, instead of a regex refusal", async (s) => {
   const { repositories } = await import("../../../packages/db/src/index.ts");
   await repositories().skills.setEnabled(s.tenant.id, "discord_management", false);

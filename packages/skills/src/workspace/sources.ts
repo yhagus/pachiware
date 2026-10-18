@@ -170,20 +170,30 @@ export function sourcePath(ctx: Pick<SkillContext, "language">, sources: Source[
   return { source, path: [source.folder, ...rest].join("/"), shown: agentPaths(source.root, source.folder) };
 }
 
-/** Every match of the words in a source's folders (its kept folders unless given), each with its source and the path the agent reads it by. */
+/**
+ * Every file in a source's folders (its kept folders unless given) holding any of the words, each with its source and the
+ * path the agent reads it by, and how many files were searched.
+ */
 export async function searchSource(store: SearchableWorkspaceStore, tenantId: string, source: Source, words: string[], folders = source.folders) {
   const shown = agentPaths(source.root, source.folder);
   const found = await Promise.all(folders.map((folder) => store.searchFolder(tenantId, folder, words, (p) => p.slice(source.folder.length + 1))));
-  return found.flat().map((m): FileMatch & { source: Source; shown: string } => ({ ...m, source, shown: shown(m.path) }));
+  return {
+    matches: found.flatMap((f) => f.matches).map((m): FileMatch & { source: Source; shown: string } => ({ ...m, source, shown: shown(m.path) })),
+    searched: found.reduce((n, f) => n + f.searched, 0),
+  };
 }
 
 /**
- * Searches the kept folders of every source. Matches that may be shown here come grouped by source label, groups in the order of their
- * newest match, at most MAX_MATCHES in all; `total` and `leftOut` count only those. `notShown` counts the matches of non-quotable sources.
+ * Searches the kept folders of every source for any of the queries. Matches that may be shown here are ranked best first
+ * (see `ranked`) and come grouped by source label, groups in the order of their best match, at most MAX_MATCHES in all;
+ * `total` and `leftOut` count only those. `notShown` counts the matches of non-quotable sources.
  */
-export async function searchSources(store: SearchableWorkspaceStore, tenantId: string, sources: Source[], words: string[]) {
-  const all = (await Promise.all(sources.map((s) => searchSource(store, tenantId, s, words)))).flat();
-  const { matches, total, leftOut } = capMatches(all.filter((m) => m.source.quotable));
+export async function searchSources(store: SearchableWorkspaceStore, tenantId: string, sources: Source[], queries: string[][]) {
+  const words = [...new Set(queries.flat())];
+  const found = await Promise.all(sources.map((s) => searchSource(store, tenantId, s, words)));
+  const all = found.flatMap((f) => f.matches);
+  const searched = found.reduce((n, f, i) => n + (sources[i]!.quotable ? f.searched : 0), 0);
+  const { matches, total, leftOut } = capMatches(all.filter((m) => m.source.quotable), queries, searched);
   const groups = sources.map((s) => ({ s, matches: matches.filter((m) => m.source === s) })).filter((g) => g.matches.length)
     .sort((a, b) => matches.indexOf(a.matches[0]!) - matches.indexOf(b.matches[0]!));
   return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, notShown: all.length - total };

@@ -57,8 +57,8 @@ discordScenario("from a DM, a member searches and reads the Minutes of every cha
 discordScenario("from a DM, a guild the member is not in and a channel they cannot view are never sources", async (s) => {
   await threeGuilds(s);
   const calls = [
-    { tool: "searchFiles", args: { query: "vault pricing" } },
-    { tool: "searchFiles", args: { query: "studio pricing" } },
+    { tool: "searchFiles", args: { query: "vault" } },
+    { tool: "searchFiles", args: { query: "studio" } },
     { tool: "readFile", args: { path: "#vault (Beta)/minutes/2026-10-13-pricing.md" } },
     { tool: "readFile", args: { path: "<#gamma-studio>/minutes/2026-10-14-pricing.md" } },
   ];

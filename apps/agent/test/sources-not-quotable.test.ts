@@ -23,7 +23,7 @@ const SUGGEST_EN = (n: number) => `${n} more matching ${n === 1 ? "file" : "file
 discordScenario("asking in #general about something kept in a non-public channel, the result names no channel, file or line and suggests a DM", async (s) => {
   await generalAndDireksi(s);
   await s.workspace.write(`${GENERAL}/notes/pricing.md`, "Pricing questions\n");
-  const said = await ask(s, [{ tool: "searchFiles", args: { query: "pricing decided" } }, { tool: "searchFiles", args: { query: "pricing" } }]);
+  const said = await ask(s, [{ tool: "searchFiles", args: { query: "decided" } }, { tool: "searchFiles", args: { query: "pricing" } }]);
   expect(said).not.toMatch(/direksi|board|channel-3|Q4/i);
   expect(JSON.parse(said)).toEqual([
     { groups: [], total: 0, leftOut: 0, notShownHere: 1, suggestion: SUGGEST_EN(1) },
