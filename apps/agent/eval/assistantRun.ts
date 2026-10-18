@@ -7,7 +7,7 @@
  */
 import type { Scenario } from "../test/support/discordScenario";
 import { checkAssistantOutput, type AssistantFailure } from "./assistantChecks";
-import type { AssistantFixture, SeedFile, SeedTask } from "./assistantFixtures";
+import type { AssistantFixture, SeedFile, SeedGit, SeedPullRequest, SeedTask } from "./assistantFixtures";
 import { gradeAssistantWithJudge } from "./assistantJudge";
 import type { TrialResult } from "./compare";
 import type { Ask } from "./judge";
@@ -62,6 +62,31 @@ async function seedTasks(s: Scenario, tasks: SeedTask[]) {
   }
 }
 
+/**
+ * GitHub as far as finding work needs it: the account's repositories, its issue search (every word of the query in a pull request's
+ * title, within the `repo:` named), and pull request lists; any other repository read finds nothing.
+ */
+async function seedGit(s: Scenario, git: SeedGit) {
+  await s.git({ provider: "github", repos: git.repos });
+  const prs = git.pullRequests ?? [];
+  const url = (p: SeedPullRequest) => `https://github.com/${p.repo}/pull/${p.number}`;
+  const repos = [...new Set(prs.map((p) => p.repo))];
+  s.http.on("GET api.github.com/repos/", () => []);
+  s.http.on("GET api.github.com/user/repos", () => repos.map((r) => ({ full_name: r, owner: { login: r.split("/")[0] }, private: true, default_branch: "main", updated_at: "2026-10-01T00:00:00Z", html_url: `https://github.com/${r}` })));
+  s.http.on("GET api.github.com/search/issues", (req) => {
+    const terms = (new URL(req.url).searchParams.get("q") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+    const repo = terms.find((t) => t.startsWith("repo:"))?.slice(5), words = terms.filter((t) => !t.includes(":"));
+    const items = prs.filter((p) => (!repo || p.repo === repo) && words.every((w) => p.title.toLowerCase().includes(w))).map((p) => ({
+      number: p.number, title: p.title, state: p.mergedAt ? "closed" : "open", html_url: url(p), updated_at: p.mergedAt ?? new Date(s.clock.now()).toISOString(), closed_at: p.mergedAt ?? null,
+      pull_request: { merged_at: p.mergedAt ?? null, html_url: url(p) },
+    }));
+    return { total_count: items.length, items };
+  });
+  for (const r of repos) s.http.on(`GET api.github.com/repos/${r}/pulls`, () => prs.filter((p) => p.repo === r).map((p) => ({
+    number: p.number, title: p.title, state: p.mergedAt ? "closed" : "open", merged_at: p.mergedAt ?? null, user: { login: "dewi" }, head: { ref: "audio" }, base: { ref: "main" }, labels: [], html_url: url(p), created_at: "2026-10-10T00:00:00Z",
+  })));
+}
+
 async function attachmentsOf(s: Scenario, fixture: AssistantFixture) {
   const { attachment } = await import("../test/support/images");
   const { pdf } = await import("../test/support/documents");
@@ -102,6 +127,7 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
   const channels = seededChannels(s, facts.seed);
   if (facts.seed?.tasks?.length) await seedTasks(s, facts.seed.tasks);
   if (facts.seed?.files?.length) await seedFiles(s, facts.seed.files);
+  if (facts.seed?.git) await seedGit(s, facts.seed.git);
   s.discord.unlimited(s.discord.alice);
   const turns: AssistantTurn[] = [];
   let thread: Message["thread"], seen = s.discord.botMessages.length;
