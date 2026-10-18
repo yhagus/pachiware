@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { Filter } from "mongodb";
+import type { ClientSession, Filter } from "mongodb";
 import { ensureCollection, inTransaction, type MongoConnection, type MongoMigration } from "../../mongo/connection.js";
-import { definedProfileFields, PROFILE_DEFAULTS, type Profile, type ProfileRepository } from "./types.js";
+import { definedProfileFields, PROFILE_DEFAULTS, requireFallback, type Profile, type ProfileRepository } from "./types.js";
 
 type ProfileDoc = Omit<Profile, "id"> & { _id: string };
 
@@ -20,6 +20,8 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
   const { db } = connection;
   const profiles = db.collection<ProfileDoc>("profiles");
   const bots = db.collection<{ _id: string; tenantId: string; profileId: string | null }>("bots");
+  const chain = async (tenantId: string, session: ClientSession) =>
+    (await profiles.find({ tenantId }, { session, projection: { _id: 1, fallbackProfileId: 1 } }).toArray()).map((d) => ({ id: d._id, fallbackProfileId: d.fallbackProfileId ?? null }));
   const one = async (filter: Filter<ProfileDoc>) => {
     const doc = await profiles.findOne(filter);
     return doc ? toProfile(doc) : null;
@@ -35,6 +37,7 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
       await inTransaction(connection, async (session) => {
         // SQL's foreign key: the tenant must exist.
         if (!(await db.collection<{ _id: string }>("tenants").findOne({ _id: tenantId }, { session, projection: { _id: 1 } }))) throw new Error("Tenant not found");
+        if (doc.fallbackProfileId) requireFallback(await chain(tenantId, session), null, doc.fallbackProfileId);
         await profiles.insertOne(doc, { session });
       });
       return toProfile(doc);
@@ -46,13 +49,21 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
       return bot?.profileId ? one({ _id: bot.profileId, tenantId }) : null;
     },
     async update(id, input) {
-      const doc = await profiles.findOneAndUpdate({ _id: id }, { $set: { ...definedProfileFields(input), updatedAt: new Date() } }, { returnDocument: "after" });
+      const doc = await inTransaction(connection, async (session) => {
+        if (input.fallbackProfileId) {
+          const found = await profiles.findOne({ _id: id }, { session, projection: { tenantId: 1 } });
+          if (!found) return null;
+          requireFallback(await chain(found.tenantId, session), id, input.fallbackProfileId);
+        }
+        return profiles.findOneAndUpdate({ _id: id }, { $set: { ...definedProfileFields(input), updatedAt: new Date() } }, { session, returnDocument: "after" });
+      });
       return doc ? toProfile(doc) : null;
     },
     async remove(id) {
       // Bots pointing at the profile fall back to the tenant default, as SQL's ON DELETE SET NULL does.
       return inTransaction(connection, async (session) => {
         await bots.updateMany({ profileId: id }, { $set: { profileId: null } }, { session });
+        await profiles.updateMany({ fallbackProfileId: id }, { $set: { fallbackProfileId: null } }, { session });
         return (await profiles.deleteOne({ _id: id }, { session })).deletedCount > 0;
       });
     },
@@ -62,6 +73,6 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
 function toProfile(doc: ProfileDoc): Profile {
   return {
     id: doc._id, tenantId: doc.tenantId, name: doc.name, provider: doc.provider, model: doc.model, baseUrl: doc.baseUrl ?? null,
-    apiKeyEncrypted: doc.apiKeyEncrypted ?? null, acceptsImages: Boolean(doc.acceptsImages), apiFormat: doc.apiFormat, createdAt: doc.createdAt, updatedAt: doc.updatedAt,
+    apiKeyEncrypted: doc.apiKeyEncrypted ?? null, acceptsImages: Boolean(doc.acceptsImages), apiFormat: doc.apiFormat, fallbackProfileId: doc.fallbackProfileId ?? null, createdAt: doc.createdAt, updatedAt: doc.updatedAt,
   };
 }

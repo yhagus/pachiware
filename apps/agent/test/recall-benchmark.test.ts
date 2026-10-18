@@ -9,9 +9,9 @@ import { discordScenario } from "./support/discordScenario";
  * output, or when the scenario runs alone the way `runInSubprocess` runs it (PACHIWARE_SCENARIO set to its name, with a scratch
  * DATABASE_URL and WORKSPACE_DIR).
  */
-const TOP1 = 26;
-const TOP3 = 42;
-const MRR = 0.68;
+const TOP1 = 41;
+const TOP3 = 48;
+const MRR = 0.93;
 
 discordScenario("retrieval benchmark: top-1, top-3 and MRR", async (s) => {
   const { BENCHMARK_CHANNELS, BENCHMARK_FILES, BENCHMARK_QUESTIONS, V1_QUESTION_COUNT, shownPaths } = await import(process.cwd() + "/apps/agent/test/support/recallBenchmark.ts");
