@@ -1411,3 +1411,24 @@ Planning is done; implementation follows the sub-issues of [#207](https://github
   - Scenarios in `apps/agent/test/citations.test.ts`: refs rendered with label and link, an unknown ref removed and audited, a made-up link removed while links from the person's message and an earlier reply stay, observe mode keeping the link with the audit row, the stored reply holding the rendered link for a follow-up, and web chat cleaning its reply the same way. `eval-assistant-checks.test.ts` checks the new check fails and passes as it should.
   - Verification: `bun run typecheck` exits 0; `bun run test` 1038 pass, 1 fail. The failure, `packages/cli/test/setup.test.ts`, is a 5-second timeout at a load average near 72; the file passes alone (12 pass).
 - [x] Merged `spec/207-recall` into `main` by fast-forward (#208–#212) and pushed; #207–#212 closed.
+
+## Phase 41 — Harness to 85+ (planning, spec #213)
+
+Planning is done; implementation follows the sub-issues of [#213](https://github.com/yhagus/pachiware/issues/213). A re-score after spec #207 put the harness at about 78/100: recall about 80, group conversation 65, agent loop 63, eval 64. The spec targets about 86.
+
+- [x] Decided with the user: a Profile may name a fallback Profile and fallbacks chain (at most 3 hops, cycles and other tenants refused); each bot still picks one Profile. A cut text answer is continued once, then sent with a cut-off note; a cut tool call never runs. A burst in a shared channel is answered per person, each under their own identity.
+- [x] Correction to the 2026-10-18 review: Claude's docs say `tool_use` and `tool_result` blocks no longer require `tools`, and document `tool_choice` none, so the budget-exhausted turn is not rejected by Anthropic. The real costs are a cache miss (it drops `tools`) and an unstored reply; #219 fixes both.
+- [x] Checked and left out: the prompt listing the tenant's tools while fewer are sent is deliberate (cached prefix, "Turned off here" names what is off).
+- [x] Spec #213 cut into 12 tickets, all sub-issues of #213 with native blocking:
+  - #214 The turn shows what a reply replied to (no blockers)
+  - #215 A burst of several people is answered per person (after #214, same file)
+  - #216 A reply or tool call cut off at max_tokens is continued or refused (no blockers)
+  - #217 A Profile may name a fallback Profile, and fallbacks chain (after #216)
+  - #218 History is kept within a token budget (no blockers)
+  - #219 Anthropic caches the history; the budget-exhausted turn keeps its tools with tool_choice none and is stored (after #216, #218)
+  - #220 A tool call that hangs gives up after 90 seconds (after #219)
+  - #221 readFile reads a range of lines (no blockers)
+  - #222 Retrieval benchmark v2: harder questions, top-1 and MRR (no blockers)
+  - #223 Matching handles Indonesian prefixes, a bilingual work vocabulary and stem collisions (after #222)
+  - #224 Work items cited with a link once Plane's web URL is confirmed (no blockers; research first)
+  - #225 Run the live recall eval with a real model and record it (ready-for-human; after #214, #221, #223)
