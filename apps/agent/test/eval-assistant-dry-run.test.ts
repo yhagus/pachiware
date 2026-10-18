@@ -229,16 +229,16 @@ discordScenario("dry run: private-channel-dm counts the hidden channel's Minutes
   expect(output.turns[0].replies).toEqual(["Something you can read may answer that, but I cannot show it in this channel. Ask me in a DM and I will look there."]);
 });
 
-discordScenario("dry run: minutes-as-document finds the vendor call's minutes kept as a Document under files/", async (s) => {
+discordScenario("dry run: minutes-as-document finds the vendor call's minutes kept as a Document under files/ and cites it by its ref", async (s) => {
   s.model.script(
-    { tool: "searchFiles", args: { query: "brochures deliver" } },
+    { tool: "recall", args: { queries: ["brochures delivery", "pengiriman brosur"] } },
     (turn) => {
-      const { groups } = turn.toolResults[0], [match] = groups[0].matches;
-      return `${groups[0].channel}, ${match.path.split("/").pop()} (the Sinar Printing call of 6 October 2026): ${match.lines[0].text.replace(/^- /, "")}`;
+      const [doc] = turn.toolResults[0].kept, line = doc.lines.find((l: any) => l.text.includes("23 October"));
+      return line ? `${line.text.replace(/^- /, "")} [${doc.ref}] (the Sinar Printing call of 6 October 2026).` : JSON.stringify(doc.lines);
     },
   );
   const output = await dryRun(s, "minutes-as-document");
-  expect(output.turns[0].replies).toEqual(["#channel-1, sinar-printing-call-minutes.md (the Sinar Printing call of 6 October 2026): Sinar Printing delivers the 2,000 brochures on 23 October, to the Jakarta office."]);
+  expect(output.turns[0].replies[0]).toMatch(/^Sinar Printing delivers the 2,000 brochures on 23 October, to the Jakarta office\. #channel-1 · Dokumen \d{4}-\d{2}-\d{2} \(the Sinar Printing call of 6 October 2026\)\.$/);
 });
 
 /** One line per match of a search result: its channel, the date its file name starts with, and its first matching line. */

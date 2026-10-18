@@ -10,12 +10,19 @@ import { basename, join } from "node:path";
 import { loadAssistantFixtures, type AssistantFixture } from "./assistantFixtures";
 import { agreementText, loadCalibration } from "./calibration";
 import { ASSISTANT_RUBRIC_VERSION, gradeAssistantWithJudge, type AssistantJudged } from "./assistantJudge";
+import { gradeAssistantRun, type AssistantOutput, type AssistantResult } from "./assistantRun";
 import type { TrialResult } from "./compare";
 import { loadFixtures } from "./fixtures";
 import { assertJudgeOutside, gradeWithJudge, judgeFromEnv, judgeOverHttp, RUBRIC_VERSION, type Ask, type JudgedResult } from "./judge";
 import { writeReport, type RunMeta } from "./report";
 import { EVAL_DIR } from "./repository";
 import { loadExam } from "./scorecard";
+
+/** A daily-behaviour trial's output graded by code again, against the fixture as it is now. */
+export function recheck(result: AssistantResult, fixture: AssistantFixture): AssistantResult {
+  const { failures: _, passed: __, ...output } = result;
+  return gradeAssistantRun(output as AssistantOutput, fixture);
+}
 
 /** Resolves to the new folder and, when `calibration/<version>.yaml` grades this run, how often the judge agrees with the person (also kept as agreement.md). */
 export async function rejudge(runDir: string, ask: Ask, judge: RunMeta["judge"], calibration = join(EVAL_DIR, "calibration")): Promise<{ dir: string; agreement: string | null }> {
@@ -31,8 +38,9 @@ export async function rejudge(runDir: string, ask: Ask, judge: RunMeta["judge"],
     const fixture = fixtures.get(trial.result.fixture);
     if (!fixture) throw new Error(`${file}: no fixture named ${trial.result.fixture}`);
     const { judged, coverage, questionRate, verdicts, ...checked } = trial.result;
+    // A daily-behaviour trial holds its whole output, so its code checks are run again against the current facts too.
     const result = assistant
-      ? await gradeAssistantWithJudge({ ...(checked as AssistantJudged), passed: !checked.failures.length }, fixture, ask)
+      ? await gradeAssistantWithJudge(recheck(checked as AssistantJudged, fixture), fixture, ask)
       : await gradeWithJudge({ ...(checked as JudgedResult), passed: !checked.failures.length }, fixture, ask);
     const again = { ...trial, result };
     writeFileSync(join(out, "trials", file), `${JSON.stringify(again, null, 2)}\n`);

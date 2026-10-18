@@ -16,7 +16,7 @@ import { loadAssistantFixtures, type AssistantFixture } from "./assistantFixture
 import { gradeAssistantWithJudge, type AssistantJudged } from "./assistantJudge";
 import type { TrialResult } from "./compare";
 import type { Ask, Verdict } from "./judge";
-import { rejudge } from "./rejudge";
+import { recheck, rejudge } from "./rejudge";
 
 export interface JudgePrompt { id: string; trial: string; question: "fact" | "behaviour" | "supported"; turn?: number; system: string; user: string }
 export interface JudgeAnswer { id: string; reasoning: string; verdict: Verdict }
@@ -32,7 +32,9 @@ export async function judgePrompts(runDir: string, fixtures: AssistantFixture[] 
     const trial = JSON.parse(readFileSync(join(runDir, "trials", file), "utf8")) as TrialResult;
     const fixture = byName.get(trial.result.fixture);
     if (!fixture) throw new Error(`${file}: no fixture named ${trial.result.fixture}`);
-    const { judged, coverage, questionRate, verdicts, ...checked } = trial.result as AssistantJudged;
+    const { judged, coverage, questionRate, verdicts, ...stored } = trial.result as AssistantJudged;
+    // The code checks as rejudge will see them: run again against the current facts.
+    const checked = recheck(stored, fixture);
     const failed = new Set(checked.failures.map((f) => f.turn)), every = fixture.facts.turns.every((_, i) => failed.has(i + 1));
     const ask: Ask = async (system, user) => {
       const turn = TURN.exec(user), n = turn ? Number(turn[2]) : undefined;
@@ -41,7 +43,7 @@ export async function judgePrompts(runDir: string, fixtures: AssistantFixture[] 
       if (!out.has(id)) out.set(id, { id, trial: file.slice(0, -".json".length), question: turn ? (turn[1] ? "supported" : "behaviour") : "fact", ...(n !== undefined && { turn: n }), system, user });
       return "";
     };
-    await gradeAssistantWithJudge({ ...checked, passed: !checked.failures.length } as AssistantJudged, fixture, ask);
+    await gradeAssistantWithJudge(checked, fixture, ask);
   }
   return [...out.values()];
 }

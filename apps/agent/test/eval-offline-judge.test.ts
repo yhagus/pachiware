@@ -46,13 +46,20 @@ test("the questions written are those that can change a verdict, each once: a tu
   expect(new Set(prompts.map((p) => p.id)).size).toBe(8);
 });
 
+test("the code checks are run again against the current facts: a failure stored by an older fixture asks nothing of its turn no more", async () => {
+  const run = await offlineRun(), file = join(run, "trials", "a--task-casual-indonesian--1.json"), trial = JSON.parse(readFileSync(file, "utf8"));
+  trial.result.failures = [{ turn: 2, check: "format", message: "A check this fixture no longer makes." }];
+  writeFileSync(file, JSON.stringify(trial));
+  expect((await judgePrompts(run)).filter((p) => p.trial === "a--task-casual-indonesian--1" && p.turn === 2).map((p) => p.question).sort()).toEqual(["behaviour", "supported"]);
+});
+
 test("grading the answers in rejudges the run: written questions must be answered, unwritten ones grade unknown", async () => {
   const run = await offlineRun(), prompts = await judgePrompts(run);
   const yes: JudgeAnswer[] = prompts.map((p) => ({ id: p.id, reasoning: "The reply says so {plainly}.", verdict: "yes" }));
   expect(() => answering(prompts, yes.slice(1))).toThrow(`1 questions have no answer, the first ${prompts[0]!.id} (${prompts[0]!.trial}, ${prompts[0]!.question})`);
   const { dir } = await rejudge(run, answering(prompts, yes), { provider: "claude-code", model: "claude-opus-5-5" });
   // Trial 1 passes both turns, trial 2 turn 1 only, trial 3 neither: the brief scores (1 + 0.5 + 0) / 3, the tasks area alone.
-  expect(readFileSync(join(dir, "report.md"), "utf8")).toStartWith("# Rapor v2: 50.0 (a)\n\nDaily-behaviour eval, 2026-10-18T00:00:00.000Z. Judge: claude-code / claude-opus-5-5.");
+  expect(readFileSync(join(dir, "report.md"), "utf8")).toStartWith("# Rapor v3: 50.0 (a)\n\nDaily-behaviour eval, 2026-10-18T00:00:00.000Z. Judge: claude-code / claude-opus-5-5.");
   const trial1 = JSON.parse(readFileSync(join(dir, "trials", "a--task-casual-indonesian--1.json"), "utf8"));
   expect(trial1.result.judged.facts[0]).toEqual({ fact: fixture.facts.mustCover[0], reasoning: "The reply says so (plainly).", verdict: "yes" });
 });

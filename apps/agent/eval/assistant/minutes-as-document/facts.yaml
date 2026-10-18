@@ -17,4 +17,4 @@ mustCover:
   - This comes from the minutes of the call with Sinar Printing on 6 October 2026, kept as a Document in this channel
 turns:
   - files: [files/sinar-printing-call-minutes.md]
-    replyContains: ["23 October", sinar-printing-call-minutes]
+    replyContains: ["23 October", Dokumen]   # since #212 a source is cited by its server-rendered label (channel, kind, date), not its file name

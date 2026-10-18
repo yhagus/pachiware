@@ -5,7 +5,9 @@
 # dry runs and recordings and still run live, but the Rapor does not count them.
 # Two briefs measure work the next spec builds: notulen-jadi-tugas (Tasks from Minutes) and colek-h-1 (a Nudge that follows the due date).
 # Today a model passes them only by doing that work by hand: reading the Minutes and filing Tasks, or setting and moving a Reminder.
-version: 2
+# Version 3: the same briefs and weights; two grading defects the first live run showed are fixed, minutes-as-document (it asked for
+# a file name, which server-rendered citations never show) and notulen-pemilik-tenggat (it asked for one of two valid sources).
+version: 3
 weights:
   capture: 20
   recall: 25

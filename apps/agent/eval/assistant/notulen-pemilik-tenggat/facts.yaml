@@ -19,5 +19,5 @@ mustCover:
   - Batas ukuran file ekspor belum ditentukan
 turns:
   - replyContains: [Bob, Dewi, ekspor]
-    cites: [1, 2]
+    cites: [1]   # Dewi's item may rest on Alice's ask (2) or on Dewi's yes (3); Bob's has one source
     kept: [API ekspor, desain tombol ekspor, Batas ukuran file]
