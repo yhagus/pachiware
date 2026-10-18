@@ -15,12 +15,14 @@ export const COVERAGE_BAR = 0.8;
 
 export type Verdict = "yes" | "no" | "unknown";
 export interface Graded { reasoning: string; verdict: Verdict }
-export interface JudgeConfig { provider: "openai" | "anthropic" | "custom"; model: string; baseUrl: string | null; apiKey: string }
+/** `offline`: no judge is called during the run; `offline-judge.ts` writes the questions out and grades the answers in later. */
+export interface JudgeConfig { provider: "openai" | "anthropic" | "custom" | "offline"; model: string; baseUrl: string | null; apiKey: string }
 export type Ask = (system: string, user: string) => Promise<string>;
 
 export function judgeFromEnv(env: Record<string, string | undefined> = process.env): JudgeConfig {
   const provider = (env.EVAL_JUDGE_PROVIDER || "openai") as JudgeConfig["provider"];
-  if (!["openai", "anthropic", "custom"].includes(provider)) throw new Error(`EVAL_JUDGE_PROVIDER is openai, anthropic or custom, not ${provider}.`);
+  if (!["openai", "anthropic", "custom", "offline"].includes(provider)) throw new Error(`EVAL_JUDGE_PROVIDER is openai, anthropic, custom or offline, not ${provider}.`);
+  if (provider === "offline") return { provider, model: "offline", baseUrl: null, apiKey: "" };
   if (!env.EVAL_JUDGE_MODEL || !env.EVAL_JUDGE_API_KEY) throw new Error("Set EVAL_JUDGE_MODEL and EVAL_JUDGE_API_KEY (and EVAL_JUDGE_PROVIDER unless it is openai) for the judge.");
   if (provider === "custom" && !env.EVAL_JUDGE_BASE_URL) throw new Error("A custom judge provider needs EVAL_JUDGE_BASE_URL.");
   return { provider, model: env.EVAL_JUDGE_MODEL, baseUrl: env.EVAL_JUDGE_BASE_URL || null, apiKey: env.EVAL_JUDGE_API_KEY };
@@ -50,6 +52,9 @@ export function judgeOverHttp(config: JudgeConfig, fetchImpl: (url: string, init
     return anthropic ? (data.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") : data.choices?.[0]?.message?.content ?? "";
   };
 }
+
+/** The judge of an offline run asks nothing: every verdict stays unknown until `offline-judge.ts grade` answers the questions. */
+export const offlineAsk: Ask = async () => "";
 
 /** The reply's last JSON object with a verdict; anything else is unknown. */
 export function parseVerdict(text: string): Graded {

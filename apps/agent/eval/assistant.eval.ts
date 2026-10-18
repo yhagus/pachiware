@@ -11,7 +11,7 @@ import { providerBaseUrl } from "../src/llm/providers";
 import { discordScenario } from "../test/support/discordScenario";
 import { loadAssistantFixtures } from "./assistantFixtures";
 import { ASSISTANT_RUBRIC_VERSION } from "./assistantJudge";
-import { assertJudgeOutside, judgeFromEnv, judgeOverHttp } from "./judge";
+import { assertJudgeOutside, judgeFromEnv, judgeOverHttp, offlineAsk } from "./judge";
 import { profilesFromEnv } from "./profiles";
 import { EVAL_DIR } from "./repository";
 import { writeReport } from "./report";
@@ -33,17 +33,21 @@ else {
   const runDir = env.EVAL_RUN_DIR, trialsDir = join(runDir, "trials");
   const fileOf = (profile: string, fixture: string, trial: number) => join(trialsDir, `${profile.replace(/[^\w.-]/g, "_")}--${fixture}--${trial}.json`);
 
-  for (const profile of profiles) for (const fixture of loadAssistantFixtures()) for (let trial = 1; trial <= trials; trial++) {
+  // EVAL_EXAM=1 runs only the Rapor's exam; the other briefs are regressions.
+  const briefs = loadAssistantFixtures().filter((f) => env.EVAL_EXAM !== "1" || exam.briefs.includes(f.name)), offline = judge.provider === "offline";
+  for (const profile of profiles) for (const fixture of briefs) for (let trial = 1; trial <= trials; trial++) {
     discordScenario(`${profile.name}: ${fixture.name}, trial ${trial}`, async (s) => {
       const { runAssistantTrial } = await import("./assistantRun");
       const { useLiveProfile } = await import("./run");
       await useLiveProfile(s, profile);
-      s.http.passthrough(`POST ${providerBaseUrl(judge.provider, judge.baseUrl)}/`);
-      const out = await runAssistantTrial(s, fixture, judgeOverHttp(judge));
+      if (!offline) s.http.passthrough(`POST ${providerBaseUrl(judge.provider, judge.baseUrl)}/`);
+      const out = await runAssistantTrial(s, fixture, offline ? offlineAsk : judgeOverHttp(judge));
       mkdirSync(trialsDir, { recursive: true });
       writeFileSync(fileOf(profile.name, fixture.name, trial), `${JSON.stringify({ profile: profile.name, trial, ...out }, null, 2)}\n`);
-      expect(out.result.verdicts.flatMap((v) => v.reasons)).toEqual([]);
-      expect(out.result.passed).toBe(true);
+      // Offline, the judge's half waits for offline-judge.ts; the code checks are known now.
+      if (offline) expect(out.result.failures.map((f) => ("turn" in f ? `turn ${f.turn} ${f.check}: ${f.message}` : f.message))).toEqual([]);
+      else expect(out.result.verdicts.flatMap((v) => v.reasons)).toEqual([]);
+      expect(offline || out.result.passed).toBe(true);
     }, PER_TRIAL_MS);
   }
 

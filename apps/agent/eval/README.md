@@ -22,12 +22,21 @@ bun run eval:assistant    # daily behaviours
 | `EVAL_LIVE=1` | Without it the file only reports a skipped test. |
 | `EVAL_PROFILES` | Path to the profiles to compare. Copy `profiles.example.yaml` to `profiles.yaml` (gitignored). Each profile names the env variable holding its key (`apiKeyEnv`), and may give a `price` in USD per million tokens and `acceptsImages`. |
 | `EVAL_PROVIDER`, `EVAL_MODEL`, `EVAL_API_KEY`, `EVAL_BASE_URL`, `EVAL_ACCEPTS_IMAGES=1` | One profile, used when `EVAL_PROFILES` is unset. |
-| `EVAL_JUDGE_PROVIDER`, `EVAL_JUDGE_MODEL`, `EVAL_JUDGE_API_KEY`, `EVAL_JUDGE_BASE_URL` | The judge: `openai` (default), `anthropic`, or `custom` with a base URL. Model and key are required. |
+| `EVAL_JUDGE_PROVIDER`, `EVAL_JUDGE_MODEL`, `EVAL_JUDGE_API_KEY`, `EVAL_JUDGE_BASE_URL` | The judge: `openai` (default), `anthropic`, or `custom` with a base URL. Model and key are required. `offline` needs neither: see "Judging offline". |
 | `EVAL_TRIALS` | Trials per brief and profile, default 3. |
+| `EVAL_EXAM=1` | Daily behaviours only: run the Rapor's exam (`scorecard.yaml` `briefs`), not every brief. |
 
 The run refuses to start when the judge's model is any compared profile's model (a vendor prefix such as `anthropic/` is ignored when comparing). A model grades its own output too kindly, so keep the judge outside the comparison.
 
 Each trial runs in its own subprocess. Results land in `results/<run>/` (`results/assistant-<run>/` for the daily-behaviour eval): one JSON per trial under `trials/`, then `report.json` and `report.md` once every trial is done. Both reports record the judge's provider and model, the rubric version, the number of trials, and, for issue drafts, the pinned commit. Failed trials are never retried; a retry would hide exactly the variance the trials measure.
+
+### Judging offline
+
+Without a judge API, run the daily-behaviour eval with `EVAL_JUDGE_PROVIDER=offline`: no judge is called, every trial is recorded with its code checks, and each test fails only on those. Then:
+
+1. `bun apps/agent/eval/offline-judge.ts prompts apps/agent/eval/results/<run>` writes `judge-prompts.jsonl`: every question the HTTP judge would get, word for word, each once, except those that cannot change a verdict (the questions of a turn its code checks failed, and every question of a trial whose every turn they failed).
+2. Answer each line as the judge would, from a model outside the compared profiles (another vendor), or by hand: one `{"id", "reasoning", "verdict"}` a line, verdict `yes`, `no` or `unknown`.
+3. `bun apps/agent/eval/offline-judge.ts grade apps/agent/eval/results/<run> <answers.jsonl> <provider> <model>` refuses answers that leave a question out, then regrades the run into `rejudged-<rubric>/` with the Rapor, naming the judge as given. A question not written grades unknown, so the question rate counts it as not answered.
 
 ## How a draft is graded
 
