@@ -8,7 +8,9 @@
 export type Citation = { label: string; url?: string };
 
 const REF = /^[KTGP]\d+$/;
-const REF_IN_TEXT = /\[([KTGP]\d+)\]/g;
+/** A bracket holding a ref, that is not the text of a Markdown link: "[K1]", "[K2/K1]", "[K1 was only a pricing decision]". */
+const BRACKET_WITH_REF = /\[([^[\]\n]*\b[KTGP]\d+\b[^[\]\n]*)\](?!\()/g;
+const BETWEEN_REFS = /\s*[,/;&+]\s*|\s+(?:and|dan)\s+|\s+/;
 
 /** Every `{ ref, label, url? }` a tool result holds, at any depth, by ref. The first one given for a ref wins. */
 export function citationsIn(results: unknown[]): Map<string, Citation> {
@@ -31,16 +33,24 @@ const linkText = (label: string) => label.replace(/[[\]]/g, "");
 
 /**
  * The reply with each known ref replaced by its label, linked when it has a link ("[#audio · Minutes 2026-09-01](<https://…>)"; the
- * angle brackets keep Discord from previewing it), and every unknown ref-shaped token removed; `unknown` names those.
+ * angle brackets keep Discord from previewing it), and every unknown ref-shaped token removed; `unknown` names those. A bracket of
+ * several refs ("[K2/K1]") renders each; a bracket holding words of the model's own beside a ref is an aside and goes whole.
  */
 export function renderCitations(reply: string, citations: Map<string, Citation>): { text: string; unknown: string[] } {
   const unknown: string[] = [];
-  const text = reply.replace(REF_IN_TEXT, (_, ref: string) => {
+  let removed = false;
+  const render = (ref: string) => {
     const c = citations.get(ref);
     if (!c) { unknown.push(ref); return ""; }
     return c.url ? `[${linkText(c.label)}](<${c.url}>)` : c.label;
+  };
+  const text = reply.replace(BRACKET_WITH_REF, (_, inside: string) => {
+    const refs = inside.trim().split(BETWEEN_REFS);
+    const shown = refs.every((r) => REF.test(r)) ? refs.map(render).filter(Boolean).join(" ") : "";
+    if (!shown) removed = true;
+    return shown;
   });
-  return { text: unknown.length ? tidy(text) : text, unknown };
+  return { text: removed ? tidy(text) : text, unknown };
 }
 
 const LINK = /\[([^\]\n]*)\]\(<?(https?:\/\/[^\s)>]+)>?\)|<?(https?:\/\/[^\s<>)\]]+)>?/g;

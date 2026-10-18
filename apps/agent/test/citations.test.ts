@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import { fakePlane } from "./support/fakePlane";
+import { renderCitations } from "../src/loop/citations";
 
 // Citations rendered by the server, links in replies checked (#212, ADR 0014).
 
@@ -87,6 +88,31 @@ discordScenario("the stored reply holds the rendered link, so a follow-up repeat
   expect(JSON.stringify(s.model.calls.at(-1))).toContain("Discussed [#audio · Minutes 2026-09-01](<https://discord.com/channels/guild-1/channel-2/5100>).");
   expect(s.discord.botMessages.at(-1)!.content).toBe("Here it is again: https://discord.com/channels/guild-1/channel-2/5100");
   expect(await denied(s)).toEqual([]);
+});
+
+// Brackets the first live Rapor (#240) showed reaching people (#242).
+const SOURCES = new Map([
+  ["K1", { label: "#sales · Minutes 2026-10-01", url: "https://discord.com/channels/g/c/1" }],
+  ["K2", { label: "#sales · Decision 2026-10-03" }],
+  ["G1", { label: "acme/web · pull request #5 \"Pricing page\" (merged 2026-10-04)", url: "https://github.com/acme/web/pull/5" }],
+]);
+
+test("a bracket of several refs renders each of them", () => {
+  expect(renderCitations("Settled in the Decision [K2/K1].", SOURCES)).toEqual({ text: "Settled in the Decision #sales · Decision 2026-10-03 [#sales · Minutes 2026-10-01](<https://discord.com/channels/g/c/1>).", unknown: [] });
+  expect(renderCitations("Shipped [K1, G1] and [K2 dan K9].", SOURCES)).toEqual({
+    text: "Shipped [#sales · Minutes 2026-10-01](<https://discord.com/channels/g/c/1>) [acme/web · pull request #5 \"Pricing page\" (merged 2026-10-04)](<https://github.com/acme/web/pull/5>) and #sales · Decision 2026-10-03.",
+    unknown: ["K9"],
+  });
+});
+
+test("a bracket holding a ref and words of the model's own leaves the reply whole", () => {
+  expect(renderCitations("Only pricing was decided [K1 was only a pricing decision, unrelated].", SOURCES).text).toBe("Only pricing was decided.");
+  expect(renderCitations("Nothing about it [G1 search of kept material] in the notes.", SOURCES).text).toBe("Nothing about it in the notes.");
+});
+
+test("brackets without a ref, and a Markdown link's text, are left as written", () => {
+  const reply = "- [x] Book the venue (T1 in the plan) and [plan T1](https://docs.acme.test/brief), [K 1] [sic]";
+  expect(renderCitations(reply, SOURCES)).toEqual({ text: reply, unknown: [] });
 });
 
 test("web chat renders citations the same way: an unknown ref and a made-up link leave its reply", () => {
