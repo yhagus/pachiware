@@ -1,6 +1,6 @@
 import { HTTPException } from "hono/http-exception";
-import { canonicalTimezone, isLanguage, type Language } from "@pachiware/skills";
-import type { DigestChannel, DailyLogChannel } from "@pachiware/db";
+import { canonicalTimezone, isLanguage, docPatternError, MAX_DOC_PATTERNS, type Language } from "@pachiware/skills";
+import type { DigestChannel, DailyLogChannel, DocSource } from "@pachiware/db";
 
 export type PlaceSettings = { timezone?: string | null; language?: Language | null };
 /** `timezone` (canonical IANA name) and `language` from a settings body; `nullable` lets a guild clear its override. */
@@ -48,6 +48,32 @@ export function dailyLogChannels(value: unknown): DailyLogChannel[] {
     if (entry.backfill !== undefined && typeof entry.backfill !== "boolean") throw new HTTPException(400, { message: "backfill must be a boolean" });
     if (out.some((e) => e.channelId === channelId)) throw new HTTPException(400, { message: "a channel is listed once in dailyLogChannels" });
     out.push({ channelId, backfill: entry.backfill ?? true });
+  }
+  return out;
+}
+
+export const MAX_DOC_SOURCES = 50;
+const REPO = /^[\w.-]+(\/[\w.-]+)+$/;
+/**
+ * `docSources` from a guild settings body: `{ channelId, repo, account?, paths }` entries, one per channel and repository. `repo` is an
+ * owner/name path, kept lowercase; an empty `account` is left out; `paths` holds 1 to MAX_DOC_PATTERNS patterns (`docPatternError`), duplicates dropped.
+ */
+export function docSources(value: unknown): DocSource[] {
+  if (!Array.isArray(value) || value.length > MAX_DOC_SOURCES) throw new HTTPException(400, { message: `docSources must be an array of at most ${MAX_DOC_SOURCES} entries` });
+  const out: DocSource[] = [];
+  for (const entry of value) {
+    const e = entry && typeof entry === "object" ? entry : {};
+    const channelId = typeof e.channelId === "string" ? e.channelId.trim() : "";
+    if (!channelId) throw new HTTPException(400, { message: "each docSources entry needs a channelId" });
+    const repo = typeof e.repo === "string" ? e.repo.trim().replace(/^\/+|\/+$/g, "").toLowerCase() : "";
+    if (!REPO.test(repo)) throw new HTTPException(400, { message: "each docSources entry needs a repo as owner/name" });
+    if (e.account != null && typeof e.account !== "string") throw new HTTPException(400, { message: "a docSources account must be a git account name" });
+    const account = e.account?.trim();
+    if (!Array.isArray(e.paths) || !e.paths.length || e.paths.length > MAX_DOC_PATTERNS || e.paths.some((p: unknown) => typeof p !== "string")) throw new HTTPException(400, { message: `each docSources entry needs 1 to ${MAX_DOC_PATTERNS} paths, such as README.md or docs/**` });
+    const refused = e.paths.map(docPatternError).find(Boolean);
+    if (refused) throw new HTTPException(400, { message: refused });
+    if (out.some((s) => s.channelId === channelId && s.repo === repo)) throw new HTTPException(400, { message: "a repository is listed once per channel in docSources" });
+    out.push({ channelId, repo, ...(account ? { account } : {}), paths: [...new Set<string>(e.paths.map((p: string) => p.trim()))] });
   }
   return out;
 }

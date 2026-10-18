@@ -1,13 +1,14 @@
-import { repositories, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type DailyLogChannel, type GuildConfigInput } from "@pachiware/db";
+import { repositories, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type DailyLogChannel, type DocSource, type GuildConfigInput } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, configuredLanguage, loadMemory, loadTasks, readInFull, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, isOpen, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
 import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
 import { syncDigestSchedules } from "../digest.js";
 import { syncDailyLogSchedules, startDailyLogs } from "../discord/dailyLogDays.js";
+import { syncDocsMirrorSchedules, assertDocSourcesAllowed, docSourceChanges, docSourcesSaved } from "../docsMirror.js";
 import type { DiscordBotManager } from "../discord/client.js";
 
-export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; dailyLogChannels: DailyLogChannel[] };
-const guildDefaults: GuildSettings = { systemPrompt: null, useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [], dailyLogChannels: [] };
+export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; dailyLogChannels: DailyLogChannel[]; docSources: DocSource[] };
+const guildDefaults: GuildSettings = { systemPrompt: null, useThreads: true, alwaysChannelIds: [], timezone: null, language: null, digestChannels: [], dailyLogChannels: [], docSources: [] };
 export const guildCacheKey = (tenantId: string, botId: string, guildId: string) => tenantKey(tenantId, `guild:${botId}:${guildId}`);
 
 export async function loadGuildSettings(tenantId: string, botId: string, guildId: string): Promise<GuildSettings> {
@@ -15,7 +16,7 @@ export async function loadGuildSettings(tenantId: string, botId: string, guildId
   const cached = await CacheService.get<GuildSettings>(key);
   if (cached) return cached;
   const row = await repositories().bots.getGuildConfig(botId, guildId);
-  const settings = row ? { systemPrompt: row.systemPrompt, useThreads: row.useThreads, alwaysChannelIds: row.alwaysChannelIds, timezone: row.timezone ?? null, language: row.language ?? null, digestChannels: row.digestChannels ?? [], dailyLogChannels: row.dailyLogChannels ?? [] } : guildDefaults;
+  const settings = row ? { systemPrompt: row.systemPrompt, useThreads: row.useThreads, alwaysChannelIds: row.alwaysChannelIds, timezone: row.timezone ?? null, language: row.language ?? null, digestChannels: row.digestChannels ?? [], dailyLogChannels: row.dailyLogChannels ?? [], docSources: row.docSources ?? [] } : guildDefaults;
   await CacheService.set(key, settings, 120);
   return settings;
 }
@@ -24,12 +25,15 @@ export async function loadGuildSettings(tenantId: string, botId: string, guildId
 export class DailyLogTaken extends Error {}
 
 /**
- * The one way to change a guild's settings: keeps the Digest and Daily log rows in step and starts the Daily logs just turned on (with `manager`).
- * A channel another bot of the tenant already logs throws `DailyLogTaken` before anything is written.
+ * The one way to change a guild's settings: keeps the Digest, Daily log and documentation mirror rows in step, starts the Daily logs just turned on
+ * and refreshes the doc sources new or changed (with `manager`), and deletes the mirrors of doc sources removed.
+ * A channel another bot of the tenant already logs throws `DailyLogTaken`, and a new or changed doc source its channel's Git scope does not allow
+ * throws `DocSourceRefused`, before anything is written.
  */
 export async function saveGuildSettings(tenantId: string, botId: string, guildId: string, input: GuildConfigInput, manager?: Pick<DiscordBotManager, "clientOf" | "adapterOf" | "background">): Promise<GuildSettings> {
   const before = await loadGuildSettings(tenantId, botId, guildId);
   if (input.dailyLogChannels) await assertDailyLogsFree(tenantId, botId, input.dailyLogChannels.map((e) => e.channelId));
+  if (input.docSources) await assertDocSourcesAllowed({ tenantId, botId, guildId }, docSourceChanges(before.docSources, input.docSources).changed);
   await repositories().bots.saveGuildConfig(tenantId, botId, guildId, input);
   await CacheService.del(guildCacheKey(tenantId, botId, guildId));
   const settings = await loadGuildSettings(tenantId, botId, guildId);
@@ -37,6 +41,8 @@ export async function saveGuildSettings(tenantId: string, botId: string, guildId
   const where = { tenantId, botId, guildId, timezone: configuredTimezone(settings, agent) };
   await syncDigestSchedules(where, settings.digestChannels);
   await syncDailyLogSchedules(where, settings.dailyLogChannels);
+  await syncDocsMirrorSchedules(where, settings.docSources);
+  await docSourcesSaved(where, before.docSources, settings.docSources, manager);
   const turnedOn = settings.dailyLogChannels.filter((e) => !before.dailyLogChannels.some((b) => b.channelId === e.channelId));
   if (manager) startDailyLogs(manager, where, turnedOn, configuredLanguage(settings, agent));
   return settings;

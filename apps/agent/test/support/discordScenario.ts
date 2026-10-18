@@ -83,7 +83,7 @@ export interface Scenario {
    */
   plane(options?: { name?: string; baseUrl?: string | null; workspaceSlug?: string; projects?: string[] | null }): Promise<{ id: string }>;
   /** Saves guild settings as the console does, Digest schedule rows included. */
-  guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: { channelId: string; hour: number }[]; dailyLogChannels?: { channelId: string; backfill: boolean }[] }): Promise<void>;
+  guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: { channelId: string; hour: number }[]; dailyLogChannels?: { channelId: string; backfill: boolean }[]; docSources?: { channelId: string; repo: string; account?: string; paths: string[] }[] }): Promise<void>;
   /** Calls the admin API with the platform key, as the console does; returns once every post it caused has landed. */
   admin(method: string, path: string, body?: unknown): Promise<{ status: number; body: any }>;
   /** The clock the time context, task dates and the scheduler read. `set` pins it (ms, Date, or ISO text); `advance` moves it forward. */

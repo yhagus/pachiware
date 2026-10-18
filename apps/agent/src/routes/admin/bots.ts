@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { repositories, type GuildConfigInput, type PlaneScope } from "@pachiware/db";
 import { discordBotManager } from "../../discord/client.js";
 import { loadGuildSettings, saveGuildSettings, DailyLogTaken } from "../../loop/prompt.js";
-import { object, string, stringArray, placeSettings, digestChannels, dailyLogChannels } from "../validation.js";
+import { object, string, stringArray, placeSettings, digestChannels, dailyLogChannels, docSources } from "../validation.js";
+import { DocSourceRefused } from "../../docsMirror.js";
 import { botFields, assertProfile, assertAccounts, botColumns, saveAccounts, botsOut } from "../v1/bots.js";
 import { botAvailabilityRoutes } from "../availability.js";
 import { botReminderRoutes } from "../reminders.js";
@@ -43,7 +44,7 @@ botAdminRoutes.get("/bots/:botId/guilds", (c) => {
   const guilds = discordBotManager.getGuilds(c.req.param("botId")!);
   return c.json({ success: true, connected: guilds !== null, guilds: guilds ?? [] });
 });
-const guildSettingsOut = (s: Awaited<ReturnType<typeof loadGuildSettings>>) => ({ systemPrompt: s.systemPrompt ?? "", useThreads: s.useThreads, alwaysChannelIds: s.alwaysChannelIds, timezone: s.timezone, language: s.language, digestChannels: s.digestChannels, dailyLogChannels: s.dailyLogChannels });
+const guildSettingsOut = (s: Awaited<ReturnType<typeof loadGuildSettings>>) => ({ systemPrompt: s.systemPrompt ?? "", useThreads: s.useThreads, alwaysChannelIds: s.alwaysChannelIds, timezone: s.timezone, language: s.language, digestChannels: s.digestChannels, dailyLogChannels: s.dailyLogChannels, docSources: s.docSources });
 botAdminRoutes.get("/bots/:botId/guilds/:guildId/config", async (c) => {
   const bot = (await repositories().bots.get(c.req.param("botId")!))!;
   return c.json({ success: true, config: guildSettingsOut(await loadGuildSettings(bot.tenantId, bot.id, c.req.param("guildId")!)) });
@@ -63,9 +64,14 @@ botAdminRoutes.put("/bots/:botId/guilds/:guildId/config", async (c) => {
   if (body.alwaysChannelIds !== undefined) input.alwaysChannelIds = stringArray(body.alwaysChannelIds, "alwaysChannelIds").slice(0, 50);
   if (body.digestChannels !== undefined) input.digestChannels = digestChannels(body.digestChannels);
   if (body.dailyLogChannels !== undefined) input.dailyLogChannels = dailyLogChannels(body.dailyLogChannels);
+  if (body.docSources !== undefined) input.docSources = docSources(body.docSources);
   Object.assign(input, placeSettings(body, true));
   try { return c.json({ success: true, config: guildSettingsOut(await saveGuildSettings(bot.tenantId, bot.id, guildId, input, discordBotManager)) }); }
-  catch (e) { if (e instanceof DailyLogTaken) return c.json({ error: e.message }, 409); throw e; }
+  catch (e) {
+    if (e instanceof DailyLogTaken) return c.json({ error: e.message }, 409);
+    if (e instanceof DocSourceRefused) return c.json({ error: e.message }, 400);
+    throw e;
+  }
 });
 // Git access per server (channelId "") and per channel: which attached accounts are on, and which repos (wildcard patterns).
 const scopesOut = (rows: any[], channelId: string) => rows.filter((r) => r.channelId === channelId).map((r) => ({ gitAccountId: r.gitAccountId, repoPatterns: r.repoPatterns }));

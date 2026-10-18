@@ -3,17 +3,19 @@ import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_
 import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines, syncDigestSchedules } from "./digest.js";
 import { writeOwedDays, syncDailyLogSchedules } from "./discord/dailyLogDays.js";
+import { syncDocsMirrorSchedules, refreshChannelDocs } from "./docsMirror.js";
 import type { DiscordBotManager } from "./discord/client.js";
 
 export const SCHEDULER_INTERVAL_MS = 60_000;
 
-/** After the tenant's zone changed: the guilds without a zone of their own follow it, so their Digest and Daily log rows move with it. */
+/** After the tenant's zone changed: the guilds without a zone of their own follow it, so their Digest, Daily log and documentation mirror rows move with it. */
 export async function syncTenantSchedules(tenantId: string, timezone: string) {
   const guilds = (await repositories().bots.listGuildConfigs(tenantId)).filter((guild) => guild.timezone === null);
   for (const guild of guilds) {
     const where = { tenantId, botId: guild.botId, guildId: guild.guildId, timezone };
     if (guild.digestChannels.length) await syncDigestSchedules(where, guild.digestChannels);
     if (guild.dailyLogChannels.length) await syncDailyLogSchedules(where, guild.dailyLogChannels);
+    if (guild.docSources.length) await syncDocsMirrorSchedules(where, guild.docSources);
   }
 }
 let running: Promise<void> | null = null;
@@ -41,6 +43,8 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
   if (!client) return;
   // A daily-log row moves on even when a day fails, since a failing row would end as done; its `lastFiredAt` keeps that day owed instead.
   if (row.kind === "daily-log") { await moveOn(row, at, row.guildId ? await writeOwedDays(manager, { ...row, guildId: row.guildId }, at) : new Date(at)); return; }
+  // The mirror runs beside the pass, so a slow or failing repository holds up no Daily log, Digest or Reminder; a night missed runs at the next pass.
+  if (row.kind === "docs-mirror") { if (row.guildId) manager.background(refreshChannelDocs({ ...row, guildId: row.guildId })); await moveOn(row, at, new Date(at)); return; }
   const late = at - row.nextAt.getTime();
   if (late > LATE_LIMIT_MS) { await moveOn(row, at, null); return; }
   if (late < retryDelay(row.attempts)) return;

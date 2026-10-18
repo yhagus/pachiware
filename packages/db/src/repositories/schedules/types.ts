@@ -1,10 +1,11 @@
-/** Domain types and the repository interface for schedules: Reminders, the Digest and Daily logs. Every engine implements it. */
+/** Domain types and the repository interface for schedules: Reminders, the Digest, Daily logs and the documentation mirror. Every engine implements it. */
 
-export type ScheduleKind = "reminder" | "digest" | "daily-log";
+/** `docs-mirror` refreshes the documentation one channel mirrors from repositories. */
+export type ScheduleKind = "reminder" | "digest" | "daily-log" | "docs-mirror";
 export type ScheduleRecurrence = "once" | "daily" | "weekly" | "monthly";
 export type ScheduleStatus = "active" | "cancelled" | "done";
 
-/** One Reminder, one channel's Digest or one channel's Daily log, and when it runs next. */
+/** One Reminder, or one channel's Digest, Daily log or documentation mirror, and when it runs next. */
 export type Schedule = {
   id: string;
   tenantId: string;
@@ -12,7 +13,7 @@ export type Schedule = {
   kind: ScheduleKind;
   guildId: string | null;
   channelId: string;
-  /** The person who set a Reminder; a Digest and a Daily log have none. */
+  /** The person who set a Reminder; the other kinds have none. */
   ownerId: string | null;
   ownerName: string | null;
   text: string;
