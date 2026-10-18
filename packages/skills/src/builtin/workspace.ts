@@ -11,7 +11,8 @@ import { forget, memoryLevel, remember } from "../workspace/memory.js";
 import { fileDocument, isDocument } from "../workspace/files.js";
 import { keepNote, keptDocument, keptMessages, MAX_KEPT_MESSAGES } from "../workspace/notes.js";
 import { addKeywords } from "../workspace/keywords.js";
-import { capMatches, queriesTerms, shownMatch, wordingsOf, type FileMatch } from "../workspace/search.js";
+import { capMatches, dateRange, queriesTerms, shownMatch, wordingsOf, type FileMatch } from "../workspace/search.js";
+import { DEFAULT_TIMEZONE } from "../clock.js";
 import { namesChannel, readableSources, searchSource, searchSources, sourcePath } from "../workspace/sources.js";
 import { textIn } from "../language.js";
 import { hasPermission } from "../permissions.js";
@@ -93,7 +94,7 @@ export const workspaceSkill: SkillModule = {
     { name: "writeFile", description: "Creates or replaces a Markdown file in the Workspace. Missing folders are created. To replace an existing file, pass the version from readFile. Under notes/ and decisions/ the server then writes topics and keywords into the file's head, replacing any already there.", parameters: { type: "object", properties: { path: pathArg, content: { type: "string", description: "Full file content" }, version: { type: "string", description: "Version returned by readFile; required when the file exists" } }, required: ["path", "content"] } },
     { name: "moveFile", description: "Moves or renames a file or folder. Refuses to overwrite.", parameters: { type: "object", properties: { from: pathArg, to: pathArg }, required: ["from", "to"] } },
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
-    { name: "searchFiles", description: "Finds files that hold words of the queries in their name, their topics and keywords, or their text, in any order and case. Words match whole in any of their forms (\"normalisasi\", \"normalization\" and \"normalize\" meet; \"log\" never matches \"blog\"), and filler words such as \"yang\", \"sudah\" or \"the\" are ignored; the words need not share a line and a file need not hold them all. Pass several wordings of the same question in queries (Indonesian, English, same-meaning words) to search them at once. Best match first: files holding more of a query's words and rarer ones, above all in their name, topics or keywords, then newest first by the date a file name starts with; at most 50 files, and when more matched, total and leftOut say how many. Each match gives up to three of the file's lines, those holding the most query words, with their line numbers. The text of a PDF, DOCX or XLSX is searched in the .md beside it. Without a path, searches the minutes, Daily logs, decisions, notes and files of this place and of every other channel you may read from here, grouped by channel. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are.", parameters: { type: "object", properties: { query: { type: "string", description: "Words to find, e.g. \"pricing decision\"" }, queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\", \"loudness\"]" }, path: { type: "string", description: 'Folder to search, e.g. "channel/minutes" or "#marketing"; leave it out to search every channel you may read from here' } } } },
+    { name: "searchFiles", description: "Finds files that hold words of the queries in their name, their topics and keywords, or their text, in any order and case. Words match whole in any of their forms (\"normalisasi\", \"normalization\" and \"normalize\" meet; \"log\" never matches \"blog\"), and filler words such as \"yang\", \"sudah\" or \"the\" are ignored; the words need not share a line and a file need not hold them all. Pass several wordings of the same question in queries (Indonesian, English, same-meaning words) to search them at once. Best match first: files holding more of a query's words and rarer ones, above all in their name, topics or keywords, then newest first by the date a file name starts with; at most 50 files, and when more matched, total and leftOut say how many. Each match gives up to three of the file's lines, those holding the most query words, with their line numbers. The text of a PDF, DOCX or XLSX is searched in the .md beside it. Without a path, searches the minutes, Daily logs, decisions, notes and files of this place and of every other channel you may read from here, grouped by channel. A match marked partial holds only some words of every query; nothingStrong means no match holds every word of any query, so nothing matched well: read before relying on a partial match, and say plainly when nothing answers the question. since and until keep only files dated in that range (the date a file name starts with, else the day it last changed). notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are.", parameters: { type: "object", properties: { query: { type: "string", description: "Words to find, e.g. \"pricing decision\"" }, queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\", \"loudness\"]" }, path: { type: "string", description: 'Folder to search, e.g. "channel/minutes" or "#marketing"; leave it out to search every channel you may read from here' }, since: { type: "string", description: "Only files dated on or after this day, YYYY-MM-DD" }, until: { type: "string", description: "Only files dated on or before this day, YYYY-MM-DD" } } } },
     { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
     { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name; say nothing about it unless asked. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { level: levelArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["level", "text"] } },
     { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { level: levelArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["level", "match"] } },
@@ -203,28 +204,30 @@ export const workspaceSkill: SkillModule = {
       const queries = queriesTerms(wordingsOf(args.query, args.queries)), terms = [...new Set(queries.flat())];
       if (!terms.length) throw new Error("query is required");
       const store = workspaceStore(), wanted = typeof args.path === "string" ? args.path.trim() : "";
+      const within = dateRange(args.since, args.until, ctx.timezone ?? DEFAULT_TIMEZONE), inRange = <T extends FileMatch>(m: T[]) => (within ? m.filter(within) : m);
       if (!wanted) {
-        const { notShown: hidden, ...found } = await searchSources(store, ctx.tenantId, await readableSources(store, ctx), queries);
+        const { notShown: hidden, ...found } = await searchSources(store, ctx.tenantId, await readableSources(store, ctx), queries, within);
         return { ...found, ...notShown(ctx, hidden) };
       }
       let found: (FileMatch & { shown: string })[], hidden = 0, searched: number, words: number;
       if (namesChannel(wanted)) {
         const { source, path } = await namedSource(ctx, wanted, true, true);
         ({ matches: found, searched, words } = await searchSource(store, ctx.tenantId, source, terms, path === source.folder ? source.folders : [path]));
+        found = inRange(found);
         if (!source.quotable) return { matches: [], ...notShown(ctx, found.length) };
       } else {
         const root = resolvePath(ctx, wanted, true), access = threadAccess(ctx);
         await access.check(root);
         const name = wanted.split("/")[0]!, prefix = visibleRoots(ctx)[name]!, shown = agentPaths(name, prefix);
         const result = await store.searchFolder(ctx.tenantId, root, terms, (p) => p.slice(prefix.length + 1));
-        const sorted = await access.sort(result.matches);
+        const sorted = await access.sort(inRange(result.matches));
         found = sorted.shown.map((m) => ({ ...m, shown: shown(m.path) }));
         hidden = sorted.counted;
         searched = result.searched;
         words = result.words;
       }
-      const { matches, total, leftOut } = capMatches(found, queries, searched, words);
-      return { matches: matches.map(shownMatch), ...(leftOut ? { total, leftOut } : {}), ...notShown(ctx, hidden) };
+      const { matches, total, leftOut, nothingStrong } = capMatches(found, queries, searched, words);
+      return { matches: matches.map(shownMatch), ...(leftOut ? { total, leftOut } : {}), ...(nothingStrong ? { nothingStrong } : {}), ...notShown(ctx, hidden) };
     },
   },
 };

@@ -187,15 +187,16 @@ export async function searchSource(store: SearchableWorkspaceStore, tenantId: st
 /**
  * Searches the kept folders of every source for any of the queries. Matches that may be shown here are ranked best first
  * (see `ranked`) and come grouped by source label, groups in the order of their best match, at most MAX_MATCHES in all;
- * `total` and `leftOut` count only those. `notShown` counts the matches of non-quotable sources.
+ * `total` and `leftOut` count only those. `notShown` counts the matches of non-quotable sources. `within` keeps only the files of a
+ * date range (see `dateRange`); `nothingStrong` says no match shown holds every word of a query.
  */
-export async function searchSources(store: SearchableWorkspaceStore, tenantId: string, sources: Source[], queries: string[][]) {
+export async function searchSources(store: SearchableWorkspaceStore, tenantId: string, sources: Source[], queries: string[][], within: ((m: FileMatch) => boolean) | null = null) {
   const terms = [...new Set(queries.flat())];
   const found = await Promise.all(sources.map((s) => searchSource(store, tenantId, s, terms)));
-  const all = found.flatMap((f) => f.matches), quotable = found.filter((_, i) => sources[i]!.quotable);
+  const all = found.flatMap((f) => f.matches).filter((m) => !within || within(m)), quotable = found.filter((_, i) => sources[i]!.quotable);
   const searched = quotable.reduce((n, f) => n + f.searched, 0), words = quotable.reduce((n, f) => n + f.words, 0);
-  const { matches, total, leftOut } = capMatches(all.filter((m) => m.source.quotable), queries, searched, words);
+  const { matches, total, leftOut, nothingStrong } = capMatches(all.filter((m) => m.source.quotable), queries, searched, words);
   const groups = sources.map((s) => ({ s, matches: matches.filter((m) => m.source === s) })).filter((g) => g.matches.length)
     .sort((a, b) => matches.indexOf(a.matches[0]!) - matches.indexOf(b.matches[0]!));
-  return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, notShown: all.length - total };
+  return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, ...(nothingStrong ? { nothingStrong } : {}), notShown: all.length - total };
 }

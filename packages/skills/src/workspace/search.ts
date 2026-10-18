@@ -1,3 +1,4 @@
+import { isoInZone } from "../clock.js";
 import { scoreOf, type TermCounts } from "./terms.js";
 
 export { queriesTerms, wordingsOf } from "./terms.js";
@@ -14,14 +15,14 @@ export type FileMatch = { path: string; lines: LineHit[]; modified: number; held
  * how many body words those files hold in all (ranking compares a file's length with the average).
  */
 export type FolderSearch = { matches: FileMatch[]; searched: number; words: number };
-/** A match as the agent reads it: the path it reads the file by, and the lines that matched. */
-export type ShownMatch = { path: string; lines: LineHit[] };
+/** A match as the agent reads it: the path it reads the file by, the lines that matched, and `partial` when it holds only some words of every query. */
+export type ShownMatch = { path: string; lines: LineHit[]; partial?: true };
 
 /** The most files one search returns. */
 export const MAX_MATCHES = 50;
 
 /** The date a file's name starts with ("2026-10-14-pricing.md"), or "" when it starts with none. */
-const nameDate = (path: string) => /^\d{4}-\d{2}-\d{2}/.exec(path.split("/").pop()!)?.[0] ?? "";
+export const nameDate = (path: string) => /^\d{4}-\d{2}-\d{2}/.exec(path.split("/").pop()!)?.[0] ?? "";
 /** Newest first by the date each file name starts with, files without one after those with; then by when the file last changed. */
 export const newestFirst = <T extends Pick<FileMatch, "path" | "modified">>(matches: readonly T[]): T[] =>
   [...matches].sort((a, b) => nameDate(b.path).localeCompare(nameDate(a.path)) || b.modified - a.modified);
@@ -40,10 +41,31 @@ export function ranked<T extends FileMatch>(found: readonly T[], queries: string
     .sort((a, b) => b.score - a.score || order.get(a.m)! - order.get(b.m)!).map((k) => k.m);
 }
 
-/** Matches best first (see `ranked`), at most MAX_MATCHES, with the total and how many were left out. */
+/** A strong match holds every term of at least one query, in any of its name, keyword header and body; any other match is partial. */
+export const isStrong = (m: Pick<FileMatch, "held">, queries: string[][]) => queries.some((q) => q.every((t) => m.held.includes(t)));
+
+/**
+ * Matches best first (see `ranked`), at most MAX_MATCHES, each marked strong or not, with the total and how many were left out.
+ * `nothingStrong` when there are matches and none of them is strong.
+ */
 export function capMatches<T extends FileMatch>(found: T[], queries: string[][], searched: number, words: number) {
-  const matches = ranked(found, queries, searched, words).slice(0, MAX_MATCHES);
-  return { matches, total: found.length, leftOut: found.length - matches.length };
+  const matches = ranked(found, queries, searched, words).slice(0, MAX_MATCHES).map((m) => ({ ...m, strong: isStrong(m, queries) }));
+  return { matches, total: found.length, leftOut: found.length - matches.length, nothingStrong: matches.length > 0 && !matches.some((m) => m.strong) };
 }
 
-export const shownMatch = (m: FileMatch & { shown: string }): ShownMatch => ({ path: m.shown, lines: m.lines });
+export const shownMatch = (m: FileMatch & { shown: string; strong: boolean }): ShownMatch => ({ path: m.shown, lines: m.lines, ...(m.strong ? {} : { partial: true as const }) });
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * The files a search keeps for `since` and `until` (dates, both ends included): by the date a file's name starts with, or, when
+ * it starts with none, by the day in `timeZone` the file last changed. Null when neither is given; throws on a malformed date.
+ */
+export function dateRange(since: unknown, until: unknown, timeZone: string): ((m: Pick<FileMatch, "path" | "modified">) => boolean) | null {
+  const from = since === undefined || since === null || since === "" ? null : String(since), to = until === undefined || until === null || until === "" ? null : String(until);
+  for (const d of [from, to]) if (d !== null && !DAY.test(d)) throw new Error(`"${d.slice(0, 40)}" is not a date: use YYYY-MM-DD`);
+  if (from === null && to === null) return null;
+  return (m) => {
+    const day = nameDate(m.path) || isoInZone(timeZone, m.modified).slice(0, 10);
+    return (from === null || day >= from) && (to === null || day <= to);
+  };
+}
