@@ -25,6 +25,8 @@ const anthropicModelOf = (config: any): string => config?.anthropicModel || (con
 export const DEFAULT_TEMPERATURE = 0.2;
 const CACHED = { cache_control: { type: "ephemeral" } };
 const markLast = (blocks: any[]) => blocks.map((b, i) => (i === blocks.length - 1 ? { ...b, ...CACHED } : b));
+// A response cut at the output limit is "length" whatever else it holds: its text is unfinished and any tool call in it may be.
+const finishOf = (cut: boolean, toolCalls: ToolCall[]): LLMResponse["finishReason"] => (cut ? "length" : toolCalls.length > 0 ? "tool_calls" : "stop");
 
 export class LLMRouter {
   private async getActiveTenantConfig(tenantId: string) {
@@ -205,7 +207,7 @@ export class LLMRouter {
       return {
         content: choice.message?.content || null,
         toolCalls,
-        finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        finishReason: finishOf(choice.finish_reason === "length", toolCalls),
         usage: data.usage
           ? {
               promptTokens: data.usage.prompt_tokens,
@@ -319,7 +321,7 @@ export class LLMRouter {
       return {
         content: textContent || null,
         toolCalls,
-        finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        finishReason: finishOf(data.stop_reason === "max_tokens", toolCalls),
         usage: data.usage
           ? {
               promptTokens: data.usage.input_tokens,
@@ -430,7 +432,7 @@ export class LLMRouter {
       return {
         content: choice.message?.content || null,
         toolCalls,
-        finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        finishReason: finishOf(choice.finish_reason === "length", toolCalls),
         usage: data.usage
           ? {
               promptTokens: data.usage.prompt_tokens,
@@ -491,7 +493,7 @@ export class LLMRouter {
       return {
         content: text || null,
         toolCalls,
-        finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        finishReason: finishOf(data.status === "incomplete" && data.incomplete_details?.reason === "max_output_tokens", toolCalls),
         usage: data.usage
           ? { promptTokens: data.usage.input_tokens, completionTokens: data.usage.output_tokens, totalTokens: data.usage.total_tokens ?? data.usage.input_tokens + data.usage.output_tokens, cachedTokens: cachedTokensOf(data.usage) }
           : undefined,

@@ -137,4 +137,47 @@ describe("Router hardening", () => {
     `);
     expect(code, stderr).toBe(0);
   });
+
+  test("an answer cut at the output limit reads as \"length\" in every request format, keeping the cut tool call it holds", () => {
+    const { code, stderr } = scenario(`
+      const profile = async (body) => (await (await post("/tenants/" + tenant.id + "/profiles", { name: body.apiFormat ?? body.provider, model: "m", apiKey: "k", ...body })).json()).profile;
+      const botOn = async (p) => (await repositories().bots.create({ tenantId: tenant.id, token: "t-" + p.id, isEnabled: false, profileId: p.id })).id;
+      const ask = (botId) => llmRouter.complete([{ role: "user", content: "write it all" }], { tenantId: tenant.id, botId });
+
+      await useOpenAI(tenant.id);
+      reply = () => json({ choices: [{ message: { content: "The release moves" }, finish_reason: "length" }] });
+      const openaiCut = await ask();
+      assert(openaiCut.finishReason === "length" && openaiCut.content === "The release moves", "OpenAI cut not read: " + JSON.stringify(openaiCut));
+      reply = () => json({ choices: [{ message: { content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "writeFile", arguments: '{"path":"notes/a.md","con' } }] }, finish_reason: "length" }] });
+      const openaiTool = await ask();
+      assert(openaiTool.finishReason === "length" && openaiTool.toolCalls.length === 1 && openaiTool.toolCalls[0].name === "writeFile", "OpenAI cut tool call not kept as cut: " + JSON.stringify(openaiTool));
+
+      const anthropic = await botOn(await profile({ provider: "anthropic" }));
+      reply = () => json({ content: [{ type: "text", text: "The release moves" }], stop_reason: "max_tokens", usage: { input_tokens: 4, output_tokens: 3 } });
+      const claudeCut = await ask(anthropic);
+      assert(claudeCut.finishReason === "length" && claudeCut.content === "The release moves", "Anthropic cut not read: " + JSON.stringify(claudeCut));
+
+      const messages = await botOn(await profile({ provider: "custom", apiFormat: "messages", baseUrl: "https://proxy.example/v1" }));
+      const proxyCut = await ask(messages);
+      assert(proxyCut.finishReason === "length", "Messages-format cut not read: " + JSON.stringify(proxyCut));
+
+      const chat = await botOn(await profile({ provider: "custom", baseUrl: "https://llm.example/v1" }));
+      reply = () => json({ choices: [{ message: { content: "The release moves" }, finish_reason: "length" }] });
+      const chatCut = await ask(chat);
+      assert(chatCut.finishReason === "length", "custom Chat Completions cut not read: " + JSON.stringify(chatCut));
+
+      const responses = await botOn(await profile({ provider: "custom", apiFormat: "responses", baseUrl: "https://llm.example/v1" }));
+      reply = () => json({ object: "response", status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "The release moves" }] }] });
+      const responsesCut = await ask(responses);
+      assert(responsesCut.finishReason === "length" && responsesCut.content === "The release moves", "Responses cut not read: " + JSON.stringify(responsesCut));
+      reply = () => json({ object: "response", status: "incomplete", incomplete_details: { reason: "content_filter" }, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Filtered" }] }] });
+      const filtered = await ask(responses);
+      assert(filtered.finishReason === "stop", "an answer incomplete for another reason is not a length cut: " + JSON.stringify(filtered));
+
+      reply = () => json({ choices: [{ message: { content: "Done." }, finish_reason: "stop" }] });
+      const whole = await ask(chat);
+      assert(whole.finishReason === "stop", "a whole answer read as cut: " + JSON.stringify(whole));
+    `);
+    expect(code, stderr).toBe(0);
+  });
 });

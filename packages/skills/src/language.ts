@@ -39,6 +39,8 @@ const en = {
   providerNoKey: (provider: string) => `No ${provider} API key is set for this tenant, so I can't answer. An admin has to add the API key first.`,
   providerNoBaseUrl: "No base URL is set for the custom provider, so I can't answer. An admin has to add the base URL first.",
   doneBeforeFailure: (done: string[]) => `Done before the failure:\n${done.map((d) => `- ${d}`).join("\n")}`,
+  /** Ends a reply the model was cut off in twice, at its output limit. */
+  outputCut: "-# This answer was cut off at the model's output limit. Ask me to go on if you need the rest.",
   /** A task change as a line of `doneBeforeFailure`, by tool; a tool missing here shows its own name. */
   taskChange: {
     createTask: "Created task", updateTaskStatus: "Changed the status of", assignTask: "Assigned", setTaskDueDate: "Set the due date of",
@@ -215,6 +217,7 @@ const id: typeof en = {
   providerNoKey: (provider) => `Belum ada API key ${provider} untuk tenant ini, jadi saya belum bisa menjawab. Admin perlu menambahkan API key-nya dulu.`,
   providerNoBaseUrl: "Belum ada base URL untuk penyedia custom, jadi saya belum bisa menjawab. Admin perlu menambahkan base URL-nya dulu.",
   doneBeforeFailure: (done) => `Sudah selesai sebelum gagal:\n${done.map((d) => `- ${d}`).join("\n")}`,
+  outputCut: "-# Jawaban ini terpotong di batas panjang keluaran model. Minta saya melanjutkan kalau perlu sisanya.",
   taskChange: {
     createTask: "Membuat tugas", updateTaskStatus: "Mengubah status", assignTask: "Menugaskan", setTaskDueDate: "Mengatur jatuh tempo",
     editTask: "Mengedit", addProgressNote: "Menambah catatan progres ke", tickChecklistItem: "Mencentang checklist di", moveTask: "Memindahkan",
