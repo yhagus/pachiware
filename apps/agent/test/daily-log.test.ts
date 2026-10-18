@@ -18,7 +18,7 @@ discordScenario("at 00:30 the scheduler writes yesterday's Daily log with its fo
 
   s.clock.set("2026-03-07T00:29:00+07:00");
   await s.scheduler.tick();
-  expect(await s.workspace.list(FOLDER)).toEqual([]);
+  expect(await s.workspace.files(FOLDER)).toEqual([]);
   expect(s.model.calls).toHaveLength(0);
 
   s.model.script(JSON.stringify({
@@ -37,8 +37,8 @@ discordScenario("at 00:30 the scheduler writes yesterday's Daily log with its fo
   expect(sent).not.toContain("the next day");
   expect(after).toBeDefined();
 
-  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-06.md`]);
-  const log = (await s.workspace.read(`${FOLDER}/2026-03-06.md`))!;
+  expect(await s.workspace.files(FOLDER)).toEqual([`${FOLDER}/2026-03/2026-03-06.md`]);
+  const log = (await s.workspace.read(`${FOLDER}/2026-03/2026-03-06.md`))!;
   expect(log).toContain("# Daily log #channel-1, 2026-03-06");
   expect(log).toContain("Topics: Release day");
   expect(log).toContain("Keywords: hari rilis, catatan rilis, release day, release notes");
@@ -76,7 +76,7 @@ discordScenario("a Daily log reads people's messages and webhook posts, and leav
   expect(sent).toContain("[embed: PR #88 merged: normalize audio loudness]");
   expect(sent).not.toContain("deploy finished");
   expect(sent).not.toContain("Noted, I will remember that.");
-  const log = (await s.workspace.read(`${FOLDER}/2026-03-06.md`))!;
+  const log = (await s.workspace.read(`${FOLDER}/2026-03/2026-03-06.md`))!;
   expect(log).toContain(`1. Audio normalization: normalisasi audio, audio normalization [↗](${link("channel-1", asked!.id)}) [↗](${link("channel-1", merged!.id)})`);
 });
 
@@ -98,7 +98,7 @@ discordScenario("a Daily log reads the channel's public threads and never a priv
   expect(sent).toContain("Thread about the invoice template");
   expect(sent).toContain("Template v2 is approved");
   expect(sent).not.toContain("salary of the new hire");
-  const log = (await s.workspace.read(`${FOLDER}/2026-03-06.md`))!;
+  const log = (await s.workspace.read(`${FOLDER}/2026-03/2026-03-06.md`))!;
   expect(log).toContain(`2. Template v2 approved [↗](${link(open.id, inThread!.id)})`);
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/threads")).toEqual([]);
 });
@@ -118,8 +118,8 @@ discordScenario("an Availability rule that turns the Daily log playbook off in a
 
   expect(s.model.calls).toHaveLength(1);
   expect(s.model.calls[0]!.map((m) => m.content).join("\n")).toContain("Hiring talk in channel two");
-  expect(await s.workspace.list(FOLDER)).toEqual([]);
-  expect(await s.workspace.list("guilds/guild-1/channels/channel-2/daily-logs")).toEqual(["guilds/guild-1/channels/channel-2/daily-logs/2026-03-06.md"]);
+  expect(await s.workspace.files(FOLDER)).toEqual([]);
+  expect(await s.workspace.files("guilds/guild-1/channels/channel-2/daily-logs")).toEqual(["guilds/guild-1/channels/channel-2/daily-logs/2026-03/2026-03-06.md"]);
 });
 
 discordScenario("a search from another channel finds a Public channel's Daily log and only counts a non-public channel's", async (s) => {
@@ -145,7 +145,7 @@ discordScenario("a search from another channel finds a Public channel's Daily lo
   await s.discord.send(`${s.discord.mention} was normalisasi audio discussed?`);
   const said = s.discord.botMessages.at(-1)!.content;
   expect(said).not.toMatch(/direksi|board|channel-3/i);
-  expect(JSON.parse(said)).toMatchObject({ groups: [{ channel: "#audio", matches: [{ path: "#audio/daily-logs/2026-03-06.md" }] }], total: 1, notShownHere: 1 });
+  expect(JSON.parse(said)).toMatchObject({ groups: [{ channel: "#audio", matches: [{ path: "#audio/daily-logs/2026-03/2026-03-06.md" }] }], total: 1, notShownHere: 1 });
 });
 
 discordScenario("a day with only bot messages writes no Daily log and asks the model nothing", async (s) => {
@@ -158,7 +158,7 @@ discordScenario("a day with only bot messages writes no Daily log and asks the m
   s.clock.set("2026-03-07T00:30:00+07:00");
   await s.scheduler.tick();
   expect(s.model.calls).toHaveLength(0);
-  expect(await s.workspace.list(FOLDER)).toEqual([]);
+  expect(await s.workspace.files(FOLDER)).toEqual([]);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Reminder: standup"]);
 });
 
@@ -190,7 +190,7 @@ discordScenario("a day of more than 500 messages is read in parts and joined int
   const user = (i: number) => s.model.calls[i]!.filter((m) => m.role === "user").map((m) => m.content).join("\n");
   expect(user(0)).toContain(": message 1\n");
   expect(user(2)).toContain(": message 1200");
-  const log = (await s.workspace.read(`${FOLDER}/2026-03-06.md`))!;
+  const log = (await s.workspace.read(`${FOLDER}/2026-03/2026-03-06.md`))!;
   expect(log).toContain("Topics: Release day\n");
   expect(log).toContain("Keywords: hari rilis, release day\n");
   expect(log).toContain("1200 messages from Alice, Bob");
@@ -214,7 +214,7 @@ discordScenario("a day of more than 5,000 messages is read from its start, stops
   const user = s.model.calls.map((c) => c.filter((m) => m.role === "user").map((m) => m.content).join("\n")).join("\n");
   expect(user).toContain(": message 1\n");
   expect(user).not.toContain(": message 5001");
-  const log = (await s.workspace.read(`${FOLDER}/2026-03-06.md`))!;
+  const log = (await s.workspace.read(`${FOLDER}/2026-03/2026-03-06.md`))!;
   expect(log).toContain("5000 messages from Alice, Bob");
   // Message 5000 was sent 49,990 seconds after 01:00 +07:00: 14:53:10 +07:00, which is 2026-03-06 07:53:10 UTC.
   expect(log).toContain("*Reading stopped at 5000 messages: nothing after 2026-03-06 07:53 UTC was read.*");

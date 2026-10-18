@@ -93,7 +93,7 @@ export interface Scenario {
   /** Writes an availability rule as the admin API does and returns once commands are re-registered; `botId` defaults to this bot and the guild to "guild-1". */
   availability(at: { level: "tenant" | "bot" | "guild" | "channel"; botId?: string; guildId?: string; channelId?: string }, rule: { kind: string; name: string; value: string }): Promise<void>;
   /** Paths are tenant-relative, e.g. "guilds/guild-1/channels/channel-1/brief.md". */
-  workspace: { read(path: string): Promise<string | null>; write(path: string, content: string): Promise<void>; list(path: string): Promise<string[]> };
+  workspace: { read(path: string): Promise<string | null>; write(path: string, content: string): Promise<void>; list(path: string): Promise<string[]>; /** Every file below a folder, at any depth. */ files(path: string): Promise<string[]>; remove(path: string): Promise<void> };
   discord: {
     mention: string; botUserId: string; guildId: string; alice: FakeUser; bob: FakeUser;
     botMessages: FakeMessage[];
@@ -500,6 +500,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       read: async (path) => (await workspaceStore().read(tenant.id, path))?.content ?? null,
       write: async (path, content) => { const current = await workspaceStore().read(tenant.id, path); await workspaceStore().write(tenant.id, path, content, current?.version); },
       list: async (path) => (await workspaceStore().list(tenant.id, path)).map((e) => e.path),
+      files: async (path) => (await workspaceStore().files(tenant.id, path)).map((e) => e.path),
+      remove: (path) => workspaceStore().remove(tenant.id, path),
     },
     discord: {
       mention: `<@${BOT_USER.id}>`, botUserId: BOT_USER.id, guildId: GUILD.id, alice, bob, botMessages,

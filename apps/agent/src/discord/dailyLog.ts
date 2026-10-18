@@ -36,12 +36,15 @@ export function daySpan(zone: string, day: string) {
   const midnight = (date: string) => { const [year, month, d] = date.split("-").map(Number) as [number, number, number]; return wallToInstant(zone, { year, month, day: d, hour: 0, minute: 0 }); };
   return { since: midnight(day), until: midnight(addDays(day, 1)) };
 }
-export const dailyLogPath = (guildId: string, channelId: string, day: string) => `guilds/${guildId}/channels/${channelId}/${DAILY_LOG_FOLDER}/${day}.md`;
+/** A day's Daily log, in its month's folder so no folder outgrows the Workspace's list limit. */
+export const dailyLogPath = (guildId: string, channelId: string, day: string) => `guilds/${guildId}/channels/${channelId}/${DAILY_LOG_FOLDER}/${day.slice(0, 7)}/${day}.md`;
+/** Where a day was kept before monthly folders; such files stay where they are and are still read. */
+const flatDailyLogPath = (guildId: string, channelId: string, day: string) => `guilds/${guildId}/channels/${channelId}/${DAILY_LOG_FOLDER}/${day}.md`;
 
 /** Reads the channel's day, has the model write it following the playbook, and keeps it as the day's file. Nothing is posted. */
 export async function writeDailyLog(run: DailyLogRun): Promise<DailyLogResult> {
   const path = dailyLogPath(run.guildId, run.channelId, run.day), store = workspaceStore();
-  if (await store.read(run.tenantId, path)) return "exists";
+  if (await store.read(run.tenantId, path) || await store.read(run.tenantId, flatDailyLogPath(run.guildId, run.channelId, run.day))) return "exists";
   const playbooks = await listPlaybooks(run.tenantId);
   const place = availabilityPlace({ tenantId: run.tenantId, botId: run.botId, guildId: run.guildId, channelId: run.channelId });
   if ((await skillRegistry.availableAt(place, playbooks)).playbookCause(DAILY_LOG_PLAYBOOK)) return "off";
@@ -164,8 +167,7 @@ const PARTS: Part[] = ["topics", "decided", "open", "next"];
 export async function forgetDeletedMessage(m: DeletedMessage) {
   const store = workspaceStore(), link = jumpLink(m.guildId, m.messageChannelId, m.messageId);
   const days = [-DAY_MS, 0, DAY_MS].map((d) => new Date(m.createdAt + d).toISOString().slice(0, 10));
-  for (const day of days) {
-    const path = dailyLogPath(m.guildId, m.channelId, day);
+  for (const day of days) for (const path of [dailyLogPath(m.guildId, m.channelId, day), flatDailyLogPath(m.guildId, m.channelId, day)]) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const file = await store.read(m.tenantId, path);
       if (!file?.content.includes(link)) break;

@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
 
-const FILE = "guilds/guild-1/channels/channel-1/daily-logs/2026-03-06.md";
+const FILE = "guilds/guild-1/channels/channel-1/daily-logs/2026-03/2026-03-06.md";
 const link = (channelId: string, id: string) => `https://discord.com/channels/guild-1/${channelId}/${id}`;
 const at = (time: string) => Date.parse(`2026-03-06T${time}:00+07:00`);
 

@@ -24,8 +24,8 @@ discordScenario("turning Daily logs on with the backfill tick writes a Daily log
 
   expect((await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: true }] })).status).toBe(200);
 
-  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-02-04.md`, `${FOLDER}/2026-02-20.md`, `${FOLDER}/2026-03-05.md`]);
-  expect(await s.workspace.read(`${FOLDER}/2026-02-20.md`)).toContain("Topics: Mid February");
+  expect(await s.workspace.files(FOLDER)).toEqual([`${FOLDER}/2026-02/2026-02-04.md`, `${FOLDER}/2026-02/2026-02-20.md`, `${FOLDER}/2026-03/2026-03-05.md`]);
+  expect(await s.workspace.read(`${FOLDER}/2026-02/2026-02-20.md`)).toContain("Topics: Mid February");
   expect(s.model.calls).toHaveLength(3);
   expect(notices(s)).toEqual([RECORDED_ID]);
 });
@@ -37,7 +37,7 @@ discordScenario("turning Daily logs on without the tick writes none, and the not
 
   await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: false }] });
 
-  expect(await s.workspace.list(FOLDER)).toEqual([]);
+  expect(await s.workspace.files(FOLDER)).toEqual([]);
   expect(s.model.calls).toHaveLength(0);
   expect(notices(s)).toEqual([FROM_TODAY_ID]);
 });
@@ -53,7 +53,7 @@ discordScenario("a backfill whose day cannot be written, or whose playbook an Av
   s.model.script("I cannot summarize this.");
 
   await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: true }] });
-  expect(await s.workspace.list(FOLDER)).toEqual([]);
+  expect(await s.workspace.files(FOLDER)).toEqual([]);
   expect(notices(s)).toEqual([INCOMPLETE_ID]);
 
   await s.availability({ level: "channel", channelId: "channel-2" }, { kind: "playbook", name: "daily-log", value: "off" });
@@ -71,10 +71,10 @@ discordScenario("off then on again keeps every Daily log as written and fills on
   ]);
   s.model.script(log("Wednesday"), log("Thursday"));
   await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: true }] });
-  const wednesday = await s.workspace.read(`${FOLDER}/2026-03-04.md`);
+  const wednesday = await s.workspace.read(`${FOLDER}/2026-03/2026-03-04.md`);
 
   await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [] });
-  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-04.md`, `${FOLDER}/2026-03-05.md`]);
+  expect(await s.workspace.files(FOLDER)).toEqual([`${FOLDER}/2026-03/2026-03-04.md`, `${FOLDER}/2026-03/2026-03-05.md`]);
   s.discord.history([
     { content: "Saturday talk", author: alice, at: jakarta("2026-03-07T12:00:00") },
     { content: "Sunday talk", author: alice, at: jakarta("2026-03-08T12:00:00") },
@@ -84,9 +84,9 @@ discordScenario("off then on again keeps every Daily log as written and fills on
   s.model.script(log("Saturday"), log("Sunday"));
   await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: true }] });
 
-  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-04.md`, `${FOLDER}/2026-03-05.md`, `${FOLDER}/2026-03-07.md`, `${FOLDER}/2026-03-08.md`]);
-  expect(await s.workspace.read(`${FOLDER}/2026-03-04.md`)).toBe(wednesday);
-  expect(await s.workspace.read(`${FOLDER}/2026-03-08.md`)).toContain("Topics: Sunday");
+  expect(await s.workspace.files(FOLDER)).toEqual([`${FOLDER}/2026-03/2026-03-04.md`, `${FOLDER}/2026-03/2026-03-05.md`, `${FOLDER}/2026-03/2026-03-07.md`, `${FOLDER}/2026-03/2026-03-08.md`]);
+  expect(await s.workspace.read(`${FOLDER}/2026-03/2026-03-04.md`)).toBe(wednesday);
+  expect(await s.workspace.read(`${FOLDER}/2026-03/2026-03-08.md`)).toContain("Topics: Sunday");
   expect(s.model.calls).toHaveLength(4);
   expect(notices(s)).toEqual([RECORDED_ID, RECORDED_ID]);
 });
@@ -104,8 +104,8 @@ discordScenario("after two missed nights, a start writes both days' Daily logs, 
   s.clock.set("2026-03-07T09:00:00+07:00");
   await s.restart();
 
-  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-05.md`, `${FOLDER}/2026-03-06.md`]);
-  expect(await s.workspace.read(`${FOLDER}/2026-03-06.md`)).toContain("Topics: Friday");
+  expect(await s.workspace.files(FOLDER)).toEqual([`${FOLDER}/2026-03/2026-03-05.md`, `${FOLDER}/2026-03/2026-03-06.md`]);
+  expect(await s.workspace.read(`${FOLDER}/2026-03/2026-03-06.md`)).toContain("Topics: Friday");
   await s.scheduler.tick();
   expect(s.model.calls).toHaveLength(2);
   expect(s.discord.botMessages).toEqual([]);
@@ -126,7 +126,7 @@ discordScenario("a start catches up 7 days at most: talk older than that stays w
   await s.restart();
   await s.scheduler.tick();
 
-  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-04.md`, `${FOLDER}/2026-03-10.md`]);
+  expect(await s.workspace.files(FOLDER)).toEqual([`${FOLDER}/2026-03/2026-03-04.md`, `${FOLDER}/2026-03/2026-03-10.md`]);
   expect(s.model.calls).toHaveLength(2);
 });
 
@@ -145,7 +145,7 @@ discordScenario("nights an Availability rule turned the playbook off stay withou
   await s.scheduler.tick();
   s.clock.set("2026-03-07T00:30:00+07:00");
   await s.scheduler.tick();
-  expect(await s.workspace.list(FOLDER)).toEqual([]);
+  expect(await s.workspace.files(FOLDER)).toEqual([]);
 
   expect((await s.admin("DELETE", `/api/admin/bots/${s.bot.id}/guilds/guild-1/channels/channel-1/availability?kind=playbook&name=daily-log`)).status).toBeLessThan(300);
   s.model.script(log("Saturday"));
@@ -153,8 +153,8 @@ discordScenario("nights an Availability rule turned the playbook off stay withou
   await s.restart();
   await s.scheduler.tick();
 
-  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-07.md`]);
-  expect(await s.workspace.read(`${FOLDER}/2026-03-07.md`)).toContain("Topics: Saturday");
+  expect(await s.workspace.files(FOLDER)).toEqual([`${FOLDER}/2026-03/2026-03-07.md`]);
+  expect(await s.workspace.read(`${FOLDER}/2026-03/2026-03-07.md`)).toContain("Topics: Saturday");
   expect(s.model.calls).toHaveLength(1);
 });
 
@@ -167,12 +167,12 @@ discordScenario("a day whose nightly write failed is written on the next start",
 
   s.clock.set("2026-03-06T00:30:00+07:00");
   await s.scheduler.tick();
-  expect(await s.workspace.list(FOLDER)).toEqual([]);
+  expect(await s.workspace.files(FOLDER)).toEqual([]);
 
   s.model.script(log("Thursday"));
   s.clock.set("2026-03-06T09:00:00+07:00");
   await s.restart();
 
-  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-03-05.md`]);
+  expect(await s.workspace.files(FOLDER)).toEqual([`${FOLDER}/2026-03/2026-03-05.md`]);
   expect(s.model.calls).toHaveLength(2);
 });
