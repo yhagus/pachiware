@@ -10,6 +10,7 @@ import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
 import { listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
+import { forgetDeletedMessage } from "./dailyLog.js";
 import { prepareReply, replyQuietly, withNotes, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachments.js";
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
@@ -102,6 +103,16 @@ export class DiscordBotManager {
   }
   /** Work that outlives the request that started it, such as a Daily log backfill; `idle()` waits for it. */
   background(work: Promise<unknown>) { this.track(work); }
+  /** What a person deletes does not live on in a Daily log; a thread's message sits in its parent channel's. Discord may send only the ids. */
+  private async forgetDeleted(runtime: BotRuntime, msg: Pick<Message, "id" | "channelId" | "guildId" | "createdTimestamp"> & { channel?: Message["channel"] | null }) {
+    if (!msg.guildId || !runtime.guildIds.includes(msg.guildId)) return;
+    const channel = msg.channel ?? await runtime.client.channels.fetch(msg.channelId).catch(() => null);
+    const channelId = channel?.isThread() ? channel.parentId : msg.channelId;
+    if (!channelId) return;
+    await this.serialize(`daily-log:${runtime.tenantId}:${channelId}`, () => forgetDeletedMessage({
+      tenantId: runtime.tenantId, guildId: msg.guildId!, channelId, messageChannelId: msg.channelId, messageId: msg.id, createdAt: msg.createdTimestamp,
+    }));
+  }
   /** The gateway client of a running, connected bot; the scheduler posts through it. */
   clientOf(botId: string): Client | null {
     const runtime = this.clients.get(botId);
@@ -173,6 +184,8 @@ export class DiscordBotManager {
       else if (i.isChatInputCommand()) this.track(this.handleSlash(id, i));
     });
     client.on(Events.MessageCreate, (msg) => { this.track(this.handleMessage(id, msg)); });
+    // Edits are not listened for: a Daily log describes the day as it was talked about.
+    client.on(Events.MessageDelete, (msg) => { this.track(this.forgetDeleted(runtime, msg)); });
     try {
       await client.login(token);
       return { success: true, message: "Bot gateway started." };

@@ -128,6 +128,10 @@ export interface Scenario {
     contextMenu(commandName: string, target: FakeMessage, options?: { user?: FakeUser }): Promise<FakeInteraction>;
     /** Runs a slash command with its `text` and `file` options; Discord offers only the commands registered in the guild, so it must be one. */
     slash(commandName: string, options?: { text?: string; file?: any; user?: FakeUser; channel?: FakeChannel | string }): Promise<FakeInteraction>;
+    /** Someone deletes a message in Discord: it leaves its channel and every running bot gets MessageDelete. */
+    deleteMessage(message: FakeMessage): Promise<void>;
+    /** Someone edits a message in Discord: its text changes and every running bot gets MessageUpdate. */
+    editMessage(message: FakeMessage, content: string): Promise<void>;
     /** Starts another bot of the tenant in the guild; every later `send` reaches both bots. Clicks and commands still go to the default bot. */
     addBot(options?: { name?: string }): Promise<FakeBot>;
   };
@@ -546,6 +550,17 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         return message;
       },
       unlimited: (user) => { unlimited.add(user.id); },
+      deleteMessage: async (message) => {
+        await (message as any).delete();
+        for (const running of FakeClient.running.values()) running.emit(Events.MessageDelete, as(running.botUser, message));
+        await settle();
+      },
+      editMessage: async (message, content) => {
+        const before = { ...message };
+        await (message as any).edit(content);
+        for (const running of FakeClient.running.values()) running.emit(Events.MessageUpdate, as(running.botUser, before), as(running.botUser, message));
+        await settle();
+      },
       click: async (message, button, { user = alice } = {}) => {
         const found = message.components.flatMap((row: any) => row.components ?? []).find((c: any) => c.label === button || c.custom_id === button);
         if (!found) throw new Error(`No button "${button}" on message ${message.id}`);
