@@ -60,7 +60,8 @@ discordScenario("inside a non-public channel its own files and Public channels' 
     { tool: "readFile", args: { path: "#marketing/minutes/2026-10-13-pricing.md" } },
     { tool: "readFile", args: { path: "#rahasia/notes/pricing.md" } },
   ], { channel: "channel-3" }))).toEqual([
-    { groups: [{ channel: "#direksi", matches: [board] }, marketing], total: 2, leftOut: 0, notShownHere: 1, suggestion: SUGGEST_EN(1) },
+    // #marketing's file holds "pricing" in its name too, which weighs more than the body.
+    { groups: [marketing, { channel: "#direksi", matches: [board] }], total: 2, leftOut: 0, notShownHere: 1, suggestion: SUGGEST_EN(1) },
     { content: "# Board\nWe decided the pricing for Q4.\n", version: expect.any(String) },
     { content: "Pricing call\n", version: expect.any(String) },
     "Files from there cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.",

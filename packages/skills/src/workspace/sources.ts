@@ -171,15 +171,16 @@ export function sourcePath(ctx: Pick<SkillContext, "language">, sources: Source[
 }
 
 /**
- * Every file in a source's folders (its kept folders unless given) holding any of the words, each with its source and the
- * path the agent reads it by, and how many files were searched.
+ * Every file in a source's folders (its kept folders unless given) holding any of the query terms, each with its source and the
+ * path the agent reads it by, how many files were searched, and how many body words they hold.
  */
-export async function searchSource(store: SearchableWorkspaceStore, tenantId: string, source: Source, words: string[], folders = source.folders) {
+export async function searchSource(store: SearchableWorkspaceStore, tenantId: string, source: Source, terms: string[], folders = source.folders) {
   const shown = agentPaths(source.root, source.folder);
-  const found = await Promise.all(folders.map((folder) => store.searchFolder(tenantId, folder, words, (p) => p.slice(source.folder.length + 1))));
+  const found = await Promise.all(folders.map((folder) => store.searchFolder(tenantId, folder, terms, (p) => p.slice(source.folder.length + 1))));
   return {
     matches: found.flatMap((f) => f.matches).map((m): FileMatch & { source: Source; shown: string } => ({ ...m, source, shown: shown(m.path) })),
     searched: found.reduce((n, f) => n + f.searched, 0),
+    words: found.reduce((n, f) => n + f.words, 0),
   };
 }
 
@@ -189,11 +190,11 @@ export async function searchSource(store: SearchableWorkspaceStore, tenantId: st
  * `total` and `leftOut` count only those. `notShown` counts the matches of non-quotable sources.
  */
 export async function searchSources(store: SearchableWorkspaceStore, tenantId: string, sources: Source[], queries: string[][]) {
-  const words = [...new Set(queries.flat())];
-  const found = await Promise.all(sources.map((s) => searchSource(store, tenantId, s, words)));
-  const all = found.flatMap((f) => f.matches);
-  const searched = found.reduce((n, f, i) => n + (sources[i]!.quotable ? f.searched : 0), 0);
-  const { matches, total, leftOut } = capMatches(all.filter((m) => m.source.quotable), queries, searched);
+  const terms = [...new Set(queries.flat())];
+  const found = await Promise.all(sources.map((s) => searchSource(store, tenantId, s, terms)));
+  const all = found.flatMap((f) => f.matches), quotable = found.filter((_, i) => sources[i]!.quotable);
+  const searched = quotable.reduce((n, f) => n + f.searched, 0), words = quotable.reduce((n, f) => n + f.words, 0);
+  const { matches, total, leftOut } = capMatches(all.filter((m) => m.source.quotable), queries, searched, words);
   const groups = sources.map((s) => ({ s, matches: matches.filter((m) => m.source === s) })).filter((g) => g.matches.length)
     .sort((a, b) => matches.indexOf(a.matches[0]!) - matches.indexOf(b.matches[0]!));
   return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, notShown: all.length - total };

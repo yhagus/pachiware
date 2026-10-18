@@ -269,8 +269,8 @@ discordScenario("dry run: recall-asked-in-english finds the Indonesian Decision 
   const output = await dryRun(s, "recall-asked-in-english");
   expect(output.turns[0].replies).toEqual([[
     "Yes, it was settled that reminders go out automatically three days before the due date. Kept so far:",
-    "- #finance, 2026-10-12: Pengingat tagihan otomatis sudah jalan untuk klien Jakarta",
     "- #channel-1, 2026-10-05: # Pengingat tagihan otomatis",
+    "- #finance, 2026-10-12: Pengingat tagihan otomatis sudah jalan untuk klien Jakarta",
   ].join("\n")]);
 });
 

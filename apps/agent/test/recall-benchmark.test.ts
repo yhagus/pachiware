@@ -7,7 +7,7 @@ import { discordScenario } from "./support/discordScenario";
  * The scenario prints every question with its expected files and top 3; the table shows in the failure output, or when the scenario
  * runs alone the way `runInSubprocess` runs it (PACHIWARE_SCENARIO set to its name, with a scratch DATABASE_URL and WORKSPACE_DIR).
  */
-const BASELINE = 22;
+const BASELINE = 26;
 
 discordScenario("retrieval benchmark: expected files in the top 3", async (s) => {
   const { BENCHMARK_CHANNELS, BENCHMARK_FILES, BENCHMARK_QUESTIONS, shownPaths } = await import(process.cwd() + "/apps/agent/test/support/recallBenchmark.ts");

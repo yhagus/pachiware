@@ -51,7 +51,11 @@ discordScenario("asked in #general whether audio normalization is done, a comple
 discordScenario("a Task in a channel that is not a Public channel is quoted in its own channel and in a DM to a member who can view it", async (s) => {
   await fourChannels(s);
   const inDireksi = await ask(s, { scope: "anywhere", query: "audio normalization" }, { channel: "channel-3" });
-  expect(titles(inDireksi)).toEqual([`#direksi: ${line("pending", 2, "Budget for audio normalization gear")}`]);
+  // "Normalize" and "normalization" share a stem, so #audio's Task (a Public channel) is found too.
+  expect(titles(inDireksi)).toEqual([
+    `#audio: ${line("completed", 1, "Normalize the audio loudness")}`,
+    `#direksi: ${line("pending", 2, "Budget for audio normalization gear")}`,
+  ]);
   expect(JSON.parse(inDireksi)[0].notShownHere).toBeUndefined();
 
   s.model.script({ tool: "listTasks", args: { scope: "anywhere", query: "audio" } }, results);

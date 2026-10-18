@@ -6,7 +6,7 @@ import type { ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeList, planeRequest, inWorkspace, type Obj } from "./client.js";
 import { planeProjectAllowed } from "./scope.js";
 import { planeMarkdown, planeText } from "./markdown.js";
-import { queriesWords, wordingsOf } from "../workspace/search.js";
+import { holdsQuery, queriesTerms, wordingsOf } from "../workspace/terms.js";
 import { planeTarget, findPlaneProject, projectHead, ACCOUNT_ARG, type PlaneTarget } from "./projectRef.js";
 import { resolveWorkItem, workItemPath, workItemKey, planeUserName, planeUserAliases, matchByName, projectMembers, ME, type ResolvedWorkItem } from "./resolve.js";
 
@@ -43,7 +43,7 @@ export const workItemTools: ToolDefinition[] = [
       priority: { type: "string", enum: PRIORITIES },
       changedSince: { type: "string", description: "Only work items changed on or after this date (YYYY-MM-DD or ISO 8601)." },
       text: { type: "string", description: "Words that must appear in the title or key." },
-      queries: { type: "array", items: { type: "string" }, description: "Several wordings, such as Indonesian and English variants; a work item matches when its title or key holds every word of one of them." },
+      queries: { type: "array", items: { type: "string" }, description: "Several wordings, such as Indonesian and English variants; a work item matches when its title or key holds every word of one of them, in any form of the word (\"normalisasi\" finds \"normalization\"), filler words ignored." },
       limit: { type: "number", description: "At most this many results (default 50, max 200)." },
       account: ACCOUNT_ARG,
     } } },
@@ -120,8 +120,8 @@ function listFilters(args: Obj): { filters: ListFilter[]; since: number | null }
   }
   const words = text(args.text)?.toLowerCase();
   if (words) filters.push((it) => `${it.key} ${it.name}`.toLowerCase().includes(words));
-  const wordings = queriesWords(wordingsOf(undefined, args.queries));
-  if (wordings.length) filters.push((it) => { const title = `${it.key} ${it.name}`.toLowerCase(); return wordings.some((ws) => ws.every((w) => title.includes(w))); });
+  const wordings = queriesTerms(wordingsOf(undefined, args.queries));
+  if (wordings.length) filters.push((it) => holdsQuery(wordings, `${it.key} ${it.name}`));
   let since: number | null = null;
   const changed = text(args.changedSince);
   if (changed) {

@@ -9,7 +9,7 @@ import { PRIORITIES, STATUSES, dueAtArg, dueBound, dueMoment, isLate, isOpen, lo
 import { findProject, linkHeld, mustHold, personalTasksOf, taskChannelOf } from "./taskAccess.js";
 import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, anywhereSources, groupTasks, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
 import { textIn } from "../language.js";
-import { queriesWords, wordingsOf } from "../workspace/search.js";
+import { fileWords, holdsQuery, matchWords, queriesTerms, scoreOf, wordingsOf } from "../workspace/terms.js";
 import { DEFAULT_TIMEZONE, now, today } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
@@ -71,8 +71,8 @@ export const taskManagementSkill: SkillModule = {
             description: "Filter by status (default: every status except cancelled, and with scope mine or delegated only open tasks, neither completed nor cancelled; all includes every status)",
           },
           assignedTo: { type: "string", description: "Filter by assignee: a mention, \"me\", a member's ID, or a display name or username in any letter case" },
-          query: { type: "string", description: "Words to find in the title or description, any letter case; a task must contain every word. Use it to find a task the person names that is not among the active tasks shown" },
-          queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\"]; a task matches when it contains every word of one of them" },
+          query: { type: "string", description: "Words to find in the title or description, any letter case and any form of a word (\"normalisasi\" finds \"normalization\"), filler words ignored; a task must contain every word. Use it to find a task the person names that is not among the active tasks shown" },
+          queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\"]; a task matches when it contains every word of one of them, in any form" },
           dueAfter: { type: "string", description: "Only tasks due at or after this date (YYYY-MM-DD, from the start of that day) or date-time; tasks without a due date are left out" },
           dueBefore: { type: "string", description: "Only tasks due at or before this date (YYYY-MM-DD, to the end of that day) or date-time; tasks without a due date are left out" },
           late: { type: "boolean", description: "true: only tasks past their due date and not completed or cancelled; false: only tasks that are not late" },
@@ -209,12 +209,12 @@ export const taskManagementSkill: SkillModule = {
       const assigned = args.assignedTo ? await assigneeFilter(args.assignedTo, ctx) : () => true;
       const store = workspaceStore(), sources = scope === "here" ? null : scope === "anywhere" ? await anywhereSources(store, ctx) : await scopeSources(store, ctx);
       const tasks = sources ? await tasksIn(store, ctx.tenantId, sources) : await loadTasks(store, ctx), whose = inScope(scope, ctx);
-      const status = args.status ?? (scope === "anywhere" ? "all" : undefined), queries = queriesWords(wordingsOf(args.query, args.queries));
-      const all = (queries.length ? await matching(store, ctx.tenantId, tasks, queries) : tasks)
+      const status = args.status ?? (scope === "anywhere" ? "all" : undefined), queries = queriesTerms(wordingsOf(args.query, args.queries));
+      const all = (queries.length ? await matching(store, ctx.tenantId, tasks, queries) : tasks as (Found & { score?: number })[])
         .map((f) => ({ f, t: f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
         .filter(({ f, t }) => (status === "all" || (status ? t.status === status : sources ? isOpen(t) : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(f))
         .filter((x) => (after === undefined || (x.due !== null && x.due >= after)) && (before === undefined || (x.due !== null && x.due <= before)) && (late === undefined || x.late === late))
-        .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.t.createdAt.localeCompare(b.t.createdAt) : b.t.createdAt.localeCompare(a.t.createdAt)));
+        .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.t.createdAt.localeCompare(b.t.createdAt) : (b.f.score ?? 0) - (a.f.score ?? 0) || b.t.createdAt.localeCompare(a.t.createdAt)));
       // A task of a source that may not be shown here is only counted, as files are.
       const hidden = sources?.filter((s) => s.quotable === false).flatMap((s) => s.folders) ?? [];
       const found = all.filter((x) => !hidden.some((folder) => x.f.path.startsWith(`${folder}/`))), notShownHere = all.length - found.length;
@@ -330,13 +330,18 @@ async function labelTaskFolder(ctx: SkillContext) {
   try { if (!(await workspaceStore().read(ctx.tenantId, name))) await workspaceStore().write(ctx.tenantId, name, "Tasks"); } catch {}
 }
 
-/** The tasks whose title or description contains every word of one of the queries, ignoring case. Read in full: `loadTasks` reads frontmatter only. */
-async function matching(store: WorkspaceStore, tenantId: string, found: Found[], queries: string[][]): Promise<Found[]> {
-  const out: Found[] = [];
+/**
+ * The tasks whose title or description holds every term of one of the queries (`holdsQuery`), each scored as a file would be with
+ * its title as the name and its description as the body, so a task naming the words in its title comes first. Read in full:
+ * `loadTasks` reads frontmatter only.
+ */
+async function matching(store: WorkspaceStore, tenantId: string, found: Found[], queries: string[][]): Promise<(Found & { score: number })[]> {
+  const out: (Found & { score: number })[] = [], terms = [...new Set(queries.flat())];
   for (const f of found) {
     const file = await store.read(tenantId, f.path).catch(() => null), task = file && parseTask(file.content);
-    const text = task ? `${task.title}\n${task.description ?? ""}`.toLowerCase() : "";
-    if (task && queries.some((words) => words.every((w) => text.includes(w)))) out.push({ ...f, task });
+    if (!task || !holdsQuery(queries, `${task.title}\n${task.description ?? ""}`)) continue;
+    const words = fileWords(task.description ?? ""), hit = matchWords(terms, task.title, words);
+    out.push({ ...f, task, score: hit ? scoreOf(hit, queries, () => 1, words.length) : 0 });
   }
   return out;
 }

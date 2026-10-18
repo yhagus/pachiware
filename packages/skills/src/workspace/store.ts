@@ -32,11 +32,11 @@ export interface WorkspaceStore {
 /** A store that can also search a folder's files for words, as `workspaceStore()` gives it. */
 export interface SearchableWorkspaceStore extends WorkspaceStore {
   /**
-   * Every file under a folder (a tenant-relative store path) that matches the words, in the order a walk of the folder gives.
-   * Hidden files are skipped, and a binary Document matches by name only. `nameOf` gives the name a file is matched by,
-   * from its store path. Uncapped: the caller caps.
+   * Every file under a folder (a tenant-relative store path) that holds any of the query terms (`queryTerms`), in the order a walk
+   * of the folder gives. Hidden files are skipped, and a binary Document matches by name only. `nameOf` gives the name a file is
+   * matched by, from its store path. Uncapped: the caller caps.
    */
-  searchFolder(tenantId: string, folder: string, words: string[], nameOf: (path: string) => string): Promise<FolderSearch>;
+  searchFolder(tenantId: string, folder: string, terms: string[], nameOf: (path: string) => string): Promise<FolderSearch>;
 }
 
 const versionOf = (stat: { mtimeMs: number; size: number }) => `${stat.mtimeMs}-${stat.size}`;

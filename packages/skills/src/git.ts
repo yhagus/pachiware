@@ -1,4 +1,4 @@
-import { queriesWords } from "./workspace/search.js";
+import { holdsQuery, queriesTerms } from "./workspace/terms.js";
 
 export type GitProvider = "github" | "gitlab";
 export const GIT_PROVIDERS: GitProvider[] = ["github", "gitlab"];
@@ -588,7 +588,7 @@ export interface WorkHit { repo: string; kind: "issue" | "pull_request" | "commi
 const RECENT_COMMITS = 100;
 /**
  * Issues and pull/merge requests of every state that the provider's search matches to one of `queries`, plus those of the
- * latest 100 commits on the default branch whose message holds every word of one of them. Newest first.
+ * latest 100 commits on the default branch whose message holds every term of one of them (`holdsQuery`). Newest first.
  */
 export async function searchWork(c: GitConn, repo: string, queries: string[]): Promise<WorkHit[]> {
   const gh = c.provider === "github", ref = repoRef(c, repo), hits = new Map<string, WorkHit>();
@@ -608,12 +608,11 @@ export async function searchWork(c: GitConn, repo: string, queries: string[]): P
         add({ repo, kind: "issue", number: r.iid, title: r.title, state: normState(r.state), date: r.closed_at ?? r.updated_at ?? null, url: r.web_url });
     }
   }
-  const wanted = queriesWords(queries);
+  const wanted = queriesTerms(queries);
   const commits: any[] = (await call(c, `${ref}/${gh ? "commits" : "repository/commits"}?per_page=${RECENT_COMMITS}`)) ?? [];
   for (const r of commits) {
     const message = String((gh ? r.commit?.message : r.message ?? r.title) ?? "");
-    const text = message.toLowerCase();
-    if (!wanted.some((words) => words.every((w) => text.includes(w)))) continue;
+    if (!holdsQuery(wanted, message)) continue;
     add({ repo, kind: "commit", sha: String(r.sha ?? r.id).slice(0, 10), title: message.split("\n")[0]!, state: "committed", date: (gh ? r.commit?.author?.date : r.created_at) ?? null, url: r.html_url ?? r.web_url });
   }
   return [...hits.values()].sort((a, b) => (Date.parse(b.date ?? "") || 0) - (Date.parse(a.date ?? "") || 0));

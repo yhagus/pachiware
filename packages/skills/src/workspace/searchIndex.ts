@@ -1,14 +1,17 @@
 import type { SearchableWorkspaceStore, WorkspaceStore } from "./store.js";
 import { isBinaryDocument } from "./extract.js";
-import { matchFile, type FileMatch, type FolderSearch } from "./search.js";
+import type { FileMatch, FolderSearch } from "./search.js";
+import { fileWords, matchWords, type FileWords } from "./terms.js";
 
-type Indexed = { version: string; text: string };
+/** A file's text as of its version, and its words by field, split the first time a search reads them. */
+type Indexed = { version: string; text: string; words?: FileWords };
 const under = (path: string, folder: string) => !folder || path === folder || path.startsWith(folder + "/");
 
 /**
  * The Workspace store with an in-process index of file texts per tenant, which search reads instead of every file.
  * Built lazily: a file is read the first time a search reaches it and again only when its version changed, so a file
- * changed outside the bot is read anew. The store's own writes, moves and removes update the index at once.
+ * changed outside the bot is read anew. The store's own writes, moves and removes update the index at once. A file's words
+ * are split once per version.
  * The index holds no access decisions: whoever searches decides which folders it may search.
  */
 export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
@@ -54,13 +57,14 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
   }
 
   /**
-   * Every file under a folder (a tenant-relative store path) that holds any of the words, in the order a walk of the folder
+   * Every file under a folder (a tenant-relative store path) that holds any of the query terms, in the order a walk of the folder
    * gives. Hidden files and folders are skipped, and a binary Document matches by name only (its text is searched in the
    * .md beside it). `nameOf` gives the name a file is matched by, from its store path. Uncapped: the caller caps.
    */
-  async searchFolder(tenantId: string, folder: string, words: string[], nameOf: (path: string) => string): Promise<FolderSearch> {
+  async searchFolder(tenantId: string, folder: string, terms: string[], nameOf: (path: string) => string): Promise<FolderSearch> {
     const index = this.index(tenantId), files = await this.inner.files(tenantId, folder);
     const matches: FileMatch[] = [];
+    let words = 0;
     for (const file of files) {
       let entry = index.get(file.path);
       if (entry?.version !== file.version) {
@@ -68,11 +72,13 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
         entry = { version: read?.version ?? file.version, text: read?.content ?? "" };
         index.set(file.path, entry);
       }
-      const hit = matchFile(words, nameOf(file.path), entry.text);
+      entry.words ??= fileWords(entry.text);
+      words += entry.words.length;
+      const hit = matchWords(terms, nameOf(file.path), entry.words);
       if (hit) matches.push({ path: file.path, ...hit, modified: file.modified });
     }
     const present = new Set(files.map((f) => f.path));
     for (const path of [...index.keys()]) if (under(path, folder) && !present.has(path)) index.delete(path);
-    return { matches, searched: files.length };
+    return { matches, searched: files.length, words };
   }
 }
