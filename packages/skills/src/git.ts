@@ -622,3 +622,35 @@ export function blobUrl(c: GitConn, repo: string, sha: string, path: string) {
   const host = c.baseUrl?.replace(/\/+$/, "") ?? (c.provider === "github" ? "https://github.com" : "https://gitlab.com");
   return `${host}/${repo}/${c.provider === "github" ? "blob" : "-/blob"}/${sha}/${cleanPath(path).split("/").map(encodeURIComponent).join("/")}`;
 }
+
+/** A file of a repository's tree: its path, its blob sha, and its size in bytes when the provider gives it (GitHub does, GitLab does not). */
+export type TreeFile = { path: string; sha: string; size?: number };
+/** GitLab lists a tree 100 entries a page; a tree longer than this many pages is cut. */
+export const MAX_TREE_PAGES = 30;
+/** The default branch of `repo` and the commit at its head. */
+export async function headCommit(c: GitConn, repo: string): Promise<{ branch: string; commit: string }> {
+  const gh = c.provider === "github", branch = await defaultBranch(c, repo);
+  const r = must(await call(c, `${repoRef(c, repo)}/${gh ? "branches" : "repository/branches"}/${encodeURIComponent(branch)}`), `branch ${branch}`);
+  return { branch, commit: gh ? r.commit.sha : r.commit.id };
+}
+/** Every file of the tree at `ref` (a commit sha or branch), folders and submodules left out; `truncated` when the listing was cut (by GitHub, or at MAX_TREE_PAGES on GitLab). */
+export async function repoTree(c: GitConn, repo: string, ref: string): Promise<{ files: TreeFile[]; truncated: boolean }> {
+  const path = repoRef(c, repo);
+  if (c.provider === "github") {
+    const r = must(await call(c, `${path}/git/trees/${encodeURIComponent(ref)}?recursive=1`), `tree ${ref}`);
+    return { files: (r.tree as any[]).filter((e) => e.type === "blob").map((e) => ({ path: e.path, sha: e.sha, size: e.size })), truncated: !!r.truncated };
+  }
+  const files: TreeFile[] = [];
+  for (let page = 1; page <= MAX_TREE_PAGES; page++) {
+    const rows: any[] = (await call(c, `${path}/repository/tree?ref=${encodeURIComponent(ref)}&recursive=true&per_page=100&page=${page}`)) ?? [];
+    files.push(...rows.filter((e) => e.type === "blob").map((e) => ({ path: e.path, sha: e.id })));
+    if (rows.length < 100) return { files, truncated: false };
+  }
+  return { files, truncated: true };
+}
+/** The bytes of the blob `sha` of `repo`. */
+export async function readBlob(c: GitConn, repo: string, sha: string): Promise<Uint8Array> {
+  if (!/^[0-9a-f]{1,64}$/i.test(sha)) throw new Error("Invalid blob sha");
+  const r = must(await call(c, `${repoRef(c, repo)}/${c.provider === "github" ? "git/blobs" : "repository/blobs"}/${sha}`), `blob ${sha}`);
+  return new Uint8Array(Buffer.from(String(r.content ?? ""), r.encoding === "base64" ? "base64" : "utf8"));
+}
