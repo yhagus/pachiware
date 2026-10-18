@@ -168,6 +168,6 @@ discordScenario("workspace tools are offered only where the scope is all Plane p
   expect(offered).toContain("cycleList");
   expect(offered).not.toContain("workspaceMembers");
   expect(offered).not.toContain("workspaceInvitations");
-  expect(JSON.stringify(refused)).toContain("unavailable here");
+  expect(refused.error).toBe("This needs the whole Plane workspace, and this channel is limited to specific Plane projects.");
   expect(s.http.requests.length).toBe(before);
 });

@@ -125,7 +125,7 @@ discordScenario("projectCreate is offered only where the scope is all Plane proj
   await s.discord.send(`${s.discord.mention} make a Plane project`, { channel: "channel-2" });
   expect(s.model.tools.at(-1)).toContain("stateCreate");
   expect(s.model.tools.at(-1)).not.toContain("projectCreate");
-  expect(JSON.stringify(refused)).toContain("unavailable here");
+  expect(refused.error).toBe("This needs the whole Plane workspace, and this channel is limited to specific Plane projects.");
   expect(plane.writes.length).toBe(2);
 });
 
