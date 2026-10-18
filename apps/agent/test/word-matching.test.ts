@@ -93,3 +93,23 @@ discordScenario("a commit message and a Work item title in Indonesian are found 
   await s.discord.send(`${s.discord.mention} is audio normalization done?`);
   expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toEqual([["Tambah normalisasi audio di pipeline ekspor"], ["Normalisasi audio podcast"]]);
 });
+
+// Indonesian prefixes, the bilingual work vocabulary and stem collisions (#223, ADR 0015).
+
+discordScenario("\"fitur yang diimplementasikan\" finds Minutes saying \"implementasi\" above a note about another feature", async (s) => {
+  await s.workspace.write(`${CHANNEL}/minutes/2026-09-01-sync.md`, "# Sync\n\n## Decided\n1. Implementasi fitur template ekspor selesai minggu ini.\n");
+  await s.workspace.write(`${CHANNEL}/notes/2026-10-01-ideas.md`, "Ide fitur baru: mode gelap.\n");
+  expect(await search(s, { query: "fitur yang diimplementasikan" })).toEqual(["channel/minutes/2026-09-01-sync.md", "channel/notes/2026-10-01-ideas.md"]);
+});
+
+discordScenario("\"kapan rilis 2.4?\" finds \"release 2.4 moves to 14 October\" above a newer note that only says 2.4", async (s) => {
+  await s.workspace.write(`${CHANNEL}/decisions/2026-09-01-release.md`, "Release 2.4 moves to 14 October.\n");
+  await s.workspace.write(`${CHANNEL}/notes/2026-10-01-features.md`, "Versi 2.4 mendukung ekspor MP3.\n");
+  expect(await search(s, { query: "kapan rilis 2.4?" })).toEqual(["channel/decisions/2026-09-01-release.md", "channel/notes/2026-10-01-features.md"]);
+});
+
+discordScenario("\"normalisasi audio\" puts the audio-normalization Minutes above a newer Daily log saying \"server keadaan normal\"", async (s) => {
+  await s.workspace.write(`${CHANNEL}/minutes/2026-09-01-loudness.md`, "# Loudness\n\n## Decided\n1. Audio normalization targets -14 LUFS for every episode we publish from now on.\n");
+  await s.workspace.write(`${CHANNEL}/daily-logs/2026-10-10.md`, "# Daily log #channel-1, 2026-10-10\n\n1. Server keadaan normal lagi.\n2. Audio episode 12 diunggah.\n");
+  expect(await search(s, { query: "normalisasi audio" })).toEqual(["channel/minutes/2026-09-01-loudness.md", "channel/daily-logs/2026-10-10.md"]);
+});
