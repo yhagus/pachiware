@@ -64,6 +64,16 @@ discordScenario("the persona searches kept material with Indonesian, English and
   expect(section).toMatch(/replaced/i);
 });
 
+discordScenario("the persona answers recall questions with one recall call, reads nothingStrong and unavailable, and falls back to the four tools without it", async (s) => {
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const persona = systemPrompt(s.model.calls[0]!).split("### Policy")[0]!;
+  const section = persona.slice(persona.indexOf("Asking about kept material"));
+  for (const word of ["recall", "since and until", "nothingStrong", "nothingFound", "unavailable", "partial"]) expect(section).toContain(word);
+  expect(section).toMatch(/When recall is not among your tools/);
+  for (const tool of ["searchFiles", "listTasks scope anywhere", "repoSearchWork", "workItemList"]) expect(section).toContain(tool);
+});
+
 discordScenario("the persona opens a Daily log item's linked message for the exact wording and reports a deleted one as gone", async (s) => {
   s.model.script("ok");
   await s.discord.send(`${s.discord.mention} hi`);

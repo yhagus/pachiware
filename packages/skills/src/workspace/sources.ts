@@ -2,7 +2,7 @@ import type { DiscordClientAdapter, SkillContext } from "../types.js";
 import { channelsWithSkill } from "../availability.js";
 import { textIn } from "../language.js";
 import { agentPaths, checkSegments, KEPT_FOLDERS, safeId, visibleRoots } from "./paths.js";
-import { capMatches, shownMatch, type FileMatch } from "./search.js";
+import { capMatches, MAX_MATCHES, shownMatch, type FileMatch } from "./search.js";
 import type { SearchableWorkspaceStore, WorkspaceStore } from "./store.js";
 import { viewedIn } from "./threads.js";
 
@@ -185,18 +185,26 @@ export async function searchSource(store: SearchableWorkspaceStore, tenantId: st
 }
 
 /**
- * Searches the kept folders of every source for any of the queries. Matches that may be shown here are ranked best first
- * (see `ranked`) and come grouped by source label, groups in the order of their best match, at most MAX_MATCHES in all;
- * `total` and `leftOut` count only those. `notShown` counts the matches of non-quotable sources. `within` keeps only the files of a
- * date range (see `dateRange`); `nothingStrong` says no match shown holds every word of a query.
+ * The kept material of every source holding any of the queries, within a date range when `within` is given (see `dateRange`):
+ * the matches that may be shown here, ranked best first (see `ranked`), marked strong or not and cut at `limit`; `total` and
+ * `leftOut` count only those, `notShown` counts the matches of non-quotable sources, and `nothingStrong` says no match kept holds
+ * every word of a query.
  */
-export async function searchSources(store: SearchableWorkspaceStore, tenantId: string, sources: Source[], queries: string[][], within: ((m: FileMatch) => boolean) | null = null) {
+export async function rankKept(store: SearchableWorkspaceStore, tenantId: string, sources: Source[], queries: string[][], within: ((m: FileMatch) => boolean) | null = null, limit = MAX_MATCHES) {
   const terms = [...new Set(queries.flat())];
   const found = await Promise.all(sources.map((s) => searchSource(store, tenantId, s, terms)));
   const all = found.flatMap((f) => f.matches).filter((m) => !within || within(m)), quotable = found.filter((_, i) => sources[i]!.quotable);
   const searched = quotable.reduce((n, f) => n + f.searched, 0), words = quotable.reduce((n, f) => n + f.words, 0);
-  const { matches, total, leftOut, nothingStrong } = capMatches(all.filter((m) => m.source.quotable), queries, searched, words);
+  return { ...capMatches(all.filter((m) => m.source.quotable), queries, searched, words, limit), notShown: all.length - all.filter((m) => m.source.quotable).length };
+}
+
+/**
+ * Searches the kept folders of every source for any of the queries (see `rankKept`). Matches come grouped by source label, groups
+ * in the order of their best match, at most MAX_MATCHES in all.
+ */
+export async function searchSources(store: SearchableWorkspaceStore, tenantId: string, sources: Source[], queries: string[][], within: ((m: FileMatch) => boolean) | null = null) {
+  const { matches, total, leftOut, nothingStrong, notShown } = await rankKept(store, tenantId, sources, queries, within);
   const groups = sources.map((s) => ({ s, matches: matches.filter((m) => m.source === s) })).filter((g) => g.matches.length)
     .sort((a, b) => matches.indexOf(a.matches[0]!) - matches.indexOf(b.matches[0]!));
-  return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, ...(nothingStrong ? { nothingStrong } : {}), notShown: all.length - total };
+  return { groups: groups.map((g) => ({ channel: g.s.label, matches: g.matches.map(shownMatch) })), total, leftOut, ...(nothingStrong ? { nothingStrong } : {}), notShown };
 }

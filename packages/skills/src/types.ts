@@ -196,6 +196,12 @@ export interface SkillContext {
   language?: "id" | "en";
   /** One tool-free call to the bot's own model, set by the host; null when the provider failed. Memory compaction uses it. */
   complete?: Completion;
+  /**
+   * Set by the host for one turn: the names of the tools the model may call at this place (after Availability rules, playbook
+   * closures and hidden tools), and `run`, which calls one of them through the registry with every check a model's call gets.
+   * A tool that combines others (`recall`) reaches only what they reach.
+   */
+  tools?: { here: ReadonlySet<string>; run(name: string, args: Record<string, unknown>): Promise<ToolResult> };
   metadata?: Record<string, any>;
 }
 

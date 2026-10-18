@@ -174,6 +174,8 @@ export class AgentReActLoop {
 
     const hidden = await skillRegistry.hiddenTools(skillContext);
     const activeTools = available.tools.filter((t) => !closed.has(t.name) && !hidden.has(t.name));
+    // A tool that combines others (recall) runs them as the model would here: only the tools offered, each through the registry's checks.
+    skillContext.tools = { here: new Set(activeTools.map((t) => t.name)), run: (name, args) => skillRegistry.executeTool({ id: `${name}-in-turn`, name, arguments: args }, skillContext) };
 
     const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;

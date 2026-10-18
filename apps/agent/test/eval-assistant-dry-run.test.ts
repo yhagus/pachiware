@@ -243,28 +243,27 @@ discordScenario("dry run: minutes-as-document finds the vendor call's minutes ke
 });
 
 /** One line per match of a search result: its channel, the date its file name starts with, and its first matching line. */
-const matchLines = (result: any) => result.groups.flatMap((g: any) => g.matches.map((m: any) => `${g.channel}, ${m.path.split("/").pop().slice(0, 10)}: ${m.lines[0].text.replace(/^\d+\. /, "").replace(/ \[↗\].*$/, "")}`));
+/** A recall item's channel and date, from its label ("#audio · Minutes 2026-10-06"). */
+const cited = (item: any) => { const [channel, rest] = item.label.split(" · "); return { channel, date: rest.split(" ").at(-1) }; };
+const keptLines = (result: any) => result.kept.map((k: any) => `${cited(k).channel}, ${cited(k).date}: ${k.lines[0].text.replace(/^\d+\. /, "").replace(/ \[↗\].*$/, "")}`);
 
-discordScenario("dry run: recall-asked-in-indonesian finds the English Minutes and the #audio Note in one search with Indonesian and English variants", async (s) => {
+discordScenario("dry run: recall-asked-in-indonesian finds the English Minutes and the #audio Note in one recall with Indonesian and English variants", async (s) => {
   s.model.script(
-    { tool: "searchFiles", args: { queries: ["normalisasi audio", "audio normalization"] } },
+    { tool: "recall", args: { queries: ["normalisasi audio", "audio normalization"] } },
     (turn) => {
       const [found] = turn.toolResults;
-      const where = (folder: string) => {
-        const g = found.groups.find((x: any) => x.matches.some((m: any) => m.path.includes(`/${folder}/`)));
-        return `${g.channel}, ${g.matches[0].path.split("/").pop().slice(0, 10)}`;
-      };
-      return `Pernah. Diputuskan di notulen Podcast sync (${where("minutes")}): setiap episode dinormalisasi ke -16 LUFS sebelum diunggah. Catatan di ${where("notes")} bilang preset normalisasi audio sudah ada di template ekspor dan episode 41 dan 42 sudah diekspor ulang.`;
+      const where = (kind: string) => { const c = cited(found.kept.find((k: any) => k.label.includes(kind))); return `${c.channel}, ${c.date}`; };
+      return `Pernah. Diputuskan di notulen Podcast sync (${where("Notulen")}): setiap episode dinormalisasi ke -16 LUFS sebelum diunggah. Catatan di ${where("Catatan")} bilang preset normalisasi audio sudah ada di template ekspor dan episode 41 dan 42 sudah diekspor ulang.`;
     },
   );
   const output = await dryRun(s, "recall-asked-in-indonesian");
   expect(output.turns[0].replies).toEqual(["Pernah. Diputuskan di notulen Podcast sync (#channel-1, 2026-10-06): setiap episode dinormalisasi ke -16 LUFS sebelum diunggah. Catatan di #audio, 2026-10-09 bilang preset normalisasi audio sudah ada di template ekspor dan episode 41 dan 42 sudah diekspor ulang."]);
 });
 
-discordScenario("dry run: recall-asked-in-english finds the Indonesian Decision and the #finance Minutes in one search with English and Indonesian variants", async (s) => {
+discordScenario("dry run: recall-asked-in-english finds the Indonesian Decision and the #finance Minutes in one recall with English and Indonesian variants", async (s) => {
   s.model.script(
-    { tool: "searchFiles", args: { queries: ["invoice reminders", "pengingat tagihan"] } },
-    (turn) => ["Yes, it was settled that reminders go out automatically three days before the due date. Kept so far:", ...matchLines(turn.toolResults[0]).map((l: string) => `- ${l}`)].join("\n"),
+    { tool: "recall", args: { queries: ["invoice reminders", "pengingat tagihan"] } },
+    (turn) => ["Yes, it was settled that reminders go out automatically three days before the due date. Kept so far:", ...keptLines(turn.toolResults[0]).map((l: string) => `- ${l}`)].join("\n"),
   );
   const output = await dryRun(s, "recall-asked-in-english");
   expect(output.turns[0].replies).toEqual([[
@@ -276,10 +275,9 @@ discordScenario("dry run: recall-asked-in-english finds the Indonesian Decision 
 
 discordScenario("dry run: recall-decision-replaced finds both support-hours Decisions and gives the newer one, naming the older as replaced", async (s) => {
   s.model.script(
-    { tool: "searchFiles", args: { query: "support hours" } },
+    { tool: "recall", args: { queries: ["support hours", "jam layanan support"] } },
     (turn) => {
-      const found = turn.toolResults[0].groups.flatMap((g: any) => g.matches.map((m: any) => ({ channel: g.channel, date: m.path.split("/").pop().slice(0, 10) })));
-      const [older, newer] = found.sort((a: any, b: any) => a.date.localeCompare(b.date));
+      const [older, newer] = turn.toolResults[0].kept.map(cited).sort((a: any, b: any) => a.date.localeCompare(b.date));
       return `Support runs 08:00 to 20:00 on weekdays, decided in ${newer.channel} on ${newer.date}. It replaced the 09:00 to 17:00 hours decided in ${older.channel} on ${older.date}.`;
     },
   );
@@ -287,15 +285,14 @@ discordScenario("dry run: recall-decision-replaced finds both support-hours Deci
   expect(output.turns[0].replies).toEqual(["Support runs 08:00 to 20:00 on weekdays, decided in #support on 2026-10-09. It replaced the 09:00 to 17:00 hours decided in #channel-1 on 2026-09-21."]);
 });
 
-discordScenario("dry run: recall-done-other-channel finds the Minutes here and the completed Task in #audio, searched in one turn", async (s) => {
+discordScenario("dry run: recall-done-other-channel finds the Minutes here and the completed Task in #audio in one recall", async (s) => {
   s.model.script(
-    [{ tool: "searchFiles", args: { queries: ["audio normalization", "normalisasi audio"] } }, { tool: "listTasks", args: { scope: "anywhere", queries: ["audio normalization", "normalize audio", "normalisasi audio"] } }],
+    { tool: "recall", args: { queries: ["audio normalization", "normalize audio", "normalisasi audio"] } },
     (turn) => {
-      const [files, tasks] = turn.toolResults;
-      const minutes = files.groups[0], task = tasks.groups[0];
+      const [found] = turn.toolResults, minutes = cited(found.kept[0]), task = found.tasks[0];
       return [
-        `Discussed: ${minutes.channel}, ${minutes.matches[0].path.split("/").pop().slice(0, 10)}, Podcast sync Minutes; decided every episode is normalized to -16 LUFS.`,
-        `Done or not: ${task.group}: ${task.tasks[0].line}`,
+        `Discussed: ${minutes.channel}, ${minutes.date}, Podcast sync Minutes; decided every episode is normalized to -16 LUFS.`,
+        `Done or not: ${cited(task).channel}: ${task.line}`,
       ].join("\n");
     },
   );
@@ -308,11 +305,10 @@ discordScenario("dry run: recall-done-other-channel finds the Minutes here and t
 
 discordScenario("dry run: recall-daily-log-only finds the #podcast Daily log by its English keywords, though the talk was Indonesian", async (s) => {
   s.model.script(
-    { tool: "searchFiles", args: { queries: ["podcast hosting", "hosting podcast", "podcast host"] } },
+    { tool: "recall", args: { queries: ["podcast hosting", "hosting podcast", "podcast host"] } },
     (turn) => {
-      const [log] = turn.toolResults[0].groups;
-      const day = log.matches[0].path.split("/").pop().slice(0, 10);
-      return `Decided: ${log.channel}, ${day} (Daily log): the podcast moves from Anchor to Transistor after episode 45. Who moves the RSS feed was still open.`;
+      const log = cited(turn.toolResults[0].kept[0]);
+      return `Decided: ${log.channel}, ${log.date} (Daily log): the podcast moves from Anchor to Transistor after episode 45. Who moves the RSS feed was still open.`;
     },
   );
   const output = await dryRun(s, "recall-daily-log-only");
@@ -320,23 +316,30 @@ discordScenario("dry run: recall-daily-log-only finds the #podcast Daily log by 
 });
 
 discordScenario("dry run: recall-done-pull-request finds no kept material or Task, and the merged pull request in a repository open here", async (s) => {
-  const queries = ["podcast audio normalization", "normalize podcast audio", "normalisasi audio podcast"];
   s.model.script(
-    [{ tool: "searchFiles", args: { queries } }, { tool: "listTasks", args: { scope: "anywhere", queries } }, { tool: "repoSearchWork", args: { queries } }],
+    { tool: "recall", args: { queries: ["podcast audio normalization", "normalize podcast audio", "normalisasi audio podcast"] } },
     (turn) => {
-      const [files, tasks, git] = turn.toolResults;
-      const pr = git.items[0];
-      return [
-        `Done or not: pull request #${pr.number} "${pr.title}" in ${pr.repo}, ${pr.state} on ${pr.date.slice(0, 10)}: ${pr.url}`,
-        `Nothing found: ${files.groups?.length ?? 0} kept files and ${tasks.total} Tasks mention it.`,
-      ].join("\n");
+      const [found] = turn.toolResults, pr = found.work[0];
+      return [`Done or not: ${pr.label}, ${pr.date.slice(0, 10)}: ${pr.url}`, `Nothing found: ${found.nothingFound.join(", ")}.`].join("\n");
     },
   );
   const output = await dryRun(s, "recall-done-pull-request");
   expect(output.turns[0].replies).toEqual([[
-    `Done or not: pull request #42 "Normalize podcast audio to -16 LUFS" in acme/podcast, merged on 2026-10-12: https://github.com/acme/podcast/pull/42`,
-    "Nothing found: 0 kept files and 0 Tasks mention it.",
+    `Done or not: acme/podcast · pull request #42 "Normalize podcast audio to -16 LUFS" (merged), 2026-10-12: https://github.com/acme/podcast/pull/42`,
+    "Nothing found: kept, tasks.",
   ].join("\n")]);
+});
+
+discordScenario("dry run: recall-among-distractors finds the one MP3 bitrate Decision among two dozen kept files that share its words", async (s) => {
+  s.model.script(
+    { tool: "recall", args: { queries: ["MP3 export bitrate", "bitrate ekspor MP3"] } },
+    (turn) => {
+      const top = turn.toolResults[0].kept[0], c = cited(top);
+      return `MP3 exports use 192 kbps, decided in ${c.channel} on ${c.date}: ${top.lines[0].text}`;
+    },
+  );
+  const output = await dryRun(s, "recall-among-distractors");
+  expect(output.turns[0].replies).toEqual(["MP3 exports use 192 kbps, decided in #audio on 2026-09-16: Settled: MP3 exports use a constant 192 kbps bitrate; WAV and FLAC stay lossless."]);
 });
 
 discordScenario("dry run: a judge over HTTP grades a daily-behaviour trial, and the report reads per turn", async (s) => {

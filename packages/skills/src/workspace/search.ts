@@ -45,11 +45,11 @@ export function ranked<T extends FileMatch>(found: readonly T[], queries: string
 export const isStrong = (m: Pick<FileMatch, "held">, queries: string[][]) => queries.some((q) => q.every((t) => m.held.includes(t)));
 
 /**
- * Matches best first (see `ranked`), at most MAX_MATCHES, each marked strong or not, with the total and how many were left out.
+ * Matches best first (see `ranked`), at most `limit`, each marked strong or not, with the total and how many were left out.
  * `nothingStrong` when there are matches and none of them is strong.
  */
-export function capMatches<T extends FileMatch>(found: T[], queries: string[][], searched: number, words: number) {
-  const matches = ranked(found, queries, searched, words).slice(0, MAX_MATCHES).map((m) => ({ ...m, strong: isStrong(m, queries) }));
+export function capMatches<T extends FileMatch>(found: T[], queries: string[][], searched: number, words: number, limit = MAX_MATCHES) {
+  const matches = ranked(found, queries, searched, words).slice(0, limit).map((m) => ({ ...m, strong: isStrong(m, queries) }));
   return { matches, total: found.length, leftOut: found.length - matches.length, nothingStrong: matches.length > 0 && !matches.some((m) => m.strong) };
 }
 

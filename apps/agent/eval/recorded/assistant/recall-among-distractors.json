@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "recall-among-distractors",
+  "turns": [
+    {
+      "n": 1,
+      "message": "What bitrate did we settle on for MP3 export?",
+      "replies": [
+        "MP3 exports use 192 kbps, decided in #audio on 2026-09-16: Settled: MP3 exports use a constant 192 kbps bitrate; WAV and FLAC stay lossless."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

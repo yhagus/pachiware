@@ -1,0 +1,154 @@
+# The one Decision that answers the question sits among two dozen kept files in three channels that share its words: an older
+# MP3 bitrate Decision it replaced, files about video bitrate, other exports and other MP3 matters. Spec #207, ticket #211.
+language: en
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+seed:
+  files:
+    - path: minutes/2026-09-01-weekly.md
+      content: |
+        # Weekly sync
+
+        Export to Google Sheets broke for the finance team; Bob fixes it this week.
+    - path: notes/2026-09-03-guests.md
+      content: |
+        Podcast guest list for October: Rina, Dimas and a sound engineer from Bandung.
+    - channel: audio
+      path: daily-logs/2026-09-10.md
+      content: |
+        # Daily log #audio, 2026-09-10
+
+        Topics: player, onboarding
+
+        ## Topics
+        1. The MP3 player in the app skips the first second of an episode.
+        2. Onboarding screens get new illustrations.
+        3. The team lunch moves to Thursday.
+    - channel: marketing
+      path: notes/2026-09-12-youtube.md
+      content: |
+        YouTube ads should be uploaded at a video bitrate of 8 Mbps, 1080p.
+    - channel: marketing
+      path: decisions/2026-09-14-brand-assets.md
+      content: |
+        # Brand assets
+
+        Settled: export the brand assets as PNG and SVG only.
+    - channel: audio
+      path: notes/2026-09-15-chapters.md
+      content: |
+        Users asked for chapter markers inside MP3 files.
+    - channel: audio
+      path: decisions/2026-08-01-mp3-bitrate.md
+      content: |
+        # MP3 bitrate
+
+        Settled: MP3 exports use 128 kbps for now.
+        Reason: smaller files for the beta.
+    - path: daily-logs/2026-09-17.md
+      content: |
+        # Daily log #channel-1, 2026-09-17
+
+        ## Topics
+        1. Finance wants a CSV export of invoices.
+        2. Office wifi is slow again.
+        3. New laptops arrive next week.
+    - channel: audio
+      path: minutes/2026-09-02-roadmap.md
+      content: |
+        # Roadmap
+
+        ## Decided
+        1. Batch export ships in version 2.5.
+        2. Waveform editing ships in 2.4.
+    - channel: audio
+      path: notes/2026-09-20-streaming.md
+      content: |
+        Streaming servers re-encode uploads, so the upload bitrate matters less than people think.
+    - channel: marketing
+      path: minutes/2026-09-09-launch.md
+      content: |
+        # Launch plan
+
+        ## Decided
+        1. The press kit includes MP3 samples of three episodes.
+    - channel: marketing
+      path: daily-logs/2026-09-22.md
+      content: |
+        # Daily log #marketing, 2026-09-22
+
+        ## Topics
+        1. Newsletter export to Mailchimp failed twice.
+        2. Two new influencers signed.
+    - path: decisions/2026-09-05-remote.md
+      content: |
+        # Remote work
+
+        Settled: work from home on Mondays and Fridays.
+    - channel: audio
+      path: files/codec-notes.md
+      content: |
+        # Codec notes
+
+        AAC gives better quality than MP3 at the same size. Opus is best for speech.
+        Variable bitrate files can confuse some old players.
+    - channel: audio
+      path: daily-logs/2026-09-24.md
+      content: |
+        # Daily log #audio, 2026-09-24
+
+        ## Topics
+        1. Export dialog copy reviewed.
+        2. Microphone permission text changed.
+        3. Beta testers asked about Android 14.
+    - channel: marketing
+      path: notes/2026-09-25-pricing.md
+      content: |
+        The Pro plan includes unlimited exports; the free plan keeps three per month.
+    - path: minutes/2026-09-29-allhands.md
+      content: |
+        # All-hands
+
+        ## Decided
+        1. Hiring two engineers in Q4.
+        2. The office moves to Kemang in November.
+    - channel: audio
+      path: notes/2026-10-01-loudness.md
+      content: |
+        Loudness stays at -16 LUFS for every export.
+    - channel: marketing
+      path: decisions/2026-10-02-ads.md
+      content: |
+        # Ads
+
+        Settled: audio ads are delivered as WAV, not MP3.
+    - channel: audio
+      path: daily-logs/2026-10-06.md
+      content: |
+        # Daily log #audio, 2026-10-06
+
+        ## Topics
+        1. Release 2.4 store listing text.
+        2. MP3 metadata keeps the episode artwork.
+    - path: notes/2026-10-07-faq.md
+      content: |
+        FAQ draft: how to export an episode, how to invite a co-host, how to change the bitrate of a recording.
+    - channel: marketing
+      path: daily-logs/2026-10-08.md
+      content: |
+        # Daily log #marketing, 2026-10-08
+
+        ## Topics
+        1. Podcast trailer export for Instagram.
+        2. Referral program prizes.
+    - channel: audio
+      path: decisions/2026-09-16-mp3-bitrate.md
+      content: |
+        # MP3 bitrate
+
+        Settled: MP3 exports use a constant 192 kbps bitrate; WAV and FLAC stay lossless.
+        Reason: 128 kbps sounded thin on music beds.
+mustCover:
+  - MP3 exports use a constant 192 kbps bitrate, from the Decision kept in #audio on 16 September 2026
+  - It replaced the 128 kbps Decision of 1 August 2026
+turns:
+  - replyContains: ["192 kbps", "#audio", "2026-09-16"]

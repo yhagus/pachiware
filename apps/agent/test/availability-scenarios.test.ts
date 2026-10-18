@@ -37,7 +37,7 @@ discordScenario("a thread follows its parent channel's rules", async (s) => {
 discordScenario("a tenant with no rules is offered exactly the tools it was offered before", async (s) => {
   s.model.script("ok");
   await s.discord.send(`${s.discord.mention} hi`);
-  expect(s.model.tools[0]).toEqual(["addProgressNote", "archiveChannel", "assignTask", "cancelReminder", "createChannel", "createReminder", "createTask", "deleteFile", "describeBriefImages", "editTask", "forget", "keepAsNote", "listChannels", "listFiles", "listMembers", "listReminders", "listTasks", "moveFile", "moveTask", "pinMessage", "postBriefRound", "readChannelHistory", "readFile", "readMessage", "readPlaybookFile", "recordBriefAnswers", "remember", "saveAttachment", "searchFiles", "sendMessage", "setChannelTopic", "setTaskDueDate", "showTask", "tickChecklistItem", "updateTaskStatus", "writeFile", "writeIssueDraft"]);
+  expect(s.model.tools[0]).toEqual(["addProgressNote", "archiveChannel", "assignTask", "cancelReminder", "createChannel", "createReminder", "createTask", "deleteFile", "describeBriefImages", "editTask", "forget", "keepAsNote", "listChannels", "listFiles", "listMembers", "listReminders", "listTasks", "moveFile", "moveTask", "pinMessage", "postBriefRound", "readChannelHistory", "readFile", "readMessage", "readPlaybookFile", "recall", "recordBriefAnswers", "remember", "saveAttachment", "searchFiles", "sendMessage", "setChannelTopic", "setTaskDueDate", "showTask", "tickChecklistItem", "updateTaskStatus", "writeFile", "writeIssueDraft"]);
 });
 
 discordScenario("execution refuses a tool that is off here even when the model calls it", async (s) => {

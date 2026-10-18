@@ -20,7 +20,7 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     assert((await app.request("/api/admin/tenants/nope/skills", { headers: h })).status === 404, "unknown tenant");
     const skills = await list(alpha), byId = Object.fromEntries(skills.map((s) => [s.id, s]));
     assert(byId.git_repositories.toolCount === 93 && byId.git_repositories.tools.length === 93, "git count " + byId.git_repositories.toolCount);
-    assert(byId.workspace.toolCount === 15, "workspace count " + byId.workspace.toolCount);
+    assert(byId.workspace.toolCount === 16, "workspace count " + byId.workspace.toolCount);
     assert(byId.task_management.toolCount === 10 && byId.discord_management.toolCount === 9 && byId.reminders.toolCount === 3, "small skill counts");
     assert(JSON.stringify(byId.git_repositories.groups) === JSON.stringify(["Browse", "Issues & PRs", "Code", "CI", "Repo admin", "Org"]), "git groups");
     assert(byId.workspace.groups.length === 0, "workspace declares no groups");
