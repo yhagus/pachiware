@@ -159,7 +159,7 @@ const en = {
   digestLate: "**Late**",
   daysLate: (n: number) => `${plural(n, "day")} late`,
   // Daily log
-  dailyLogNotice: "From now on I keep a nightly record of this channel's talk as a Daily log. It is not posted here, but you can ask me about it anytime.",
+  dailyLogNotice: (recorded: boolean) => `From now on I keep a nightly record of this channel's talk as a Daily log, ${recorded ? "and I have recorded the talk of the last 30 days" : "starting today"}. It is not posted here, but you can ask me about it anytime.`,
   // Channel history
   historyNoChannel: "I can't find that channel.",
   historyDm: "I read channel history only in server channels and threads, not in DMs.",
@@ -315,7 +315,7 @@ const id: typeof en = {
   digestDueToday: "**Jatuh tempo hari ini**",
   digestLate: "**Terlambat**",
   daysLate: (n) => `terlambat ${n} hari`,
-  dailyLogNotice: "Mulai sekarang saya mencatat obrolan channel ini setiap malam sebagai Daily log. Catatannya tidak diposting di sini, tetapi bisa ditanyakan kapan saja.",
+  dailyLogNotice: (recorded: boolean) => `Mulai sekarang saya mencatat obrolan channel ini setiap malam sebagai Daily log, ${recorded ? "dan obrolan 30 hari terakhir sudah saya catat" : "mulai hari ini"}. Catatannya tidak diposting di sini, tetapi bisa ditanyakan kapan saja.`,
   historyNoChannel: "Channel itu tidak ketemu.",
   historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
   historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,
