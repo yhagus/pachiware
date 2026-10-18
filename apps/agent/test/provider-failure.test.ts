@@ -41,6 +41,8 @@ discordScenario("a provider failure on the call after the action budget runs out
   s.model.script({ tool: "createTask", args: { title: "Pesan gedung" } }, { tool: "listTasks", args: {} }, { tool: "listTasks", args: { status: "all" } }, { error: "Penyedia modelnya tidak bisa saya hubungi saat ini." });
   await s.discord.send(`${s.discord.mention} buat tugas pesan gedung lalu cek semuanya`);
 
-  expect(s.model.tools.at(-1)).toEqual([]);
+  // The last call keeps the tools, so the cached prefix holds; tool_choice none forbids calling them (#219).
+  expect(s.model.tools.at(-1)).toContain("listTasks");
+  expect(s.model.tools.at(-1)).toEqual(s.model.tools[0]!);
   expect(s.discord.botMessages.at(-1)?.content).toBe('Sudah selesai sebelum gagal:\n- Membuat tugas "Pesan gedung"\n\nPenyedia modelnya tidak bisa saya hubungi saat ini.');
 });
