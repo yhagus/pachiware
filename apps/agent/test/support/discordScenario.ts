@@ -121,8 +121,11 @@ export interface Scenario {
     /** Gives a user guild permissions (discord.js names such as "ManageGuild", "ManageMessages", "Administrator"); every user starts with none. */
     grant(user: FakeUser | string, permissions: string[]): void;
     send(content: string, options?: { author?: FakeUser; channel?: FakeChannel | string; replyTo?: FakeMessage; attachments?: any[] }): Promise<FakeMessage>;
-    /** Sends several messages back to back, as a person pasting one long text in parts does; in a shared channel the bot joins them into one turn after the pause. */
-    burst(contents: string[], options?: { author?: FakeUser; channel?: FakeChannel | string }): Promise<FakeMessage[]>;
+    /**
+     * Sends several messages back to back, as a person pasting one long text in parts does; in a shared channel the bot joins them into one turn after the pause.
+     * An entry with its own `author` posts as that person, as when two people write at once; each person's messages form their own turn.
+     */
+    burst(contents: (string | { content: string; author: FakeUser })[], options?: { author?: FakeUser; channel?: FakeChannel | string }): Promise<FakeMessage[]>;
     /** Lifts the ten-messages-a-minute limit for a user, so a scenario can hold a long conversation. */
     unlimited(user: FakeUser): void;
     /** Clicks the button whose label or custom id matches. */
@@ -537,12 +540,13 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         granted.set(id, [...new Set([...(granted.get(id) ?? []), ...permissions])]);
       },
       burst: async (contents, { author = alice, channel } = {}) => {
-        if (unlimited.has(author.id)) await CacheService.del(tenantKey(tenant.id, `ratelimit:discord:user:${author.id}`));
+        const entries = contents.map((c) => (typeof c === "string" ? { content: c, author } : c));
+        for (const id of new Set(entries.map((e) => e.author.id))) if (unlimited.has(id)) await CacheService.del(tenantKey(tenant.id, `ratelimit:discord:user:${id}`));
         // The scenario's burst window is 0 so single sends answer at once; a real pause is needed here for the messages to meet in one turn.
         const manager0 = manager as any, window = manager0.burstMs;
         manager0.burstMs = 200;
         try {
-          const messages = contents.map((content) => post(channelOf(channel), { ...author, bot: false }, content));
+          const messages = entries.map((e) => post(channelOf(channel), { ...e.author, bot: false }, e.content));
           for (const message of messages) for (const running of FakeClient.running.values()) running.emit(Events.MessageCreate, as(running.botUser, message));
           await settle();
           return messages;

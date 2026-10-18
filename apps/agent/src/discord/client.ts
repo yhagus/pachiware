@@ -338,8 +338,9 @@ export class DiscordBotManager {
     const run = (m: Message, items: TurnItem[]) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, items, channelId, thread, { playbook: bound?.playbook, binding: bound?.binding, direct: items.some((i) => i.direct !== false) }));
     const replyTo = await reference();
     if (!msg.guildId || thread) { await run(msg, [{ msg, text, direct, replyTo }]); return; }
-    // Burst of messages in a shared channel: wait for a pause, then answer once with all of them.
-    const key = `${botId}:${channelId}`;
+    // Burst of one person's messages in a shared channel: wait for their pause, then answer once with all of them, as them.
+    // Keyed by author too, so someone posting at the same moment gets their own turn and never acts with another person's rights.
+    const key = `${botId}:${channelId}:${msg.author.id}`;
     const burst = this.bursts.get(key) ?? { items: [] as TurnItem[], timer: undefined as any };
     burst.items.push({ msg, text, direct, replyTo });
     clearTimeout(burst.timer);
