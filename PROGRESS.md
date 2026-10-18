@@ -1501,3 +1501,22 @@ Planning is done; implementation follows the sub-issues of [#226](https://github
   - `withTasks` describes what the code does.
   - Known limit: `until` on a repeating Reminder still rolls an impossible date over.
 - Verification (floor tickets): typecheck 0. Every touched file passes alone. A `--parallel` run of the eval and recall files beside the eval implementer's worktree failed with `ENFILE` (system file table full), and those files pass alone.
+- [x] #235–#238 built by one implementer on a worktree branch, merged into `spec/226-rapor` (0fc41f2):
+  - #235 (be2314e): `area` on every brief, `scorecard.yaml` with `loadExam`, and per-area plus weighted Rapor scores in `compare.ts`, so `report.md` opens with `Rapor v<version>: <total>`. Hand-computed test: 41.25/80 = 51.6 with group empty.
+  - #236 (2f048a7): `seed.messages` (the channel's talk before the brief) and `@Member:` follow-ups (`@a+@b:` for a burst). New checks `cites` and `kept`. Briefs `minutes-from-talk` and `member-joins-thread`.
+  - #237 (07891f1): `then.dailyLog` writes a day's Daily log from seeded talk with the profile under test. Brief `daily-log-from-talk`.
+  - #238 (8b2d3b5): `calibration/<rubric>.yaml` for human grades. `rejudge` prints agreement overall and per criterion and writes `agreement.md`; the rubric freezes at 1.0 at 90% or more on 20 or more items.
+  - After the merge, two Plane scenarios that pinned the generic hidden-tool refusal were updated for #232's reasons.
+- [x] #239 The exam: `scorecard.yaml` version 2 holds 30 briefs, 22 in Indonesian, at least 4 per area (capture 5, recall 9, tasks 8, group 4, loop 4), and 6 held out. 16 new Indonesian briefs, with dry runs in `eval-rapor-dry-run.test.ts` and recordings. Briefs left out of the exam still run as regressions.
+  - Harness additions:
+    - Turn facts `quiet` (the bot must post nothing; graded by code alone, no judge call) and `reaction`. Recordings carry `reactions`.
+    - `@bot` in follow-ups sends a mention; a block starting with it is Alice's.
+    - `closedAt` on seeded pull requests.
+    - `kept` covers the Notes and Decisions the bot wrote.
+  - Decided: no brief is marked expected to fail. `notulen-jadi-tugas` and `colek-h-1` measure work the next spec builds (Tasks from Minutes, a Nudge that follows the due date), and today a model can pass them only by doing that work by hand. The exam measures outcomes, not mechanisms.
+  - Found while writing the exam, for triage:
+    - "@bot notulen dong" does not start the playbook. The trigger needs the word alone or a colon after it (`TRIGGER`, `WORD_ONLY` in `client.ts`).
+    - `remember` without `level` stores nothing.
+    - In a burst, a line that mentions the bot is answered before an earlier line that does not, since the latter waits on a look at whether the bot spoke last.
+  - Verification: typecheck 0; `bun run test` 1159 pass, 0 fail.
+- [ ] #240 Live Rapor runs (baseline, then after the floor): need a DeepSeek key and a judge key of another vendor from the user.
