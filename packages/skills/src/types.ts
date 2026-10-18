@@ -106,6 +106,8 @@ export interface DiscordClientAdapter {
     /** Keeps the latest `limit` messages, 500 at most. */
     limit?: number;
     language?: Language;
+    /** Also return each message with its id, for links (recall's today's talk); the tool never asks for it. */
+    withMessages?: boolean;
   }): Promise<ChannelHistory>;
 }
 
@@ -126,6 +128,8 @@ export interface ChannelHistory {
   to: string | null;
   transcript: string;
   note?: string;
+  /** With `withMessages`: each message as read, oldest first; `own` marks the bot's. */
+  messages?: { id: string; channelId: string; at: number; authorId: string; speaker: string; own: boolean; text: string }[];
 }
 
 export interface DiscordMemberInfo { id: string; displayName: string; username?: string; roles: string[] }

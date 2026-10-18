@@ -1,11 +1,11 @@
 import type { SkillContext, ToolDefinition, ToolResult } from "../types.js";
 import { memberLine, rosterMatches } from "../builtin/team.js";
-import { DEFAULT_TIMEZONE, isoInZone } from "../clock.js";
+import { DEFAULT_TIMEZONE, isoInZone, now, wallClock, wallToInstant } from "../clock.js";
 import { textIn } from "../language.js";
 import { jumpLink, parseFrontmatter } from "../playbooks.js";
 import { agentPaths } from "./paths.js";
 import { dateRange, nameDate, queriesTerms, titleDate, wordingsOf } from "./search.js";
-import { linesHolding } from "./terms.js";
+import { holdsQuery, linesHolding } from "./terms.js";
 import { rankKept, readableSources, sourcePath, type Source } from "./sources.js";
 import { workspaceStore } from "./store.js";
 import { GIT_NOT_ENABLED, loadGitAccess } from "../gitScope.js";
@@ -25,7 +25,7 @@ export const RECALL_BUDGET = 11_000;
 
 export const recallTool: ToolDefinition = {
   name: "recall",
-  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, the server's Team roster (team: who is responsible for what), and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A kept file marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are. notLogged, given when no kept file answers, names the channels searched that keep no Daily logs.",
+  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, the server's Team roster (team: who is responsible for what), today's messages of this place when no kept file answers well (talk: no Daily log holds them yet), and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A kept file marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are. notLogged, given when no kept file answers, names the channels searched that keep no Daily logs.",
   parameters: {
     type: "object",
     properties: {
@@ -144,13 +144,19 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
   // Who is responsible for what, from the guild's Team roster (#249), for "who owns X" beside the Assignees of Tasks.
   const teamItems = ctx.guildId ? (await rosterMatches(ctx, wordings).catch(() => [])).slice(0, RECALL_PART).map((m) => ({ ref: refFor(ctx, "R"), label: t.teamCited(m.name), line: memberLine(m) })) : [];
 
-  const notLogged = !keptItems.length || kept.nothingStrong ? await unlogged(store, ctx.tenantId, sources) : [];
+  // Today's talk (#246): no Daily log holds it yet, so when kept material answers weakly the asked place's messages since midnight are read too.
+  const weak = !keptItems.length || kept.nothingStrong;
+  const talkItems = weak && !only ? (await todaysTalk(ctx, queries, zone).catch(() => [])).map((m) => ({
+    ref: refFor(ctx, "K"), label: `${sources.find((s) => s.channelId && s.channelId === (ctx.parentChannelId ?? ctx.channelId) && !s.threadId)?.label ?? "here"} · ${t.todaysTalk(isoInZone(zone, m.at).slice(11, 16), m.speaker)}`,
+    url: jumpLink(ctx.guildId, m.channelId, m.id), lines: [{ line: 1, text: clip(m.text, LINE_CHARS) }],
+  })) : [];
+  const notLogged = weak ? await unlogged(store, ctx.tenantId, sources) : [];
   const notShownHere = kept.notShown + ("data" in tasks ? tasks.data.notShownHere ?? 0 : 0);
   const unavailable = Object.fromEntries(([["tasks", tasks], ["git", git], ["plane", plane]] as const).flatMap(([name, p]) => ("unavailable" in p ? [[name, p.unavailable]] : [])));
   const nothingFound = [["kept", keptItems], ["tasks", taskItems], ["git", workItems], ["plane", planeItems]]
     .filter(([name, items]) => !(name as string in unavailable) && !(items as unknown[]).length).map(([name]) => name as string);
   const result = {
-    kept: keptItems, tasks: taskItems, work: workItems, workItems: planeItems, ...(teamItems.length ? { team: teamItems } : {}),
+    kept: keptItems, ...(talkItems.length ? { talk: talkItems } : {}), tasks: taskItems, work: workItems, workItems: planeItems, ...(teamItems.length ? { team: teamItems } : {}),
     ...(kept.nothingStrong ? { nothingStrong: true as const } : {}),
     ...(nothingFound.length ? { nothingFound } : {}),
     ...(Object.keys(unavailable).length ? { unavailable } : {}),
@@ -158,6 +164,15 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
     ...(notLogged.length ? { notLogged } : {}),
   };
   return withinBudget(result);
+}
+
+/** At most five of today's messages in this place (since midnight in its zone) that hold every word of one wording; the bot's own and the asker's last minute, the question itself, are left out. */
+async function todaysTalk(ctx: SkillContext, queries: string[][], zone: string) {
+  if (!ctx.discord || !ctx.userId || !ctx.channelId || !ctx.guildId) return [];
+  const w = wallClock(zone), midnight = wallToInstant(zone, { year: w.year, month: w.month, day: w.day, hour: 0, minute: 0 });
+  const history = await ctx.discord.readChannelHistory({ channelId: ctx.channelId, requesterId: ctx.userId, since: new Date(midnight).toISOString(), withMessages: true, language: ctx.language });
+  const asked = now() - 60_000;
+  return (history.messages ?? []).filter((m) => !m.own && !(m.authorId === ctx.userId && m.at >= asked) && holdsQuery(queries, m.text)).slice(-5).reverse();
 }
 
 /** The quotable channels among `sources` that keep no Daily logs: talk there that nobody asked to keep cannot be found after a day. */

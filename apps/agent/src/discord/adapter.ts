@@ -418,7 +418,7 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     };
   }
 
-  async readChannelHistory(args: { channelId: string; requesterId: string; since?: string; limit?: number; language?: Language }, now = clockNow()): Promise<ChannelHistory> {
+  async readChannelHistory(args: { channelId: string; requesterId: string; since?: string; limit?: number; language?: Language; withMessages?: boolean }, now = clockNow()): Promise<ChannelHistory> {
     const t = textIn(args.language);
     if (!(await this.client.channels.fetch(args.channelId).catch(() => null))) throw new Error(t.historyNoChannel);
     refuseUnless(await this.historyAccess(args.channelId, args.requesterId), args.language);
@@ -432,7 +432,10 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
     const note = kept.length < messages.length ? t.minutesCutCount(limit, when(kept[0]!.at))
       : cut?.reason === "count" ? t.minutesCutCount(most, when(cut.keptFrom))
       : cut ? t.minutesCutHours(HISTORY_SPAN_MS / 3600_000, when(cut.keptFrom)) : undefined;
-    return { channelId: args.channelId, count: kept.length, from: kept[0] ? stamp(kept[0].at) : null, to: kept.at(-1) ? stamp(kept.at(-1)!.at) : null, transcript: transcript(kept), ...(note ? { note } : {}) };
+    return {
+      channelId: args.channelId, count: kept.length, from: kept[0] ? stamp(kept[0].at) : null, to: kept.at(-1) ? stamp(kept.at(-1)!.at) : null, transcript: transcript(kept), ...(note ? { note } : {}),
+      ...(args.withMessages ? { messages: kept.map(({ id, channelId, at, authorId, speaker, own, text }) => ({ id, channelId, at, authorId, speaker, own, text })) } : {}),
+    };
   }
 }
 

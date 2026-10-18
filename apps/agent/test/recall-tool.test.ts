@@ -212,3 +212,32 @@ discordScenario("recall with a strong match, or from channels that all keep Dail
   expect(none.kept).toEqual([]);
   expect(none.notLogged).toBeUndefined();
 });
+
+// Today's talk (#246): no Daily log holds it yet, so recall reads the place's messages since midnight when kept material answers weakly.
+discordScenario("recall finds what was said today, since midnight in the place's zone, with a link, and leaves out yesterday's talk and the question itself", async (s) => {
+  await s.guildSettings({ useThreads: false, language: "id" });
+  s.clock.set("2026-10-14T05:00:00Z"); // 12:00 in Jakarta
+  s.discord.history([
+    { content: "normalisasi audio masih rusak di Android", author: s.discord.bob, at: Date.parse("2026-10-13T15:00:00Z") }, // 22:00 yesterday
+    { content: "normalisasi audio sudah aku merge tadi, tinggal QA", author: s.discord.bob, at: Date.parse("2026-10-14T02:30:00Z") }, // 09:30 today
+    { content: "makan siang di mana?", author: s.discord.alice, at: Date.parse("2026-10-14T03:00:00Z") },
+  ]);
+  let result: any;
+  s.model.script({ tool: "recall", args: { queries: ["normalisasi audio", "audio normalization"] } }, (turn) => { result = turn.toolResults[0]; return "ok"; });
+  await s.discord.send(`${s.discord.mention} normalisasi audio udah beres belum?`);
+  expect(result.kept).toEqual([]);
+  expect(result.talk).toHaveLength(1);
+  expect(result.talk[0]).toMatchObject({ ref: "K1", label: expect.stringMatching(/ · obrolan hari ini 09:30, Bob$/), url: expect.stringMatching(/^https:\/\/discord\.com\/channels\/guild-1\/channel-1\/\d+$/) });
+  expect(result.talk[0].lines[0].text).toBe("normalisasi audio sudah aku merge tadi, tinggal QA");
+});
+
+discordScenario("when a kept file answers well, today's talk is not read", async (s) => {
+  await s.guildSettings({ useThreads: false, language: "en" });
+  await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-01-loudness.md", "# Loudness\nAudio normalization targets -14 LUFS.\n");
+  s.discord.history([{ content: "audio normalization is merged", author: s.discord.bob, at: Date.now() - 60_000 * 30 }]);
+  let result: any;
+  s.model.script({ tool: "recall", args: { queries: ["audio normalization"] } }, (turn) => { result = turn.toolResults[0]; return "ok"; });
+  await s.discord.send(`${s.discord.mention} is audio normalization done?`);
+  expect(result.kept).toHaveLength(1);
+  expect(result.talk).toBeUndefined();
+});
