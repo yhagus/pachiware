@@ -18,6 +18,7 @@ export * from "./builtin/discord.js";
 export * from "./builtin/git.js";
 export * from "./git.js";
 export * from "./gitScope.js";
+export * from "./docsMirror.js";
 export * from "./gitConfirm.js";
 export * from "./guardrails.js";
 export * from "./threadConfirmation.js";
