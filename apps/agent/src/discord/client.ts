@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type SendableChannels, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
 import { repositories } from "@pachiware/db";
 import { DiscordJSAdapter } from "./adapter.js";
+import { catchUpDailyLogs } from "./dailyLogDays.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
 import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel } from "./routing.js";
@@ -99,6 +100,8 @@ export class DiscordBotManager {
     const tracked = work.catch(() => {}).finally(() => this.inflight.delete(tracked));
     this.inflight.add(tracked);
   }
+  /** Work that outlives the request that started it, such as a Daily log backfill; `idle()` waits for it. */
+  background(work: Promise<unknown>) { this.track(work); }
   /** The gateway client of a running, connected bot; the scheduler posts through it. */
   clientOf(botId: string): Client | null {
     const runtime = this.clients.get(botId);
@@ -157,6 +160,7 @@ export class DiscordBotManager {
       void repositories().bots.update(id, { connectionStatus: "connected", lastConnectedAt: new Date(), lastError: null }).catch(() => {});
       this.scheduleCommands(id);
       this.track(this.moveOldThreadFiles(runtime));
+      this.track(catchUpDailyLogs(this, id));
     });
     client.on(Events.GuildCreate, () => { if (runtime.connected) this.scheduleCommands(id); });
     client.on(Events.GuildDelete, (guild) => { runtime.sentCommands.delete(guild.id); });

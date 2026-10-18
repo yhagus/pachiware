@@ -3,6 +3,7 @@ import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, configuredLanguage, textIn, loadMemory, loadTasks, readInFull, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, isOpen, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
 import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
 import { syncDigestSchedules, syncDailyLogSchedules } from "../digest.js";
+import { writeMissingDays, daysBefore, BACKFILL_DAYS } from "../discord/dailyLogDays.js";
 import type { DiscordBotManager } from "../discord/client.js";
 
 export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; dailyLogChannels: DailyLogChannel[] };
@@ -27,7 +28,7 @@ export class DailyLogTaken extends Error {}
  * `digestChannels` and `dailyLogChannels`. A channel another bot of the tenant already logs throws `DailyLogTaken` before anything is written.
  * With `manager`, each channel whose Daily logs were just turned on gets one notice from this bot, in the place's language; a save that changes nothing posts none.
  */
-export async function saveGuildSettings(tenantId: string, botId: string, guildId: string, input: GuildConfigInput, manager?: Pick<DiscordBotManager, "clientOf">): Promise<GuildSettings> {
+export async function saveGuildSettings(tenantId: string, botId: string, guildId: string, input: GuildConfigInput, manager?: Pick<DiscordBotManager, "clientOf" | "adapterOf" | "background">): Promise<GuildSettings> {
   const before = await loadGuildSettings(tenantId, botId, guildId);
   if (input.dailyLogChannels) await assertDailyLogsFree(tenantId, botId, input.dailyLogChannels.map((e) => e.channelId));
   await repositories().bots.saveGuildConfig(tenantId, botId, guildId, input);
@@ -38,12 +39,15 @@ export async function saveGuildSettings(tenantId: string, botId: string, guildId
   await syncDigestSchedules(where, settings.digestChannels);
   await syncDailyLogSchedules(where, settings.dailyLogChannels);
   const turnedOn = settings.dailyLogChannels.filter((e) => !before.dailyLogChannels.some((b) => b.channelId === e.channelId));
-  const client: any = turnedOn.length ? manager?.clientOf(botId) : null;
   const notice = textIn(configuredLanguage(settings, agent)).dailyLogNotice;
-  // The setting is saved even when the bot is offline or cannot post there; the notice is not retried.
-  for (const { channelId } of client ? turnedOn : []) {
-    const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (channel?.isTextBased?.()) await channel.send({ content: notice, allowedMentions: { parse: [] } }).catch(() => {});
+  // The setting is saved even when the bot is offline or cannot post there; neither the backfill nor the notice is retried.
+  const bot = manager?.clientOf(botId) ? manager : null;
+  for (const { channelId, backfill } of bot ? turnedOn : []) {
+    bot!.background((async () => {
+      if (backfill) await writeMissingDays(bot!, { ...where, channelId }, daysBefore(where.timezone, now(), BACKFILL_DAYS));
+      const channel: any = await bot!.clientOf(botId)?.channels.fetch(channelId).catch(() => null);
+      if (channel?.isTextBased?.()) await channel.send({ content: notice(backfill), allowedMentions: { parse: [] } }).catch(() => {});
+    })());
   }
   return settings;
 }
