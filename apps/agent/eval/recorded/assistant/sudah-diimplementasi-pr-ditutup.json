@@ -10,7 +10,7 @@
       "n": 1,
       "message": "fitur ekspor CSV buat laporan penjualan sudah diimplementasi belum?",
       "replies": [
-        "Sudah diimplementasi [acme/dashboard · pull request #57 \"Export sales report to CSV with streaming\" (merged)](<https://github.com/acme/dashboard/pull/57>). Yang ini ditutup tanpa di-merge, jadi bukan itu yang menyelesaikannya: [acme/dashboard · pull request #51 \"Export sales report to CSV\" (closed)](<https://github.com/acme/dashboard/pull/51>)."
+        "Sudah diimplementasi [acme/dashboard · pull request #57 \"Export sales report to CSV with streaming\" (merged 2026-10-09)](<https://github.com/acme/dashboard/pull/57>). Yang ini ditutup tanpa di-merge, jadi bukan itu yang menyelesaikannya: [acme/dashboard · pull request #51 \"Export sales report to CSV\" (closed 2026-10-02)](<https://github.com/acme/dashboard/pull/51>)."
       ],
       "confirm": false,
       "pings": [],

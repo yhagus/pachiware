@@ -3,7 +3,7 @@ import { DEFAULT_TIMEZONE, isoInZone } from "../clock.js";
 import { textIn } from "../language.js";
 import { jumpLink, parseFrontmatter } from "../playbooks.js";
 import { agentPaths } from "./paths.js";
-import { dateRange, nameDate, queriesTerms, wordingsOf } from "./search.js";
+import { dateRange, nameDate, queriesTerms, titleDate, wordingsOf } from "./search.js";
 import { rankKept, readableSources, sourcePath, type Source } from "./sources.js";
 import { workspaceStore } from "./store.js";
 import { GIT_NOT_ENABLED, loadGitAccess } from "../gitScope.js";
@@ -49,20 +49,36 @@ function refFor(ctx: SkillContext, letter: string) {
 }
 
 const clip = (text: string, n: number) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
-const DISCORD_LINK = /https:\/\/discord\.com\/channels\/[^\s)>\]]+/;
+const DISCORD_LINKS = /https:\/\/discord\.com\/channels\/[^\s)>\]]+/g;
+/** The newest of some message links: Discord message ids are numbers that grow with time. */
+const newest = (links: string[]) => links.reduce((a, b) => {
+  const x = a.slice(a.lastIndexOf("/") + 1), y = b.slice(b.lastIndexOf("/") + 1);
+  return y.length > x.length || (y.length === x.length && y > x) ? b : a;
+});
 
-/** The link a kept file is cited by: Minutes by their posted message, a Daily log match by the first message link on its matching lines. */
-async function keptLink(tenantId: string, path: string, kind: Kind, lines: number[]): Promise<string | undefined> {
-  if (kind !== "minutes" && kind !== "daily-log") return undefined;
+/**
+ * How a kept file is cited and dated. Minutes by their posted message. A Daily log by the newest message of its first matching
+ * decision, open point or next step, where it was settled; a topic row links every message of its topic, so it is cited only when
+ * nothing else matched, by its first message, where the talk began. A Document whose name holds no date by the date its first line gives.
+ */
+async function keptSource(tenantId: string, path: string, kind: Kind, lines: number[]): Promise<{ url?: string; day?: string }> {
+  const named = nameDate(path);
+  if (kind !== "minutes" && kind !== "daily-log" && (kind !== "document" || named)) return {};
   const file = await workspaceStore().read(tenantId, path).catch(() => null);
-  if (!file) return undefined;
+  if (!file) return {};
+  if (kind === "document") return { day: titleDate(file.content) ?? undefined };
+  const head = parseFrontmatter(file.content)?.fields ?? {};
   if (kind === "minutes") {
-    const head = parseFrontmatter(file.content)?.fields ?? {};
-    return typeof head.postedIn === "string" && typeof head.messageId === "string" ? jumpLink(typeof head.guildId === "string" ? head.guildId : null, head.postedIn, head.messageId) : undefined;
+    return typeof head.postedIn === "string" && typeof head.messageId === "string" ? { url: jumpLink(typeof head.guildId === "string" ? head.guildId : null, head.postedIn, head.messageId) } : {};
   }
-  const text = file.content.split("\n");
-  for (const n of lines) { const found = DISCORD_LINK.exec(text[n - 1] ?? ""); if (found) return found[0]; }
-  return undefined;
+  const text = file.content.split("\n"), title = text.findIndex((l) => l.startsWith("# "));
+  const topicsShown = !(Array.isArray(head.leftOut) && head.leftOut.includes("topics"));
+  let heading = 0;
+  const section = text.map((l, i) => (i > title && l.startsWith("## ") ? ++heading : heading));
+  const topicRow = (n: number) => topicsShown && section[n - 1] === 1, linksOn = (n: number) => text[n - 1]?.match(DISCORD_LINKS) ?? [];
+  for (const n of lines.filter((n) => !topicRow(n))) { const links = linksOn(n); if (links.length) return { url: newest(links) }; }
+  for (const n of lines) { const links = linksOn(n); if (links.length) return { url: links[0] }; }
+  return {};
 }
 
 /** Why a part whose tool is not offered here is not searched, when the cause is that no scope opens its accounts (its tools are then hidden). */
@@ -96,17 +112,20 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
 
   const keptItems = await Promise.all(kept.matches.map(async (m) => {
     const rel = m.path.slice(m.source.folder.length + 1), kind = KIND_OF[rel.split("/")[0]!] ?? "document";
-    const date = nameDate(m.path) || isoInZone(zone, m.modified).slice(0, 10), url = await keptLink(ctx.tenantId, m.path, kind, m.lines.map((l) => l.line));
+    const { url, day } = await keptSource(ctx.tenantId, m.path, kind, m.lines.map((l) => l.line)), named = nameDate(m.path) || day;
+    const dated = named ? `${t.keptKinds[kind]} ${named}` : t.keptFiled(t.keptKinds[kind], isoInZone(zone, m.modified).slice(0, 10));
     return {
-      ref: refFor(ctx, "K"), label: `${m.source.label} · ${t.keptKinds[kind]} ${date}`, ...(url ? { url } : {}),
+      ref: refFor(ctx, "K"), label: `${m.source.label} · ${dated}`, ...(url ? { url } : {}),
       path: agentPaths(m.source.root, m.source.folder)(m.path), lines: m.lines.slice(0, LINES).map((l) => ({ line: l.line, text: clip(l.text, LINE_CHARS) })),
       ...(m.strong ? {} : { partial: true as const }),
     };
   }));
   const taskGroups: any[] = "data" in tasks ? (tasks.data.groups ?? []).filter((g: any) => !only || g.group === only.label) : [];
   const taskItems = taskGroups.flatMap((g) => (g.tasks as any[]).map((task) => ({ ref: refFor(ctx, "T"), label: `${g.group} · ${t.taskCited(clip(task.title, TITLE_CHARS), task.status)}`, line: task.line })));
+  // A merged, closed or committed item's date is when that happened; an open one's is only its last update, so it carries none.
+  const settled = (w: any) => (w.state !== "open" && w.date && Date.parse(w.date) ? ` ${isoInZone(zone, Date.parse(w.date)).slice(0, 10)}` : "");
   const workItems = "data" in git ? (git.data.items as any[]).slice(0, RECALL_PART).map((w) => ({
-    ref: refFor(ctx, "G"), label: `${w.repo} · ${t.workCited[w.kind] ?? w.kind} ${w.number !== undefined ? `#${w.number}` : w.sha} "${clip(w.title, TITLE_CHARS)}" (${w.state})`, url: w.url, date: w.date,
+    ref: refFor(ctx, "G"), label: `${w.repo} · ${t.workCited[w.kind] ?? w.kind} ${w.number !== undefined ? `#${w.number}` : w.sha} "${clip(w.title, TITLE_CHARS)}" (${w.state}${settled(w)})`, url: w.url, date: w.date,
   })) : [];
   const planeItems = "data" in plane ? (plane.data.items as any[]).slice(0, RECALL_PART).map((w) => ({ ref: refFor(ctx, "P"), label: `${w.key} "${clip(w.name, TITLE_CHARS)}" (${w.state ?? "?"})`, url: w.url })) : [];
 

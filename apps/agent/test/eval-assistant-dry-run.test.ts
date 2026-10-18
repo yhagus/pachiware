@@ -319,12 +319,12 @@ discordScenario("dry run: recall-done-pull-request finds no kept material or Tas
     { tool: "recall", args: { queries: ["podcast audio normalization", "normalize podcast audio", "normalisasi audio podcast"] } },
     (turn) => {
       const [found] = turn.toolResults;
-      return [`Done or not: merged on ${found.work[0].date.slice(0, 10)} [${found.work[0].ref}]`, `Nothing found: ${found.nothingFound.join(", ")}.`].join("\n");
+      return [`Done or not: [${found.work[0].ref}]`, `Nothing found: ${found.nothingFound.join(", ")}.`].join("\n");
     },
   );
   const output = await dryRun(s, "recall-done-pull-request");
   expect(output.turns[0].replies).toEqual([[
-    `Done or not: merged on 2026-10-12 [acme/podcast · pull request #42 "Normalize podcast audio to -16 LUFS" (merged)](<https://github.com/acme/podcast/pull/42>)`,
+    `Done or not: [acme/podcast · pull request #42 "Normalize podcast audio to -16 LUFS" (merged 2026-10-12)](<https://github.com/acme/podcast/pull/42>)`,
     "Nothing found: kept, tasks.",
   ].join("\n")]);
 });

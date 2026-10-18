@@ -10,7 +10,7 @@
       "n": 1,
       "message": "is the audio normalization for the podcast done? I don't think it ever came up in a meeting.",
       "replies": [
-        "Done or not: merged on 2026-10-12 [acme/podcast · pull request #42 \"Normalize podcast audio to -16 LUFS\" (merged)](<https://github.com/acme/podcast/pull/42>)\nNothing found: kept, tasks."
+        "Done or not: [acme/podcast · pull request #42 \"Normalize podcast audio to -16 LUFS\" (merged 2026-10-12)](<https://github.com/acme/podcast/pull/42>)\nNothing found: kept, tasks."
       ],
       "confirm": false,
       "pings": [],

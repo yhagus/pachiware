@@ -36,7 +36,7 @@ discordScenario("a reply citing [K1] and [G1] after recall shows each source's l
   await s.discord.send(`${s.discord.mention} is audio normalization done?`);
   expect(s.discord.botMessages.at(-1)!.content).toBe(
     "Discussed in the Loudness Minutes [#audio · Minutes 2026-09-01](<https://discord.com/channels/guild-1/channel-2/5100>); "
-    + "done in a merged pull request [acme/api · pull request #88 \"Normalize audio loudness\" (merged)](<https://github.com/acme/api/pull/88>).",
+    + "done in a merged pull request [acme/api · pull request #88 \"Normalize audio loudness\" (merged 2026-10-12)](<https://github.com/acme/api/pull/88>).",
   );
 });
 

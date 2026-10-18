@@ -61,7 +61,7 @@ discordScenario("one recall call returns the Minutes, the completed Task, the me
     kept: [{ ref: "K1", label: "#audio · Minutes 2026-09-01", url: "https://discord.com/channels/guild-1/channel-2/5100", path: "#audio/minutes/2026-09-01-loudness.md",
       lines: [{ line: 12, text: "1. Audio normalization targets -14 LUFS [↗](https://discord.com/channels/guild-1/channel-2/5001)" }] }],
     tasks: [{ ref: "T1", label: "#audio · Task \"Normalize the audio loudness\" (completed)", line: "completed | no due date | unassigned | 00000001 | Normalize the audio loudness" }],
-    work: [{ ref: "G1", label: "acme/api · pull request #88 \"Normalize audio loudness to -14 LUFS\" (merged)", url: "https://github.com/acme/api/pull/88", date: "2026-10-12T09:00:00Z" }],
+    work: [{ ref: "G1", label: "acme/api · pull request #88 \"Normalize audio loudness to -14 LUFS\" (merged 2026-10-12)", url: "https://github.com/acme/api/pull/88", date: "2026-10-12T09:00:00Z" }],
     workItems: [{ ref: "P1", label: "ENG-3 \"Normalisasi audio podcast\" (Done)", url: "https://app.plane.so/acme/browse/ENG-3/" }],
   });
   expect(JSON.stringify(result)).not.toMatch(/secret|vault|SEC-|contract/i);
@@ -77,6 +77,51 @@ discordScenario("a Daily log match is cited by the message link on its matching 
     ["K1", "#general · Decision 2026-10-06", undefined],
     ["K2", "#general · Daily log 2026-10-05", "https://discord.com/channels/guild-1/channel-1/7001"],
   ]);
+});
+
+const dl = (id: number) => `[↗](https://discord.com/channels/guild-1/channel-1/${id})`;
+
+discordScenario("a Daily log is cited by the latest message of a matching decision, not by its topic row; a topic row alone by its first message", async (s) => {
+  await channels(s);
+  // As the Daily log writer renders one (#237's brief): the topic row links every message of its topic, the question first.
+  await s.workspace.write(`${GENERAL}/daily-logs/2026-10/2026-10-05.md`, "---\nkind: \"daily-log\"\n---\n# Daily log #general, 2026-10-05\n\nTopics: Audio normalization\nKeywords: loudness\n4 messages from Dewi, Bob, Alice\n\n"
+    + `## Topics\n1. Audio normalization: loudness ${dl(7001)} ${dl(7002)} ${dl(7003)} ${dl(7004)}\n\n## Decided\n2. Audio normalization goes to -14 LUFS. ${dl(7002)} ${dl(7003)}\n\n`
+    + `## Who does what next\n3. **Dewi**: Send the mastering notes. ${dl(7004)}\n`);
+  await s.workspace.write(`${GENERAL}/daily-logs/2026-10/2026-10-06.md`, `# Daily log #general, 2026-10-06\n\n## Topics\n1. Audio normalization: plugins ${dl(7101)} ${dl(7102)}\n\n## Decided\n*None*\n`);
+  const [result] = await recall(s, [QUERIES]);
+  expect(Object.fromEntries(result.kept.map((k: any) => [k.label, k.url]))).toEqual({
+    "#general · Daily log 2026-10-05": "https://discord.com/channels/guild-1/channel-1/7003",
+    "#general · Daily log 2026-10-06": "https://discord.com/channels/guild-1/channel-1/7101",
+  });
+});
+
+discordScenario("a pull request or issue closed is labelled with the day it closed in the place's zone; an open one with no day", async (s) => {
+  await channels(s);
+  await s.git({ provider: "github", repos: ["acme/*"] });
+  s.http.on("GET api.github.com/user/repos", () => [{ full_name: "acme/api", owner: { login: "acme" }, private: true, default_branch: "main", updated_at: "2026-10-10T00:00:00Z", html_url: "https://github.com/acme/api" }]);
+  s.http.on("GET api.github.com/search/issues", () => ({ total_count: 2, items: [
+    { number: 51, title: "Audio normalization, first try", state: "closed", html_url: "https://github.com/acme/api/pull/51", updated_at: "2026-10-03T00:00:00Z", closed_at: "2026-10-01T20:00:00Z",
+      pull_request: { merged_at: null, html_url: "https://github.com/acme/api/pull/51" } },
+    { number: 60, title: "Audio normalization for podcasts", state: "open", html_url: "https://github.com/acme/api/issues/60", updated_at: "2026-10-13T09:00:00Z" },
+  ] }));
+  s.http.on("GET api.github.com/repos/acme/api/commits", () => []);
+  const [result] = await recall(s, [QUERIES]);
+  // 20:00 UTC on 1 October is 03:00 on 2 October in Jakarta.
+  expect(result.work.map((w: any) => w.label).sort()).toEqual([
+    "acme/api · issue #60 \"Audio normalization for podcasts\" (open)",
+    "acme/api · pull request #51 \"Audio normalization, first try\" (closed 2026-10-02)",
+  ]);
+});
+
+discordScenario("a Document whose name has no date is labelled with the date its first line gives, otherwise as filed", async (s) => {
+  await channels(s);
+  await s.workspace.write(`${GENERAL}/files/sinar-printing-call-minutes.md`, "Call with Sinar Printing, 6 October 2026\nPresent: Alice, Bob\n\n- The brochures arrive on 23 October.\n");
+  await s.workspace.write(`${GENERAL}/files/notulen-vendor.md`, "# Notulen rapat vendor 2 Oktober 2026\n\n- Brosur dicetak di Sinar Printing.\n");
+  await s.workspace.write(`${GENERAL}/files/brochure-prices.md`, "Brochure prices\nUpdated 1 September 2026: 2,000 brochures for 4 million.\n");
+  const [result] = await recall(s, [{ queries: ["brochures", "brosur"] }]);
+  const labels = result.kept.map((k: any) => k.label).sort();
+  expect(labels.slice(0, 2)).toEqual(["#general · Document 2026-10-02", "#general · Document 2026-10-06"]);
+  expect(labels[2]).toMatch(/^#general · Document, filed \d{4}-\d{2}-\d{2}$/);
 });
 
 discordScenario("without a Git scope or a Plane scope, those parts are named unavailable and nothing is asked of them", async (s) => {

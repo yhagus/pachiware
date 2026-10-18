@@ -23,6 +23,36 @@ export const MAX_MATCHES = 50;
 
 /** The date a file's name starts with ("2026-10-14-pricing.md"), or "" when it starts with none. */
 export const nameDate = (path: string) => /^\d{4}-\d{2}-\d{2}/.exec(path.split("/").pop()!)?.[0] ?? "";
+
+const MONTHS: Record<string, number> = Object.fromEntries([
+  "january february march april may june july august september october november december",
+  "januari februari maret april mei juni juli agustus september oktober november desember",
+  "jan feb mar apr may jun jul aug sep oct nov dec", "jan feb mar apr mei jun jul agu sep okt nov des", "- - - - - - - ags sept - - -",
+].flatMap((names) => names.split(" ").map((name, i) => [name, i + 1] as const)).filter(([name]) => name !== "-"));
+/** Each way a day is written, and how its parts read as year, month and day. */
+const WRITTEN_DAYS: [RegExp, (m: RegExpMatchArray) => [number, number | undefined, number]][] = [
+  [/\b(\d{1,2})\s+([a-z]+)\.?\s+(\d{4})\b/gi, (m) => [+m[3]!, MONTHS[m[2]!.toLowerCase()], +m[1]!]],
+  [/\b([a-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})\b/gi, (m) => [+m[3]!, MONTHS[m[1]!.toLowerCase()], +m[2]!]],
+  [/\b(\d{4})-(\d{2})-(\d{2})\b/g, (m) => [+m[1]!, +m[2]!, +m[3]!]],
+];
+
+/** "2026-10-06" for a day that exists, else null. */
+function isoDay(year: number, month: number | undefined, day: number): string | null {
+  if (!month) return null;
+  const at = new Date(Date.UTC(year, month - 1, day));
+  return at.getUTCMonth() === month - 1 && at.getUTCDate() === day ? at.toISOString().slice(0, 10) : null;
+}
+
+/**
+ * The date a Document's first line gives ("Call with Sinar Printing, 6 October 2026", "Notulen rapat 2 Oktober 2026", "Sync 2026-09-28"),
+ * after any frontmatter, or null. Only the first line is read: a date further down is as likely a due date as the Document's own.
+ */
+export function titleDate(text: string): string | null {
+  const body = text.startsWith("---\n") ? text.slice(text.indexOf("\n---", 3) + 4) : text;
+  const line = body.split("\n").find((l) => l.trim()) ?? "";
+  for (const [pattern, parts] of WRITTEN_DAYS) for (const m of line.matchAll(pattern)) { const day = isoDay(...parts(m)); if (day) return day; }
+  return null;
+}
 /** Newest first by the date each file name starts with, files without one after those with; then by when the file last changed. */
 export const newestFirst = <T extends Pick<FileMatch, "path" | "modified">>(matches: readonly T[]): T[] =>
   [...matches].sort((a, b) => nameDate(b.path).localeCompare(nameDate(a.path)) || b.modified - a.modified);
