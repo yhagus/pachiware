@@ -149,7 +149,7 @@ seed:
         Settled: MP3 exports use a constant 192 kbps bitrate; WAV and FLAC stay lossless.
         Reason: 128 kbps sounded thin on music beds.
 mustCover:
-  - MP3 exports use a constant 192 kbps bitrate, from the Decision kept in #audio on 16 September 2026
+  - 'MP3 exports use a constant 192 kbps bitrate, from the Decision kept in #audio on 16 September 2026'
   - It replaced the 128 kbps Decision of 1 August 2026
 turns:
   - replyContains: ["192 kbps", "#audio", "2026-09-16"]

@@ -188,6 +188,17 @@ describe("fixtures and recorded runs", () => {
     expect(loadAssistantFixtures(tmp)[0]!.messages).toEqual(["note this", "and that", "and this"]);
   });
 
+  test("a must-cover fact an unquoted \" #\" would cut is refused; quoted, it is read whole", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
+    mkdirSync(join(tmp, "x"));
+    writeFileSync(join(tmp, "x", "brief.md"), "was it merged?");
+    const facts = (fact: string) => writeFileSync(join(tmp, "x", "facts.yaml"), `language: en\narea: recall\nclock: 2026-10-14T02:00:00Z\nmustCover:\n  - ${fact}\nturns: [{}]\n`);
+    facts("Pull request #42 was merged");
+    expect(() => loadAssistantFixtures(tmp)).toThrow('Fixture x: quote the must-cover fact "Pull request…": an unquoted " #" starts a YAML comment and cuts it there');
+    facts("'Pull request #42 was merged'");
+    expect(loadAssistantFixtures(tmp)[0]!.facts.mustCover).toEqual(["Pull request #42 was merged"]);
+  });
+
   test("a follow-up that starts with @bot is Alice's mention of the bot, even with a colon in it", () => {
     const tmp = mkdtempSync(join(tmpdir(), "eval-assistant-"));
     mkdirSync(join(tmp, "x"));

@@ -8,8 +8,8 @@ seed:
     - { title: Write the release notes, status: pending, dueAt: "2026-10-16", assignedTo: Alice, channel: launch }
     - { title: Record the demo video, status: pending, dueAt: "2026-10-15", assignedTo: Bob, channel: launch }
 mustCover:
-  - Alice has two tasks, Review the pricing page in this channel (due Thursday 15 October) and Write the release notes in #launch (due Friday 16 October)
-  - The task Alice handed off is Record the demo video, Bob's, in #launch
+  - 'Alice has two tasks, Review the pricing page in this channel (due Thursday 15 October) and Write the release notes in #launch (due Friday 16 October)'
+  - 'The task Alice handed off is Record the demo video, Bob''s, in #launch'
 turns:
   - tasks:
       - { title: pricing page, assignedTo: Alice, channel: null }

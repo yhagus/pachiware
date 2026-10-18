@@ -9,7 +9,7 @@ seed:
     pullRequests:
       - { repo: acme/podcast, number: 42, title: Normalize podcast audio to -16 LUFS, mergedAt: "2026-10-12T09:00:00Z" }
 mustCover:
-  - It is done; pull request #42 "Normalize podcast audio to -16 LUFS" in acme/podcast was merged on 12 October 2026, with its link https://github.com/acme/podcast/pull/42
+  - 'It is done; pull request #42 "Normalize podcast audio to -16 LUFS" in acme/podcast was merged on 12 October 2026, with its link https://github.com/acme/podcast/pull/42'
   - No Minutes, Decision, Note or Task mentions it
 turns:
   - replyContains: ["#42", "merged", "https://github.com/acme/podcast/pull/42"]

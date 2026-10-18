@@ -14,6 +14,6 @@ seed:
         Reason: the single 19-dollar price lost small teams to cheaper tools.
 mustCover:
   - The team settled on three pricing tiers, Starter at 9 dollars, Team at 29 and Business at 79 a month
-  - The Decision was kept in #marketing on 8 October 2026
+  - 'The Decision was kept in #marketing on 8 October 2026'
 turns:
   - replyContains: ["#marketing", "2026-10-08", Starter, "79"]

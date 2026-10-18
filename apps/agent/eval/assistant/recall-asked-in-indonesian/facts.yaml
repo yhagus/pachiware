@@ -34,6 +34,6 @@ seed:
         Bob said the audio normalization preset is in the export template now, and episodes 41 and 42 were re-exported with it.
 mustCover:
   - Audio normalization was decided in the Podcast sync Minutes of this channel on 6 October 2026, every episode normalized to -16 LUFS before upload
-  - A Note kept in #audio on 9 October 2026 says the preset is in the export template and episodes 41 and 42 were re-exported with it
+  - 'A Note kept in #audio on 9 October 2026 says the preset is in the export template and episodes 41 and 42 were re-exported with it'
 turns:
   - replyContains: ["-16 LUFS", "#audio", "2026-10-06", "2026-10-09"]

@@ -10,7 +10,7 @@ seed:
       - { repo: acme/dashboard, number: 51, title: Export sales report to CSV, closedAt: "2026-10-02T09:00:00Z" }
       - { repo: acme/dashboard, number: 57, title: Export sales report to CSV with streaming, mergedAt: "2026-10-09T09:00:00Z" }
 mustCover:
-  - Sudah diimplementasi lewat pull request #57 di acme/dashboard, yang di-merge 9 Oktober 2026
-  - Pull request #51 ditutup tanpa di-merge, jadi bukan itu yang menyelesaikannya
+  - 'Sudah diimplementasi lewat pull request #57 di acme/dashboard, yang di-merge 9 Oktober 2026'
+  - 'Pull request #51 ditutup tanpa di-merge, jadi bukan itu yang menyelesaikannya'
 turns:
   - replyContains: ["#57", "#51", "https://github.com/acme/dashboard/pull/57"]

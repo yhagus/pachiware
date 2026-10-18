@@ -6,7 +6,8 @@
 # Two briefs measure work the next spec builds: notulen-jadi-tugas (Tasks from Minutes) and colek-h-1 (a Nudge that follows the due date).
 # Today a model passes them only by doing that work by hand: reading the Minutes and filing Tasks, or setting and moving a Reminder.
 # Version 3: the same briefs and weights; two grading defects the first live run showed are fixed, minutes-as-document (it asked for
-# a file name, which server-rendered citations never show) and notulen-pemilik-tenggat (it asked for one of two valid sources).
+# a file name, which server-rendered citations never show) and notulen-pemilik-tenggat (it asked for one of two valid sources); and
+# thirteen must-cover facts in twelve briefs, which an unquoted " #" cut short as a YAML comment, are now read whole.
 version: 3
 weights:
   capture: 20

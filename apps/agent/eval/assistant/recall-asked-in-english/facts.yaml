@@ -37,6 +37,6 @@ seed:
         3. **Dewi**: Aktifkan pengingat tagihan untuk klien luar kota [↗](https://discord.com/channels/guild-1/finance/5013)
 mustCover:
   - It was decided in this channel on 5 October 2026 that invoice reminders go out automatically three days before the due date, by email and WhatsApp
-  - The Rapat keuangan Minutes in #finance on 12 October 2026 say the reminders already run for Jakarta clients, and clients outside Jakarta follow next week
+  - 'The Rapat keuangan Minutes in #finance on 12 October 2026 say the reminders already run for Jakarta clients, and clients outside Jakarta follow next week'
 turns:
   - replyContains: ["three days", "#finance", "2026-10-05", "2026-10-12"]

@@ -19,7 +19,7 @@ seed:
         Settled: support is staffed from 08:00 to 20:00 on weekdays.
         Reason: the second support hire starts in November, so two shifts fit.
 mustCover:
-  - Support hours are 08:00 to 20:00 on weekdays, from the Decision kept in #support on 9 October 2026
+  - 'Support hours are 08:00 to 20:00 on weekdays, from the Decision kept in #support on 9 October 2026'
   - The 09:00 to 17:00 hours decided on 21 September 2026 were replaced by the newer Decision
 turns:
   - replyContains: ["08:00", "20:00", "#support", "2026-10-09", "replaced"]

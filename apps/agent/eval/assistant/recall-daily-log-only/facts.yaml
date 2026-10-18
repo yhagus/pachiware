@@ -36,7 +36,7 @@ seed:
         ## Siapa mengerjakan apa
         4. **Bob**: Bandingkan harga Transistor dan Buzzsprout (tenggat Jumat) [↗](https://discord.com/channels/guild-1/podcast/7110)
 mustCover:
-  - Yes; it was settled in #podcast on 9 October 2026, recorded in that day's Daily log, that the podcast moves from Anchor to Transistor after episode 45
+  - 'Yes; it was settled in #podcast on 9 October 2026, recorded in that day''s Daily log, that the podcast moves from Anchor to Transistor after episode 45'
   - Who moves the RSS feed was still open that day
 turns:
   - replyContains: ["#podcast", "2026-10-09", "Transistor"]

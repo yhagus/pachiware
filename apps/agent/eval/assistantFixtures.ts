@@ -106,6 +106,17 @@ export const zoneOf = (facts: Pick<AssistantFacts, "settings">) => facts.setting
 const dayIn = (zone: string, at: number) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
 
 const HEAD = /^@([^\n:]+):[ \t]*/;
+/** The plain must-cover items a " #" would cut, from the raw facts.yaml: the parser keeps only what comes before it. */
+function cutFacts(text: string): string[] {
+  let inside = false;
+  const out: string[] = [];
+  for (const line of text.split("\n")) {
+    if (/^\S/.test(line)) inside = line.startsWith("mustCover:");
+    else if (inside) { const item = /^\s+- (.*)$/.exec(line)?.[1]; if (item && !/^['"]/.test(item) && / #/.test(item)) out.push(item.split(" #")[0]!); }
+  }
+  return out;
+}
+
 /** "@bot" in a follow-up is a mention of the bot, sent as one; a block that starts with it is Alice's, never a speaker named "bot …". */
 export const BOT_MENTION = /@bot\b/g;
 function spoken(name: string, block: string, n: number, members: string[]) {
@@ -144,7 +155,9 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
       if (!existsSync(path)) { if (required) throw new Error(`Fixture ${name} has no ${f}`); return ""; }
       return readFileSync(path, "utf8");
     };
-    const raw = Bun.YAML.parse(file("facts.yaml")) as any;
+    const text = file("facts.yaml"), cut = cutFacts(text);
+    if (cut.length) throw new Error(`Fixture ${name}: quote the must-cover fact "${cut[0]}…": an unquoted " #" starts a YAML comment and cuts it there`);
+    const raw = Bun.YAML.parse(text) as any;
     if (raw?.language !== "en" && raw?.language !== "id") throw new Error(`Fixture ${name}: facts.yaml language is en or id`);
     if (!AREAS.includes(raw.area)) throw new Error(`Fixture ${name}: facts.yaml area is ${AREAS.slice(0, -1).join(", ")} or ${AREAS.at(-1)}`);
     if (typeof raw.clock !== "string" || Number.isNaN(Date.parse(raw.clock))) throw new Error(`Fixture ${name}: clock is not a time`);

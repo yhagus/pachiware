@@ -29,7 +29,7 @@ seed:
     - { title: Normalize podcast audio to -16 LUFS, status: completed, assignedTo: Dewi, channel: audio }
 mustCover:
   - Audio normalization was discussed in this channel's Podcast sync Minutes on 6 October 2026, which decided every episode is normalized to -16 LUFS
-  - It is done; the Task Normalize podcast audio to -16 LUFS in #audio is completed
+  - 'It is done; the Task Normalize podcast audio to -16 LUFS in #audio is completed'
 turns:
   - tasks:
       - { title: normalize podcast audio, status: completed, assignedTo: Dewi, channel: "#audio" }
