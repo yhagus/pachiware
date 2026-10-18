@@ -118,7 +118,7 @@ In **LLM Router**, choose OpenAI, Anthropic, or a custom OpenAI-compatible endpo
 
 ### 2. Try Chat and Tasks
 
-Open **Agent Playground** and send a message to confirm that the model responds. Adjust the agent's behavior in **Personality & Prompts**, then enable the tools you need in **Skills & Harnesses**. Try asking the agent to create a task, then check the result in **Task Kanban**.
+Open **Agent Playground** and send a message to confirm that the model responds. Adjust the agent's behavior in **Personality & Prompts**, then enable the tools you need in **Skills & Harnesses**. Try asking the agent to create a task, then check the result in **Task Kanban**. The administration tools of git and Plane (repository settings, members, secrets, runners, Plane project and workspace admin) start off; switch on the ones you need there.
 
 The dashboard works before you configure an LLM, but chat requires valid provider credentials.
 

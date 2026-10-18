@@ -118,7 +118,7 @@ Di menu **LLM Router**, pilih OpenAI, Anthropic, atau endpoint custom yang kompa
 
 ### 2. Coba Chat dan Task
 
-Buka **Agent Playground** dan kirim pesan untuk memastikan model merespons. Atur perilaku agent lewat **Personality & Prompts**, lalu aktifkan tools yang diperlukan di **Skills & Harnesses**. Coba meminta agent membuat task, lalu periksa hasilnya di **Task Kanban**.
+Buka **Agent Playground** dan kirim pesan untuk memastikan model merespons. Atur perilaku agent lewat **Personality & Prompts**, lalu aktifkan tools yang diperlukan di **Skills & Harnesses**. Coba meminta agent membuat task, lalu periksa hasilnya di **Task Kanban**. Tools administrasi git dan Plane (pengaturan repository, anggota, secret, runner, admin project dan workspace Plane) mati secara default; nyalakan yang diperlukan di sana.
 
 Dashboard bisa dibuka sebelum LLM dikonfigurasi, tetapi chat memerlukan kredensial provider yang valid.
 
