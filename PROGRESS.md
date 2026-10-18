@@ -1572,3 +1572,38 @@ Planning is done; implementation follows the sub-issues of [#226](https://github
   Each scenario spawns its own bun subprocess, so a worker per core only adds contention, and with Docker's VMs holding about 94k file handles the system table runs out. CI's runners have 4 cores, so CI runs as before. Through the script: 1164 pass, 0 fail in 55 s.
 - [x] The first push through the 4-worker hook (2026-10-19, 00:06 in Jakarta) caught `private-thread-folder.test.ts` expecting today's Minutes under the UTC date. #234 names them by the date in the place's zone, and that scenario was missed when the minutes tests were updated, so it failed every day from 17:00 to 24:00 UTC. Fixed in 0d73ca9. Two full runs, then the hook: 1164 pass, 0 fail each, and `main` was pushed without `--no-verify`.
 
+
+## Phase 43 — Rapor fixes (#241–#245)
+
+The five tickets the first live Rapor (#240, 76.5) filed. Together they cover every exam brief that scored below 1, except `channel-tanpa-daily-log` (0.67). Ranked by impact with the user (2026-10-19), from the upper bound of each fix (area weight × brief gain / briefs in the area / 90): #242 about +9.0, #243 +4.2 (held-out brief), #244 +3.1, #241 +2.8, #245 not yet scored. Built on `fix/rapor-241-245`.
+
+- [x] Decided with the user (2026-10-19), recorded on the issues:
+  - #241: the persona has the model make a bulk's calls straight away. The guard's `confirmation_required` lists them for one yes, and the guard stays the only matcher of a batch.
+  - #244: within a burst, a line after the bot's last reply follows it, even when another person's line landed in between.
+- [x] #242 Citations (77d0902, 8bf3e34):
+  - `renderCitations` renders a bracket of several refs (`[K2/K1]`, `[K1, G1]`, `[K2 dan K9]`). It drops a bracket that holds the model's own words beside a ref (`[K1 was only a pricing decision]`) whole, and leaves a Markdown link's text and ref-less brackets alone.
+  - A Daily log is cited by the newest message of its first matching decision, open point or next step. A topic row, which links every message of its topic, is used only when nothing else matched, and is cited by its first message. Discord ids grow with time, so the newest is the largest.
+  - A merged, closed or committed git item's label carries that day in the place's zone (`(merged 2026-10-09)`). An open one carries none, since its date is only its last update.
+  - A Document whose name holds no date is labelled with the date its first line gives (`titleDate` in `workspace/search.ts`: `6 October 2026`, `2 Oktober 2026`, `March 3, 2026`, `2026-09-28`; a day that does not exist gives none). Without one, the label says it is the filing day (`Document, filed 2026-10-18` / `Dokumen, disimpan …`).
+  - Scenarios in `recall-tool.test.ts` (each failed first) and `citations.test.ts`. Unit tests in `packages/skills/test/title-date.test.ts`. Three dry-run recordings re-recorded; `minutes-as-document`'s label went from `Dokumen 2026-10-18` to `Dokumen 2026-10-06`.
+- [x] #243 Memory (e84d69e):
+  - `remember` and `forget` without `level` act on the channel's Memory; `level` is no longer required in their schemas.
+  - The persona's Memory line keeps what the bot keeps on its own quiet, and calls an asked-for remember ("ingat ya") a clear request, said in the one line. The remember tool description says the same.
+  - The previous default is frozen as `PERSONA_NOT_LOGGED` (migration list and its verbatim copy in `persona-migration.test.ts`, indices 17→18).
+  - Tuned against a new regression brief, `ingat-ya-dikonfirmasi` (a Task beside an "ingat ya", outside the exam), never the held-out `tiga-alat-sekaligus`.
+- [x] #244 Burst (40605be):
+  - `followsBot` (`client.ts`) looks back up to ten messages. People's lines posted within the burst window of each other do not hide the bot's reply they all came after.
+  - The eval showed a second cause: in `dua-orang-bersamaan`, Bob's line did reach the model (5 model calls in every trial), after Alice's turn and its answer, marked "Addresses you: no", and the model stayed silent in 2 of 3 trials. Such a line now reads "Addresses you: no, but it follows your last reply". The quiet rules say it carries on the conversation and is left alone only when it plainly speaks to someone else.
+  - `member-joins-thread`'s dry run scripts the silence for Alice's "oke Bob, makasih", which now reaches the model in the same burst.
+  - The old isolation test's fake `messages.fetch` now returns a Map, as discord.js's Collection is one.
+- [x] #241 Bulk (816c75e): the persona's bulk line now has the model make the calls first, then list them and wait for a yes; the same calls then go through. Test in `persona.test.ts`.
+- [x] #245 Minutes (d170064):
+  - A short request (six words at most) that is only Indonesian or English request words around one word ("notulen dong", "tolong bikinin notulen ya!") names that word (`requestedWord`, `routing.ts`). It starts the playbook only when it is in-place; a thread playbook still needs points after a colon. A question naming notulen still goes to the assistant.
+  - The correction prompt answers `{"notACorrection": true}` for a requester's reply that asks for something else ("jadikan task poin 2"). The Minutes are left untouched and the reply goes to the assistant.
+  - A replied-to message posted as embeds alone, like Minutes, is quoted in the turn by their titles and descriptions. Only long content names the message for keepAsNote.
+  - Making Tasks from Minutes action items stays with the next spec.
+- Verification:
+  - typecheck 0 at every commit.
+  - Every new scenario failed before its fix.
+  - Full suite at load average 35–44 (Docker's VM at about 240% CPU): 1177 pass, 4 fail. The failures were 5 s timeouts in `setup.test.ts`, `router-hardening.test.ts` and `workspace.test.ts`, and each file passes alone (30 s timeout).
+- [ ] Second live Rapor (`EVAL_EXAM=1 EVAL_TRIALS=3`, profile `deepseek-flash`, judged blind and offline through `offline-judge.ts`), against 76.5. Needs the user's DeepSeek key.
