@@ -1368,3 +1368,9 @@ Planning is done; implementation follows the sub-issues of [#207](https://github
   - #210 Date range and match strength on searchFiles (after #209)
   - #211 One recall call answers "was it discussed, decided, done?" (after #210)
   - #212 Citations rendered by the server, links in replies checked (after #211)
+- [x] #208 Retrieval benchmark for Kept material.
+  - Corpus and questions in `apps/agent/test/support/recallBenchmark.ts`: 60 Kept material files in four Public channels (#general, #audio, #marketing, #ops): Minutes, Daily logs, Decisions, Notes and Documents, some with a topics/keywords header and most without. Distractors are deliberate: long Daily logs that mention a word once, words hidden in other words ("log" in "blog", "api" in "rapid"), decisions replaced by newer ones, and topics kept in one language and asked about in the other.
+  - 26 questions, each with its expected files picked by hand from the corpus: Indonesian, English and mixed wording, morphological variants, and full sentences full of filler words, each searched as a model would call `searchFiles` from #general.
+  - `apps/agent/test/recall-benchmark.test.ts` runs them in one scripted turn through the Discord scenario harness and counts a question as a hit when an expected file is among the first three paths the result shows (in the order the model reads them; grouping by channel counts). It prints a table of every question and pins the hit count as `BASELINE`, which a change may only raise.
+  - Baseline: 22/26. Misses: "normalisasi audio" asked in Indonesian only, the same asked as a full sentence, "siapa yang implementasi normalisasi audio", and "siapa yang pegang on-call dan kapan serah terimanya". Filler words matching inside other words pull marketing files to the top in two of them.
+  - Verification: `bun run typecheck` exits 0; `bun run test` 1011 pass, 0 fail. Raising `BASELINE` to 23 fails the test.
