@@ -101,6 +101,22 @@ discordScenario("a Work item in a Plane project the Plane scope opens is reporte
   expect(s.http.requests.some((r) => r.url.includes(`/projects/${SEC}/`))).toBe(false);
 });
 
+discordScenario("each Work item carries its Plane web link, on Plane's cloud and on a self-hosted Plane, as Plane's web app routes it (/<workspace>/browse/<KEY>/)", async (s) => {
+  await s.plane({ name: "cloud", projects: [ENG] });
+  const cloud = fakePlane(s);
+  cloud.project({ id: ENG, name: "Engineering", identifier: "ENG" });
+  cloud.item({ project: ENG, sequence_id: 3, name: "Normalize audio loudness" });
+  const fromCloud = await ask(s, "workItemList", { queries: ["audio normalization", "audio loudness"], account: "cloud" });
+  expect(fromCloud.items.map((i: any) => [i.key, i.url])).toEqual([["ENG-3", "https://app.plane.so/acme/browse/ENG-3/"]]);
+
+  await s.plane({ name: "own", baseUrl: "https://plane.acme.test", workspaceSlug: "studio", projects: [ENG] });
+  const own = fakePlane(s, { host: "plane.acme.test", slug: "studio" });
+  own.project({ id: ENG, name: "Engineering", identifier: "ENG" });
+  own.item({ project: ENG, sequence_id: 7, name: "Audio normalization preset" });
+  const fromOwn = await ask(s, "workItemList", { queries: ["audio normalization"], account: "own" });
+  expect(fromOwn.items.map((i: any) => [i.key, i.url])).toEqual([["ENG-7", "https://plane.acme.test/studio/browse/ENG-7/"]]);
+});
+
 discordScenario("without a Plane scope for this place, the Work item search says Plane is not enabled here and asks Plane nothing", async (s) => {
   await s.plane({ projects: null });
   const result = await ask(s, "workItemList", { queries: ["audio normalization"] });

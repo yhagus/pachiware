@@ -94,8 +94,8 @@ discordScenario("a CSV over 256 KB yields a sibling Markdown file that readFile 
   expect(big.byteLength).toBeGreaterThan(256 * 1024);
   const sales = attachment(s, "sales.csv", big, { contentType: "text/csv" });
   s.model.script(
-    // The result passes the turn's tool result cap, so it arrives as clipped JSON text.
-    { tool: "readFile", args: { path: "channel/files/sales.md" } }, (turn) => String(turn.toolResults[0]).includes(String.raw`"content":"invoice,customer,amount\nINV-00001,PT Sumber Makmur,1000\n`) ? "read the head" : String(turn.toolResults[0]).slice(0, 200),
+    // A large file read without a range returns its head, with where to read on.
+    { tool: "readFile", args: { path: "channel/files/sales.md" } }, (turn) => turn.toolResults[0].content?.startsWith("invoice,customer,amount\nINV-00001,PT Sumber Makmur,1000\n") && turn.toolResults[0].nextLine > 1 ? "read the head" : JSON.stringify(turn.toolResults[0]).slice(0, 200),
     { tool: "searchFiles", args: { query: "inv-00042", path: "channel/files" } }, (turn) => turn.toolResults[0].matches.map((m: any) => `${m.path}:${m.lines[0].line} ${m.lines[0].text}`).join("; "),
   );
   await s.discord.send(`${s.discord.mention} sales export`, { attachments: [sales] });
