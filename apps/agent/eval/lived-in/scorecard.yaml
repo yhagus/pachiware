@@ -1,0 +1,44 @@
+# The lived-in exam (#252): question sessions against one shared corpus of three and a half months (story.ts, corpus.ts), each a brief
+# under sessions/ whose facts say `corpus: lived-in`. Scored like the Rapor, per area and as one weighted number, and apart from it: the
+# Rapor's 30 briefs and its score are untouched. Run it with EVAL_EXAM=lived-in. Any change to a weight, a session or the holdout bumps
+# `version`; only reports at one version compare. Retrieval is reported beside the score as recall@5 and MRR, from each turn's gold sources.
+# Recall carries most of the weight: most sessions ask what was discussed, decided or done, which is what months of use pile up.
+name: Lived-in
+version: 1
+weights:
+  capture: 10
+  recall: 50
+  tasks: 20
+  group: 10
+  loop: 10
+briefs:
+  # recall
+  - loudness-dibahas-selesai
+  - format-ekspor-diganti
+  - supabase-tidak-pernah-diputuskan
+  - beta-launch-moved
+  - premium-price
+  - versi-android-minimum
+  - peredam-bising-model
+  - offline-sync-not-yet
+  - trim-tool-shipped
+  - ekspor-csv-ditunda
+  - db-normalization-done
+  - minggu-lalu-audio-engine
+  # tasks
+  - bluetooth-latency-telat
+  - telat-mobile-per-orang
+  - onboarding-siapa-deadline
+  - crash-ios17-kemarin
+  # capture
+  - diskon-pelajar-dicatat
+  # group
+  - bob-update-bluetooth
+  # loop
+  - pr-resampler-dan-pengingat
+# Six sessions held out, drawn from the seed and the version as the Rapor's are. Capture, group and loop have one session each, so
+# those three are held out at every version until more join them.
+holdout:
+  draw: 6
+  seed: lived-in
+  spent: []

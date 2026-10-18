@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkAssistantOutput } from "../eval/assistantChecks";
-import { loadAssistantFixtures, type AssistantFixture } from "../eval/assistantFixtures";
+import { LIVED_IN_DIR, loadAssistantFixtures, type AssistantFixture } from "../eval/assistantFixtures";
 import { gradeAssistantRun, type AssistantOutput, type AssistantState } from "../eval/assistantRun";
 import { EVAL_DIR } from "../eval/repository";
-import { loadExam } from "../eval/scorecard";
+import { drawHoldout, loadExam, loadLivedInExam } from "../eval/scorecard";
 
 const empty: AssistantState = { tasks: [], memory: { channel: [], guild: [] }, files: [], reminders: [] };
 const venue = { title: "Book the venue", status: "pending", dueAt: "2026-10-15", assignedTo: "Bob", createdByName: "Alice" };
@@ -289,6 +289,46 @@ describe("fixtures and recorded runs", () => {
     expect(exam.areas["file-search"]).toBe("capture");
     expect(exam.areas["recall-among-distractors"]).toBe("recall");
     expect(exam.areas["reminder-weekly"]).toBe("tasks");
+  });
+
+  test("the held-out briefs are drawn per version: one per area while the areas last, never a spent one, the same on every load", () => {
+    const exam = loadExam(fixtures), rule = { draw: 6, seed: "rapor" };
+    const v4 = drawHoldout(exam.briefs, exam.areas, "4", rule);
+    expect(v4).toHaveLength(6);
+    expect(new Set(v4.map((b) => exam.areas[b]))).toEqual(new Set(["capture", "recall", "tasks", "group", "loop"]));
+    expect(drawHoldout(exam.briefs, exam.areas, "4", rule)).toEqual(v4);
+    expect(v4.every((b) => exam.briefs.includes(b))).toBe(true);
+    // Listed in the exam's order, whatever order the draw ranked them in.
+    expect(v4).toEqual(exam.briefs.filter((b) => v4.includes(b)));
+    const spent = drawHoldout(exam.briefs, exam.areas, "4", { ...rule, spent: v4 });
+    expect(spent.filter((b) => v4.includes(b))).toEqual([]);
+    // A bump draws afresh: across five versions the sets are not all the same.
+    expect(new Set(["4", "5", "6", "7", "8"].map((v) => drawHoldout(exam.briefs, exam.areas, v, rule).join())).size).toBeGreaterThan(1);
+    expect(() => drawHoldout(exam.briefs, exam.areas, "4", { draw: 31, seed: "rapor" })).toThrow("scorecard.yaml holdout.draw is a whole number from 1 to 30, the briefs not spent");
+  });
+
+  test("version 3 keeps the six holdouts chosen by hand; a version with no fixed set draws it; a bad rule is refused", () => {
+    expect(loadExam(fixtures).holdout).toEqual(["notulen-pemilik-tenggat", "holdout-parafrasa-volume", "keputusan-bertentangan", "telat-per-orang", "makasih-reaksi", "tiga-alat-sekaligus"]);
+    const file = join(mkdtempSync(join(tmpdir(), "eval-scorecard-")), "scorecard.yaml");
+    const card = (version: number, holdout: string) => { writeFileSync(file, `version: ${version}\nweights: { capture: 20, recall: 25, tasks: 20, group: 10, loop: 15 }\nbriefs: [file-search, remember-forget, nothing-found, bulk-cancel]\nholdout: ${holdout}\n`); return () => loadExam(fixtures, file); };
+    const rule = "{ draw: 2, seed: s, fixed: { 1: [nothing-found] } }";
+    expect(card(1, rule)().holdout).toEqual(["nothing-found"]);
+    const drawn = card(2, rule)().holdout;
+    expect(drawn).toEqual(drawHoldout(["file-search", "remember-forget", "nothing-found", "bulk-cancel"], Object.fromEntries(fixtures.map((f) => [f.name, f.facts.area])), "2", { draw: 2, seed: "s" }));
+    expect(drawn).toHaveLength(2);
+    expect(card(2, "{ draw: 2 }")).toThrow("scorecard.yaml holdout.seed is the text the draw is ranked by");
+    expect(card(2, "{ draw: 2, seed: s, spent: [reminder-weekly] }")).toThrow("scorecard.yaml holdout.spent names reminder-weekly, which is not among its briefs");
+    expect(card(2, "{ draw: 4, seed: s, spent: [bulk-cancel] }")).toThrow("scorecard.yaml holdout.draw is a whole number from 1 to 3, the briefs not spent");
+  });
+
+  test("the lived-in exam scores every session, apart from the Rapor, and holds six out", () => {
+    const sessions = loadAssistantFixtures(LIVED_IN_DIR), exam = loadLivedInExam(sessions);
+    expect(exam.name).toBe("Lived-in");
+    expect(exam.version).toBe("1");
+    expect([...exam.briefs].sort()).toEqual(sessions.map((f) => f.name).sort());
+    expect(exam.holdout).toHaveLength(6);
+    expect(new Set(exam.holdout.map((b) => exam.areas[b]))).toEqual(new Set(["capture", "recall", "tasks", "group", "loop"]));
+    expect(loadExam(fixtures).briefs.filter((b) => exam.briefs.includes(b))).toEqual([]);
   });
 
   test("a seed file must sit below its channel's folder, and hidden channels are a list of names", () => {

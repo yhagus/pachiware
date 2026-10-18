@@ -51,10 +51,18 @@ briefs:
   - tiga-alat-sekaligus
   - tanpa-link-karangan
   - tempel-teks-panjang
+# The held-out briefs are drawn per version (#252): six, at least one per area, ranked by a hash of `seed`, the version and the brief's
+# name, so every bump of `version` draws a new set that nobody picked. `spent` lists briefs used to tune while held out: no draw picks
+# them again. Version 3's six were chosen by hand before draws and stay pinned under `fixed`, so v3 reports keep comparing.
 holdout:
-  - notulen-pemilik-tenggat
-  - holdout-parafrasa-volume
-  - keputusan-bertentangan
-  - telat-per-orang
-  - makasih-reaksi
-  - tiga-alat-sekaligus
+  draw: 6
+  seed: rapor
+  spent: []
+  fixed:
+    3:
+      - notulen-pemilik-tenggat
+      - holdout-parafrasa-volume
+      - keputusan-bertentangan
+      - telat-per-orang
+      - makasih-reaksi
+      - tiga-alat-sekaligus
