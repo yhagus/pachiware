@@ -105,7 +105,7 @@ test("rejudge regrades a daily-behaviour run with the assistant rubric, not the 
   writeFileSync(join(run, "trials", "a--task-casual-english--1.json"), JSON.stringify(trial));
   writeReport(run, { kind: "assistant", judge: { provider: "custom", model: "old-judge" }, rubricVersion: "0.0", trials: 1, startedAt: "2026-10-14T00:00:00.000Z", profiles: [{ name: "a", provider: "openai", model: "m-a" }] }, [trial]);
   const { prompts, ask: again } = scriptedJudge([[/Recorded state after turn 2/, verdict("no", "Nothing supports it.")]]);
-  const out = await rejudge(run, again, { provider: "custom", model: "new-judge" });
+  const { dir: out } = await rejudge(run, again, { provider: "custom", model: "new-judge" });
   expect(out).toBe(join(run, `rejudged-${ASSISTANT_RUBRIC_VERSION}`));
   expect(prompts.length).toBeGreaterThan(0);
   expect(prompts.every((p) => p.system.includes(`administrative assistant`) && p.system.includes(`Rubric ${ASSISTANT_RUBRIC_VERSION}`) && !p.system.includes("issue drafts"))).toBe(true);
