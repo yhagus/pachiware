@@ -1,35 +1,16 @@
-import { repositories, type DigestChannel, type DailyLogChannel, type Schedule } from "@pachiware/db";
-import { now, nextOccurrence, wallClock, hhmm, loadTasks, readInFull, workspaceStore, dueMoment, taskLine, isOpen, type Strings } from "@pachiware/skills";
+import { repositories, type DigestChannel, type Schedule, type ScheduleKind } from "@pachiware/db";
+import { now, nextOccurrence, wallClock, hhmm, loadTasks, readInFull, workspaceStore, dueMoment, taskLine, isOpen, DAY_MS, type Strings } from "@pachiware/skills";
 
 const hourText = (hour: number) => hhmm(hour, 0);
-const DAY_MS = 24 * 60 * 60_000;
 
-/** When a channel's Daily log of the day before is written, in the place's zone. */
-export const DAILY_LOG_TIME = "00:30";
-
-type Place = { tenantId: string; botId: string; guildId: string; timezone: string };
-
-/** After the tenant's zone changed: the guilds without a zone of their own follow it, so their Digest and Daily log rows move with it. */
-export async function syncTenantSchedules(tenantId: string, timezone: string) {
-  const guilds = (await repositories().bots.listGuildConfigs(tenantId)).filter((guild) => guild.timezone === null);
-  for (const guild of guilds) {
-    const where = { tenantId, botId: guild.botId, guildId: guild.guildId, timezone };
-    if (guild.digestChannels.length) await syncDigestSchedules(where, guild.digestChannels);
-    if (guild.dailyLogChannels.length) await syncDailyLogSchedules(where, guild.dailyLogChannels);
-  }
-}
+/** A guild of one bot and the zone its daily rows follow. */
+export type GuildPlace = { tenantId: string; botId: string; guildId: string; timezone: string };
 
 /** One active `digest` row per opted-in channel of the guild, daily at its hour in `timezone`; rows of channels no longer listed are cancelled. */
-export const syncDigestSchedules = (where: Place, entries: DigestChannel[]) => syncDailyRows("digest", where, new Map(entries.map((e) => [e.channelId, hourText(e.hour)])));
+export const syncDigestSchedules = (where: GuildPlace, entries: DigestChannel[]) => syncDailyRows("digest", where, new Map(entries.map((e) => [e.channelId, hourText(e.hour)])));
 
-/**
- * One active `daily-log` row per channel with Daily logs, daily at 00:30 in `timezone`, with no owner and no text: the row says only which bot
- * writes which channel's Daily log and when; whether to backfill stays on the guild settings. Rows of channels turned off are cancelled.
- */
-export const syncDailyLogSchedules = (where: Place, entries: DailyLogChannel[]) => syncDailyRows("daily-log", where, new Map(entries.map((e) => [e.channelId, DAILY_LOG_TIME])));
-
-/** A row whose time and zone already match is left alone, so an unrelated settings save never moves it. */
-async function syncDailyRows(kind: "digest" | "daily-log", where: Place, wanted: Map<string, string>) {
+/** One active `kind` row per channel of `wanted` at its time of day, other rows cancelled; a row whose time and zone already match is left alone, so an unrelated settings save never moves it. */
+export async function syncDailyRows(kind: ScheduleKind, where: GuildPlace, wanted: Map<string, string>) {
   const { schedules } = repositories();
   const active = await schedules.list({ botId: where.botId, guildId: where.guildId, kind, status: "active" });
   const at = now();

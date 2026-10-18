@@ -159,7 +159,8 @@ const en = {
   digestLate: "**Late**",
   daysLate: (n: number) => `${plural(n, "day")} late`,
   // Daily log
-  dailyLogNotice: (recorded: boolean) => `From now on I keep a nightly record of this channel's talk as a Daily log, ${recorded ? "and I have recorded the talk of the last 30 days" : "starting today"}. It is not posted here, but you can ask me about it anytime.`,
+  /** `recorded`: what the backfill of the last `days` days did; "none" when it was not asked for. */
+  dailyLogNotice: (recorded: "none" | "done" | "incomplete", days: number) => `From now on I keep a nightly record of this channel's talk as a Daily log, ${recorded === "done" ? `and I have recorded the talk of the last ${days} days` : recorded === "incomplete" ? `starting today; I could not record all of the talk of the last ${days} days` : "starting today"}. It is not posted here, but you can ask me about it anytime.`,
   // Channel history
   historyNoChannel: "I can't find that channel.",
   historyDm: "I read channel history only in server channels and threads, not in DMs.",
@@ -170,7 +171,7 @@ const en = {
   messageNoLink: "Give a Discord message link: https://discord.com/channels/<server>/<channel>/<message>.",
   messageOtherServer: "That link points to another server; I only open messages of this server here.",
   messageGone: "That message is no longer in Discord: it was deleted. Say so, and do not guess what it said.",
-  messageNotShownHere: "That message is in a channel whose messages cannot be shown here. Do not say what or where it is; suggest asking in a DM instead.",
+  messageNotShownHere: "That message is in a channel whose messages cannot be shown here. Do not say what or where it is; suggest asking in the channel it was posted in.",
   // saveAttachment
   saveNoMessage: "I can't find that message in this channel.",
   saveNoFile: "That message has no file attached.",
@@ -315,7 +316,7 @@ const id: typeof en = {
   digestDueToday: "**Jatuh tempo hari ini**",
   digestLate: "**Terlambat**",
   daysLate: (n) => `terlambat ${n} hari`,
-  dailyLogNotice: (recorded: boolean) => `Mulai sekarang saya mencatat obrolan channel ini setiap malam sebagai Daily log, ${recorded ? "dan obrolan 30 hari terakhir sudah saya catat" : "mulai hari ini"}. Catatannya tidak diposting di sini, tetapi bisa ditanyakan kapan saja.`,
+  dailyLogNotice: (recorded, days) => `Mulai sekarang saya mencatat obrolan channel ini setiap malam sebagai Daily log, ${recorded === "done" ? `dan obrolan ${days} hari terakhir sudah saya catat` : recorded === "incomplete" ? `mulai hari ini; obrolan ${days} hari terakhir tidak semuanya berhasil saya catat` : "mulai hari ini"}. Catatannya tidak diposting di sini, tetapi bisa ditanyakan kapan saja.`,
   historyNoChannel: "Channel itu tidak ketemu.",
   historyDm: "Saya hanya membaca riwayat channel di channel dan thread server, bukan di DM.",
   historyNeedPermission: (names) => `Kamu perlu ${names} di channel itu untuk membaca riwayatnya, jadi tidak saya bacakan.`,
@@ -324,7 +325,7 @@ const id: typeof en = {
   messageNoLink: "Berikan tautan pesan Discord: https://discord.com/channels/<server>/<channel>/<message>.",
   messageOtherServer: "Tautan itu menuju server lain; di sini saya hanya membuka pesan server ini.",
   messageGone: "Pesan itu sudah tidak ada di Discord: sudah dihapus. Katakan begitu, dan jangan menebak isinya.",
-  messageNotShownHere: "Pesan itu ada di channel yang pesannya tidak bisa ditampilkan di sini. Jangan sebut apa atau di mana; sarankan bertanya lewat DM.",
+  messageNotShownHere: "Pesan itu ada di channel yang pesannya tidak bisa ditampilkan di sini. Jangan sebut apa atau di mana; sarankan bertanya di channel tempat pesan itu dikirim.",
   saveNoMessage: "Pesan itu tidak ketemu di channel ini.",
   saveNoFile: "Pesan itu tidak punya lampiran file.",
   saveWhich: (names) => `Pesan itu punya beberapa file: ${names.join(", ")}. Sebutkan yang mana.`,

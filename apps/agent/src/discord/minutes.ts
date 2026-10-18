@@ -1,5 +1,5 @@
 import type { Message } from "discord.js";
-import { workspaceStore, addKeywords, renderFrontmatter, parseFrontmatter, placeRoot, visibleRoots, asUntrusted, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, permissionName, type Language, type Playbook } from "@pachiware/skills";
+import { workspaceStore, addKeywords, renderFrontmatter, parseFrontmatter, placeRoot, visibleRoots, asUntrusted, replyObject, redact, loadPlaybook, replyLanguage, textIn, listOf, jumpLink, BRIEF_CAPS, now as clockNow, permissionName, type Language, type Playbook } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
 import { replyQuietly } from "./replyStyle.js";
@@ -170,9 +170,8 @@ const systemPrompt = (playbook: Playbook) => `### Playbook: ${playbook.name}\n${
 const clean = (v: unknown) => (typeof v === "string" ? redact(v.replace(/\s+/g, " ").trim()) : "");
 /** The model's JSON as minutes; items without a message to point to are dropped, and an owner the discussion never named is cleared. */
 export function parseMinutes(content: string | null, links: string[], corpus: string, base: Labels = LABELS): Minutes | null {
-  let raw: any;
-  try { raw = JSON.parse((content ?? "").slice((content ?? "").indexOf("{"), (content ?? "").lastIndexOf("}") + 1)); } catch { return null; }
-  if (!raw || typeof raw !== "object") return null;
+  const raw = replyObject(content);
+  if (!raw) return null;
   const linkOf = (ref: unknown) => (typeof ref === "number" && Number.isInteger(ref) ? links[ref - 1] : undefined);
   const list = (v: unknown): any[] => (Array.isArray(v) ? v : []);
   const items = (v: unknown) => list(v).flatMap((i) => { const link = linkOf(i?.ref), text = clean(i?.text); return link && text ? [{ text, link }] : []; });

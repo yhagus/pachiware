@@ -1,5 +1,5 @@
 import type { Schedule } from "@pachiware/db";
-import { wallClock, wallToInstant } from "./clock.js";
+import { DAY_MS, wallClock, wallToInstant } from "./clock.js";
 
 /** A row later than this is skipped rather than posted (ADR 0006). */
 export const LATE_LIMIT_MS = 6 * 60 * 60_000;
@@ -12,7 +12,6 @@ export type Recurrence = Pick<Schedule, "recurrence" | "weekdays" | "dayOfMonth"
 
 const DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
 const TIME = /^(\d{2}):(\d{2})$/;
-const DAY_MS = 24 * 60 * 60_000;
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 
 type Day = { year: number; month: number; day: number };
@@ -61,7 +60,7 @@ export function parseWhen(input: unknown, timeZone: string, from: number): numbe
   if (m) {
     const today = wallClock(timeZone, from), hour = Number(m[1]), minute = Number(m[2]);
     const at = wallToInstant(timeZone, { ...today, hour, minute, second: 0 });
-    return at > from ? at : wallToInstant(timeZone, { ...wallClock(timeZone, from + 24 * 60 * 60_000), hour, minute, second: 0 });
+    return at > from ? at : wallToInstant(timeZone, { ...wallClock(timeZone, from + DAY_MS), hour, minute, second: 0 });
   }
   if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text)) return null;
   const at = Date.parse(text);

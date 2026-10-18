@@ -371,29 +371,31 @@ export class DiscordJSAdapter implements DiscordClientAdapter {
 
   /**
    * People's and webhooks' messages of a channel and its public threads from `since` up to `until`, oldest first; other bots, the bot itself,
-   * system messages and private threads are left out. Stops with a "count" cut once `most` messages are kept, newest kept first.
+   * system messages and private threads are left out. Reading stops at `most` messages, and `stoppedAt` is the time of the last one read.
    */
-  async readSpan(channelId: string, span: { since: number; until: number }, most = HISTORY_PAGE * HISTORY_PAGES): Promise<{ messages: HistoryMessage[]; cut: HistoryCut | null }> {
+  async readSpan(channelId: string, span: { since: number; until: number }, most: number): Promise<{ messages: HistoryMessage[]; stoppedAt: number | null }> {
     const channel: any = await this.client.channels.fetch(channelId);
     const botId = this.client.user?.id;
     const wanted = (m: Message) => !m.system && m.author.id !== botId && (!m.author.bot || !!m.webhookId);
-    const read: Message[] = [];
-    let cut: HistoryCut | null = null;
+    const read: HistoryMessage[] = [];
+    let stopped = false;
     for (const place of [channel, ...(await publicThreads(channel, span.since))]) {
-      // Pages start at the end of the span; a page holding only later messages is read past, not kept.
-      let before: string | undefined = snowflakeAt(span.until);
-      for (;;) {
-        const batch: Message[] = [...(await place.messages.fetch({ limit: HISTORY_PAGE, before, cache: false })).values()];
-        const kept = batch.filter((m) => m.createdTimestamp >= span.since && m.createdTimestamp < span.until && wanted(m));
-        read.push(...kept);
-        if (batch.length < HISTORY_PAGE || batch.some((m) => m.createdTimestamp < span.since)) break;
-        before = batch.at(-1)!.id;
+      let after = String(BigInt(snowflakeAt(span.since)) - 1n), kept = 0, done = false;
+      while (!done) {
+        const batch: Message[] = [...(await place.messages.fetch({ limit: HISTORY_PAGE, after, cache: false })).values()].sort(byTime);
+        done = batch.length < HISTORY_PAGE;
+        for (const m of batch) {
+          if (m.createdTimestamp >= span.until) { done = true; break; }
+          const said = historyMessage(m, botId);
+          if (m.createdTimestamp >= span.since && wanted(m) && (said.text || said.attachments.length)) { read.push(said); kept++; }
+          if (kept >= most) { done = stopped = true; break; }
+        }
+        after = batch.at(-1)?.id ?? after;
       }
     }
-    read.sort((a, b) => a.createdTimestamp - b.createdTimestamp || (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
-    if (read.length > most) { cut = { reason: "count", keptFrom: read[read.length - most]!.createdTimestamp }; read.splice(0, read.length - most); }
-    const messages = read.map((m) => historyMessage(m, botId)).filter((m) => m.text || m.attachments.length);
-    return { messages, cut };
+    read.sort((a, b) => a.at - b.at || (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+    if (read.length > most) { stopped = true; read.splice(most); }
+    return { messages: read, stoppedAt: stopped ? read.at(-1)!.at : null };
   }
 
   async readLinkedMessage(args: { channelId: string; messageId: string; requesterId: string; language?: Language }): Promise<LinkedMessage> {
@@ -444,6 +446,7 @@ function refuseUnless(access: HistoryAccess, language?: Language) {
   throw new Error(t.historyBotMissing(names, access.missing.length > 1));
 }
 
+const byTime = (a: Message, b: Message) => a.createdTimestamp - b.createdTimestamp || (BigInt(a.id) < BigInt(b.id) ? -1 : 1);
 /** The lowest message id Discord could give at `at`: the time since Discord's epoch (2015) in the id's top bits. */
 const snowflakeAt = (at: number) => String((BigInt(Math.max(at, DISCORD_EPOCH)) - BigInt(DISCORD_EPOCH)) << 22n);
 const DISCORD_EPOCH = 1_420_070_400_000;

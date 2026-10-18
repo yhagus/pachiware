@@ -42,6 +42,26 @@ discordScenario("turning Daily logs on without the tick writes none, and the not
   expect(notices(s)).toEqual([FROM_TODAY_ID]);
 });
 
+const INCOMPLETE_ID = "Mulai sekarang saya mencatat obrolan channel ini setiap malam sebagai Daily log, mulai hari ini; obrolan 30 hari terakhir tidak semuanya berhasil saya catat. Catatannya tidak diposting di sini, tetapi bisa ditanyakan kapan saja.";
+
+discordScenario("a backfill whose day cannot be written, or whose playbook an Availability rule turns off, does not say the last 30 days are recorded", async (s) => {
+  const { alice } = s.discord;
+  s.clock.set("2026-03-06T20:00:00+07:00");
+  s.discord.channel("channel-2");
+  s.discord.history([{ content: "yesterday", author: alice, at: jakarta("2026-03-05T12:00:00") }]);
+  s.discord.history([{ content: "yesterday in two", author: alice, at: jakarta("2026-03-05T12:00:00") }], { channel: "channel-2" });
+  s.model.script("I cannot summarize this.");
+
+  await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: true }] });
+  expect(await s.workspace.list(FOLDER)).toEqual([]);
+  expect(notices(s)).toEqual([INCOMPLETE_ID]);
+
+  await s.availability({ level: "channel", channelId: "channel-2" }, { kind: "playbook", name: "daily-log", value: "off" });
+  await s.admin("PUT", config(s.bot.id), { dailyLogChannels: [{ channelId: "channel-1", backfill: true }, { channelId: "channel-2", backfill: true }] });
+  expect(s.model.calls).toHaveLength(1);
+  expect(s.discord.botMessages.filter((m: any) => m.channelId === "channel-2").map((m: any) => m.content)).toEqual([INCOMPLETE_ID]);
+});
+
 discordScenario("off then on again keeps every Daily log as written and fills only the days missing", async (s) => {
   const { alice } = s.discord;
   s.clock.set("2026-03-06T20:00:00+07:00");

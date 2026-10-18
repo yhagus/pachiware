@@ -201,7 +201,7 @@ discordScenario("a day of more than 500 messages is read in parts and joined int
   expect(log).not.toContain("left out");
 });
 
-discordScenario("a day of more than 5,000 messages stops at 5,000 and its Daily log states the time it stopped at", async (s) => {
+discordScenario("a day of more than 5,000 messages is read from its start, stops at 5,000, and its Daily log states the time it stopped at", async (s) => {
   s.clock.set("2026-03-06T00:30:00+07:00");
   await s.guildSettings({ dailyLogChannels: [{ channelId: "channel-1", backfill: false }] });
   const said = busyDay(s, 5003, 10);
@@ -211,10 +211,13 @@ discordScenario("a day of more than 5,000 messages stops at 5,000 and its Daily 
   await s.scheduler.tick();
 
   expect(s.model.calls).toHaveLength(10);
+  const user = s.model.calls.map((c) => c.filter((m) => m.role === "user").map((m) => m.content).join("\n")).join("\n");
+  expect(user).toContain(": message 1\n");
+  expect(user).not.toContain(": message 5001");
   const log = (await s.workspace.read(`${FOLDER}/2026-03-06.md`))!;
-  expect(log).toContain("5000 messages from Bob, Alice");
-  // Message 4 was sent 30 seconds after 01:00 +07:00, which is 2026-03-05 18:00:30 UTC.
-  expect(log).toContain("*Only the last 5000 messages were read: everything before 2026-03-05 18:00 UTC was left out.*");
-  expect(log).toContain(`Agreed at message 5003 [↗](${link("channel-1", said[5002]!.id)})`);
-  expect(log).not.toContain(link("channel-1", said[2]!.id));
+  expect(log).toContain("5000 messages from Alice, Bob");
+  // Message 5000 was sent 49,990 seconds after 01:00 +07:00: 14:53:10 +07:00, which is 2026-03-06 07:53:10 UTC.
+  expect(log).toContain("*Reading stopped at 5000 messages: nothing after 2026-03-06 07:53 UTC was read.*");
+  expect(log).toContain(`Agreed at message 5000 [↗](${link("channel-1", said[4999]!.id)})`);
+  expect(log).not.toContain(link("channel-1", said[5000]!.id));
 });

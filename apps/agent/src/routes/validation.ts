@@ -37,9 +37,10 @@ export function digestChannels(value: unknown): DigestChannel[] {
   return out;
 }
 
+export const MAX_DAILY_LOG_CHANNELS = 50;
 /** `dailyLogChannels` from a guild settings body: `{ channelId, backfill? }` entries, `backfill` a boolean that defaults to true, one entry per channel. */
 export function dailyLogChannels(value: unknown): DailyLogChannel[] {
-  if (!Array.isArray(value) || value.length > MAX_DIGEST_CHANNELS) throw new HTTPException(400, { message: `dailyLogChannels must be an array of at most ${MAX_DIGEST_CHANNELS} entries` });
+  if (!Array.isArray(value) || value.length > MAX_DAILY_LOG_CHANNELS) throw new HTTPException(400, { message: `dailyLogChannels must be an array of at most ${MAX_DAILY_LOG_CHANNELS} entries` });
   const out: DailyLogChannel[] = [];
   for (const entry of value) {
     const channelId = entry && typeof entry === "object" && typeof entry.channelId === "string" ? entry.channelId.trim() : "";

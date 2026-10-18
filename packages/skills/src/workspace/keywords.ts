@@ -1,4 +1,4 @@
-import { asUntrusted } from "../guardrails.js";
+import { asUntrusted, replyObject } from "../guardrails.js";
 import type { Completion } from "../types.js";
 import { workspaceStore } from "./store.js";
 
@@ -21,13 +21,9 @@ const phrases = (v: unknown, max: number) => Array.isArray(v)
 
 /** The topics and keywords in a model reply, or null when it holds none. */
 export function parseKeywords(reply: string): Keywords | null {
-  const start = reply.indexOf("{"), end = reply.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const parsed = JSON.parse(reply.slice(start, end + 1));
-    const found = { topics: phrases(parsed?.topics, MAX_TOPICS), keywords: phrases(parsed?.keywords, MAX_KEYWORDS) };
-    return found.topics.length || found.keywords.length ? found : null;
-  } catch { return null; }
+  const parsed = replyObject(reply);
+  const found = { topics: phrases(parsed?.topics, MAX_TOPICS), keywords: phrases(parsed?.keywords, MAX_KEYWORDS) };
+  return found.topics.length || found.keywords.length ? found : null;
 }
 
 /** `text` without the topics and keywords lines of its head; a head that held nothing else goes with them. */

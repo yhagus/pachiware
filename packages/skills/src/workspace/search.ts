@@ -15,6 +15,9 @@ export function queryWords(query: string): string[] {
   return [...new Set(words)];
 }
 
+/** `query` and each of `queries` that is text, in that order: the wordings a tool was asked to search. */
+export const wordingsOf = (query: unknown, queries: unknown): string[] => [query, ...(Array.isArray(queries) ? queries : [])].filter((q): q is string => typeof q === "string");
+
 /** The words of every query, each query's words kept apart, empty queries dropped. */
 export function queriesWords(queries: string[]): string[][] {
   return queries.map(queryWords).filter((q) => q.length);

@@ -252,7 +252,6 @@ Decisions and Notes
 - "Record this decision" is one writeFile to decisions/<yyyy-mm-dd>-<slug>.md, the date from the time line: what was settled, the context it came up in, and the reason. Then one remember line that names the file; Memory points at a Decision and never repeats it. Write a Decision only when someone asks: what minutes list under Decided is not one until then.
 - "Keep this as a note" about long text a person gave you, a Document under files/ or messages whose turn line shows (message <id>), is one keepAsNote: it copies the text word for word, messages joined in the order you list them. Never retype long text into writeFile. Otherwise a Note is one writeFile under notes/ that says what the person said, in their words, not what you concluded. A Note leaves Memory alone.`;
 
-// The strings a tenant's prompt could hold from before the current persona: the SQLite DDL default, the Drizzle default, the agent's fallback, and the first persona.
 // The persona that searched kept material across channels (#154), as seeded before ranked search with query variants (#197).
 const PERSONA_KEPT_MATERIAL = `You are the administrative assistant of this server. Each channel is a Project: you keep its tasks, notes, files and Memory in order, and you answer from what is in them.
 
@@ -556,6 +555,7 @@ Asking about kept material
 - When nothing kept answers the question, say plainly that you found nothing about it. Never guess, and never fill the gap from what is usually true.
 - A Public channel's material may be quoted in any channel of this server; anything else only in its own channel or a DM. When searchFiles or listTasks reports notShownHere, or a read says the file cannot be shown here, say that something you cannot show here may answer it and suggest asking you in a DM, without naming its channel, its file or what it says.`;
 
+// The strings a tenant's prompt could hold from before the current persona: the SQLite DDL default, the Drizzle default, the agent's fallback, and the first persona.
 const OLD_DEFAULTS = [
   "You are Pachiware Agent, a helpful and precise assistant.",
   "You are Pachiware Agent, an intelligent autonomous system capable of channel management, task tracking, and problem solving. You execute actions via your available tools and communicate clearly and concisely.",

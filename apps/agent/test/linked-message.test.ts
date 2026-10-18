@@ -3,6 +3,8 @@ import { discordScenario, type Scenario } from "./support/discordScenario";
 
 /** Every tool result of the turn as the model read it: the refusal text, or the result itself. */
 const results = (turn: any) => JSON.stringify(turn.toolResults.map((r: any) => r.error ?? r));
+// Not a DM: a DM opens no message link, so the way to the message is the channel it was posted in.
+const NOT_SHOWN_HERE = "That message is in a channel whose messages cannot be shown here. Do not say what or where it is; suggest asking in the channel it was posted in.";
 const link = (channelId: string, messageId: string, guildId = "guild-1") => `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
 
 async function ask(s: Scenario, links: string[], options: { author?: Scenario["discord"]["alice"]; channel?: string } = {}) {
@@ -64,7 +66,7 @@ discordScenario("a non-public channel's message is shown in that channel, refuse
   const target = link("channel-3", board!.id);
 
   const [inGeneral] = await ask(s, [target], { author: alice });
-  expect(inGeneral).toBe("That message is in a channel whose messages cannot be shown here. Do not say what or where it is; suggest asking in a DM instead.");
+  expect(inGeneral).toBe(NOT_SHOWN_HERE);
   const [inDireksi] = await ask(s, [target], { author: alice, channel: "channel-3" });
   expect(inDireksi).toMatchObject({ author: "Bob", text: "Pricing for Q4 is settled" });
   s.discord.channel("dm-alice", { dm: true });
@@ -102,6 +104,6 @@ discordScenario("a non-public channel's thread messages are shown in that channe
   const inOtherPrivate = await ask(s, targets, { author: alice, channel: "thread-other" });
   expect(inOtherPrivate).toEqual([
     expect.objectContaining({ text: "Draft is in the shared folder" }),
-    "That message is in a channel whose messages cannot be shown here. Do not say what or where it is; suggest asking in a DM instead.",
+    NOT_SHOWN_HERE,
   ]);
 });

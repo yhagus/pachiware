@@ -1,9 +1,9 @@
 import { repositories, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type DailyLogChannel, type GuildConfigInput } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { skillRegistry, configuredLanguage, textIn, loadMemory, loadTasks, readInFull, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, isOpen, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
+import { skillRegistry, configuredLanguage, loadMemory, loadTasks, readInFull, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, isOpen, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
 import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
-import { syncDigestSchedules, syncDailyLogSchedules } from "../digest.js";
-import { writeMissingDays, daysBefore, BACKFILL_DAYS } from "../discord/dailyLogDays.js";
+import { syncDigestSchedules } from "../digest.js";
+import { syncDailyLogSchedules, startDailyLogs } from "../discord/dailyLogDays.js";
 import type { DiscordBotManager } from "../discord/client.js";
 
 export type GuildSettings = { systemPrompt: string | null; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; dailyLogChannels: DailyLogChannel[] };
@@ -24,9 +24,8 @@ export async function loadGuildSettings(tenantId: string, botId: string, guildId
 export class DailyLogTaken extends Error {}
 
 /**
- * The one way to change a guild's settings: writes the row, drops the cache, and keeps the Digest and Daily log schedule rows in step with the zone,
- * `digestChannels` and `dailyLogChannels`. A channel another bot of the tenant already logs throws `DailyLogTaken` before anything is written.
- * With `manager`, each channel whose Daily logs were just turned on gets one notice from this bot, in the place's language; a save that changes nothing posts none.
+ * The one way to change a guild's settings: keeps the Digest and Daily log rows in step and starts the Daily logs just turned on (with `manager`).
+ * A channel another bot of the tenant already logs throws `DailyLogTaken` before anything is written.
  */
 export async function saveGuildSettings(tenantId: string, botId: string, guildId: string, input: GuildConfigInput, manager?: Pick<DiscordBotManager, "clientOf" | "adapterOf" | "background">): Promise<GuildSettings> {
   const before = await loadGuildSettings(tenantId, botId, guildId);
@@ -39,16 +38,7 @@ export async function saveGuildSettings(tenantId: string, botId: string, guildId
   await syncDigestSchedules(where, settings.digestChannels);
   await syncDailyLogSchedules(where, settings.dailyLogChannels);
   const turnedOn = settings.dailyLogChannels.filter((e) => !before.dailyLogChannels.some((b) => b.channelId === e.channelId));
-  const notice = textIn(configuredLanguage(settings, agent)).dailyLogNotice;
-  // The setting is saved even when the bot is offline or cannot post there; neither the backfill nor the notice is retried.
-  const bot = manager?.clientOf(botId) ? manager : null;
-  for (const { channelId, backfill } of bot ? turnedOn : []) {
-    bot!.background((async () => {
-      if (backfill) await writeMissingDays(bot!, { ...where, channelId }, daysBefore(where.timezone, now(), BACKFILL_DAYS));
-      const channel: any = await bot!.clientOf(botId)?.channels.fetch(channelId).catch(() => null);
-      if (channel?.isTextBased?.()) await channel.send({ content: notice(backfill), allowedMentions: { parse: [] } }).catch(() => {});
-    })());
-  }
+  if (manager) startDailyLogs(manager, where, turnedOn, configuredLanguage(settings, agent));
   return settings;
 }
 

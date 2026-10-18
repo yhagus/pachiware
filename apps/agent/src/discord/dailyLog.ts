@@ -1,6 +1,6 @@
-import { workspaceStore, WorkspaceConflict, parseFrontmatter, renderFrontmatter, asUntrusted, redact, loadPlaybook, listPlaybooks, availabilityPlace, skillRegistry, jumpLink, wallClock, wallToInstant, type Playbook } from "@pachiware/skills";
+import { workspaceStore, WorkspaceConflict, parseFrontmatter, renderFrontmatter, asUntrusted, redact, loadPlaybook, listPlaybooks, availabilityPlace, skillRegistry, jumpLink, wallClock, wallToInstant, replyObject, addDays, DAY_MS, type Playbook } from "@pachiware/skills";
 import { botCompletion } from "../llm/completion.js";
-import { stamp, transcript, type DiscordJSAdapter, type HistoryCut } from "./adapter.js";
+import { stamp, transcript, type DiscordJSAdapter } from "./adapter.js";
 
 /** The built-in, reference-only playbook whose steps the Daily log follows; a tenant playbook of the same name changes the steps, not where the file goes. */
 export const DAILY_LOG_PLAYBOOK = "daily-log";
@@ -25,22 +25,16 @@ export interface DailyLogRun {
 /** `exists`: that day already has its Daily log, which is never rewritten. `empty`: no message from people that day. `off`: an Availability rule turns the playbook off there. */
 export type DailyLogResult = "written" | "exists" | "empty" | "off" | "failed";
 
-const DAY_MS = 24 * 3600_000;
 /** Messages one model call reads; a busier day is read in parts and the parts joined. */
 const PART = 500;
-/** The most messages of one day read at all; past it the latest are kept and the file says where reading stopped. */
+/** The most messages of one day read at all, from its start; the file says where reading stopped. */
 const DAY_LIMIT = 5_000;
-const date = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10);
 /** The date of the day before the one `at` falls on in `zone`. */
-export const dayBefore = (zone: string, at: number) => { const w = wallClock(zone, at); return date(w.year, w.month, w.day - 1); };
+export const dayBefore = (zone: string, at: number) => { const w = wallClock(zone, at); return addDays(new Date(Date.UTC(w.year, w.month - 1, w.day)).toISOString().slice(0, 10), -1); };
 /** Where a day starts and ends in `zone`; a day across a DST change is 23 or 25 hours. */
 export function daySpan(zone: string, day: string) {
-  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
-  const next = new Date(Date.UTC(y, m - 1, d) + DAY_MS);
-  return {
-    since: wallToInstant(zone, { year: y, month: m, day: d, hour: 0, minute: 0 }),
-    until: wallToInstant(zone, { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1, day: next.getUTCDate(), hour: 0, minute: 0 }),
-  };
+  const midnight = (date: string) => { const [year, month, d] = date.split("-").map(Number) as [number, number, number]; return wallToInstant(zone, { year, month, day: d, hour: 0, minute: 0 }); };
+  return { since: midnight(day), until: midnight(addDays(day, 1)) };
 }
 export const dailyLogPath = (guildId: string, channelId: string, day: string) => `guilds/${guildId}/channels/${channelId}/${DAILY_LOG_FOLDER}/${day}.md`;
 
@@ -53,7 +47,7 @@ export async function writeDailyLog(run: DailyLogRun): Promise<DailyLogResult> {
   if ((await skillRegistry.availableAt(place, playbooks)).playbookCause(DAILY_LOG_PLAYBOOK)) return "off";
   const playbook = await loadPlaybook(run.tenantId, DAILY_LOG_PLAYBOOK);
   if (!playbook) return "off";
-  const { messages, cut } = await run.adapter.readSpan(run.channelId, daySpan(run.timezone, run.day), DAY_LIMIT);
+  const { messages, stoppedAt } = await run.adapter.readSpan(run.channelId, daySpan(run.timezone, run.day), DAY_LIMIT);
   if (!messages.length) return "empty";
   const complete = botCompletion(run.tenantId, run.botId), count = Math.ceil(messages.length / PART);
   const parts: DailyLog[] = [];
@@ -62,7 +56,7 @@ export async function writeDailyLog(run: DailyLogRun): Promise<DailyLogResult> {
     const which = count > 1 ? `, part ${from / PART + 1} of ${count} (messages ${from + 1}-${from + part.length} of ${messages.length})` : "";
     const content = await complete({
       system: systemPrompt(playbook),
-      user: `Messages of #${run.channelName} on ${run.day}, oldest first${which}${cut ? `; only the last ${messages.length} were read, everything before ${stamp(cut.keptFrom)} UTC was left out` : ""}:\n${asUntrusted("discord:history", transcript(part))}`,
+      user: `Messages of #${run.channelName} on ${run.day}, oldest first${which}${stoppedAt ? `; reading stopped at ${messages.length} messages, nothing after ${stamp(stoppedAt)} UTC was read` : ""}:\n${asUntrusted("discord:history", transcript(part))}`,
     });
     const links = part.map((m) => jumpLink(run.guildId, m.channelId, m.id));
     const log = content === null ? null : parseDailyLog(content, links, part.map((m) => `${m.speaker}\n${m.text}`).join("\n"));
@@ -70,7 +64,7 @@ export async function writeDailyLog(run: DailyLogRun): Promise<DailyLogResult> {
     parts.push(log);
   }
   const log = joinParts(parts);
-  const header = { count: messages.length, participants: [...new Set(messages.map((m) => m.speaker))], cut };
+  const header = { count: messages.length, participants: [...new Set(messages.map((m) => m.speaker))], stoppedAt };
   await store.write(run.tenantId, path, recordText(run, header, log));
   return "written";
 }
@@ -85,10 +79,8 @@ const words = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map(clean)
 
 /** The model's JSON as a Daily log; an item resting on no message of the day is dropped, and an owner the talk never named is cleared. */
 export function parseDailyLog(content: string | null, links: string[], corpus: string): DailyLog | null {
-  const text = content ?? "";
-  let raw: any;
-  try { raw = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)); } catch { return null; }
-  if (!raw || typeof raw !== "object") return null;
+  const raw = replyObject(content);
+  if (!raw) return null;
   const list = (v: unknown): any[] => (Array.isArray(v) ? v : []);
   const linksOf = (i: any) => [...new Set([...list(i?.refs), i?.ref].flatMap((ref) => (Number.isInteger(ref) && links[ref - 1] ? [links[ref - 1]!] : [])))];
   const items = (v: unknown) => list(v).flatMap((i) => { const l = linksOf(i), t = clean(i?.text); return l.length && t ? [{ text: t, links: l }] : []; });
@@ -117,29 +109,33 @@ export function joinParts(parts: DailyLog[]): DailyLog {
   return { topics: [...topics.values()], decided: parts.flatMap((p) => p.decided), open: parts.flatMap((p) => p.open), next: parts.flatMap((p) => p.next), labels: parts[0]!.labels };
 }
 
-type Header = { count: number; participants: string[]; cut: HistoryCut | null };
+type Header = { count: number; participants: string[]; stoppedAt: number | null };
+type Part = "topics" | "decided" | "open" | "next";
+type Place = Pick<DailyLogRun, "guildId" | "channelId" | "channelName" | "day" | "timezone">;
 
-/** Items are numbered across all sections, as in Minutes; every item ends with its message links. `leaveOutEmpty` drops a part with no items instead of saying "None". */
-function render(run: DailyLogRun, h: Header, log: DailyLog, leaveOutEmpty = false) {
+const topicKeywords = (t: Topic) => [...t.keywords.id, ...t.keywords.en];
+const allKeywords = (log: DailyLog) => [...new Set(log.topics.flatMap(topicKeywords))];
+
+/** Items are numbered across all sections, as in Minutes; every item ends with its message links. A part in `leftOut` is not shown; any other empty part says "None". */
+function render(run: Place, h: Header, log: DailyLog, leftOut: Part[] = []) {
   let n = 0;
   const row = (text: string, links: string[]) => `${++n}. ${text} ${links.map((l) => `[↗](${l})`).join(" ")}`;
-  const keywords = (t: Topic) => [...t.keywords.id, ...t.keywords.en];
   const block = (label: string, rows: string[]) => `## ${label}\n${rows.length ? rows.join("\n") : `*${log.labels.none}*`}`;
   const head = [
     `Topics: ${log.topics.map((t) => t.name).join(", ")}`,
-    `Keywords: ${[...new Set(log.topics.flatMap(keywords))].join(", ")}`,
+    `Keywords: ${allKeywords(log).join(", ")}`,
     `${h.count} messages from ${h.participants.join(", ")}`,
-    ...(h.cut ? [`*Only the last ${h.count} messages were read: everything before ${stamp(h.cut.keptFrom)} UTC was left out.*`] : []),
+    ...(h.stoppedAt ? [`*Reading stopped at ${h.count} messages: nothing after ${stamp(h.stoppedAt)} UTC was read.*`] : []),
   ].join("\n");
-  const parts: [string, string[]][] = [
-    [log.labels.topics, log.topics.map((t) => row(keywords(t).length ? `${t.name}: ${keywords(t).join(", ")}` : t.name, t.links))],
-    [log.labels.decided, log.decided.map((i) => row(i.text, i.links))],
-    [log.labels.open, log.open.map((i) => row(i.text, i.links))],
-    [log.labels.next, log.next.map((a) => row(`${a.owner ? `**${a.owner}**` : `*${log.labels.noOwner}*`}: ${a.task}${a.due ? ` (${log.labels.due} ${a.due})` : ""}`, a.links))],
+  const parts: [Part, string, string[]][] = [
+    ["topics", log.labels.topics, log.topics.map((t) => row(topicKeywords(t).length ? `${t.name}: ${topicKeywords(t).join(", ")}` : t.name, t.links))],
+    ["decided", log.labels.decided, log.decided.map((i) => row(i.text, i.links))],
+    ["open", log.labels.open, log.open.map((i) => row(i.text, i.links))],
+    ["next", log.labels.next, log.next.map((a) => row(`${a.owner ? `**${a.owner}**` : `*${log.labels.noOwner}*`}: ${a.task}${a.due ? ` (${log.labels.due} ${a.due})` : ""}`, a.links))],
   ];
   return [
     `# Daily log #${run.channelName}, ${run.day}\n\n${head}`,
-    ...parts.filter(([, rows]) => rows.length || !leaveOutEmpty).map(([label, rows]) => block(label, rows)),
+    ...parts.filter(([part]) => !leftOut.includes(part)).map(([, label, rows]) => block(label, rows)),
   ].join("\n\n");
 }
 
@@ -147,20 +143,22 @@ function render(run: DailyLogRun, h: Header, log: DailyLog, leaveOutEmpty = fals
  * The fields at the top keep the log whole, so a later change (a deleted message) can rewrite the file from them.
  * `topics` and `keywords` end the head, as `addKeywords` writes them on other kept material.
  */
-function recordText(run: Omit<DailyLogRun, "adapter" | "botId" | "tenantId">, h: Header, log: DailyLog, leaveOutEmpty = false) {
+function recordText(run: Place, h: Header, log: DailyLog, leftOut: Part[] = []) {
   const fields = {
     kind: "daily-log", guildId: run.guildId, channelId: run.channelId, channel: run.channelName, day: run.day, timezone: run.timezone,
-    header: h, log,
-    topics: log.topics.map((t) => t.name), keywords: [...new Set(log.topics.flatMap((t) => [...t.keywords.id, ...t.keywords.en]))],
+    header: h, log, ...(leftOut.length ? { leftOut } : {}),
+    topics: log.topics.map((t) => t.name), keywords: allKeywords(log),
   };
-  return renderFrontmatter(fields, `${render(run as DailyLogRun, h, log, leaveOutEmpty)}\n`);
+  return renderFrontmatter(fields, `${render(run, h, log, leftOut)}\n`);
 }
 
 /** A message deleted in Discord: its link leaves `channelId`'s Daily logs, i.e. the parent channel's for a thread's message. */
 export interface DeletedMessage { tenantId: string; guildId: string; channelId: string; messageChannelId: string; messageId: string; createdAt: number }
 
+const PARTS: Part[] = ["topics", "decided", "open", "next"];
+
 /**
- * Takes a deleted message's link out of the Daily log holding it; an item left with no link goes, and so does a part left empty.
+ * Takes a deleted message's link out of the Daily log holding it; an item left with no link goes, and so does a part a deletion emptied.
  * Only the files of the days around the message's creation are read: any place's zone puts it within a day of its UTC date.
  */
 export async function forgetDeletedMessage(m: DeletedMessage) {
@@ -175,8 +173,10 @@ export async function forgetDeletedMessage(m: DeletedMessage) {
       if (!fields?.log) break;
       const keep = <T extends { links: string[] }>(items: T[]) => items.map((i) => ({ ...i, links: i.links.filter((l) => l !== link) })).filter((i) => i.links.length);
       const log: DailyLog = { ...fields.log, topics: keep(fields.log.topics), decided: keep(fields.log.decided), open: keep(fields.log.open), next: keep(fields.log.next) };
+      const emptied = PARTS.filter((part) => fields.log[part].length && !log[part].length);
+      const leftOut = [...new Set([...(fields.leftOut ?? []), ...emptied])];
       const run = { guildId: fields.guildId, channelId: fields.channelId, channelName: fields.channel, day: fields.day, timezone: fields.timezone };
-      try { await store.write(m.tenantId, path, recordText(run, fields.header, log, true), file.version); return; } catch (e) { if (!(e instanceof WorkspaceConflict)) throw e; }
+      try { await store.write(m.tenantId, path, recordText(run, fields.header, log, leftOut), file.version); return; } catch (e) { if (!(e instanceof WorkspaceConflict)) throw e; }
     }
   }
 }

@@ -68,7 +68,7 @@ discordScenario("on GitLab a merged merge request in a named repository is repor
 });
 
 discordScenario("without a Git scope for this place, the search says git is not enabled here and asks the provider nothing", async (s) => {
-  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const { repositories } = await import("@pachiware/db");
   await s.git({ provider: "github", repos: ["acme/*"] });
   await repositories().git.replaceScopes(s.tenant.id, s.bot.id, "guild-1", "", []);
   github(s);

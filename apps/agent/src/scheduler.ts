@@ -1,12 +1,22 @@
 import { repositories, type Schedule } from "@pachiware/db";
 import { now, nextOccurrence, wallClock, hhmm, LATE_LIMIT_MS, LATE_NOTE_MS, MAX_POST_ATTEMPTS, MESSAGE_LIMIT, configuredLanguage, textIn, readGroups, MAX_SCOPED, workspaceStore, taskLine, isOpen, scopeSources, tasksIn, inScope, groupTasks, type DiscordClientAdapter, type TaskSource, type Strings } from "@pachiware/skills";
 import { loadGuildSettings } from "./loop/prompt.js";
-import { digestLines } from "./digest.js";
+import { digestLines, syncDigestSchedules } from "./digest.js";
 import { dayBefore } from "./discord/dailyLog.js";
-import { writeMissingDays, daysBefore, daysFrom, CATCH_UP_DAYS } from "./discord/dailyLogDays.js";
+import { writeMissingDays, daysBefore, daysFrom, syncDailyLogSchedules, CATCH_UP_DAYS } from "./discord/dailyLogDays.js";
 import type { DiscordBotManager } from "./discord/client.js";
 
 export const SCHEDULER_INTERVAL_MS = 60_000;
+
+/** After the tenant's zone changed: the guilds without a zone of their own follow it, so their Digest and Daily log rows move with it. */
+export async function syncTenantSchedules(tenantId: string, timezone: string) {
+  const guilds = (await repositories().bots.listGuildConfigs(tenantId)).filter((guild) => guild.timezone === null);
+  for (const guild of guilds) {
+    const where = { tenantId, botId: guild.botId, guildId: guild.guildId, timezone };
+    if (guild.digestChannels.length) await syncDigestSchedules(where, guild.digestChannels);
+    if (guild.dailyLogChannels.length) await syncDailyLogSchedules(where, guild.dailyLogChannels);
+  }
+}
 let running: Promise<void> | null = null;
 
 /** One scheduler pass: every active row due at `at` is posted through its bot's client and moved on. A pass still running when the next starts is awaited, never doubled. */
@@ -39,9 +49,8 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
 }
 
 /**
- * The Daily logs of the day before the row came due and of every day since, never late: nights missed while the bot was down are written,
- * the last CATCH_UP_DAYS at most, with the owning bot's Profile and never posted. A failed day is not retried here: the row moves on either way,
- * since a row that keeps failing would end as done and stop the channel's Daily logs; the next start's catch-up writes it.
+ * Writes the Daily logs from the day before the row came due up to yesterday, the last CATCH_UP_DAYS at most, and posts nothing.
+ * The row moves on even when a day fails, since a failing row would end as done; the next start's catch-up writes that day.
  */
 async function dailyLog(manager: DiscordBotManager, row: Schedule, at: number) {
   if (!row.guildId) return;

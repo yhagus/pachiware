@@ -6,6 +6,7 @@ import type { ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeList, planeRequest, inWorkspace, type Obj } from "./client.js";
 import { planeProjectAllowed } from "./scope.js";
 import { planeMarkdown, planeText } from "./markdown.js";
+import { queriesWords, wordingsOf } from "../workspace/search.js";
 import { planeTarget, findPlaneProject, projectHead, ACCOUNT_ARG, type PlaneTarget } from "./projectRef.js";
 import { resolveWorkItem, workItemPath, workItemKey, planeUserName, planeUserAliases, matchByName, projectMembers, ME, type ResolvedWorkItem } from "./resolve.js";
 
@@ -119,7 +120,7 @@ function listFilters(args: Obj): { filters: ListFilter[]; since: number | null }
   }
   const words = text(args.text)?.toLowerCase();
   if (words) filters.push((it) => `${it.key} ${it.name}`.toLowerCase().includes(words));
-  const wordings = (Array.isArray(args.queries) ? args.queries : []).map(text).filter((q): q is string => !!q).map((q) => q.toLowerCase().split(/\s+/));
+  const wordings = queriesWords(wordingsOf(undefined, args.queries));
   if (wordings.length) filters.push((it) => { const title = `${it.key} ${it.name}`.toLowerCase(); return wordings.some((ws) => ws.every((w) => title.includes(w))); });
   let since: number | null = null;
   const changed = text(args.changedSince);

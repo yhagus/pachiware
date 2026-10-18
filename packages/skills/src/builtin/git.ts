@@ -8,6 +8,7 @@ import { playbookRepositoryTools, playbookRepositoryHandlers } from "./playbookR
 import { playbookDocumentTools, playbookDocumentHandlers } from "./playbookDocuments.js";
 import { issueBatchTools, issueBatchHandlers } from "./issueBatch.js";
 import { gitToolPolicy, GIT_GROUPS } from "./gitPolicy.js";
+import { wordingsOf } from "../workspace/search.js";
 
 export const gitTools: ToolDefinition[] = [
   { name: "gitAccounts", description: "Lists the git accounts you may use in this channel, with the repository patterns each is limited to. Call it first when unsure which account to use.",
@@ -171,7 +172,7 @@ export const gitRepositorySkill: SkillModule = {
     repoIssue: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return getIssue(conn, repo, num(a.number)); },
     repoComments: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return itemComments(conn, repo, num(a.number), kindOf(a.kind), page(a.page)); },
     repoSearchWork: async (a, ctx) => {
-      const queries = [...(Array.isArray(a?.queries) ? a.queries : []), a?.query].filter((q): q is string => typeof q === "string" && !!q.trim()).map((q) => q.trim()).slice(0, MAX_WORK_QUERIES);
+      const queries = wordingsOf(a?.query, a?.queries).map((q) => q.trim()).filter(Boolean).slice(0, MAX_WORK_QUERIES);
       if (!queries.length) throw new Error(`Pass "queries": wordings of the work, such as ["normalisasi audio", "audio normalization"]`);
       if (typeof a?.repo === "string" && a.repo.trim()) {
         const { conn, repo } = await useRepo(a, ctx);

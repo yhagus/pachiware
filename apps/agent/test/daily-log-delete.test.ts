@@ -5,7 +5,7 @@ const FILE = "guilds/guild-1/channels/channel-1/daily-logs/2026-03-06.md";
 const link = (channelId: string, id: string) => `https://discord.com/channels/guild-1/${channelId}/${id}`;
 const at = (time: string) => Date.parse(`2026-03-06T${time}:00+07:00`);
 
-discordScenario("deleting one of two messages behind an item removes only its link, and deleting the only one removes the item and its empty part", async (s) => {
+discordScenario("deleting one of two messages behind an item removes only its link, and deleting the only one removes the item and the part it emptied", async (s) => {
   const { alice, bob } = s.discord;
   s.clock.set("2026-03-06T08:00:00+07:00");
   await s.guildSettings({ dailyLogChannels: [{ channelId: "channel-1", backfill: false }] });
@@ -35,6 +35,7 @@ discordScenario("deleting one of two messages behind an item removes only its li
   expect(log).not.toContain("Who announces the release");
   expect(log).not.toContain("## Still open");
   expect(log).toContain("## Decided\n2. Release on Friday");
+  expect(log).toContain("## Who does what next\n*None*");
   expect(log).toContain("Topics: Release day");
   expect(log).toContain("Keywords: hari rilis, release day");
   expect(s.discord.botMessages).toEqual([]);

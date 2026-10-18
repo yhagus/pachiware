@@ -206,8 +206,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     return guild;
   };
   const GUILD = makeGuild("guild-1", "Acme");
+  // Like Discord's, an id carries its creation time in its top bits, so a page after a time's id starts at that time; ids still only grow.
   let nextId = 1000n;
-  const snowflake = () => String(nextId++);
+  const snowflake = (at = clockNow()) => { const timed = BigInt(Math.max(0, at - 1_420_070_400_000)) << 22n; nextId = timed > nextId ? timed : nextId; return String(nextId++); };
   const channels = new Map<string, any>();
   const botMessages: FakeMessage[] = [];
   // Messages each bot user posted, by user id; the default bot's are `botMessages`.
@@ -245,7 +246,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       if (typeof query === "string") { const found = channel.messages.find((m: FakeMessage) => m.id === query); if (!found) throw new Error("Unknown Message"); return found; }
       channel.fetches++;
       const list = (channel.messages as FakeMessage[]).filter((m) => (!query?.before || BigInt(m.id) < BigInt(query.before)) && (!query?.after || BigInt(m.id) > BigInt(query.after)));
-      return new Collection(list.slice(-(query?.limit ?? 50)).reverse().map((m) => [m.id, m]));
+      // Like Discord's, a page after an id holds the messages right after it; any other page holds the latest. Newest first either way.
+      const page = query?.after && !query.before ? list.slice(0, query.limit ?? 50) : list.slice(-(query?.limit ?? 50));
+      return new Collection(page.reverse().map((m) => [m.id, m]));
     };
     // Like Discord's, the active list holds every thread under the channel, private ones included; none is archived.
     if (!o.thread && !o.dm) channel.threads = {
@@ -260,7 +263,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     const body = normalize(payload);
     const mentioned = new Collection<string, any>([...body.content.matchAll(/<@!?(\w[\w-]*)>/g)].map(([, id]) => [id, { id }]));
     const message: any = {
-      id: snowflake(), channelId: channel.id, guildId: channel.guildId, author: { ...author, username: author.username ?? author.name }, ...body,
+      id: snowflake(extra.at), channelId: channel.id, guildId: channel.guildId, author: { ...author, username: author.username ?? author.name }, ...body,
       allowedMentions: typeof payload === "string" ? undefined : (payload as any).allowedMentions,
       reactions: [], edits: [], reference: extra.reference ? { messageId: extra.reference } : undefined, thread: undefined, pinned: false,
       channel, guild: channel.guild,

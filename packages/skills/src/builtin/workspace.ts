@@ -11,7 +11,7 @@ import { forget, memoryLevel, remember } from "../workspace/memory.js";
 import { fileDocument, isDocument } from "../workspace/files.js";
 import { keepNote, keptDocument, keptMessages, MAX_KEPT_MESSAGES } from "../workspace/notes.js";
 import { addKeywords } from "../workspace/keywords.js";
-import { capMatches, queriesWords, shownMatch, type FileMatch } from "../workspace/search.js";
+import { capMatches, queriesWords, shownMatch, wordingsOf, type FileMatch } from "../workspace/search.js";
 import { namesChannel, readableSources, searchSource, searchSources, sourcePath } from "../workspace/sources.js";
 import { textIn } from "../language.js";
 import { hasPermission } from "../permissions.js";
@@ -200,8 +200,7 @@ export const workspaceSkill: SkillModule = {
     writeIssueDraft,
     describeBriefImages,
     searchFiles: async (args, ctx) => {
-      const asked = [args.query, ...(Array.isArray(args.queries) ? args.queries : [])].filter((q): q is string => typeof q === "string");
-      const queries = queriesWords(asked), words = [...new Set(queries.flat())];
+      const queries = queriesWords(wordingsOf(args.query, args.queries)), words = [...new Set(queries.flat())];
       if (!words.length) throw new Error("query is required");
       const store = workspaceStore(), wanted = typeof args.path === "string" ? args.path.trim() : "";
       if (!wanted) {

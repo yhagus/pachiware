@@ -55,6 +55,29 @@ afterAll(async () => {
     }
   });
 
+  test("a prompt still equal to an old default gets the current persona; an edited or custom prompt stays", async () => {
+    const connection = connect();
+    await migrateMongo(connection, MONGO_MIGRATIONS.filter((step) => !step.id.includes("default-persona")));
+    const { tenants } = createRepositories(connection);
+    const configs = connection.db.collection<{ _id: string; systemPrompt: string }>("agents_config");
+    // The default before the first persona, as seeded by every engine.
+    const prompts = ["You are Pachiware Agent, a helpful and precise assistant.", "You are Pachiware Agent, a helpful and precise assistant. Answer in Javanese.", "custom persona"];
+    const ids: string[] = [];
+    for (const prompt of prompts) {
+      const tenant = await tenants.create({ name: `t${ids.length}`, slug: `t${ids.length}` });
+      await configs.updateOne({ _id: tenant.id }, { $set: { systemPrompt: prompt } });
+      ids.push(tenant.id);
+    }
+
+    await migrateMongo(connection);
+
+    const read = async (id: string) => (await configs.findOne({ _id: id }))!.systemPrompt;
+    const [moved, edited, custom] = await Promise.all(ids.map(read));
+    expect(moved).toMatch(/^You are the administrative assistant of this server\./);
+    expect(edited).toBe("You are Pachiware Agent, a helpful and precise assistant. Answer in Javanese.");
+    expect(custom).toBe("custom persona");
+  });
+
   test("migrating twice at once leaves a working database", async () => {
     await Promise.all([migrateMongo(connect()), migrateMongo(connect())]);
     const { tenants } = createRepositories(connect());

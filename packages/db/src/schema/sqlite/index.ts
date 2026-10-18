@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 import { randomUUID } from "crypto";
 import type { DigestChannel, DailyLogChannel } from "../types.js";
+import type { ScheduleKind } from "../../repositories/schedules/types.js";
 
 /**
  * SQLite mirror of the PostgreSQL schema.
@@ -124,7 +125,7 @@ export const availabilityRules = sqliteTable("availability_rules", {
 
 export const schedules = sqliteTable("schedules", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id").notNull(),
-  kind: text("kind").$type<"reminder" | "digest" | "daily-log">().notNull().default("reminder"), guildId: text("guild_id"), channelId: text("channel_id").notNull(),
+  kind: text("kind").$type<ScheduleKind>().notNull().default("reminder"), guildId: text("guild_id"), channelId: text("channel_id").notNull(),
   ownerId: text("owner_id"), ownerName: text("owner_name"), text: text("text").notNull().default(""), withTasks: integer("with_tasks", { mode: "boolean" }).notNull().default(false),
   mentions: text("mentions", { mode: "json" }).$type<string[]>().notNull().default([]),
   recurrence: text("recurrence").$type<"once" | "daily" | "weekly" | "monthly">().notNull().default("once"), weekdays: text("weekdays", { mode: "json" }).$type<number[]>().notNull().default([]), dayOfMonth: integer("day_of_month"),

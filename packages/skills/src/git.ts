@@ -1,3 +1,5 @@
+import { queriesWords } from "./workspace/search.js";
+
 export type GitProvider = "github" | "gitlab";
 export const GIT_PROVIDERS: GitProvider[] = ["github", "gitlab"];
 
@@ -606,7 +608,7 @@ export async function searchWork(c: GitConn, repo: string, queries: string[]): P
         add({ repo, kind: "issue", number: r.iid, title: r.title, state: normState(r.state), date: r.closed_at ?? r.updated_at ?? null, url: r.web_url });
     }
   }
-  const wanted = queries.map((q) => q.toLowerCase().split(/\s+/).filter(Boolean)).filter((w) => w.length);
+  const wanted = queriesWords(queries);
   const commits: any[] = (await call(c, `${ref}/${gh ? "commits" : "repository/commits"}?per_page=${RECENT_COMMITS}`)) ?? [];
   for (const r of commits) {
     const message = String((gh ? r.commit?.message : r.message ?? r.title) ?? "");

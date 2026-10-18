@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { repositories, encryptSecret, decryptSecret } from "@pachiware/db";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
-import { syncTenantSchedules } from "../../digest.js";
+import { syncTenantSchedules } from "../../scheduler.js";
 import { LLMRouter } from "../../llm/router.js";
 import { isProvider } from "../../llm/providers.js";
 import { maskConfig, object, placeSettings } from "../validation.js";

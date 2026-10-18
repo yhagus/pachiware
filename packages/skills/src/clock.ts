@@ -27,6 +27,10 @@ export const hhmm = (hour: number, minute: number) => `${two(hour)}:${two(minute
 /** "+07:00" for an offset in minutes. */
 export const offsetText = (minutes: number) => `${minutes < 0 ? "-" : "+"}${hhmm(Math.floor(Math.abs(minutes) / 60), Math.abs(minutes) % 60)}`;
 
+export const DAY_MS = 24 * 60 * 60_000;
+/** The "YYYY-MM-DD" date `days` after `day`, or before it when negative. */
+export const addDays = (day: string, days: number) => new Date(Date.parse(`${day}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+
 export type WallClock = { year: number; month: number; day: number; hour: number; minute: number; second: number };
 
 /** What a clock on the wall in `timeZone` shows at `at`. */

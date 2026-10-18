@@ -9,6 +9,7 @@ import { PRIORITIES, STATUSES, dueAtArg, dueBound, dueMoment, isLate, isOpen, lo
 import { findProject, linkHeld, mustHold, personalTasksOf, taskChannelOf } from "./taskAccess.js";
 import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, anywhereSources, groupTasks, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
 import { textIn } from "../language.js";
+import { queriesWords, wordingsOf } from "../workspace/search.js";
 import { DEFAULT_TIMEZONE, now, today } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
@@ -208,7 +209,7 @@ export const taskManagementSkill: SkillModule = {
       const assigned = args.assignedTo ? await assigneeFilter(args.assignedTo, ctx) : () => true;
       const store = workspaceStore(), sources = scope === "here" ? null : scope === "anywhere" ? await anywhereSources(store, ctx) : await scopeSources(store, ctx);
       const tasks = sources ? await tasksIn(store, ctx.tenantId, sources) : await loadTasks(store, ctx), whose = inScope(scope, ctx);
-      const status = args.status ?? (scope === "anywhere" ? "all" : undefined), queries = queriesOf(args.query, args.queries);
+      const status = args.status ?? (scope === "anywhere" ? "all" : undefined), queries = queriesWords(wordingsOf(args.query, args.queries));
       const all = (queries.length ? await matching(store, ctx.tenantId, tasks, queries) : tasks)
         .map((f) => ({ f, t: f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
         .filter(({ f, t }) => (status === "all" || (status ? t.status === status : sources ? isOpen(t) : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(f))
@@ -328,11 +329,6 @@ async function labelTaskFolder(ctx: SkillContext) {
   if (roots.channel) await labelFolder(ctx, "guild");
   try { if (!(await workspaceStore().read(ctx.tenantId, name))) await workspaceStore().write(ctx.tenantId, name, "Tasks"); } catch {}
 }
-
-/** The words of `query` and of each of `queries`, one list per wording, lower case; wordings without words are dropped. */
-const queriesOf = (query: unknown, queries: unknown): string[][] =>
-  [query, ...(Array.isArray(queries) ? queries : [])].filter((q): q is string => typeof q === "string")
-    .map((q) => q.toLowerCase().split(/\s+/).filter(Boolean)).filter((words) => words.length);
 
 /** The tasks whose title or description contains every word of one of the queries, ignoring case. Read in full: `loadTasks` reads frontmatter only. */
 async function matching(store: WorkspaceStore, tenantId: string, found: Found[], queries: string[][]): Promise<Found[]> {

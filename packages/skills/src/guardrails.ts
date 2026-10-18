@@ -77,6 +77,12 @@ export function redact(text: string): string {
 }
 /** Tool output is data. The tags tell the model so; a closing tag inside the data cannot end the block early. */
 export const asUntrusted = (source: string, text: string) => `<untrusted_data source="${source}">\n${text.replace(/<\/?untrusted_data[^>]*>/gi, "")}\n</untrusted_data>`;
+/** The JSON object a model reply holds, from its first "{" to its last "}"; null when there is none. */
+export function replyObject(reply: string | null): Record<string, any> | null {
+  const text = reply ?? "", start = text.indexOf("{"), end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try { const parsed = JSON.parse(text.slice(start, end + 1)); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null; } catch { return null; }
+}
 
 const DISCOVERY = /\b(what (can|do) you (do|support)|your (skills|tools|capabilities|abilities)|which (skills|tools)|apa (saja )?yang (bisa|dapat) (kamu|kau|anda)|kamu bisa apa|fitur apa)\b/i;
 
