@@ -1,0 +1,38 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "recall-done-other-channel",
+  "turns": [
+    {
+      "n": 1,
+      "message": "was audio normalization ever discussed here, and is it done?",
+      "replies": [
+        "Discussed: #channel-1, 2026-10-06, Podcast sync Minutes; decided every episode is normalized to -16 LUFS.\nDone or not: #audio: completed | no due date | Dewi | 00000001 | Normalize podcast audio to -16 LUFS"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Normalize podcast audio to -16 LUFS",
+            "status": "completed",
+            "dueAt": null,
+            "assignedTo": "Dewi",
+            "createdByName": "Alice",
+            "channel": "#audio"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

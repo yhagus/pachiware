@@ -287,6 +287,25 @@ discordScenario("dry run: recall-decision-replaced finds both support-hours Deci
   expect(output.turns[0].replies).toEqual(["Support runs 08:00 to 20:00 on weekdays, decided in #support on 2026-10-09. It replaced the 09:00 to 17:00 hours decided in #channel-1 on 2026-09-21."]);
 });
 
+discordScenario("dry run: recall-done-other-channel finds the Minutes here and the completed Task in #audio, searched in one turn", async (s) => {
+  s.model.script(
+    [{ tool: "searchFiles", args: { queries: ["audio normalization", "normalisasi audio"] } }, { tool: "listTasks", args: { scope: "anywhere", queries: ["audio normalization", "normalize audio", "normalisasi audio"] } }],
+    (turn) => {
+      const [files, tasks] = turn.toolResults;
+      const minutes = files.groups[0], task = tasks.groups[0];
+      return [
+        `Discussed: ${minutes.channel}, ${minutes.matches[0].path.split("/").pop().slice(0, 10)}, Podcast sync Minutes; decided every episode is normalized to -16 LUFS.`,
+        `Done or not: ${task.group}: ${task.tasks[0].line}`,
+      ].join("\n");
+    },
+  );
+  const output = await dryRun(s, "recall-done-other-channel");
+  expect(output.turns[0].replies).toEqual([[
+    "Discussed: #channel-1, 2026-10-06, Podcast sync Minutes; decided every episode is normalized to -16 LUFS.",
+    "Done or not: #audio: completed | no due date | Dewi | 00000001 | Normalize podcast audio to -16 LUFS",
+  ].join("\n")]);
+});
+
 discordScenario("dry run: a judge over HTTP grades a daily-behaviour trial, and the report reads per turn", async (s) => {
   const { runAssistantTrial } = await import(`${EVAL()}/assistantRun.ts`);
   const { loadAssistantFixtures } = await import(`${EVAL()}/assistantFixtures.ts`);

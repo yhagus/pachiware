@@ -76,7 +76,9 @@ export const LANGUAGES: { id: Language; name: string }[] = [{ id: "id", name: "I
 export interface TenantSettings { timezone: string; language: Language; }
 /** A channel opted in to the daily Digest and the hour (0 to 23, in the server's zone) it posts at. */
 export interface DigestChannel { channelId: string; hour: number; }
-export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; }
+/** A channel this bot writes a Daily log of every night; `backfill` asks for the last 30 days when it is turned on. */
+export interface DailyLogChannel { channelId: string; backfill: boolean; }
+export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; dailyLogChannels: DailyLogChannel[]; }
 export interface GitRule { gitAccountId: string; repoPatterns: string[]; }
 export interface GuildGit { accounts: { id: string; name: string; provider: "github" | "gitlab"; username: string }[]; server: GitRule[]; channels: Record<string, GitRule[]>; }
 /** A Plane scope rule: Plane project ids, or ["*"] for every Plane project of the account. */

@@ -7,7 +7,8 @@ import { checklistOf, checklistLine, tickItem } from "./checklist.js";
 import { noteLine, progressNote } from "./progressNotes.js";
 import { PRIORITIES, STATUSES, dueAtArg, dueBound, dueMoment, isLate, isOpen, loadTasks, parseTask, readInFull, render, slug, taskLine, type Found, type Task, type TaskPriority, type TaskStatus } from "./taskFile.js";
 import { findProject, linkHeld, mustHold, personalTasksOf, taskChannelOf } from "./taskAccess.js";
-import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, groupTasks, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
+import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, anywhereSources, groupTasks, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
+import { textIn } from "../language.js";
 import { DEFAULT_TIMEZONE, now, today } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
@@ -60,8 +61,8 @@ export const taskManagementSkill: SkillModule = {
         properties: {
           scope: {
             type: "string",
-            enum: ["here", "mine", "delegated"],
-            description: "here (default): this channel's tasks. mine: tasks assigned to the asker in every channel of this server they can view (in a DM: of every server they share with the bot) and in the shared tasks, plus their Personal tasks. delegated: tasks the asker created that are assigned to someone else, in those same channels and shared tasks",
+            enum: ["here", "mine", "delegated", "anywhere"],
+            description: "here (default): this channel's tasks. mine: tasks assigned to the asker in every channel of this server they can view (in a DM: of every server they share with the bot) and in the shared tasks, plus their Personal tasks. delegated: tasks the asker created that are assigned to someone else, in those same channels and shared tasks. anywhere: for \"is it done?\", every task whoever holds it, of every status unless status says otherwise, in this channel and every other channel the asker can view; notShownHere counts tasks that cannot be shown in this channel",
           },
           status: {
             type: "string",
@@ -70,6 +71,7 @@ export const taskManagementSkill: SkillModule = {
           },
           assignedTo: { type: "string", description: "Filter by assignee: a mention, \"me\", a member's ID, or a display name or username in any letter case" },
           query: { type: "string", description: "Words to find in the title or description, any letter case; a task must contain every word. Use it to find a task the person names that is not among the active tasks shown" },
+          queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\"]; a task matches when it contains every word of one of them" },
           dueAfter: { type: "string", description: "Only tasks due at or after this date (YYYY-MM-DD, from the start of that day) or date-time; tasks without a due date are left out" },
           dueBefore: { type: "string", description: "Only tasks due at or before this date (YYYY-MM-DD, to the end of that day) or date-time; tasks without a due date are left out" },
           late: { type: "boolean", description: "true: only tasks past their due date and not completed or cancelled; false: only tasks that are not late" },
@@ -196,21 +198,25 @@ export const taskManagementSkill: SkillModule = {
       return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.${who?.nameOnly ? nameOnlyNote(who.assignee, ctx) : ""}`, task };
     },
 
-    listTasks: async (args: { scope?: Scope; status?: TaskStatus | "all"; assignedTo?: string; query?: string; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
-      if (args.scope !== undefined && args.scope !== null && !SCOPES.includes(args.scope)) throw new Error(`Invalid scope "${String(args.scope).slice(0, 40)}": use here, mine, or delegated`);
+    listTasks: async (args: { scope?: Scope; status?: TaskStatus | "all"; assignedTo?: string; query?: string; queries?: unknown; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
+      if (args.scope !== undefined && args.scope !== null && !SCOPES.includes(args.scope)) throw new Error(`Invalid scope "${String(args.scope).slice(0, 40)}": use here, mine, delegated, or anywhere`);
       const scope: Scope = args.scope ?? "here";
       const limit = Math.min(100, Math.max(1, Number(args.limit) || 20)), zone = zoneOf(ctx), at = now();
       const after = dueBound(args.dueAfter, zone, "start"), before = dueBound(args.dueBefore, zone, "end");
       const late = args.late === undefined || args.late === null ? undefined : args.late === true || args.late === "true";
       const byDue = after !== undefined || before !== undefined || late !== undefined;
       const assigned = args.assignedTo ? await assigneeFilter(args.assignedTo, ctx) : () => true;
-      const store = workspaceStore(), sources = scope === "here" ? null : await scopeSources(store, ctx);
+      const store = workspaceStore(), sources = scope === "here" ? null : scope === "anywhere" ? await anywhereSources(store, ctx) : await scopeSources(store, ctx);
       const tasks = sources ? await tasksIn(store, ctx.tenantId, sources) : await loadTasks(store, ctx), whose = inScope(scope, ctx);
-      const found = (args.query ? await matching(store, ctx.tenantId, tasks, args.query) : tasks)
+      const status = args.status ?? (scope === "anywhere" ? "all" : undefined), queries = queriesOf(args.query, args.queries);
+      const all = (queries.length ? await matching(store, ctx.tenantId, tasks, queries) : tasks)
         .map((f) => ({ f, t: f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
-        .filter(({ f, t }) => (args.status === "all" || (args.status ? t.status === args.status : sources ? isOpen(t) : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(f))
+        .filter(({ f, t }) => (status === "all" || (status ? t.status === status : sources ? isOpen(t) : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(f))
         .filter((x) => (after === undefined || (x.due !== null && x.due >= after)) && (before === undefined || (x.due !== null && x.due <= before)) && (late === undefined || x.late === late))
         .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.t.createdAt.localeCompare(b.t.createdAt) : b.t.createdAt.localeCompare(a.t.createdAt)));
+      // A task of a source that may not be shown here is only counted, as files are.
+      const hidden = sources?.filter((s) => s.quotable === false).flatMap((s) => s.folders) ?? [];
+      const found = all.filter((x) => !hidden.some((folder) => x.f.path.startsWith(`${folder}/`))), notShownHere = all.length - found.length;
       if (sources) {
         const kept = await readGroups(store, ctx.tenantId, groupTasks(found.map((x) => x.f), sources, zone), Math.min(MAX_SCOPED, limit));
         const shown = kept.reduce((n, g) => n + g.tasks.length, 0), more = found.length - shown;
@@ -218,10 +224,11 @@ export const taskManagementSkill: SkillModule = {
           scope, total: found.length, shown,
           ...(more > 0 && { more, note: `${more} more not shown. Say how many more there are; a status, query, or due date filter narrows the list to show them.` }),
           groups: kept.map((g) => ({ group: g.source.label, ...(g.source.channelId && { channelId: g.source.channelId }), tasks: g.tasks.map((t) => ({ ...t, late: isLate(t, zone, at), line: taskLine(t, zone, at) })) })),
+          ...(notShownHere && { notShownHere, suggestion: textIn(ctx.language).tasksNotShownHere(notShownHere) }),
         };
       }
       // Only the tasks returned are read in full, for the checklist progress on their line; query hits already are.
-      const shown = found.slice(0, limit), full = args.query ? shown.map((x) => x.t) : await readInFull(store, ctx.tenantId, shown.map((x) => x.f));
+      const shown = found.slice(0, limit), full = queries.length ? shown.map((x) => x.t) : await readInFull(store, ctx.tenantId, shown.map((x) => x.f));
       return { total: shown.length, tasks: shown.map((x, i) => ({ ...x.t, late: x.late, line: taskLine(full[i]!, zone, at) })) };
     },
 
@@ -322,13 +329,18 @@ async function labelTaskFolder(ctx: SkillContext) {
   try { if (!(await workspaceStore().read(ctx.tenantId, name))) await workspaceStore().write(ctx.tenantId, name, "Tasks"); } catch {}
 }
 
-/** The tasks whose title or description contains every word of `query`, ignoring case. Read in full: `loadTasks` reads frontmatter only. */
-async function matching(store: WorkspaceStore, tenantId: string, found: Found[], query: string): Promise<Found[]> {
-  const words = String(query).toLowerCase().split(/\s+/).filter(Boolean), out: Found[] = [];
+/** The words of `query` and of each of `queries`, one list per wording, lower case; wordings without words are dropped. */
+const queriesOf = (query: unknown, queries: unknown): string[][] =>
+  [query, ...(Array.isArray(queries) ? queries : [])].filter((q): q is string => typeof q === "string")
+    .map((q) => q.toLowerCase().split(/\s+/).filter(Boolean)).filter((words) => words.length);
+
+/** The tasks whose title or description contains every word of one of the queries, ignoring case. Read in full: `loadTasks` reads frontmatter only. */
+async function matching(store: WorkspaceStore, tenantId: string, found: Found[], queries: string[][]): Promise<Found[]> {
+  const out: Found[] = [];
   for (const f of found) {
     const file = await store.read(tenantId, f.path).catch(() => null), task = file && parseTask(file.content);
     const text = task ? `${task.title}\n${task.description ?? ""}`.toLowerCase() : "";
-    if (task && words.every((w) => text.includes(w))) out.push({ ...f, task });
+    if (task && queries.some((words) => words.every((w) => text.includes(w)))) out.push({ ...f, task });
   }
   return out;
 }

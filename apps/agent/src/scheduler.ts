@@ -37,6 +37,7 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
 
 /** A Reminder is the one message that pings: the owner and the people named when it was made; a late one says when it was due, in the row's zone. A Digest pings nobody and is skipped on a day with nothing to report. */
 async function post(client: any, discord: DiscordClientAdapter | null, row: Schedule, at: number, late: boolean) {
+  if (row.kind === "daily-log") return; // A Daily log is never posted; writing it is not built yet.
   const channel: any = await client.channels.fetch(row.channelId).catch(() => null);
   if (!channel?.isTextBased?.()) throw new Error("The channel is gone or cannot be posted in.");
   const agent = await repositories().agentConfig.get(row.tenantId);

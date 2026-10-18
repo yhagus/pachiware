@@ -1,12 +1,16 @@
 import type { SkillContext } from "../types.js";
 import { safeId } from "../workspace/paths.js";
+import { readableSources } from "../workspace/sources.js";
 import type { WorkspaceStore } from "../workspace/store.js";
 import { isAssignee } from "./assignee.js";
 import { dueMoment, readInFull, walkTasks, type Found, type Task } from "./taskFile.js";
 import { personalTasksOf, viewableProjects } from "./taskAccess.js";
 
-/** Which tasks a list covers: `here` is the place's own folders, as the turn sees them; `mine` and `delegated` are views across projects. */
-export const SCOPES = ["here", "mine", "delegated"] as const;
+/**
+ * Which tasks a list covers: `here` is the place's own folders, as the turn sees them; `mine` and `delegated` are views across projects;
+ * `anywhere` is every task of the channels the asker may read kept material from here, whoever holds it.
+ */
+export const SCOPES = ["here", "mine", "delegated", "anywhere"] as const;
 export type Scope = (typeof SCOPES)[number];
 /** At most this many tasks in a view across projects, so the answer fits in one Discord message. */
 export const MAX_SCOPED = 20;
@@ -15,7 +19,7 @@ export const MAX_SCOPED = 20;
  * Folders whose tasks a view across projects prints as one group under `label`: a project channel (`#name`, with its ids),
  * a person's Personal tasks, or the shared task folders of the tenant and its guilds. `folders` are tenant-relative and walked recursively.
  */
-export interface TaskSource { kind: "project" | "personal" | "shared"; label: string; folders: string[]; guildId?: string; channelId?: string }
+export interface TaskSource { kind: "project" | "personal" | "shared"; label: string; folders: string[]; guildId?: string; channelId?: string; /** False: its tasks may not be shown here, only counted. */ quotable?: boolean }
 export interface TaskGroup { source: TaskSource; tasks: Found[] }
 
 export const PERSONAL_TASKS = "Personal tasks", SHARED_TASKS = "Shared tasks";
@@ -33,6 +37,18 @@ export async function scopeSources(store: WorkspaceStore, ctx: Pick<SkillContext
   const guilds = (await ctx.discord?.sharedGuilds(user).catch(() => [])) ?? [];
   const projects = await Promise.all(guilds.map(async (g) => (await viewableProjects(store, ctx.tenantId, ctx.discord, g.id, user)).map((p) => ({ ...p, label: `${p.label} (${g.name})` }))));
   return [...projects.flat(), shared(guilds.map((g) => g.id)), personal];
+}
+
+/**
+ * The folders an `anywhere` view of this turn draws from: the tasks of every Source the asker may read kept material from here
+ * (`readableSources`), quotable under the same rules. A private thread's tasks are its parent channel's, so threads add nothing.
+ * From a DM, the DM's own Source is the asker's Personal tasks.
+ */
+export async function anywhereSources(store: WorkspaceStore, ctx: Parameters<typeof readableSources>[1]): Promise<TaskSource[]> {
+  return (await readableSources(store, ctx)).filter((s) => !s.threadId).map((s) => ({
+    kind: s.channelId ? "project" as const : "personal" as const, label: s.channelId ? s.label : PERSONAL_TASKS, folders: [`${s.folder}/tasks`],
+    ...(s.guildId && { guildId: s.guildId }), ...(s.channelId && { channelId: s.channelId }), quotable: s.quotable,
+  }));
 }
 
 /** Every valid task in the given sources, frontmatter only (`readGroups` reads the ones printed). */

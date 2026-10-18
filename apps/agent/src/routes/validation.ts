@@ -1,6 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 import { canonicalTimezone, isLanguage, type Language } from "@pachiware/skills";
-import type { DigestChannel } from "@pachiware/db";
+import type { DigestChannel, DailyLogChannel } from "@pachiware/db";
 
 export type PlaceSettings = { timezone?: string | null; language?: Language | null };
 /** `timezone` (canonical IANA name) and `language` from a settings body; `nullable` lets a guild clear its override. */
@@ -33,6 +33,20 @@ export function digestChannels(value: unknown): DigestChannel[] {
     if (!Number.isInteger(entry.hour) || entry.hour < 0 || entry.hour > 23) throw new HTTPException(400, { message: "each digestChannels entry needs an hour from 0 to 23" });
     if (out.some((e) => e.channelId === channelId)) throw new HTTPException(400, { message: "a channel can hold one Digest" });
     out.push({ channelId, hour: entry.hour });
+  }
+  return out;
+}
+
+/** `dailyLogChannels` from a guild settings body: `{ channelId, backfill? }` entries, `backfill` a boolean that defaults to true, one entry per channel. */
+export function dailyLogChannels(value: unknown): DailyLogChannel[] {
+  if (!Array.isArray(value) || value.length > MAX_DIGEST_CHANNELS) throw new HTTPException(400, { message: `dailyLogChannels must be an array of at most ${MAX_DIGEST_CHANNELS} entries` });
+  const out: DailyLogChannel[] = [];
+  for (const entry of value) {
+    const channelId = entry && typeof entry === "object" && typeof entry.channelId === "string" ? entry.channelId.trim() : "";
+    if (!channelId) throw new HTTPException(400, { message: "each dailyLogChannels entry needs a channelId" });
+    if (entry.backfill !== undefined && typeof entry.backfill !== "boolean") throw new HTTPException(400, { message: "backfill must be a boolean" });
+    if (out.some((e) => e.channelId === channelId)) throw new HTTPException(400, { message: "a channel is listed once in dailyLogChannels" });
+    out.push({ channelId, backfill: entry.backfill ?? true });
   }
   return out;
 }
