@@ -64,6 +64,8 @@ export interface PromptContext {
   userId?: string;
   /** Discord only: whether this turn's message mentions the bot, replies to it, or is a DM. */
   addressed?: boolean;
+  /** Discord only: a message that does not address the bot but came right after its reply, in its own thread. */
+  follows?: boolean;
   /** Set when channelId is a thread: the channel whose Workspace folder it uses, and whether it is private and so keeps its own folder too. */
   skillContext?: { parentChannelId?: string; privateThread?: boolean };
   /** The playbook this thread is bound to. Its body joins the cached prefix, which stays stable because the binding lasts for the thread. */
@@ -138,7 +140,7 @@ export class SystemPromptBuilder {
 
     if (context.platform === "discord") promptSections.push(`### When to stay quiet (set by the system):
 - The turn context says whether the message addresses you: a mention, a reply to you, or a DM. An addressed message always gets a text answer.
-- A message that does not address you reaches you only in your own threads and always-on channels. If it is not meant for you, answer with exactly ${SILENCE_MARKER} and nothing is posted. If it only acknowledges, such as "thanks", "ok" or "sip", answer with exactly ${reactionMarker("👍")} or ${reactionMarker("✅")} and only that reaction is added.
+- A message that does not address you reaches you only in your own threads and always-on channels. If it is not meant for you, answer with exactly ${SILENCE_MARKER} and nothing is posted. A message that follows your last reply carries on your conversation, even when someone else spoke in between: answer it when it asks or tells you something, and stay quiet only when it plainly speaks to someone else, such as a person it names. If it only acknowledges, such as "thanks", "ok" or "sip", answer with exactly ${reactionMarker("👍")} or ${reactionMarker("✅")} and only that reaction is added.
 - A marker is the whole answer: never put text around it, and never use one for an addressed message.
 `);
 
@@ -188,7 +190,7 @@ ${toolNames.length > 0 ? toolNames : "None currently active."}
     const lines = [`Platform: ${context.platform}`];
     if (context.channelName || context.channelId) lines.push(`Channel: ${context.channelName ? `#${context.channelName} ` : ""}(ID: ${context.channelId})`);
     if (context.userName) lines.push(`User: ${context.userName} (ID: ${context.userId})`);
-    if (context.addressed !== undefined) lines.push(`Addresses you: ${context.addressed ? "yes" : "no"}`);
+    if (context.addressed !== undefined) lines.push(`Addresses you: ${context.addressed ? "yes" : context.follows ? "no, but it follows your last reply" : "no"}`);
     if (context.skillContext?.privateThread) lines.push("Private thread: thread/ is this private thread's own folder, readable only by people added to it; the minutes, notes, decisions and files kept here go there. channel/ is the parent channel's folder.");
     const zone = context.timezone ?? configuredTimezone(await tenantConfig(context.tenantId)), at = now();
     lines.push(`Now: ${describeTime(zone, at)}`);

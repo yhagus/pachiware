@@ -19,10 +19,13 @@ import { botCompletion } from "../llm/completion.js";
 import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
 
 const BURST_MS = 2500;
+/** How many messages before a line `followsBot` reads, looking for the bot's reply behind a burst. */
+const FOLLOW_LOOKBACK = 10;
 // Admin edits often come in a run (several rules saved one after another); one registration covers them.
 const COMMANDS_MS = 2000;
 // `replyTo` is the message a person replied to, when it could be fetched; it gets its own line before theirs.
-type TurnItem = { msg: Message; text: string; direct?: boolean; replyTo?: Message | null };
+/** `follows`: a line that does not address the bot but came right after its reply, in its own thread. */
+type TurnItem = { msg: Message; text: string; direct?: boolean; follows?: boolean; replyTo?: Message | null };
 /** `sentCommands` holds each guild's last overwrite as JSON, so an unchanged guild is not sent again. */
 type BotRuntime = { client: Client; adapter: DiscordJSAdapter; tenantId: string; connected: boolean; guildIds: string[]; globalCleared: boolean; sentCommands: Map<string, string> };
 /** A Discord adapter of a bot bound to `guildId` (else its first served guild) and limited to the guilds it serves now. */
@@ -300,8 +303,7 @@ export class DiscordBotManager {
     };
     if (outsider && !addressed(trigger)) { if (await keepInput()) await msg.react("👀").catch(() => {}); return; }
     if (shared && !trigger.mentioned && !trigger.repliedToBot && !trigger.addressesOthers && !(guild?.alwaysChannelIds ?? []).includes(channelId0)) {
-      const prev = await msg.channel.messages.fetch({ limit: 1, before: msg.id }).catch(() => null);
-      trigger.lastMessageFromBot = prev?.first()?.author.id === botUserId;
+      trigger.lastMessageFromBot = await this.followsBot(msg, botUserId);
     }
     let reason = respondReason(trigger);
     if (!reason && bound && !outsider) reason = "direct";
@@ -336,13 +338,13 @@ export class DiscordBotManager {
     const channelId = thread?.id ?? msg.channelId;
     // One turn at a time per conversation, so concurrent messages do not interleave history.
     const run = (m: Message, items: TurnItem[]) => this.serialize(`conv:${botId}:${channelId}`, () => this.reply(runtime, botId, m, items, channelId, thread, { playbook: bound?.playbook, binding: bound?.binding, direct: items.some((i) => i.direct !== false) }));
-    const replyTo = await reference();
-    if (!msg.guildId || thread) { await run(msg, [{ msg, text, direct, replyTo }]); return; }
+    const replyTo = await reference(), follows = !direct && trigger.lastMessageFromBot;
+    if (!msg.guildId || thread) { await run(msg, [{ msg, text, direct, follows, replyTo }]); return; }
     // Burst of one person's messages in a shared channel: wait for their pause, then answer once with all of them, as them.
     // Keyed by author too, so someone posting at the same moment gets their own turn and never acts with another person's rights.
     const key = `${botId}:${channelId}:${msg.author.id}`;
     const burst = this.bursts.get(key) ?? { items: [] as TurnItem[], timer: undefined as any };
-    burst.items.push({ msg, text, direct, replyTo });
+    burst.items.push({ msg, text, direct, follows, replyTo });
     clearTimeout(burst.timer);
     burst.timer = setTimeout(() => {
       this.bursts.delete(key);
@@ -350,6 +352,20 @@ export class DiscordBotManager {
       void run(last, burst.items).catch(() => {});
     }, this.burstMs);
     this.bursts.set(key, burst);
+  }
+  /**
+   * Whether the bot spoke last before `msg`, looking past a burst (#244): people's lines posted within the burst window of each other
+   * just before it, anyone's, do not hide the bot's reply they all came after. Discord pages hold the newest message first.
+   */
+  private async followsBot(msg: Message, botUserId: string) {
+    const earlier = await msg.channel.messages.fetch({ limit: FOLLOW_LOOKBACK, before: msg.id }).catch(() => null);
+    let after = msg.createdTimestamp;
+    for (const m of earlier?.values() ?? []) {
+      if (m.author.id === botUserId) return true;
+      if (m.author.bot || after - m.createdTimestamp > this.burstMs) return false;
+      after = m.createdTimestamp;
+    }
+    return false;
   }
   /** "@bot issue: points" starts the playbook whose trigger word leads the message; an in-place one such as "@bot minutes" needs no points. */
   private async triggerPlaybook(runtime: BotRuntime, botId: string, msg: Message, text: string, bound: boolean) {
@@ -527,7 +543,7 @@ export class DiscordBotManager {
       const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
       const shots = place && !brief?.outsider ? media.shots : [];
       if (shots.length) await recordBriefImages(runtime.tenantId, place!, shots).catch(() => null);
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined } } });
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations || 12, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       const briefed = briefTurn(output.toolCallsExecuted);

@@ -384,6 +384,8 @@ discordScenario("dry run: member-joins-thread files Bob's task as his, then answ
     { tool: "createTask", args: { title: "Cetak name tag peserta", assignedTo: "Bob" } }, "Dicatat untuk Bob: cetak name tag peserta.",
     (turn) => ({ tool: "addProgressNote", args: { taskId: contextLines(turn, /^pending \| .*Cetak name tag peserta$/gm)[0]!.split(" | ")[3], text: "Dicetak 60 buah" } }),
     "Dicatat di tugas cetak name tag peserta: dicetak 60 buah.",
+    // Alice's "oke Bob, makasih" came in the same burst after the bot's reply (#244), so it reaches the model, which leaves it alone.
+    "[[silent]]",
   );
   const output = await dryRun(s, "member-joins-thread");
   expect(output.turns.map((t: any) => t.authors)).toEqual([undefined, ["Bob"], ["Bob", "Alice"]]);

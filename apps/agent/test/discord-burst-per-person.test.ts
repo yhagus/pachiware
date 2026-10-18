@@ -49,3 +49,33 @@ discordScenario("a write Alice asks for in a mixed burst is confirmed by Alice o
   await s.discord.click(confirmation, "Confirm");
   expect(s.http.requests.filter((r) => r.method === "POST").map((r) => r.body)).toEqual([{ body: "Fixed in main" }]);
 });
+
+discordScenario("in the bot's thread, a member's line after its reply is answered though another person's mention landed first (#244)", async (s) => {
+  s.clock.set("2026-10-14T09:00:00+07:00");
+  s.model.script("Dicatat: siapkan rundown, tenggat Jumat.");
+  const ask = await s.discord.send(`${s.discord.mention} catat tugas: siapkan rundown, tenggat Jumat`);
+  s.model.script("Booking tempat dicatat untuk Bob.", "Rundown-nya tenggat Jumat 16 Oktober.");
+  // Alice's line lands first, so Bob's comes right after hers, not after the bot's reply they both answer.
+  await s.discord.burst([
+    { content: `${s.discord.mention} tambahin tugas booking tempat buat Bob`, author: s.discord.alice },
+    { content: "rundown-nya tenggat kapan ya?", author: s.discord.bob },
+  ], { channel: ask.thread });
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Dicatat: siapkan rundown, tenggat Jumat.", "Booking tempat dicatat untuk Bob.", "Rundown-nya tenggat Jumat 16 Oktober."]);
+  const [, alice, bob] = s.model.calls;
+  expect(contextOf(alice!)).toContain("Addresses you: yes");
+  expect(turnOf(bob!)).toBe("Bob: rundown-nya tenggat kapan ya?");
+  expect(contextOf(bob!)).toContain("Addresses you: no, but it follows your last reply");
+});
+
+discordScenario("a line after another person's line that came well after the bot's reply does not follow the bot, and is left alone", async (s) => {
+  s.clock.set("2026-10-14T09:00:00+07:00");
+  s.model.script("Dicatat.");
+  const ask = await s.discord.send(`${s.discord.mention} catat tugas: siapkan rundown, tenggat Jumat`);
+  s.clock.set("2026-10-14T09:10:00+07:00");
+  s.model.script("[[silent]]");
+  await s.discord.send("siapa yang pegang sound system?", { author: s.discord.bob, channel: ask.thread });
+  s.clock.set("2026-10-14T09:10:30+07:00");
+  await s.discord.send("aku aja, Bob", { channel: ask.thread });
+  expect(s.model.calls).toHaveLength(2);
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Dicatat."]);
+});
