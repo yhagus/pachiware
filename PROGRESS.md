@@ -1263,3 +1263,10 @@ Started from a review of the harness as an administrative assistant (2026-10-18)
   - #205 A deleted message leaves the Daily log (after #202)
   - #206 Recall from Daily logs (after #197, #202)
   - Starting frontier: #196, #197, #198.
+- [x] #196 Recall eval baseline: three assistant-eval briefs under `apps/agent/eval/assistant/`, each with a dry-run recording and code checks.
+  - `recall-asked-in-indonesian`: English Minutes in the asked channel and an English Note in #audio, asked in Indonesian ("normalisasi audio").
+  - `recall-asked-in-english`: an Indonesian Decision in the asked channel and Indonesian Minutes in #finance, asked in English ("invoice reminders").
+  - `recall-decision-replaced`: support hours decided on 2026-09-21 in this channel and again on 2026-10-09 in #support; neither file says it replaced the other. Must-cover: the newer hours, and that the older were replaced.
+  - Measured in the dry runs on the current harness: `searchFiles` for "normalisasi audio" and for "invoice reminders" returns 0 matches; only the exact wording of the kept file finds it.
+  - [ ] Baseline score with a real model: not run. This worktree has no model or judge key and no `apps/agent/eval/profiles.yaml`. It needs a live run before #197 lands; record the score here. Command, from the repository root: `EVAL_LIVE=1 EVAL_PROVIDER=<provider> EVAL_MODEL=<model> EVAL_API_KEY=<key> EVAL_JUDGE_PROVIDER=<provider> EVAL_JUDGE_MODEL=<judge model, not the compared one> EVAL_JUDGE_API_KEY=<key> EVAL_TRIALS=3 bun run eval:assistant -t "recall-|decision-other-channel|action-items-across-meetings|nothing-found|private-channel-dm|minutes-as-document"`. The report lands in `apps/agent/eval/results/assistant-<run>/report.md`; the recall score is the mean over the three `recall-` briefs, the others show the existing kept-material behaviour does not regress.
+  - Verification: `bun run typecheck` exits 0; `bun run test` 953 pass, 0 fail.

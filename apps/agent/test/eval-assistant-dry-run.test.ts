@@ -242,6 +242,57 @@ discordScenario("dry run: minutes-as-document finds the vendor call's minutes ke
   expect(output.turns[0].replies).toEqual(["#channel-1, sinar-printing-call-minutes.md (the Sinar Printing call of 6 October 2026): Sinar Printing delivers the 2,000 brochures on 23 October, to the Jakarta office."]);
 });
 
+/** One line per match of a search result: its channel, the date its file name starts with, and its first matching line. */
+const matchLines = (result: any) => result.groups.flatMap((g: any) => g.matches.map((m: any) => `${g.channel}, ${m.path.split("/").pop().slice(0, 10)}: ${m.lines[0].text.replace(/^\d+\. /, "").replace(/ \[↗\].*$/, "")}`));
+
+discordScenario("dry run: recall-asked-in-indonesian misses on the Indonesian words, then finds the English Minutes and the #audio Note", async (s) => {
+  s.model.script(
+    { tool: "searchFiles", args: { query: "normalisasi audio" } },
+    { tool: "searchFiles", args: { query: "audio normalization" } },
+    (turn) => {
+      const [indonesian, english] = turn.toolResults;
+      if (indonesian.total !== 0) return `found in Indonesian: ${JSON.stringify(indonesian)}`;
+      const where = (folder: string) => {
+        const g = english.groups.find((x: any) => x.matches.some((m: any) => m.path.includes(`/${folder}/`)));
+        return `${g.channel}, ${g.matches[0].path.split("/").pop().slice(0, 10)}`;
+      };
+      return `Pernah. Diputuskan di notulen Podcast sync (${where("minutes")}): setiap episode dinormalisasi ke -16 LUFS sebelum diunggah. Catatan di ${where("notes")} bilang preset normalisasi audio sudah ada di template ekspor dan episode 41 dan 42 sudah diekspor ulang.`;
+    },
+  );
+  const output = await dryRun(s, "recall-asked-in-indonesian");
+  expect(output.turns[0].replies).toEqual(["Pernah. Diputuskan di notulen Podcast sync (#channel-1, 2026-10-06): setiap episode dinormalisasi ke -16 LUFS sebelum diunggah. Catatan di #audio, 2026-10-09 bilang preset normalisasi audio sudah ada di template ekspor dan episode 41 dan 42 sudah diekspor ulang."]);
+});
+
+discordScenario("dry run: recall-asked-in-english misses on the English words, then finds the Indonesian Decision and the #finance Minutes", async (s) => {
+  s.model.script(
+    { tool: "searchFiles", args: { query: "invoice reminders" } },
+    { tool: "searchFiles", args: { query: "pengingat tagihan" } },
+    (turn) => {
+      const [english, indonesian] = turn.toolResults;
+      return english.total === 0 ? ["Yes, it was settled that reminders go out automatically three days before the due date. Kept so far:", ...matchLines(indonesian).map((l: string) => `- ${l}`)].join("\n") : `found in English: ${JSON.stringify(english)}`;
+    },
+  );
+  const output = await dryRun(s, "recall-asked-in-english");
+  expect(output.turns[0].replies).toEqual([[
+    "Yes, it was settled that reminders go out automatically three days before the due date. Kept so far:",
+    "- #finance, 2026-10-12: Pengingat tagihan otomatis sudah jalan untuk klien Jakarta",
+    "- #channel-1, 2026-10-05: # Pengingat tagihan otomatis",
+  ].join("\n")]);
+});
+
+discordScenario("dry run: recall-decision-replaced finds both support-hours Decisions and gives the newer one, naming the older as replaced", async (s) => {
+  s.model.script(
+    { tool: "searchFiles", args: { query: "support hours" } },
+    (turn) => {
+      const found = turn.toolResults[0].groups.flatMap((g: any) => g.matches.map((m: any) => ({ channel: g.channel, date: m.path.split("/").pop().slice(0, 10) })));
+      const [older, newer] = found.sort((a: any, b: any) => a.date.localeCompare(b.date));
+      return `Support runs 08:00 to 20:00 on weekdays, decided in ${newer.channel} on ${newer.date}. It replaced the 09:00 to 17:00 hours decided in ${older.channel} on ${older.date}.`;
+    },
+  );
+  const output = await dryRun(s, "recall-decision-replaced");
+  expect(output.turns[0].replies).toEqual(["Support runs 08:00 to 20:00 on weekdays, decided in #support on 2026-10-09. It replaced the 09:00 to 17:00 hours decided in #channel-1 on 2026-09-21."]);
+});
+
 discordScenario("dry run: a judge over HTTP grades a daily-behaviour trial, and the report reads per turn", async (s) => {
   const { runAssistantTrial } = await import(`${EVAL()}/assistantRun.ts`);
   const { loadAssistantFixtures } = await import(`${EVAL()}/assistantFixtures.ts`);

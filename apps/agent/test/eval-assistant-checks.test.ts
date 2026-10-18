@@ -132,7 +132,8 @@ describe("fixtures and recorded runs", () => {
     const names = fixtures.map((f) => f.name);
     for (const name of ["task-casual-indonesian", "task-casual-english", "due-dates-relative", "status-by-title", "remember-forget", "file-search", "reminder-weekly",
       "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels", "bulk-cancel",
-      "decision-other-channel", "action-items-across-meetings", "nothing-found", "private-channel-dm", "minutes-as-document"]) expect(names).toContain(name);
+      "decision-other-channel", "action-items-across-meetings", "nothing-found", "private-channel-dm", "minutes-as-document",
+      "recall-asked-in-indonesian", "recall-asked-in-english", "recall-decision-replaced"]) expect(names).toContain(name);
     expect(new Set(fixtures.map((f) => f.facts.language))).toEqual(new Set(["en", "id"]));
     for (const f of fixtures) {
       expect(f.facts.mustCover.length).toBeGreaterThan(0);

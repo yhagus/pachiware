@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "recall-asked-in-indonesian",
+  "turns": [
+    {
+      "n": 1,
+      "message": "soal normalisasi audio, dulu pernah dibahas nggak? hasilnya gimana?",
+      "replies": [
+        "Pernah. Diputuskan di notulen Podcast sync (#channel-1, 2026-10-06): setiap episode dinormalisasi ke -16 LUFS sebelum diunggah. Catatan di #audio, 2026-10-09 bilang preset normalisasi audio sudah ada di template ekspor dan episode 41 dan 42 sudah diekspor ulang."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}
