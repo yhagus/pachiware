@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { respondReason, isNoise, speakerTurn, threadName, type Trigger } from "../src/discord/routing";
+import { respondReason, isNoise, speakerTurn, threadName, requestedWord, type Trigger } from "../src/discord/routing";
 
 const base: Trigger = { authorIsBot: false, guildId: "g1", allowedGuildIds: [], mentioned: false, repliedToBot: false, inOwnThread: false, channelId: "c1", alwaysChannelIds: [], lastMessageFromBot: false, addressesOthers: false };
 const reason = (o: Partial<Trigger>) => respondReason({ ...base, ...o });
@@ -79,4 +79,13 @@ describe("guild config", () => {
     try { expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); }
     finally { rmSync(directory, { recursive: true, force: true }); }
   });
+});
+
+test("a short request names the one word in it that is not a request word, the trigger of an in-place playbook (#245)", () => {
+  expect(requestedWord("notulen dong")).toBe("notulen");
+  expect(requestedWord("tolong bikinin notulen rapat tadi ya!")).toBe("notulen");
+  expect(requestedWord("Take the minutes, please")).toBe("minutes");
+  expect(requestedWord("notulen rapat vendor kemarin di mana?")).toBeNull();
+  expect(requestedWord("tolong dong")).toBeNull();
+  expect(requestedWord("catat notulen dan kirim ke Bob")).toBeNull();
 });

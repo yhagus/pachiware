@@ -76,20 +76,37 @@ export function speakerTurn(guildId: string | null, name: string, text: string, 
 /** How much of a replied-to message its line quotes; a longer one is also named by id, so keepAsNote can keep it whole. */
 export const REPLY_QUOTE = 500;
 
-type Replied = { id: string; content: string; author: { id: string; username: string }; member?: { displayName?: string } | null };
+type Replied = { id: string; content: string; author: { id: string; username: string }; member?: { displayName?: string } | null; embeds?: { title?: string | null; description?: string | null }[] };
 
 /**
  * The line before a turn line saying what it replies to: `(replying to Bob: "...")`, or `(replying to you: "...")` for the bot's own
- * message, quoted on one line and clipped. Empty for a message that could not be fetched or has no text.
+ * message, quoted on one line and clipped. A message posted as embeds alone, such as Minutes, is quoted by their titles and
+ * descriptions (#245). Empty for a message that could not be fetched or has no text.
  */
 export function replyLine(ref: Replied | null | undefined, botUserId: string | undefined) {
-  const text = ref ? withoutMention(ref.content, botUserId).trim() : "";
+  const content = ref ? withoutMention(ref.content, botUserId).trim() : "";
+  const text = content || (ref?.embeds ?? []).flatMap((e) => [e.title, e.description]).filter(Boolean).join("\n").trim();
   if (!ref || !text) return "";
   const who = ref.author.id === botUserId ? "you" : speakerName(ref);
-  const id = keepableId(text, ref.id);
+  // keepAsNote keeps a message's own text, so only long content names the message.
+  const id = keepableId(content, ref.id);
   const flat = text.replace(/\s+/g, " ");
   const quote = flat.length > REPLY_QUOTE ? `${flat.slice(0, REPLY_QUOTE)}…` : flat;
   return `(replying to ${id ? `${who} (message ${id})` : who}: "${quote}")`;
+}
+
+/** Words a short request may hold around an in-place playbook's trigger word, in Indonesian and English. */
+const REQUEST_WORDS = new Set(("tolong minta mohon bikin bikinin buat buatin buatkan tulis tulisin tuliskan catat catatin catatkan dong donk ya yah yuk ayo deh sih nih "
+  + "rapat tadi ini please pls plz can could you make write take do draft the a some now of this for meeting call").split(" "));
+
+/**
+ * The one word of a short request that is not a request word, as in "notulen dong" or "tolong bikinin notulen ya!" (#245), where
+ * an in-place playbook's trigger word stands without the colon a trigger needs; null for anything else.
+ */
+export function requestedWord(text: string): string | null {
+  const words = text.toLowerCase().replace(/[.,!?]+/g, " ").split(/\s+/).filter(Boolean);
+  const others = words.filter((w) => !REQUEST_WORDS.has(w));
+  return words.length <= 6 && others.length === 1 ? others[0]! : null;
 }
 
 // Emoji, stickers-as-text, punctuation and whitespace alone carry nothing to answer.

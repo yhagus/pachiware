@@ -87,7 +87,12 @@ export function minutesFileOf(message: Message): string | null {
 }
 
 export interface MinutesReply { tenantId: string; botId: string; guildId: string; minutesMessage: Message; reply: Message; text: string }
-/** A reply to posted minutes: the requester's corrects them in place, anyone else's is recorded as input. */
+/** What correctMinutes returns for a requester's reply that asks for something else: the minutes stay as they are, and the reply is the assistant's. */
+export const NOT_A_CORRECTION = "not a correction";
+/**
+ * A reply to posted minutes: the requester's corrects them in place, unless it asks for something else ("jadikan task poin 2"), which
+ * returns NOT_A_CORRECTION and changes nothing; anyone else's is recorded as input.
+ */
 export async function correctMinutes(c: MinutesReply, now = clockNow()) {
   const answer = replyQuietly(c.reply);
   const path = recordPath(c.guildId, c.minutesMessage);
@@ -111,6 +116,7 @@ export async function correctMinutes(c: MinutesReply, now = clockNow()) {
     { role: "system", content: `${systemPrompt(playbook)}\n\n${CORRECTION}` },
     { role: "user", content: `Current minutes:\n${JSON.stringify(current)}\n\nSources:\n${links.map((l, i) => `[${i + 1}] ${i === links.length - 1 ? "the correction" : l}`).join("\n")}\n\nCorrection:\n${asUntrusted("discord:correction", c.text)}` },
   ], { tenantId: c.tenantId, botId: c.botId }).catch(() => null);
+  if (response && response.finishReason !== "error" && replyObject(response.content)?.notACorrection === true) return NOT_A_CORRECTION;
   const corpus = [...record.header.participants, ...m.actions.map((a) => a.owner ?? ""), c.text].join("\n");
   const next = response && response.finishReason !== "error" ? parseMinutes(response.content, links, corpus, m.labels) : null;
   if (!next) return answer(t.minutesCorrectionFailed);
@@ -162,7 +168,7 @@ export async function minutesBrief(tenantId: string, message: Message, numbers: 
   return { title: m.title, points, text };
 }
 
-const CORRECTION = `The person who asked for these minutes sent a correction. Apply it and reply with the whole corrected minutes in the same JSON shape, changing only what the correction asks for. "ref" is the number of a source in the list; an item the correction adds points to the correction.`;
+const CORRECTION = `The person who asked for these minutes replied to them. When the reply corrects them, apply it and reply with the whole corrected minutes in the same JSON shape, changing only what the correction asks for. "ref" is the number of a source in the list; an item the correction adds points to the correction. When the reply asks for something other than a change to the minutes, such as making tasks or issues from them, or asks a question, reply with {"notACorrection": true} and nothing else.`;
 
 const FORMAT = `Reply with one JSON object and nothing else, in this shape:
 {"title": "a few words naming the discussion", "decided": [{"text": "...", "ref": 3}], "open": [{"text": "...", "ref": 5}], "actions": [{"owner": "a name from the discussion, or null", "task": "...", "due": "as stated, or null", "ref": 7}], "labels": ${JSON.stringify(LABELS)}}

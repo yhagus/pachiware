@@ -4,7 +4,7 @@ import { DiscordJSAdapter } from "./adapter.js";
 import { catchUpDailyLogs } from "./dailyLogDays.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
-import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel, replyLine } from "./routing.js";
+import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel, replyLine, requestedWord } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
@@ -16,7 +16,7 @@ import { gatherTurnImages, fileTurnDocuments, withPlaceholders } from "./attachm
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
-import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, type MinutesBrief } from "./minutes.js";
+import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, NOT_A_CORRECTION, type MinutesBrief } from "./minutes.js";
 
 const BURST_MS = 2500;
 /** How many messages before a line `followsBot` reads, looking for the bot's reply behind a burst. */
@@ -324,8 +324,8 @@ export class DiscordBotManager {
       const ref = await reference();
       if (ref?.author.id === botUserId && minutesFileOf(ref)) {
         if (await this.briefFromMinutes(runtime, botId, msg, ref, text)) return;
-        await this.serialize(`minutes:${ref.id}`, () => correctMinutes({ tenantId: runtime.tenantId, botId, guildId: msg.guildId!, minutesMessage: ref, reply: msg, text }));
-        return;
+        const corrected = await this.serialize(`minutes:${ref.id}`, () => correctMinutes({ tenantId: runtime.tenantId, botId, guildId: msg.guildId!, minutesMessage: ref, reply: msg, text }));
+        if (corrected !== NOT_A_CORRECTION) return;
       }
     }
     if (trigger.mentioned && await this.triggerPlaybook(runtime, botId, msg, text, !!bound)) return;
@@ -369,19 +369,20 @@ export class DiscordBotManager {
   }
   /** "@bot issue: points" starts the playbook whose trigger word leads the message; an in-place one such as "@bot minutes" needs no points. */
   private async triggerPlaybook(runtime: BotRuntime, botId: string, msg: Message, text: string, bound: boolean) {
-    const m = TRIGGER.exec(text) ?? WORD_ONLY.exec(text);
-    if (!m) return false;
-    const word = m[1]!.toLowerCase();
+    const m = TRIGGER.exec(text) ?? WORD_ONLY.exec(text), requested = m ? null : requestedWord(text);
+    if (!m && !requested) return false;
+    const word = (m?.[1] ?? requested)!.toLowerCase();
     const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.words.includes(word) || (p.name === word && p.start));
-    if (!playbook) return false;
+    // A request without a colon ("notulen dong") carries no points, so it starts only a playbook that needs none.
+    if (!playbook || (requested && playbook.run !== "in-place")) return false;
     const say = replyQuietly(msg);
     if (playbook.run === "in-place") {
       const about = msg.reference ? await msg.fetchReference().catch(() => null) : undefined;
-      await this.runInPlace(runtime, botId, playbook, { from: "mention", message: msg, about, actor: actorOf(msg), text: m[2]?.trim() ?? "", language: replyLanguage(text), refuse: say, fail: say });
+      await this.runInPlace(runtime, botId, playbook, { from: "mention", message: msg, about, actor: actorOf(msg), text: m?.[2]?.trim() ?? "", language: replyLanguage(text), refuse: say, fail: say });
       return true;
     }
-    if (bound || !msg.guildId || !m[2]?.trim()) return false;
-    const opened = await this.openPlaybook(runtime, botId, playbook, msg, m[2]!.trim(), actorOf(msg));
+    if (bound || !msg.guildId || !m?.[2]?.trim()) return false;
+    const opened = await this.openPlaybook(runtime, botId, playbook, msg, m[2].trim(), actorOf(msg));
     if ("error" in opened) await say(opened.error);
     else await opened.start();
     return true;

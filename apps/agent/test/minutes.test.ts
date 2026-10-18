@@ -141,6 +141,22 @@ discordScenario("@bot notulen in a channel writes the minutes as @bot minutes do
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toHaveLength(2);
 });
 
+discordScenario("\"@bot notulen dong\" and \"@bot tolong bikinin notulen ya!\" write the minutes; a question naming notulen goes to the assistant (#245)", async (s) => {
+  const { alice, bob } = s.discord;
+  const now = Date.now(), hour = 3600_000;
+  s.discord.history([
+    { content: "Kita tetap pakai Postgres, sepakat", author: alice, at: now - 2 * hour },
+    { content: "Sepakat", author: bob, at: now - hour },
+  ]);
+  const minutes = JSON.stringify({ title: "Database", decided: [{ text: "Tetap pakai Postgres", ref: 1 }], open: [], actions: [] });
+  s.model.script(minutes, minutes, "Belum ada notulen rapat vendor yang tersimpan.");
+  await s.discord.send(`${s.discord.mention} notulen dong`);
+  await s.discord.send(`${s.discord.mention} tolong bikinin notulen ya!`);
+  await s.discord.send(`${s.discord.mention} notulen rapat vendor kemarin di mana?`);
+  expect(s.discord.botMessages.map((m) => m.embeds?.[0]?.title ?? m.content)).toEqual(["Database", "Database", "Belum ada notulen rapat vendor yang tersimpan."]);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toHaveLength(2);
+});
+
 discordScenario("Minutes written at 23:30 UTC are named by the date in the place's zone, Jakarta's next morning", async (s) => {
   const { alice, bob } = s.discord;
   s.clock.set("2026-03-06T23:30:00Z");
@@ -229,6 +245,33 @@ discordScenario("the requester's reply corrects the minutes in place; anyone els
   const stored = (await s.workspace.read(file))!;
   expect(stored).toContain("Release on Friday, not yet confirmed");
   expect(stored).toMatch(/## Decided\n\*None\*/);
+});
+
+discordScenario("the requester's reply asking for something other than a correction leaves the minutes alone and goes to the assistant, which sees them (#245)", async (s) => {
+  const { alice, bob } = s.discord;
+  const now = Date.now();
+  const [start] = s.discord.history([
+    { content: "Release Friday? Bob, can you book the venue?", author: alice, at: now - 120_000 },
+    { content: "Friday, agreed. I'll book it", author: bob, at: now - 60_000 },
+  ]);
+  s.model.script(JSON.stringify({ title: "Release day", decided: [{ text: "Release on Friday", ref: 2 }], open: [], actions: [{ owner: "Bob", task: "Book the venue", due: null, ref: 2 }] }));
+  await s.discord.contextMenu("Write minutes", start!);
+  const minutes = s.discord.botMessages[0]!, before = structuredClone(minutes.embeds);
+  const day = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); // Jakarta, UTC+7 all year
+  const file = `guilds/guild-1/channels/channel-1/minutes/${day}-release-day.md`, stored = await s.workspace.read(file);
+
+  s.model.script(JSON.stringify({ notACorrection: true }), "Mau saya buatkan tugas Book the venue untuk Bob?");
+  const ask = await s.discord.send(`${s.discord.mention} jadikan task poin 2`, { author: alice, replyTo: minutes });
+  expect(s.model.calls[1]!.map((m) => m.content).join("\n")).toContain("jadikan task poin 2");
+  expect(minutes.edits).toEqual([]);
+  expect(minutes.embeds).toEqual(before);
+  expect(await s.workspace.read(file)).toBe(stored);
+  expect(ask.reactions).not.toContain("✅");
+  const turn = String(s.model.calls[2]!.at(-2)!.content);
+  expect(turn).toStartWith('(replying to you: "Release day ');
+  expect(turn).toContain("**Decided** 1. Release on Friday");
+  expect(turn).toContain("2. **Bob**: Book the venue");
+  expect(s.discord.botMessages.at(-1)!.content).toBe("Mau saya buatkan tugas Book the venue untuk Bob?");
 });
 
 discordScenario("a requester who cannot read the history gets a refusal naming why, and no minutes", async (s) => {
