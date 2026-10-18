@@ -157,7 +157,7 @@ Text a person asked the bot to keep that is neither a task, a decision, nor minu
 _Avoid_: Memo, doc, memory
 
 **Document**:
-A file or a long text a person gave the bot in a conversation, kept as it was in the Workspace folder of that place so the bot can read it when it needs to. Nobody asked to keep it; asking turns its content into a note.
+A file or a long text a person gave the bot in a conversation, or a file an admin chose to mirror from a repository, kept as it was in the Workspace folder of that place so the bot can read it when it needs to. A mirrored file follows its repository: it changes and goes when the file does upstream. Nobody asked to keep a given one; asking turns its content into a note.
 _Avoid_: Attachment (Discord's word for any file on a message), upload, Note
 
 **Memory**:
@@ -193,6 +193,7 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A **Digest** is per channel and reads that channel's tasks and their **Due dates**; it never reads another channel.
 - **Memory** lives in the **Workspace** at the tenant, guild, and channel level; the channel level is read only in that channel.
 - A **Document** is kept in the Workspace folder of the channel or DM it was given in; a **Note** may be made from it, never the other way round.
+- A mirrored **Document** is kept under `files/docs/` of the channel an admin chose, and refreshed only while that channel's **Git scope** allows its repository.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.
 - A **Daily log** is written by one **Bot** of the tenant, following a **Playbook** that only the schedule starts; it covers one channel and one day, with the channel's public threads; a private thread and a DM never get one. The messages stay in Discord: the Daily log links to them and keeps no copy, and what rests only on a deleted message leaves it.
 - **Minutes**, **Daily logs**, **Decisions**, **Notes** and **Documents** of a channel can be read from another channel of the same guild, or from a DM, by someone who can view that channel, unless an **Availability rule** turns the Workspace off there; only a **Public channel**'s may be quoted in a channel other than their own. **Memory** is never read this way.
