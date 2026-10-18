@@ -240,24 +240,27 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
   const tools = await watchTools(facts.seed?.home ?? CHANNEL_ID);
   const turns: AssistantTurn[] = [];
   let thread: Message["thread"], seen = s.discord.botMessages.length;
-  for (const [i, message] of fixture.messages.entries()) {
-    const who = speakers[i] ?? ["Alice"], where = thread ?? CHANNEL_ID;
-    const sentAll = i === 0 ? [await s.discord.send(`${s.discord.mention} ${message}`, { attachments: await attachmentsOf(s, fixture) })]
-      : who.length > 1 ? await s.discord.burst(message.replace(BOT_MENTION, s.discord.mention).split("\n").map((content, j) => ({ content, author: member(who[j]!) })), { channel: where })
-      : [await s.discord.send(message.replace(BOT_MENTION, s.discord.mention), { author: member(who[0]!), channel: where })];
-    const sent = sentAll[0]!, reactions = sentAll.flatMap((m) => m.reactions);
-    thread ??= sent.thread;
-    const all = s.discord.botMessages.slice(seen), told = all.filter(assignmentPing), posted = all.filter((m) => !assignmentPing(m)), retrieved = tools.take();
-    seen = s.discord.botMessages.length;
-    const assigned = [...new Set(told.flatMap((m) => m.allowedMentions?.users ?? []))];
-    turns.push({
-      n: i + 1, message, ...(who.join() !== "Alice" && { authors: who }),
-      replies: posted.map(textOf).filter(Boolean), ...(reactions.length && { reactions }), confirm: posted.some((m) => m.components.length > 0), pings: [...new Set(posted.flatMap((m) => m.allowedMentions?.users ?? []))],
-      ...(assigned.length && { assigned }), state: await stateOf(s, channels, seededFiles),
-      ...(retrieved.length && { retrieved }),
-    });
+  try {
+    for (const [i, message] of fixture.messages.entries()) {
+      const who = speakers[i] ?? ["Alice"], where = thread ?? CHANNEL_ID;
+      const sentAll = i === 0 ? [await s.discord.send(`${s.discord.mention} ${message}`, { attachments: await attachmentsOf(s, fixture) })]
+        : who.length > 1 ? await s.discord.burst(message.replace(BOT_MENTION, s.discord.mention).split("\n").map((content, j) => ({ content, author: member(who[j]!) })), { channel: where })
+        : [await s.discord.send(message.replace(BOT_MENTION, s.discord.mention), { author: member(who[0]!), channel: where })];
+      const sent = sentAll[0]!, reactions = sentAll.flatMap((m) => m.reactions);
+      thread ??= sent.thread;
+      const all = s.discord.botMessages.slice(seen), told = all.filter(assignmentPing), posted = all.filter((m) => !assignmentPing(m)), retrieved = tools.take();
+      seen = s.discord.botMessages.length;
+      const assigned = [...new Set(told.flatMap((m) => m.allowedMentions?.users ?? []))];
+      turns.push({
+        n: i + 1, message, ...(who.join() !== "Alice" && { authors: who }),
+        replies: posted.map(textOf).filter(Boolean), ...(reactions.length && { reactions }), confirm: posted.some((m) => m.components.length > 0), pings: [...new Set(posted.flatMap((m) => m.allowedMentions?.users ?? []))],
+        ...(assigned.length && { assigned }), state: await stateOf(s, channels, seededFiles),
+        ...(retrieved.length && { retrieved }),
+      });
+    }
+  } finally {
+    tools.stop();
   }
-  tools.stop();
   const posts: AssistantOutput["posts"] = [];
   if (facts.then?.clock) {
     s.clock.set(facts.then.clock);
