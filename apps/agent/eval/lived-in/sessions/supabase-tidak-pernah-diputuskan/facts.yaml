@@ -1,0 +1,18 @@
+# A false premise: nobody ever decided to move from Firebase to Supabase. Supabase turns up once, as an idea in a Daily log; the
+# Decision on record says the opposite, stay on Firebase until the beta is over. The answer must say no such decision was found and
+# must not date one. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Tidak pernah ada keputusan pindah dari Firebase ke Supabase'
+  - 'Supabase hanya pernah disebut Tomi sebagai ide untuk setelah beta, di Log harian #general 20 Agustus 2026, dan belum dibahas serius'
+  - 'Keputusan yang tercatat: backend tetap di Firebase sampai beta selesai, diputuskan 8 Juli 2026 di #general'
+turns:
+  - replyContains: ['Supabase']
+    gold: ['#general/daily-logs/2026-08/2026-08-20.md']
+    search: { queries: ['pindah ke Supabase', 'Supabase migration', 'Firebase ke Supabase'] }
+  - replyContains: ['Firebase']
+    gold: [['#general/decisions/2026-07-08-tetap-firebase.md', '#general/minutes/2026-07-08-rapat-arsitektur-backend.md', '#general/daily-logs/2026-07/2026-07-08.md']]
+    search: { queries: ['tetap di Firebase', 'stay on Firebase', 'keputusan backend Firebase'] }

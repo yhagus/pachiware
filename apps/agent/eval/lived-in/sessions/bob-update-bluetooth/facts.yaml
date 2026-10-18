@@ -1,0 +1,17 @@
+# Group work in a thread: Alice asks about the Bluetooth fix, Bob joins with his own progress report, kept as his Progress note, then Bob
+# and Alice post at once: Bob asks to move his due date, Alice only cheers him on. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: group
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Task "Fix Bluetooth mic latency on Android" milik Bob, in_progress, jatuh tempo 7 Oktober 2026 dan sudah telat'
+  - 'Status terakhir sebelum hari ini: fallback A2DP jalan di Pixel 7, Samsung A54 masih delay sekitar 120 ms (Catatan Bob 9 Oktober 2026)'
+  - 'Laporan Bob bahwa fallback A2DP sudah jalan di A54 dan tinggal dites di dua HP lagi dicatat sebagai Progress note'
+  - 'Jatuh tempo task Bob dipindah ke Jumat 16 Oktober 2026'
+turns:
+  - replyContains: ['A2DP']
+    gold: ['task:Fix Bluetooth mic latency on Android', '#mobile/notes/2026-10-09-status-bluetooth.md']
+    search: { queries: ['progres fix bluetooth', 'Bluetooth latency fix progress', 'bluetooth A2DP'] }
+  - tasksInclude: [{ title: 'Fix Bluetooth mic latency on Android', notes: ["A2DP"] }]
+  - tasksInclude: [{ title: 'Fix Bluetooth mic latency on Android', dueAt: '2026-10-16', assignedTo: 'Bob' }]

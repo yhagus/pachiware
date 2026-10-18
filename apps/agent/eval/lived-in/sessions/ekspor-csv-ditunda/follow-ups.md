@@ -1,0 +1,1 @@
+trus sementara gimana dong?

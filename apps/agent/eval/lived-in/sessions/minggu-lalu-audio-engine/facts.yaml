@@ -1,0 +1,19 @@
+# A week asked about by time, then follow-ups that depend on the answer before them: last week's five #audio-engine Daily logs (the
+# resampler), the pull request that merged it, and what is still open. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Minggu lalu (5 sampai 9 Oktober 2026) #audio-engine membahas aliasing resampler linear dari 44,1 ke 48 kHz, memutuskan menggantinya dengan resampler windowed sinc, dan benchmark-nya sekitar 3% CPU di Redmi 9A'
+  - 'Pull request #97 "Replace the linear resampler with windowed sinc" di gema/audio-core sudah di-merge 9 Oktober 2026'
+  - 'Yang masih terbuka: perlu tidaknya toggle mode kualitas tinggi untuk resampler (issue #99)'
+turns:
+  - replyContains: ['resampler']
+    gold: ['#audio-engine/daily-logs/2026-10/2026-10-05.md', '#audio-engine/daily-logs/2026-10/2026-10-06.md', '#audio-engine/daily-logs/2026-10/2026-10-07.md', '#audio-engine/daily-logs/2026-10/2026-10-08.md', '#audio-engine/daily-logs/2026-10/2026-10-09.md']
+    search: { queries: ['topik minggu lalu', 'topics discussed', 'diputuskan'], channel: '#audio-engine', since: '2026-10-05', until: '2026-10-11' }
+  - replyContains: ['#97']
+    gold: ['https://github.com/gema/audio-core/pull/97']
+    search: { queries: ['resampler pull request', 'windowed sinc resampler', 'PR resampler'] }
+  - gold: [['#audio-engine/daily-logs/2026-10/2026-10-09.md', 'https://github.com/gema/audio-core/issues/99']]
+    search: { queries: ['masih terbuka', 'still open'], channel: '#audio-engine', since: '2026-10-05', until: '2026-10-11' }

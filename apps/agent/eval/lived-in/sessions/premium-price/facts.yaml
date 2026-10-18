@@ -1,0 +1,17 @@
+# A paraphrase across languages: "premium per month" in English, kept in Indonesian as "paket Pro ... per bulan". Rp 49.000 was only a
+# proposal (5 August); Rp 39.000 was decided (16 September). The student discount was discussed that day and is still open. Lived-in exam, #252.
+corpus: lived-in
+language: en
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'The Pro plan costs Rp 39.000 a month, or Rp 349.000 a year, decided on 16 September 2026 in #marketing'
+  - 'The Rp 49.000 a month in the Minutes of 5 August 2026 was only a proposal, never decided'
+  - 'A 50% student discount was discussed on 16 September 2026 but is still open, not decided'
+turns:
+  - replyContains: ['39']
+    gold: [['#marketing/decisions/2026-09-16-harga-paket-pro.md', '#marketing/minutes/2026-09-16-finalisasi-harga.md', '#marketing/daily-logs/2026-09/2026-09-16.md']]
+    search: { queries: ['premium price per month', 'harga paket Pro', 'harga langganan bulanan'] }
+  - replyContains: ['50%']
+    gold: [['#marketing/minutes/2026-09-16-finalisasi-harga.md', '#marketing/daily-logs/2026-09/2026-09-16.md']]
+    search: { queries: ['student discount', 'diskon pelajar', 'diskon mahasiswa'] }

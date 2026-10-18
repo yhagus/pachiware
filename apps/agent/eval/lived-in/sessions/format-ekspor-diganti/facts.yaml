@@ -1,0 +1,22 @@
+# A Decision replaced by a newer one, asked with the old one as the premise: AAC 128 kbps was the default export (15 July) until Opus
+# 64 kbps replaced it (9 September). The newest wins, the older is named as replaced, and the reason and the way back to AAC come from
+# the newer Decision. Distractor: the listener-stats CSV export. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Bukan AAC lagi: default ekspor sekarang Opus 64 kbps mono untuk episode suara, diputuskan 9 September 2026 di #audio-engine'
+  - 'Keputusan itu menggantikan default AAC 128 kbps dari 15 Juli 2026'
+  - 'Alasannya ukuran file separuh dengan kualitas suara yang sama untuk rekaman suara, menurut listening test'
+  - 'AAC 128 kbps tetap tersedia sebagai Compatibility mode di layar ekspor'
+turns:
+  - replyContains: ['Opus', '64']
+    replyLacks: ['CSV']
+    gold: [['#audio-engine/decisions/2026-09-09-default-export-opus.md', '#audio-engine/minutes/2026-09-09-export-format-review.md', '#audio-engine/daily-logs/2026-09/2026-09-09.md'], ['#audio-engine/decisions/2026-07-15-default-export-aac.md', '#audio-engine/minutes/2026-07-15-export-formats.md', '#audio-engine/daily-logs/2026-07/2026-07-15.md']]
+    search: { queries: ['default format ekspor', 'default export format', 'AAC Opus export'] }
+  - gold: [['#audio-engine/decisions/2026-09-09-default-export-opus.md', '#audio-engine/files/listening-test-opus.md', '#audio-engine/daily-logs/2026-09/2026-09-02.md']]
+    search: { queries: ['alasan ganti ke Opus', 'why switch export to Opus', 'Opus listening test'] }
+  - replyContains: ['AAC']
+    gold: [['#audio-engine/decisions/2026-09-09-default-export-opus.md', '#audio-engine/minutes/2026-09-09-export-format-review.md']]
+    search: { queries: ['AAC compatibility mode', 'mode kompatibilitas AAC'] }

@@ -1,0 +1,17 @@
+# Done, from a merged pull request and a completed Task; the follow-up asks about a complaint kept only in a Daily log and an open
+# issue. Distractor: waveform rendering talk in #mobile's routine Daily logs. Lived-in exam, #252.
+corpus: lived-in
+language: en
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Yes: trim and cut shipped through pull request #120 in gema/gema-app, merged 14 August 2026, and the Task "Waveform trim and cut" (Bayu) is completed'
+  - 'The #mobile Minutes of 29 July 2026 decided trim and cut come first and undo later'
+  - 'The complaint: undo after a trim loses the selection, raised by Joko on 10 September 2026; issue #145 is still open and the Task "Undo after trim" (Bayu) is pending'
+turns:
+  - replyContains: ['#120']
+    gold: ['task:Waveform trim and cut', 'https://github.com/gema/gema-app/pull/120', ['#mobile/minutes/2026-07-29-waveform-editor.md', '#mobile/daily-logs/2026-07/2026-07-29.md']]
+    search: { queries: ['waveform trim', 'trim tool waveform editor', 'potong waveform'] }
+  - replyContains: ['#145']
+    gold: ['#mobile/daily-logs/2026-09/2026-09-10.md', 'https://github.com/gema/gema-app/issues/145']
+    search: { queries: ['undo after trim', 'undo trim selection', 'undo setelah trim'] }

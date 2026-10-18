@@ -1,0 +1,17 @@
+# Late tasks in one channel among dozens of Tasks, grouped per person, then a status change by name. Three #mobile tasks are open and
+# past due on 14 October, one each for Bob, Alice and Joko; the others are done, cancelled, not yet due or without a due date.
+# Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: tasks
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Bob: "Fix Bluetooth mic latency on Android", jatuh tempo 7 Oktober 2026'
+  - 'Alice: "Review onboarding v2", jatuh tempo 9 Oktober 2026'
+  - 'Joko: "Regression pass on the 0.9 beta build", jatuh tempo 12 Oktober 2026'
+  - 'Task Joko, "Regression pass on the 0.9 beta build", ditandai selesai'
+turns:
+  - replyContains: ['Bluetooth', 'onboarding', 'Regression']
+    replyLacks: ['Offline recording sync']
+    gold: ['task:Fix Bluetooth mic latency on Android', 'task:Review onboarding v2', 'task:Regression pass on the 0.9 beta build']
+  - tasksInclude: [{ title: 'Regression pass on the 0.9 beta build', status: 'completed', assignedTo: 'Joko', channel: '#mobile' }]

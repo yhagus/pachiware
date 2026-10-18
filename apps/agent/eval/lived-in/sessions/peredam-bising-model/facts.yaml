@@ -1,0 +1,18 @@
+# Asked in Indonesian about work discussed in English: the noise suppression model was decided in #audio-engine's Minutes (RNNoise,
+# retrained on the team's own recordings) and merged as a pull request; how heavy it is on cheap phones sits in Joko's Note, in
+# Indonesian slang. Distractor: "noisy" analytics in #marketing. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Diputuskan pakai RNNoise sebagai dasar, dilatih ulang dengan rekaman sendiri, di Notulen #audio-engine 14 Juli 2026'
+  - 'Sudah masuk lewat pull request #71 di gema/audio-core, di-merge 28 Agustus 2026'
+  - 'Sudah dites Joko: di Redmi 9A CPU sekitar 18% saat merekam, masih aman; di Galaxy A04 sekitar 25%'
+turns:
+  - replyContains: ['RNNoise']
+    gold: [['#audio-engine/minutes/2026-07-14-noise-suppression.md', '#audio-engine/daily-logs/2026-07/2026-07-14.md'], 'https://github.com/gema/audio-core/pull/71']
+    search: { queries: ['model peredam bising', 'noise suppression model', 'noise reduction'] }
+  - replyContains: ['18%']
+    gold: ['#audio-engine/notes/2026-09-02-tes-noise-suppression-hp-murah.md']
+    search: { queries: ['tes noise suppression hp murah', 'noise suppression CPU low-end phone', 'CPU peredam bising'] }

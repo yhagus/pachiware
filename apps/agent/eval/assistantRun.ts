@@ -7,10 +7,11 @@
  */
 import type { FakeUser, Scenario } from "../test/support/discordScenario";
 import { checkAssistantOutput, type AssistantFailure } from "./assistantChecks";
-import { BOT_MENTION, seedTime, zoneOf, type AssistantFacts, type AssistantFixture, type SeedFile, type SeedGit, type SeedPullRequest, type SeedTask } from "./assistantFixtures";
+import { BOT_MENTION, commitUrl, issueUrl, pullUrl, seedTime, zoneOf, type AssistantFacts, type AssistantFixture, type SeedFile, type SeedGit, type SeedTask } from "./assistantFixtures";
 import { gradeAssistantWithJudge } from "./assistantJudge";
 import type { TrialResult } from "./compare";
 import type { Ask } from "./judge";
+import { retrievalOf, retrievedOf, type Retrieval, type Retrieved } from "./retrieval";
 import { usageOf } from "./run";
 
 export interface TaskState {
@@ -37,6 +38,8 @@ export interface AssistantTurn {
   /** Members the bot told they were given a task this turn (#250): that one ping is not a reply, so it is kept apart from `replies` and `pings`. */
   assigned?: string[];
   state: AssistantState;
+  /** What each search of the turn showed (recall, searchFiles, listTasks, repoSearchWork), in call order; absent when it made none. */
+  retrieved?: Retrieved[];
 }
 export interface AssistantOutput {
   kind: "assistant"; fixture: string;
@@ -48,7 +51,11 @@ export interface AssistantOutput {
   /** Reminder posts after the `then` tick. */
   posts: { text: string; pings: string[] }[];
 }
-export interface AssistantResult extends AssistantOutput { failures: AssistantFailure[]; passed: boolean }
+export interface AssistantResult extends AssistantOutput {
+  failures: AssistantFailure[]; passed: boolean;
+  /** recall@5 and MRR of the turns whose facts name gold sources; absent when none does. */
+  retrieval?: Retrieval;
+}
 
 const GUILD = "guild-1", CHANNEL_ID = "channel-1", CHANNEL = `guilds/${GUILD}/channels/${CHANNEL_ID}`, GUILD_SHARED = `guilds/${GUILD}/shared`;
 const seedId = (i: number) => `${String(i + 1).padStart(8, "0")}-0000-4000-8000-000000000000`;
@@ -105,28 +112,38 @@ async function seedTasks(s: Scenario, tasks: SeedTask[]) {
 }
 
 /**
- * GitHub as far as finding work needs it: the account's repositories, its issue search (every word of the query in a pull request's
- * title, within the `repo:` named), and pull request lists; any other repository read finds nothing.
+ * GitHub as far as finding work needs it: the account's repositories, its issue search (every word of the query in the title of a pull
+ * request or an issue, within the `repo:` named), pull request lists, and each default branch's commits, newest first; any other
+ * repository read finds nothing.
  */
 async function seedGit(s: Scenario, git: SeedGit) {
   await s.git({ provider: "github", repos: git.repos });
-  const prs = git.pullRequests ?? [];
-  const url = (p: SeedPullRequest) => `https://github.com/${p.repo}/pull/${p.number}`;
-  const repos = [...new Set(prs.map((p) => p.repo))];
+  const prs = git.pullRequests ?? [], issues = git.issues ?? [], commits = git.commits ?? [];
+  const repos = [...new Set([...prs, ...issues, ...commits].map((p) => p.repo))];
+  const now = () => new Date(s.clock.now()).toISOString();
   s.http.on("GET api.github.com/repos/", () => []);
   s.http.on("GET api.github.com/user/repos", () => repos.map((r) => ({ full_name: r, owner: { login: r.split("/")[0] }, private: true, default_branch: "main", updated_at: "2026-10-01T00:00:00Z", html_url: `https://github.com/${r}` })));
   s.http.on("GET api.github.com/search/issues", (req) => {
     const terms = (new URL(req.url).searchParams.get("q") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
     const repo = terms.find((t) => t.startsWith("repo:"))?.slice(5), words = terms.filter((t) => !t.includes(":"));
-    const items = prs.filter((p) => (!repo || p.repo === repo) && words.every((w) => p.title.toLowerCase().includes(w))).map((p) => ({
-      number: p.number, title: p.title, state: p.mergedAt || p.closedAt ? "closed" : "open", html_url: url(p), updated_at: p.mergedAt ?? p.closedAt ?? new Date(s.clock.now()).toISOString(), closed_at: p.mergedAt ?? p.closedAt ?? null,
-      pull_request: { merged_at: p.mergedAt ?? null, html_url: url(p) },
-    }));
+    const hit = (item: { repo: string; title: string }) => (!repo || item.repo === repo) && words.every((w) => item.title.toLowerCase().includes(w));
+    const items = [
+      ...prs.filter(hit).map((p) => ({
+        number: p.number, title: p.title, state: p.mergedAt || p.closedAt ? "closed" : "open", html_url: pullUrl(p), updated_at: p.mergedAt ?? p.closedAt ?? now(), closed_at: p.mergedAt ?? p.closedAt ?? null,
+        pull_request: { merged_at: p.mergedAt ?? null, html_url: pullUrl(p) },
+      })),
+      ...issues.filter(hit).map((i) => ({ number: i.number, title: i.title, state: i.closedAt ? "closed" : "open", html_url: issueUrl(i), updated_at: i.closedAt ?? i.createdAt ?? now(), closed_at: i.closedAt ?? null })),
+    ];
     return { total_count: items.length, items };
   });
-  for (const r of repos) s.http.on(`GET api.github.com/repos/${r}/pulls`, () => prs.filter((p) => p.repo === r).map((p) => ({
-    number: p.number, title: p.title, state: p.mergedAt || p.closedAt ? "closed" : "open", merged_at: p.mergedAt ?? null, user: { login: "dewi" }, head: { ref: "audio" }, base: { ref: "main" }, labels: [], html_url: url(p), created_at: "2026-10-10T00:00:00Z",
-  })));
+  for (const r of repos) {
+    s.http.on(`GET api.github.com/repos/${r}/pulls`, () => prs.filter((p) => p.repo === r).map((p) => ({
+      number: p.number, title: p.title, state: p.mergedAt || p.closedAt ? "closed" : "open", merged_at: p.mergedAt ?? null, user: { login: p.author ?? "dewi" }, head: { ref: "audio" }, base: { ref: "main" }, labels: [], html_url: pullUrl(p), created_at: p.createdAt ?? "2026-10-10T00:00:00Z",
+    })));
+    s.http.on(`GET api.github.com/repos/${r}/commits`, () => commits.filter((c) => c.repo === r).sort((a, b) => b.date.localeCompare(a.date)).map((c) => ({
+      sha: c.sha, html_url: commitUrl(r, c.sha), commit: { message: c.message, author: { name: "gema", date: c.date } },
+    })));
+  }
 }
 
 async function attachmentsOf(s: Scenario, fixture: AssistantFixture) {
@@ -163,16 +180,45 @@ async function stateOf(s: Scenario, channels: string[], seeded: Set<string>): Pr
   return { tasks, memory: { channel: await lines(`${CHANNEL}/MEMORY.md`), guild: await lines(`${GUILD_SHARED}/MEMORY.md`) }, files, reminders, ...(kept.length && { kept }) };
 }
 
+/**
+ * Records the tool results every model call is sent, once each, so a turn's searches can be scored against its gold sources (`retrieval.ts`).
+ * It wraps whatever answers the model calls, the scripted model or a live profile; `take` returns what came in since the last take.
+ */
+async function watchTools(home: string) {
+  const { llmRouter } = await import("../src/llm/router.ts");
+  const router = llmRouter as any, inner = router.complete, seen = new Set<string>();
+  let fresh: Retrieved[] = [];
+  const unwrap = (content: unknown) => {
+    const text = (typeof content === "string" ? content : "").replace(/<\/?untrusted_data[^>]*>/g, "").trim();
+    try { return JSON.parse(text); } catch { return text; }
+  };
+  router.complete = (messages: any[], options?: unknown) => {
+    const names = new Map<string, string>(messages.flatMap((m) => (m.toolCalls ?? []).map((c: any) => [c.id, c.name] as const)));
+    for (const m of messages) {
+      if (m.role !== "tool" || !m.toolCallId || seen.has(m.toolCallId)) continue;
+      seen.add(m.toolCallId);
+      const found = retrievedOf(m.name ?? names.get(m.toolCallId) ?? "", unwrap(m.content), home);
+      if (found) fresh.push(found);
+    }
+    return inner.call(router, messages, options);
+  };
+  return { take: () => { const out = fresh; fresh = []; return out; }, stop: () => { router.complete = inner; } };
+}
+
 type Message = Scenario["discord"]["botMessages"][number];
 /** The bot's ping to members someone else gave a task to: "<@id> a task is yours:" then one "- **title**" line per task. */
 const assignmentPing = (m: { content: string; allowedMentions?: { users?: string[] } }) => !!m.allowedMentions?.users?.length && /^<@[\w-]+> [^\n]+:\n- \*\*/.test(m.content);
 const textOf = (m: Message) => [m.content, ...m.embeds.map((e) => `${e.title ?? ""}\n\n${e.description ?? ""}`.trim())].filter(Boolean).join("\n\n");
 
-export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture): Promise<AssistantOutput> {
-  const { facts } = fixture;
+/**
+ * Puts a fixture's world in place before its first message: the clock, settings, grants, the channel's name, the seeded channels, talk,
+ * members, tasks, files and git. Resolves to the seeded channels and each seeded message's link.
+ */
+export async function seedAssistantFixture(s: Scenario, facts: AssistantFacts): Promise<{ channels: string[]; seeded: string[] }> {
   s.clock.set(facts.clock);
   if (facts.settings) await s.guildSettings({ timezone: facts.settings.timezone ?? null, language: facts.settings.language ?? null });
   if (facts.grants?.length) s.discord.grant(s.discord.alice, facts.grants);
+  if (facts.seed?.home) s.discord.channel(CHANNEL_ID).name = facts.seed.home;
   const channels = seededChannels(s, facts.seed);
   // Before anything else is posted: message ids carry their time and only grow, so earlier talk must come first.
   const seeded = seedTalk(s, facts);
@@ -181,10 +227,17 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
   if (facts.seed?.tasks?.length) await seedTasks(s, facts.seed.tasks);
   if (facts.seed?.files?.length) await seedFiles(s, facts.seed.files);
   if (facts.seed?.git) await seedGit(s, facts.seed.git);
+  return { channels, seeded };
+}
+
+export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture): Promise<AssistantOutput> {
+  const { facts } = fixture;
+  const { channels, seeded } = await seedAssistantFixture(s, facts);
   const dailyLog = facts.then?.dailyLog ? await writeDay(s, facts, facts.then.dailyLog) : undefined;
   const seededFiles = new Set((facts.seed?.files ?? []).filter((f) => !f.channel).map((f) => f.path));
   const speakers = fixture.authors ?? [], member = (name: string) => memberNamed(s, facts, name);
   for (const name of new Set(["Alice", ...speakers.flat()])) s.discord.unlimited(member(name));
+  const tools = await watchTools(facts.seed?.home ?? CHANNEL_ID);
   const turns: AssistantTurn[] = [];
   let thread: Message["thread"], seen = s.discord.botMessages.length;
   for (const [i, message] of fixture.messages.entries()) {
@@ -194,15 +247,17 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
       : [await s.discord.send(message.replace(BOT_MENTION, s.discord.mention), { author: member(who[0]!), channel: where })];
     const sent = sentAll[0]!, reactions = sentAll.flatMap((m) => m.reactions);
     thread ??= sent.thread;
-    const all = s.discord.botMessages.slice(seen), told = all.filter(assignmentPing), posted = all.filter((m) => !assignmentPing(m));
+    const all = s.discord.botMessages.slice(seen), told = all.filter(assignmentPing), posted = all.filter((m) => !assignmentPing(m)), retrieved = tools.take();
     seen = s.discord.botMessages.length;
     const assigned = [...new Set(told.flatMap((m) => m.allowedMentions?.users ?? []))];
     turns.push({
       n: i + 1, message, ...(who.join() !== "Alice" && { authors: who }),
       replies: posted.map(textOf).filter(Boolean), ...(reactions.length && { reactions }), confirm: posted.some((m) => m.components.length > 0), pings: [...new Set(posted.flatMap((m) => m.allowedMentions?.users ?? []))],
       ...(assigned.length && { assigned }), state: await stateOf(s, channels, seededFiles),
+      ...(retrieved.length && { retrieved }),
     });
   }
+  tools.stop();
   const posts: AssistantOutput["posts"] = [];
   if (facts.then?.clock) {
     s.clock.set(facts.then.clock);
@@ -213,8 +268,9 @@ export async function runAssistantFixture(s: Scenario, fixture: AssistantFixture
 }
 
 export function gradeAssistantRun(output: AssistantOutput, fixture: AssistantFixture): AssistantResult {
-  const failures = checkAssistantOutput(output, fixture);
-  return { ...output, failures, passed: !failures.length };
+  const failures = checkAssistantOutput(output, fixture), retrieval = retrievalOf(output.turns, fixture.facts.turns.map((t) => t.gold));
+  const { retrieval: _, ...rest } = output as AssistantOutput & { retrieval?: Retrieval };
+  return { ...rest, failures, passed: !failures.length, ...(retrieval && { retrieval }) };
 }
 
 /** One trial: the fixture's run, its code checks, the judge's verdicts, and what the run cost. */

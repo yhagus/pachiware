@@ -1,0 +1,18 @@
+# Who owns a bug, how far it got, and how late it is: an open issue, a late Task with two Progress notes, and a Note. Distractors: API
+# latency in #general, monitoring latency in #audio-engine. The clock is 14 October; the Task was due 7 October. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: tasks
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Bob yang pegang: Task "Fix Bluetooth mic latency on Android" di #mobile, in_progress, jatuh tempo 7 Oktober 2026, jadi sudah telat'
+  - 'Issue-nya, #112 di gema/gema-app, masih open'
+  - 'Progress terakhir: 5 Oktober Bob menemukan akar masalahnya di perpindahan codec SCO dan sedang mencoba fallback ke A2DP'
+  - 'Sudah telat 7 hari dari jatuh tempo 7 Oktober 2026'
+turns:
+  - replyContains: ['Bob']
+    replyLacks: ['p95']
+    gold: ['task:Fix Bluetooth mic latency on Android', 'https://github.com/gema/gema-app/issues/112']
+    search: { queries: ['latency mic bluetooth android', 'Bluetooth mic latency', 'delay mic bluetooth'] }
+  - replyContains: ['A2DP']
+  - replyContains: ['7']

@@ -1,0 +1,16 @@
+# An answer found only in a Document: the minimum Android and iOS versions and the APK size target sit in the PRD kept under files/ in
+# #general, and nowhere else. Distractor: Android 14 permission talk in #mobile's Daily logs. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Minimum Android 9 (API 28) dan iOS 15, menurut dokumen PRD Gema v1 di #general'
+  - 'Target ukuran APK di bawah 40 MB, juga dari PRD Gema v1'
+turns:
+  - replyContains: ['Android 9', 'iOS 15']
+    gold: ['#general/files/prd-gema-v1.md']
+    search: { queries: ['versi Android minimum', 'minimum Android version', 'minimal iOS'] }
+  - replyContains: ['40 MB']
+    gold: ['#general/files/prd-gema-v1.md']
+    search: { queries: ['ukuran APK', 'APK size target'] }

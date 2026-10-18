@@ -1,0 +1,16 @@
+# Not done yet, though a pull request exists: offline sync was decided in #mobile's Minutes, its Task is in progress, the first pull
+# request was closed without merging and the second is still open. Lived-in exam, #252.
+corpus: lived-in
+language: en
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Not done yet: the Task "Offline recording sync" (Bayu, #mobile) is in progress, due 21 October 2026'
+  - 'The #mobile Minutes of 23 September 2026 decided that offline recordings queue on the phone and upload on Wi-Fi by default'
+  - 'Pull request #138 was closed without merging on 25 September 2026, because iOS kills background fetch; pull request #151, the offline upload queue, is still open'
+turns:
+  - gold: [['#mobile/minutes/2026-09-23-offline-recording-sync.md', '#mobile/daily-logs/2026-09/2026-09-23.md'], 'task:Offline recording sync', 'https://github.com/gema/gema-app/pull/151']
+    search: { queries: ['offline sync', 'offline recording sync', 'sinkronisasi offline'] }
+  - replyContains: ['#138', '#151']
+    gold: ['https://github.com/gema/gema-app/pull/138', 'https://github.com/gema/gema-app/pull/151']
+    search: { queries: ['offline sync pull request', 'offline upload queue'] }

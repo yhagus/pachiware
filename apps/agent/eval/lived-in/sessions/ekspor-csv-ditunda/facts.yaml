@@ -1,0 +1,16 @@
+# A distractor-heavy word: "ekspor" means the audio export format almost everywhere in the corpus; here it is the listener-stats CSV
+# export, postponed by a Decision in #general until after the beta, with a manual stopgap. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Belum ada: ekspor statistik pendengar ke CSV ditunda sampai setelah beta, diputuskan 30 September 2026 di #general'
+  - 'Permintaan itu datang dari Sekar untuk laporan ke kreator, dibahas di Log harian #general 24 September 2026'
+  - 'Sementara itu Tomi mengirim CSV statistik secara manual setiap Senin'
+turns:
+  - replyContains: ['CSV']
+    replyLacks: ['Opus']
+    gold: ['#general/decisions/2026-09-30-ekspor-csv-statistik-ditunda.md', '#general/daily-logs/2026-09/2026-09-24.md']
+    search: { queries: ['ekspor statistik pendengar CSV', 'listener stats CSV export', 'export CSV analytics'] }
+  - replyContains: ['Tomi']

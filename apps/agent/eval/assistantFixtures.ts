@@ -4,12 +4,18 @@
  * `@<member>:` is that member's, and one headed `@<a>+@<b>:` is a burst of one line each), and `facts.yaml`:
  * the Rapor area, the fixed clock, settings, grants and members, anything to seed (talk, tasks, files, in the brief's channel or another) or attach, the must-cover facts, one `turns` entry per message
  * with the Workspace and schedule state expected after it, and `then`, a scheduler tick after the conversation.
+ * A brief with `corpus: lived-in` (the sessions under `lived-in/sessions/`) is seeded with the shared lived-in corpus (`lived-in/corpus.ts`)
+ * before its own seed: its files, talk, members, git history, and the name of the brief's channel.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_TIMEZONE } from "../../../packages/skills/src/clock";
 import type { Language } from "../../../packages/skills/src/language";
+import { livedInCorpus } from "./lived-in/corpus";
 import { EVAL_DIR } from "./repository";
+
+/** The lived-in exam's question sessions (#252), each a brief seeded with the shared corpus. */
+export const LIVED_IN_DIR = join(EVAL_DIR, "lived-in", "sessions");
 
 export interface ExpectedTask {
   /** A phrase the title contains, case-insensitive. */ title: string; status?: string; dueAt?: string | null; assignedTo?: string | null; createdByName?: string;
@@ -40,7 +46,21 @@ export interface TurnFacts {
   quiet?: true;
   /** The bot leaves one of these reactions on the message, such as 👍 for a thanks. */
   reaction?: string[];
+  /**
+   * Tasks that must exist after this turn among any others, each matched as in `tasks`; the count is not compared. For a brief seeded
+   * with a corpus, whose dozens of tasks `tasks` would have to list one by one.
+   */
+  tasksInclude?: ExpectedTask[];
+  /**
+   * The sources a good answer to this turn rests on, for recall@5 (`retrieval.ts`): each a kept file as `#<channel>/<path below its folder>`,
+   * a Task as `task:<a phrase of its title>`, or a pull request, issue or commit by its URL; a list instead of one names sources that stand
+   * in for each other (a Minutes and the same day's Daily log). Not a check: a turn passes or fails without it.
+   */
+  gold?: (string | string[])[];
+  /** The recall call a model would make for this turn: the recall benchmark of the lived-in exam runs it and scores the result against `gold`. */
+  search?: RecallSearch;
 }
+export interface RecallSearch { queries: string[]; channel?: string; since?: string; until?: string }
 /** A message of the channel's talk before the brief, posted without the bot seeing it arrive. */
 export interface SeedMessage {
   /** Another channel of the guild, by name (it is created); the brief's channel when left out. */ channel?: string;
@@ -58,9 +78,19 @@ export interface SeedFile {
   content: string;
   /** Another channel of the guild to keep it in, by name (it is created); the brief's channel when left out. */ channel?: string;
 }
-export interface SeedPullRequest { repo: string; number: number; title: string; /** Absent for a pull request still open. */ mergedAt?: string; /** A pull request closed without merging. */ closedAt?: string }
-/** A GitHub account whose Git scope opens `repos` (patterns such as "acme/*") in the guild, holding these pull requests. */
-export interface SeedGit { repos: string[]; pullRequests?: SeedPullRequest[] }
+export interface SeedPullRequest {
+  repo: string; number: number; title: string; /** Absent for a pull request still open. */ mergedAt?: string; /** A pull request closed without merging. */ closedAt?: string;
+  createdAt?: string; /** The GitHub login that opened it; "dewi" when left out. */ author?: string;
+}
+export interface SeedIssue { repo: string; number: number; title: string; createdAt?: string; /** Absent for an issue still open. */ closedAt?: string }
+/** A commit on the repository's default branch; the first line of `message` is its title. */
+export interface SeedCommit { repo: string; sha: string; message: string; date: string }
+/** The links a seeded pull request, issue and commit has on GitHub. */
+export const pullUrl = (p: Pick<SeedPullRequest, "repo" | "number">) => `https://github.com/${p.repo}/pull/${p.number}`;
+export const issueUrl = (i: Pick<SeedIssue, "repo" | "number">) => `https://github.com/${i.repo}/issues/${i.number}`;
+export const commitUrl = (repo: string, sha: string) => `https://github.com/${repo}/commit/${sha}`;
+/** A GitHub account whose Git scope opens `repos` (patterns such as "acme/*") in the guild, holding these pull requests, issues and commits. */
+export interface SeedGit { repos: string[]; pullRequests?: SeedPullRequest[]; issues?: SeedIssue[]; commits?: SeedCommit[] }
 /** The Rapor's areas: Minutes, Daily logs and Documents; finding what was kept; Tasks and project work; several people at once; the agent loop itself. */
 export const AREAS = ["capture", "recall", "tasks", "group", "loop"] as const;
 export type Area = (typeof AREAS)[number];
@@ -75,8 +105,13 @@ export interface AssistantFacts {
   grants?: string[];
   /** Guild members besides Alice and Bob; `name` is the display name, `username` defaults to it. */
   members?: { id: string; name: string; username?: string }[];
-  /** `hidden` names channels the guild's @everyone cannot view, so they are no Public channel; the author still can. */
-  seed?: { messages?: SeedMessage[]; tasks?: SeedTask[]; files?: SeedFile[]; hidden?: string[]; git?: SeedGit };
+  /**
+   * `hidden` names channels the guild's @everyone cannot view, so they are no Public channel; the author still can.
+   * `home` is the display name of the brief's channel, channel-1, when it is not "channel-1".
+   */
+  seed?: { messages?: SeedMessage[]; tasks?: SeedTask[]; files?: SeedFile[]; hidden?: string[]; git?: SeedGit; home?: string };
+  /** The shared corpus the seed starts from, such as "lived-in"; what `seed` names comes after it. */
+  corpus?: string;
   /** Attached to the brief; `pdf` lines become a real one-page PDF. */
   attachments?: { name: string; pdf: string[] }[];
   mustCover: string[];
@@ -148,6 +183,35 @@ function checkTalk(name: string, raw: any) {
   });
 }
 
+/** The shared corpora a brief may start from, by name. */
+const CORPORA: Record<string, typeof livedInCorpus> = { "lived-in": livedInCorpus };
+
+/** The raw facts with the corpus they name put in front of their own seed: members, talk, files, git history, and the brief's channel's name. */
+function withCorpus(name: string, raw: any) {
+  if (raw?.corpus === undefined) return raw;
+  const corpus = CORPORA[raw.corpus]?.();
+  if (!corpus) throw new Error(`Fixture ${name}: corpus is ${Object.keys(CORPORA).join(" or ")}, not ${raw.corpus}`);
+  const seed = raw.seed ?? {}, own = seed.git;
+  const git = own ? {
+    repos: [...corpus.git.repos, ...(own.repos ?? [])], pullRequests: [...(corpus.git.pullRequests ?? []), ...(own.pullRequests ?? [])],
+    issues: [...(corpus.git.issues ?? []), ...(own.issues ?? [])], commits: [...(corpus.git.commits ?? []), ...(own.commits ?? [])],
+  } : corpus.git;
+  return {
+    ...raw, members: [...corpus.members, ...(raw.members ?? [])],
+    seed: { ...seed, home: seed.home ?? corpus.home, messages: [...corpus.messages, ...(seed.messages ?? [])], files: [...corpus.files, ...(seed.files ?? [])], git },
+  };
+}
+
+function checkRetrieval(name: string, n: number, t: any) {
+  const where = `Fixture ${name}: turn ${n}`;
+  if (t.gold !== undefined && (!Array.isArray(t.gold) || t.gold.some((g: unknown) => typeof g !== "string" && (!Array.isArray(g) || !g.length || g.some((a) => typeof a !== "string"))))) {
+    throw new Error(`${where} gold is a list of sources, each a string or a list of strings that stand in for each other`);
+  }
+  if (t.search !== undefined && (typeof t.search !== "object" || !strings(t.search.queries, `${name} turn ${n} search.queries`)?.length)) throw new Error(`${where} search needs queries, the wordings a model would pass to recall`);
+  if (t.search && !t.gold?.length) throw new Error(`${where} has a search but no gold to score it against`);
+  if (t.tasksInclude !== undefined && !Array.isArray(t.tasksInclude)) throw new Error(`${where} tasksInclude is a list of tasks`);
+}
+
 export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): AssistantFixture[] {
   return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort().map((name) => {
     const file = (f: string, required = true) => {
@@ -157,7 +221,7 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
     };
     const text = file("facts.yaml"), cut = cutFacts(text);
     if (cut.length) throw new Error(`Fixture ${name}: quote the must-cover fact "${cut[0]}…": an unquoted " #" starts a YAML comment and cuts it there`);
-    const raw = Bun.YAML.parse(text) as any;
+    const raw = withCorpus(name, Bun.YAML.parse(text) as any);
     if (raw?.language !== "en" && raw?.language !== "id") throw new Error(`Fixture ${name}: facts.yaml language is en or id`);
     if (!AREAS.includes(raw.area)) throw new Error(`Fixture ${name}: facts.yaml area is ${AREAS.slice(0, -1).join(", ")} or ${AREAS.at(-1)}`);
     if (typeof raw.clock !== "string" || Number.isNaN(Date.parse(raw.clock))) throw new Error(`Fixture ${name}: clock is not a time`);
@@ -174,6 +238,7 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
       if (t.quiet !== undefined && t.quiet !== true) throw new Error(`Fixture ${name}: turn ${i + 1} quiet is true or left out`);
       if (t.quiet && (t.replyContains || t.cites || t.taskList || t.ambiguous)) throw new Error(`Fixture ${name}: turn ${i + 1} is quiet, so it asks nothing of a reply`);
       for (const c of t.cites ?? []) if (!Number.isInteger(c) || !raw.seed?.messages?.[c]) throw new Error(`Fixture ${name}: turn ${i + 1} cites ${c}, which is no seeded message`);
+      checkRetrieval(name, i + 1, t);
     }
     strings(raw.seed?.hidden, `${name} seed.hidden`);
     checkTalk(name, raw);
@@ -186,7 +251,12 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
       const zone = zoneOf(raw);
       if (!(raw.seed?.messages ?? []).some((m: SeedMessage) => !bare(m.channel) && dayIn(zone, seedTime(m.at, raw.clock)) === then.dailyLog)) throw new Error(`Fixture ${name}: then.dailyLog ${then.dailyLog} has no seeded talk in the brief's channel that day`);
     }
-    const facts: AssistantFacts = { language: raw.language, area: raw.area, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), members: raw.members, seed: raw.seed, attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
+    const facts: AssistantFacts = { language: raw.language, area: raw.area, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), members: raw.members, seed: raw.seed, ...(raw.corpus ? { corpus: raw.corpus } : {}), attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
     return { name, messages, authors, facts };
   });
+}
+
+/** Every daily-behaviour brief: those under assistant/, then the lived-in sessions. A run's trials name their brief; this finds it. */
+export function loadEveryAssistantFixture(): AssistantFixture[] {
+  return [...loadAssistantFixtures(), ...(existsSync(LIVED_IN_DIR) ? loadAssistantFixtures(LIVED_IN_DIR) : [])];
 }

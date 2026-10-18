@@ -1,0 +1,18 @@
+# The other "normalization": Tomi's database normalization, done through a Task, a merged pull request and a commit in gema/api, with
+# the migration's downtime in Minutes and a Note. Distractor: loudness normalization in #audio-engine. Lived-in exam, #252.
+corpus: lived-in
+language: en
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Yes: the Task "Normalize the episodes and shows tables" (Tomi, #general) is completed, and pull request #34 in gema/api was merged on 19 September 2026'
+  - 'The #general Minutes of 17 September 2026 planned the migration for Sunday 20 September 2026 at 02:00 WIB, with at most 15 minutes of downtime'
+  - 'It ran on 20 September with 11 minutes of downtime, per Tomi''s Note and Progress note'
+turns:
+  - replyContains: ['#34']
+    replyLacks: ['LUFS']
+    gold: ['task:Normalize the episodes and shows tables', 'https://github.com/gema/api/pull/34']
+    search: { queries: ['database normalization', 'normalisasi database', 'normalize episodes shows tables'] }
+  - replyContains: ['11']
+    gold: [['#general/minutes/2026-09-17-migrasi-database.md', '#general/daily-logs/2026-09/2026-09-17.md'], '#general/notes/2026-09-20-laporan-migrasi.md']
+    search: { queries: ['database migration downtime', 'downtime migrasi database'] }

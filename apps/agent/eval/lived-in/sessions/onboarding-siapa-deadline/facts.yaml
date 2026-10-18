@@ -1,0 +1,16 @@
+# Who owns what and by when, asked with a typo ("onbording"), then whether the review it waits on happened: a Task in progress with a
+# Progress note, and a late review Task of Alice's from the #mobile Minutes. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: tasks
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Mira yang pegang Task "Redesign onboarding screens" di #mobile, in_progress, jatuh tempo 20 Oktober 2026'
+  - 'Belum: Task "Review onboarding v2" milik Alice masih pending, dan jatuh temponya 9 Oktober 2026 sudah lewat'
+  - 'Draft v2 sudah ada di Figma dan menunggu review Alice, menurut Progress note Mira 7 Oktober 2026'
+turns:
+  - replyContains: ['Mira']
+    gold: ['task:Redesign onboarding screens']
+    search: { queries: ['redesain onboarding', 'redesign onboarding', 'onboarding screens'] }
+  - gold: ['task:Review onboarding v2', ['#mobile/minutes/2026-10-07-review-onboarding.md', '#mobile/daily-logs/2026-10/2026-10-07.md']]
+    search: { queries: ['review onboarding', 'review onboarding v2'] }

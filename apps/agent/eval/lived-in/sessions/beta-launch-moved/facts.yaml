@@ -1,0 +1,21 @@
+# Asked in English about talk kept in Indonesian: the public beta was planned for 1 September (Minutes in #marketing, 22 July) and moved
+# to 20 October (Minutes in #general and a Decision in #marketing, 26 August). Then who owns the press kit, and what is overdue in
+# #marketing, where two tasks are late. Lived-in exam, #252.
+corpus: lived-in
+language: en
+area: recall
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'The public beta is no longer on 1 September: on 26 August 2026 it was moved to Tuesday 20 October 2026'
+  - 'The 1 September date came from the beta launch plan Minutes of 22 July 2026 in #marketing; it moved because the Bluetooth bug and offline sync were not ready'
+  - 'The press kit is Sekar''s Task "Siapkan press kit beta", in progress and due 16 October 2026; only the team photo and a quote from Alice are left'
+  - 'Overdue in #marketing: "Kirim brief ke kreator podcast" (Sekar, due 9 October 2026) and "Update harga di landing page" (Mira, due 12 October 2026)'
+turns:
+  - replyContains: ['October']
+    gold: [['#marketing/decisions/2026-08-26-beta-mundur-ke-20-oktober.md', '#general/minutes/2026-08-26-go-no-go-beta-publik.md', '#general/daily-logs/2026-08/2026-08-26.md'], ['#marketing/minutes/2026-07-22-rencana-peluncuran-beta.md', '#marketing/daily-logs/2026-07/2026-07-22.md']]
+    search: { queries: ['public beta launch date', 'tanggal rilis beta publik', 'beta mundur'] }
+  - replyContains: ['Sekar']
+    gold: ['task:Siapkan press kit beta']
+    search: { queries: ['press kit', 'press kit beta'] }
+  - replyContains: ['kreator podcast', 'landing page']
+    gold: ['task:Kirim brief ke kreator podcast', 'task:Update harga di landing page']

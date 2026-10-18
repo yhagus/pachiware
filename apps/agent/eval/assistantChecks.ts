@@ -5,7 +5,7 @@
  */
 import { languageOf, type Language } from "../../../packages/skills/src/language";
 import { fillerIn } from "../src/discord/replyStyle";
-import type { AssistantFixture, ExpectedReminder, ExpectedTask, MemoryFacts, TurnFacts } from "./assistantFixtures";
+import { commitUrl, issueUrl, pullUrl, type AssistantFixture, type ExpectedReminder, type ExpectedTask, type MemoryFacts, type TurnFacts } from "./assistantFixtures";
 import type { AssistantOutput, AssistantState, AssistantTurn } from "./assistantRun";
 
 export type AssistantCheck = "reply" | "quiet" | "reaction" | "confirm" | "pings" | "acted" | "tasks" | "memory" | "files" | "reminders" | "kept" | "format" | "filler" | "language" | "posts" | "citations";
@@ -17,9 +17,10 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const show = (v: unknown) => (v === null || v === undefined ? "unassigned" : Array.isArray(v) ? v.join(", ") || "none" : String(v));
 const TASK_LINE = /^[^|\n]+\|[^|\n]+\|[^|\n]+\|\s*[0-9a-f]{8}\s*\|[^|\n]+$/m;
 
-function taskFailures(expected: ExpectedTask[], tasks: AssistantState["tasks"]): string[] {
+/** Each expected task is found and agrees; with `counted`, no other task may exist. */
+function taskFailures(expected: ExpectedTask[], tasks: AssistantState["tasks"], counted = true): string[] {
   const out: string[] = [];
-  if (tasks.length !== expected.length) out.push(`${tasks.length} tasks exist, expected ${expected.length}.`);
+  if (counted && tasks.length !== expected.length) out.push(`${tasks.length} tasks exist, expected ${expected.length}.`);
   for (const e of expected) {
     const task = tasks.find((t) => has(t.title, e.title));
     if (!task) { out.push(`No task whose title contains "${e.title}"; found: ${tasks.map((t) => t.title).join(", ") || "none"}.`); continue; }
@@ -78,6 +79,7 @@ export function checkTurn(turn: AssistantTurn, facts: TurnFacts, before: Assista
   if (turn.pings.length) fail("pings", [`The reply pinged ${turn.pings.join(", ")}; only a Reminder post, or the one ping an Assignee gets, pings.`]);
   if (facts.ambiguous && before && !same(turn.state, before)) fail("acted", ["The request was ambiguous, but the Workspace changed."]);
   if (facts.tasks) fail("tasks", taskFailures(facts.tasks, turn.state.tasks));
+  if (facts.tasksInclude) fail("tasks", taskFailures(facts.tasksInclude, turn.state.tasks, false));
   for (const level of ["channel", "guild"] as const) if (facts.memory?.[level]) fail("memory", memoryFailures(level, facts.memory[level]!, turn.state.memory[level]));
   if (facts.files && !same([...turn.state.files].sort(), [...facts.files].sort())) fail("files", [`files/ holds ${turn.state.files.join(", ") || "nothing"}, expected ${facts.files.join(", ") || "nothing"}.`]);
   if (facts.reminders) fail("reminders", reminderFailures(facts.reminders, turn.state.reminders));
@@ -94,16 +96,17 @@ export function checkTurn(turn: AssistantTurn, facts: TurnFacts, before: Assista
 
 /**
  * The links a reply may hold for this fixture, besides its seeded talk's: those written in its seeded files, the posted message of each seeded Minutes
- * (from the guildId, postedIn and messageId at its top), and each seeded pull request's. Anything else was made up.
+ * (from the guildId, postedIn and messageId at its top), and each seeded pull request's, issue's and commit's. Anything else was made up.
  */
 function seedLinks(fixture: AssistantFixture): string {
-  const files = fixture.facts.seed?.files ?? [], prs = fixture.facts.seed?.git?.pullRequests ?? [];
+  const files = fixture.facts.seed?.files ?? [], git = fixture.facts.seed?.git;
   const field = (text: string, key: string) => text.match(new RegExp(`^${key}: "?([^"\\n]+)"?$`, "m"))?.[1];
   const minutes = files.flatMap((f) => {
     const guild = field(f.content, "guildId"), posted = field(f.content, "postedIn"), message = field(f.content, "messageId");
     return guild && posted && message ? [`https://discord.com/channels/${guild}/${posted}/${message}`] : [];
   });
-  return [...files.map((f) => f.content), ...minutes, ...prs.map((p) => `https://github.com/${p.repo}/pull/${p.number}`)].join("\n");
+  const work = [...(git?.pullRequests ?? []).map(pullUrl), ...(git?.issues ?? []).map(issueUrl), ...(git?.commits ?? []).map((c) => commitUrl(c.repo, c.sha))];
+  return [...files.map((f) => f.content), ...minutes, ...work].join("\n");
 }
 
 /** A ref the bot left unrendered ("[K1]"), and every link that is not in the seed. */

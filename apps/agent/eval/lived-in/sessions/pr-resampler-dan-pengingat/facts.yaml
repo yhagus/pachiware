@@ -1,0 +1,16 @@
+# The agent loop: one message asks a question (is the resampler pull request merged?) and, depending on the answer, a Reminder; the next
+# asks for a Memory line. The clock is Wednesday 14 October, 09:00 in Jakarta: Friday 10:00 is 2026-10-16T03:00:00Z. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: loop
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Sudah: pull request #97 "Replace the linear resampler with windowed sinc" di gema/audio-core di-merge 9 Oktober 2026'
+  - 'Pengingat dipasang untuk Jumat 16 Oktober 2026 jam 10.00: minta Rani demo resampler di weekly'
+  - 'Diingat untuk channel ini: demo tiap Jumat dipegang Rani'
+turns:
+  - replyContains: ['#97']
+    gold: ['https://github.com/gema/audio-core/pull/97']
+    search: { queries: ['resampler pull request', 'PR resampler', 'resampler merged'] }
+    reminders: [{"text": "demo", "recurrence": "once", "nextAt": "2026-10-16T03:00:00.000Z"}]
+  - memory: {"channel": {"has": ["Rani"]}}

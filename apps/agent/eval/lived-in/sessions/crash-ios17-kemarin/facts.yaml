@@ -1,0 +1,17 @@
+# Yesterday's talk, kept only in a Daily log and an issue: a crash on iOS 17. No Task exists for it, which the second answer must say
+# without inventing one; the third turn files one. Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: tasks
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Ya: kemarin, 13 Oktober 2026, di #mobile dibahas crash di iOS 17.0 saat AirPods terputus waktu merekam, dicatat di Log harian #mobile'
+  - 'Joko membuat issue #158 di gema/gema-app, yang masih open'
+  - 'Belum ada Task untuk crash itu, hanya issue-nya'
+  - 'Task cek crash log iOS 17 dibuat untuk Bayu, jatuh tempo Jumat 16 Oktober 2026'
+turns:
+  - replyContains: ['#158']
+    gold: ['#mobile/daily-logs/2026-10/2026-10-13.md', 'https://github.com/gema/gema-app/issues/158']
+    search: { queries: ['crash iOS 17', 'crash di iOS 17', 'iOS 17 crash'] }
+  - {}
+  - tasksInclude: [{ title: 'crash', assignedTo: 'Bayu', dueAt: '2026-10-16' }]

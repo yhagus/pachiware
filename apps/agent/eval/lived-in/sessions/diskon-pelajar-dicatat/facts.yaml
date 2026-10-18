@@ -1,0 +1,14 @@
+# Capture after recall: the student discount was left open in #marketing's Minutes; the team settles it in the conversation and asks for
+# it to be recorded, which is one Decision file (and a Memory line pointing at it). Lived-in exam, #252.
+corpus: lived-in
+language: id
+area: capture
+clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
+mustCover:
+  - 'Diskon pelajar 50% belum diputuskan di Notulen finalisasi harga 16 September 2026 di #marketing; Alice mau melihat data survei dulu'
+  - 'Keputusan baru dicatat: diskon pelajar 50%, berlaku mulai beta publik 20 Oktober 2026'
+turns:
+  - replyContains: ['50%']
+    gold: [['#marketing/minutes/2026-09-16-finalisasi-harga.md', '#marketing/daily-logs/2026-09/2026-09-16.md']]
+    search: { queries: ['diskon pelajar', 'student discount', 'diskon mahasiswa'] }
+  - kept: ['50%']
