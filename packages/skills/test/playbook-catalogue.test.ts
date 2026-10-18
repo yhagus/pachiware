@@ -27,6 +27,10 @@ describe("built-in playbooks", () => {
     expect(named("grill-me")!.loads).toEqual(["grilling"]);
   });
 
+  test("minutes start from the English or the Indonesian word", () => {
+    expect(named("minutes")).toMatchObject({ run: "in-place", menu: "Write minutes", words: ["minutes", "notulen"] });
+  });
+
   test("the repository playbooks are imported off; those that act on a repository require the git skill and one repository, the document playbooks only use git, and grill-with-docs loads grilling and domain-modeling", () => {
     for (const name of ["to-spec", "code-review", "pr"]) {
       expect([name, named(name)?.defaultOff, named(name)?.start, named(name)?.requires.includes("git_repositories")]).toEqual([name, true, true, true]);

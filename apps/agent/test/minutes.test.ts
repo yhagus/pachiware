@@ -121,6 +121,26 @@ discordScenario("@bot minutes in a channel covers the last 3 hours and replies t
   expect(s.discord.botMessages[0]!.embeds[0].title).toBe("Database");
 });
 
+discordScenario("@bot notulen in a channel writes the minutes as @bot minutes does, with or without a title after it", async (s) => {
+  const { alice, bob } = s.discord;
+  const now = Date.now(), hour = 3600_000;
+  s.discord.history([
+    { content: "Kita tetap pakai Postgres, sepakat", author: alice, at: now - 2 * hour },
+    { content: "Sepakat", author: bob, at: now - hour },
+  ]);
+  const minutes = JSON.stringify({ title: "Database", decided: [{ text: "Tetap pakai Postgres", ref: 1 }], open: [], actions: [] });
+  s.model.script(minutes, minutes);
+  const ask = await s.discord.send(`${s.discord.mention} notulen`);
+  await s.discord.send(`${s.discord.mention} notulen: rapat sprint`);
+
+  expect(s.model.calls).toHaveLength(2);
+  for (const call of s.model.calls) expect(call.filter((m) => m.role === "user").map((m) => m.content).join("\n")).toContain("Kita tetap pakai Postgres, sepakat");
+  expect(s.discord.botMessages).toHaveLength(2);
+  expect(s.discord.botMessages[0]).toMatchObject({ channelId: "channel-1", reference: { messageId: ask.id } });
+  expect(s.discord.botMessages.map((m) => m.embeds[0].title)).toEqual(["Database", "Database"]);
+  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toHaveLength(2);
+});
+
 discordScenario("every item links to its source message and owners appear only when the discussion named them", async (s) => {
   const { alice, bob } = s.discord;
   const now = Date.now();
