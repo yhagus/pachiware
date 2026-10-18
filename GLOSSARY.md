@@ -160,6 +160,10 @@ _Avoid_: Memo, doc, memory
 A file or a long text a person gave the bot in a conversation, or a file an admin chose to mirror from a repository, kept as it was in the Workspace folder of that place so the bot can read it when it needs to. A mirrored file follows its repository: it changes and goes when the file does upstream. Nobody asked to keep a given one; asking turns its content into a note.
 _Avoid_: Attachment (Discord's word for any file on a message), upload, Note
 
+**Team roster**:
+A guild's list of the people its team keeps: each one's role, what they are responsible for, and their time zone. Anyone in the guild sets a line from chat, and each line says who set it and when. It answers "who owns X?" and is searched by recall beside the Tasks; it is neither Memory nor kept material, and its time zones do not change when Reminders post.
+_Avoid_: Directory, org chart, members list (Discord's own)
+
 **Memory**:
 What the bot keeps about a place to answer better later: the team's decisions, how people like to be addressed and to work, and the conventions of the place. One memory per tenant, per guild, and per channel; a channel's memory is not read in another channel. Conversation itself and private details are never memory.
 _Avoid_: Notes (notes are files a person asked for), context, history
@@ -192,6 +196,7 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A **Reminder** belongs to the person who asked for it and to the channel or DM it will post in; it is not part of any task.
 - A **Digest** is per channel and reads that channel's tasks and their **Due dates**; it never reads another channel.
 - **Memory** lives in the **Workspace** at the tenant, guild, and channel level; the channel level is read only in that channel.
+- A **Team roster** belongs to one **Guild** and is read from any of its channels; a person on it may be a member or someone known only by name, as an **Assignee** may.
 - A **Document** is kept in the Workspace folder of the channel or DM it was given in; a **Note** may be made from it, never the other way round.
 - A mirrored **Document** is kept under `files/docs/` of the channel an admin chose, and refreshed only while that channel's **Git scope** allows its repository.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.

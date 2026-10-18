@@ -108,7 +108,7 @@ function seedLinks(fixture: AssistantFixture): string {
 
 /** A ref the bot left unrendered ("[K1]"), and every link that is not in the seed. */
 export function citationFailures(reply: string, links: string): string[] {
-  const refs = reply.match(/\[[KTGP]\d+\]/g) ?? [];
+  const refs = reply.match(/\[[KTGPR]\d+\]/g) ?? [];
   const made = (reply.match(/https?:\/\/[^\s<>)\]]+/g) ?? []).map((u) => u.replace(/[.,;:!?'"]+$/, "")).filter((u) => !links.includes(u));
   return [...refs.map((r) => `The reply leaves the ref ${r} unrendered.`), ...made.map((u) => `The reply links ${u}, which nothing seeded holds.`)];
 }

@@ -7,9 +7,9 @@
 /** A source as a tool cited it. */
 export type Citation = { label: string; url?: string };
 
-const REF = /^[KTGP]\d+$/;
+const REF = /^[KTGPR]\d+$/;
 /** A bracket holding a ref, that is not the text of a Markdown link: "[K1]", "[K2/K1]", "[K1 was only a pricing decision]". */
-const BRACKET_WITH_REF = /\[([^[\]\n]*\b[KTGP]\d+\b[^[\]\n]*)\](?!\()/g;
+const BRACKET_WITH_REF = /\[([^[\]\n]*\b[KTGPR]\d+\b[^[\]\n]*)\](?!\()/g;
 const BETWEEN_REFS = /\s*[,/;&+]\s*|\s+(?:and|dan)\s+|\s+/;
 
 /** Every `{ ref, label, url? }` a tool result holds, at any depth, by ref. The first one given for a ref wins. */

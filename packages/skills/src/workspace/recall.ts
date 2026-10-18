@@ -1,4 +1,5 @@
 import type { SkillContext, ToolDefinition, ToolResult } from "../types.js";
+import { memberLine, rosterMatches } from "../builtin/team.js";
 import { DEFAULT_TIMEZONE, isoInZone } from "../clock.js";
 import { textIn } from "../language.js";
 import { jumpLink, parseFrontmatter } from "../playbooks.js";
@@ -24,7 +25,7 @@ export const RECALL_BUDGET = 11_000;
 
 export const recallTool: ToolDefinition = {
   name: "recall",
-  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A kept file marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are. notLogged, given when no kept file answers, names the channels searched that keep no Daily logs.",
+  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, the server's Team roster (team: who is responsible for what), and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A kept file marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are. notLogged, given when no kept file answers, names the channels searched that keep no Daily logs.",
   parameters: {
     type: "object",
     properties: {
@@ -140,6 +141,8 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
     ref: refFor(ctx, "G"), label: `${w.repo} · ${t.workCited[w.kind] ?? w.kind} ${w.number !== undefined ? `#${w.number}` : w.sha} "${clip(w.title, TITLE_CHARS)}" (${w.state}${settled(w)})`, url: w.url, date: w.date,
   })) : [];
   const planeItems = "data" in plane ? (plane.data.items as any[]).slice(0, RECALL_PART).map((w) => ({ ref: refFor(ctx, "P"), label: `${w.key} "${clip(w.name, TITLE_CHARS)}" (${w.state ?? "?"})`, url: w.url })) : [];
+  // Who is responsible for what, from the guild's Team roster (#249), for "who owns X" beside the Assignees of Tasks.
+  const teamItems = ctx.guildId ? (await rosterMatches(ctx, wordings).catch(() => [])).slice(0, RECALL_PART).map((m) => ({ ref: refFor(ctx, "R"), label: t.teamCited(m.name), line: memberLine(m) })) : [];
 
   const notLogged = !keptItems.length || kept.nothingStrong ? await unlogged(store, ctx.tenantId, sources) : [];
   const notShownHere = kept.notShown + ("data" in tasks ? tasks.data.notShownHere ?? 0 : 0);
@@ -147,7 +150,7 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
   const nothingFound = [["kept", keptItems], ["tasks", taskItems], ["git", workItems], ["plane", planeItems]]
     .filter(([name, items]) => !(name as string in unavailable) && !(items as unknown[]).length).map(([name]) => name as string);
   const result = {
-    kept: keptItems, tasks: taskItems, work: workItems, workItems: planeItems,
+    kept: keptItems, tasks: taskItems, work: workItems, workItems: planeItems, ...(teamItems.length ? { team: teamItems } : {}),
     ...(kept.nothingStrong ? { nothingStrong: true as const } : {}),
     ...(nothingFound.length ? { nothingFound } : {}),
     ...(Object.keys(unavailable).length ? { unavailable } : {}),
