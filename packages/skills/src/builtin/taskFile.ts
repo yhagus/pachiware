@@ -83,31 +83,23 @@ export function parseTask(text: string): Task | null {
 }
 
 export interface Found { path: string; version: string; task: Task }
-const MAX_FILES = 500, MAX_DEPTH = 8;
-/** Every valid task under the folders this turn can see: in a DM only the person's Personal tasks. ponytail: reads files per call; add an index when a Workspace outgrows MAX_FILES task files. */
+const MAX_DEPTH = 8;
+/** Every valid task in the tasks/ folders this turn can see: in a DM only the person's Personal tasks. ponytail: reads every task file per call; add an index when that gets slow. */
 export async function loadTasks(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "userId">, shortId?: string): Promise<Found[]> {
   // A private thread's own folder sits inside its parent's and holds no tasks: a thread's tasks are its parent's.
   const { thread: _, ...roots } = visibleRoots(ctx);
-  return walkTasks(store, ctx.tenantId, roots.dm ? [roots.dm] : Object.values(roots), shortId);
+  return walkTasks(store, ctx.tenantId, (roots.dm ? [roots.dm] : Object.values(roots)).map((root) => `${root}/tasks`), shortId);
 }
 
-/** Every valid task under `roots`, frontmatter only, at most MAX_FILES Markdown files in all. */
-export async function walkTasks(store: WorkspaceStore, tenantId: string, roots: readonly string[], shortId?: string): Promise<Found[]> {
+/** Every valid task in `folders` (tasks/ folders, at any depth), frontmatter only. Kept material never sits there, so it can never crowd tasks out. */
+export async function walkTasks(store: WorkspaceStore, tenantId: string, folders: readonly string[], shortId?: string): Promise<Found[]> {
   const out: Found[] = [];
-  let seen = 0;
-  const walk = async (dir: string, depth: number): Promise<void> => {
-    for (const e of await store.list(tenantId, dir)) {
-      if (seen >= MAX_FILES) return;
-      const name = e.path.split("/").pop()!;
-      if (e.type === "dir") { if (depth < MAX_DEPTH && !name.startsWith(".")) await walk(e.path, depth + 1); continue; }
-      if (!name.endsWith(".md")) continue;
-      seen++;
-      const file = await store.readFrontmatter(tenantId, e.path).catch(() => null);
-      const task = file && parseTask(file.content);
-      if (task && (!shortId || task.id.replace(/-/g, "").startsWith(shortId))) out.push({ path: e.path, version: file.version, task });
-    }
-  };
-  for (const root of roots) await walk(root, 0);
+  for (const folder of folders) for (const { path } of await store.files(tenantId, folder)) {
+    if (!path.endsWith(".md")) continue;
+    const file = await store.readFrontmatter(tenantId, path).catch(() => null);
+    const task = file && parseTask(file.content);
+    if (task && (!shortId || task.id.replace(/-/g, "").startsWith(shortId))) out.push({ path, version: file.version, task });
+  }
   return out;
 }
 

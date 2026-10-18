@@ -15,7 +15,7 @@ export const personalTasksOf = (path: string): string | null => /^dms\/([\w-]+)\
 
 /** The project channels of a guild a person can view, by the same check as the sources kept material is read from. */
 export async function viewableProjects(store: WorkspaceStore, tenantId: string, discord: DiscordClientAdapter | undefined, guildId: string, userId: string): Promise<TaskSource[]> {
-  return (await viewableChannels(store, tenantId, discord, guildId, userId)).map((c) => ({ kind: "project" as const, label: `#${c.name}`, folders: [c.folder], guildId, channelId: c.id }));
+  return (await viewableChannels(store, tenantId, discord, guildId, userId)).map((c) => ({ kind: "project" as const, label: `#${c.name}`, folders: [`${c.folder}/tasks`], guildId, channelId: c.id }));
 }
 
 /**

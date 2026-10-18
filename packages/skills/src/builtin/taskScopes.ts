@@ -17,7 +17,7 @@ export const MAX_SCOPED = 20;
 
 /**
  * Folders whose tasks a view across projects prints as one group under `label`: a project channel (`#name`, with its ids),
- * a person's Personal tasks, or the shared task folders of the tenant and its guilds. `folders` are tenant-relative and walked recursively.
+ * a person's Personal tasks, or the shared task folders of the tenant and its guilds. `folders` are tenant-relative tasks/ folders, walked recursively.
  */
 export interface TaskSource { kind: "project" | "personal" | "shared"; label: string; folders: string[]; guildId?: string; channelId?: string; /** False: its tasks may not be shown here, only counted. */ quotable?: boolean }
 export interface TaskGroup { source: TaskSource; tasks: Found[] }
@@ -31,7 +31,7 @@ export const PERSONAL_TASKS = "Personal tasks", SHARED_TASKS = "Shared tasks";
 export async function scopeSources(store: WorkspaceStore, ctx: Pick<SkillContext, "tenantId" | "guildId" | "userId" | "discord">): Promise<TaskSource[]> {
   const user = safeId(ctx.userId);
   if (!user) return [];
-  const personal: TaskSource = { kind: "personal", label: PERSONAL_TASKS, folders: [`dms/${user}`] };
+  const personal: TaskSource = { kind: "personal", label: PERSONAL_TASKS, folders: [`dms/${user}/tasks`] };
   const shared = (guildIds: (string | undefined)[]): TaskSource => ({ kind: "shared", label: SHARED_TASKS, folders: ["shared/tasks", ...guildIds.flatMap((g) => (safeId(g) ? [`guilds/${g}/shared/tasks`] : []))] });
   if (ctx.guildId) return [...await viewableProjects(store, ctx.tenantId, ctx.discord, ctx.guildId, user), shared([ctx.guildId]), personal];
   const guilds = (await ctx.discord?.sharedGuilds(user).catch(() => [])) ?? [];
