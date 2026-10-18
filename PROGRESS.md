@@ -1634,3 +1634,25 @@ The five tickets the first live Rapor (#240, 76.5) filed. Together they cover ev
   - Exam defect: the recorded state lists files, not their text, so a claim about what a Document says cannot be checked.
   - The regression brief `ingat-ya-dikonfirmasi` (#243) scored 1.00: all three trials said the line was kept.
   - Run folders (gitignored): `rapor-phase43-20261019-0227/` and `regression-ingat-ya-20261019-0228/`, each graded into `rejudged-0.2/`. About 44k prompt and 0.7k completion tokens a trial, 1.6 s a model call.
+
+
+## Phase 44 — Harness fixes (#144, #246–#256)
+
+The issues filed from the harness review after Phase 43, plus #144. Asked by the user on 2026-10-19 ("bisa langsung kerjakan semua?"). Built on `feat/review-246-256`, one commit per issue.
+
+- [x] Decided while building (the open questions on the issues):
+  - A task's Due date still never creates a Reminder (Glossary); that idea from the review is left out.
+  - #255: a turn is refused only when it is nothing but a rule-rewriting attempt (every phrase unquoted, fewer than three topical words left without the phrases and speaker names). Anything else runs with the phrases named as data in the turn's context.
+  - #256: the member id goes into the stored turn line as a mention (`Alice (<@id>): …`), so the model can pass it to assignTask. The bot's own lines carry none.
+- [x] #144 Refusals (58c11d7): confirmWrite's Trusted-only, no-confirmer and duplicate refusals, the two brief refusals, and the loop's empty-answer and action-budget fallbacks come from `textIn`. Instructions to the model (`Only the brief's author…`, `bulkMessage`) and argument errors stay English, as the issue says.
+- [x] #254 Turn deadline (801e622): `TURN_DEADLINE_SECONDS` (default 180). Past it no model call, retry, fallback Profile or tool call starts; the request in flight is cut at the deadline; the turn ends with the action-budget summary (30 s of its own), audited with `source: "deadline"`. Discord's `|| 12` is gone: Discord, web chat and the loop share `DEFAULT_REACT_ITERATIONS` (32) from `@pachiware/db`.
+- [x] #255 Quoted injection (eb212b5): `injectionPhrases`, `onlyInjection` in `guardrails.ts`; audited as `prompt_injection_detected` with `quoted: true`.
+- [x] #256 Speaker ids (36270ae): `speakerTurn` and `replyLine` carry `<@id>`. The persona's Assignees line says to pass a speaker's mention. The previous default is frozen as `PERSONA_REMEMBER_ASKED` (migration indices 18→19); later persona changes in this phase edit the default only.
+- [ ] #251 Git and Plane administration tools off by default
+- [ ] #253 Tasks from Minutes action items, and a Task's source
+- [ ] #250 Task history, `completedAt`, the Assignee told
+- [ ] #249 Team roster
+- [ ] #246 Today's talk in recall, images and scanned PDFs, long Minutes in parts
+- [ ] #247 Git hits ranked by relevance, commits searched beyond the latest 100
+- [ ] #248 Repository documentation mirrored as Documents
+- [ ] #252 A lived-in exam
