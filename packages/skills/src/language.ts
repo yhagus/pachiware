@@ -62,6 +62,7 @@ const en = {
   sourceFolderRefused: (folders: string[]) => `From another channel only ${folders.join(", ")} can be read.`,
   sourceReadOnly: "Another channel's files can only be read from here; they are changed in that channel.",
   notQuotableHere: "Files from there cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.",
+  tasksNotShownHere: (n: number) => `${n} more matching ${n === 1 ? "task" : "tasks"} you can see cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.`,
   notShownHere: (n: number) => `${n} more matching ${n === 1 ? "file" : "files"} you can read cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.`,
   // Memory compaction, written into MEMORY.md as the bot
   memoryCompacted: (from: number, to: number) => `Memory compacted from ${plural(from, "line")} to ${to}; every line from the last 30 days kept.`,
@@ -220,6 +221,7 @@ const id: typeof en = {
   sourceFolderRefused: (folders) => `Dari channel lain hanya ${folders.join(", ")} yang bisa dibaca.`,
   sourceReadOnly: "File channel lain hanya bisa dibaca dari sini; mengubahnya dilakukan di channel itu.",
   notQuotableHere: "File dari sana tidak bisa ditampilkan di channel ini. Jangan sebutkan isi atau tempatnya; sarankan bertanya lewat DM.",
+  tasksNotShownHere: (n) => `${n} tugas lain yang cocok dan bisa kamu lihat tidak bisa ditampilkan di channel ini. Jangan sebutkan isi atau tempatnya; sarankan bertanya lewat DM.`,
   notShownHere: (n) => `${n} file lain yang cocok dan bisa kamu baca tidak bisa ditampilkan di channel ini. Jangan sebutkan isi atau tempatnya; sarankan bertanya lewat DM.`,
   memoryCompacted: (from, to) => `Memori dipadatkan dari ${from} baris menjadi ${to}; semua baris 30 hari terakhir dipertahankan.`,
   memoryCut: (dropped) => `Memori melebihi batas; ${dropped} baris tertua dihapus, semua baris 30 hari terakhir dipertahankan.`,
