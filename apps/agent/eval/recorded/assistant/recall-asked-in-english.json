@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "recall-asked-in-english",
+  "turns": [
+    {
+      "n": 1,
+      "message": "did we ever talk about automatic invoice reminders? what was settled?",
+      "replies": [
+        "Yes, it was settled that reminders go out automatically three days before the due date. Kept so far:\n- #finance, 2026-10-12: Pengingat tagihan otomatis sudah jalan untuk klien Jakarta\n- #channel-1, 2026-10-05: # Pengingat tagihan otomatis"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}
