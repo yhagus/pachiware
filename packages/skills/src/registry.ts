@@ -174,7 +174,7 @@ export class SkillRegistry {
 
     if ((await this.hiddenTools(context, [skill])).has(name)) {
       await audit(context, "tool_denied", { tool: name, reason: "disabled_or_unavailable" });
-      return { toolCallId, name, success: false, error: "Tool is disabled or unavailable here" };
+      return { toolCallId, name, success: false, error: (await skill.hiddenReason?.(context, name)) ?? "Tool is disabled or unavailable here" };
     }
 
     const handler = skill.handlers[name];

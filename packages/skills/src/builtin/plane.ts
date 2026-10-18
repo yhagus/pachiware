@@ -11,7 +11,7 @@ import { moduleWriteTools, moduleWriteHandlers, moduleWriteToolPolicy } from "..
 import { intakeTools, intakeHandlers, intakeToolPolicy } from "../plane/intake.js";
 import { intakeWriteTools, intakeWriteHandlers, intakeWriteToolPolicy } from "../plane/intakeWrites.js";
 import { projectAdminTools, projectAdminHandlers, projectAdminToolPolicy } from "../plane/projectAdmin.js";
-import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools, type PlaneToolPolicy } from "../plane/workspace.js";
+import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools, hiddenPlaneReason, type PlaneToolPolicy } from "../plane/workspace.js";
 
 /** Tool groups in display order, as Availability rules and the console show them. Every Plane tool joins one; a group shows once it holds a tool. */
 export const PLANE_GROUPS = ["Browse", "Work items", "Cycles", "Modules", "Intake", "Plane project admin", "Plane workspace"];
@@ -89,7 +89,8 @@ export const planeSkill: SkillModule = {
   toolPolicy: planeToolPolicy,
   // Every write goes through planeWrite (plane/write.ts), which queues it for the asker's Confirm.
   confirmsInternally: true,
-  // Workspace-level tools are offered only where the Plane scope is "all Plane projects".
+  // Offered only where a Plane scope opens an account (planeAccounts always), and workspace-level tools only where it is "all Plane projects".
   hiddenTools: (ctx) => hiddenWorkspaceTools(ctx, planeToolPolicy),
+  hiddenReason: (ctx) => hiddenPlaneReason(ctx),
   groups: PLANE_GROUPS.filter((g) => Object.values(planeToolPolicy).some((p) => p.group === g)),
 };

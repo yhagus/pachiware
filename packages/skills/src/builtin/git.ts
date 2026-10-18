@@ -1,6 +1,6 @@
 import type { SkillModule, SkillContext, ToolDefinition } from "../types.js";
 import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, browseCommits, getMergeRequest, readFile, writeFile, openPullRequest, commentOn, createIssue, linkIssues, subIssue, mergeMergeRequest, closeItem, browsePipelines, pipelineJobs, jobLog, retryPipeline, createBranch, browseTags, browseReleases, getCommit, compareRefs, getIssue, itemComments, searchCode, searchWork, type WorkHit, updateMergeRequest, reopenItem, reviewMergeRequest, requestReviewers, mergeRequestDiff, repoChecks, rebaseMergeRequest, updateIssue, assignItem, listLabels, setLabels, lockItem, editComment, deleteComment, createRepo, updateRepoSettings, renameRepo, archiveRepo, deleteRepo, forkRepo, transferRepo, deleteBranch, protectBranch, getBranchProtection, createTag, deleteTag, createRelease, deleteRelease, deleteFile, moveFile, commitFiles, commitToDefaultBranch, runPipeline, cancelPipeline, listArtifacts, downloadArtifact, schedules, variables, secrets, runners, member, invitations, deployKeys, webhooks, securityAlerts, orgList, orgMembers, orgTeams, createGroup, manageTeam, wiki, snippets, packages, notifications, stats, type GitState, type GitConn, type ItemKind } from "../git.js";
-import { loadGitAccess, pickAccess, connectionOf, repoAllowed, type GitAccess } from "../gitScope.js";
+import { GIT_NOT_ENABLED, loadGitAccess, pickAccess, connectionOf, repoAllowed, type GitAccess } from "../gitScope.js";
 import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, state, num, str, kindOf, clip, confirmable, guard, labelsP, labelsOf } from "./gitShared.js";
 import { briefGroundingTools, briefGroundingHandlers } from "./briefGrounding.js";
 import { briefIssuesTools, briefIssuesHandlers } from "./briefIssues.js";
@@ -133,12 +133,19 @@ export const gitTools: ToolDefinition[] = [
 const MAX_WORK_QUERIES = 5, MAX_WORK_REPOS = 10, REPO_PAGES = 3;
 const patternsOf = (a: GitAccess) => a.sets.length > 1 ? a.sets.map((s) => s.join(", ")).join(" AND ") : a.sets[0]!.join(", ");
 
+const gitSkillTools = [...gitTools, ...issueBatchTools, ...playbookRepositoryTools, ...playbookDocumentTools, ...briefGroundingTools, ...briefIssuesTools];
+const WITHOUT_ACCOUNT = new Set(["gitAccounts", ...playbookDocumentTools.map((t) => t.name)]);
+
 export const gitRepositorySkill: SkillModule = {
   id: "git_repositories",
   name: "Git Repositories",
   description: "Browse and change repositories on the git accounts enabled for this server and channel (GitHub, GitLab, self-hosted GitLab).",
-  tools: [...gitTools, ...issueBatchTools, ...playbookRepositoryTools, ...playbookDocumentTools, ...briefGroundingTools, ...briefIssuesTools],
+  tools: gitSkillTools,
   capabilities: ["git"],
+  // Where no Git scope opens an account (a DM, web chat, or a channel without a rule) the tools that need one could only refuse, so they are not offered.
+  // gitAccounts says none is enabled; writePlaybookDocument keeps a playbook's documents in the Workspace without a repository (ADR 0007).
+  hiddenTools: async (ctx) => ((await loadGitAccess(ctx).catch(() => [])).length ? [] : gitSkillTools.map((t) => t.name).filter((name) => !WITHOUT_ACCOUNT.has(name))),
+  hiddenReason: async () => GIT_NOT_ENABLED,
   // Git queues, scopes and confirms every write itself (gitShared.guard), per account and repository pattern.
   confirmsInternally: true,
   toolPolicy: gitToolPolicy,

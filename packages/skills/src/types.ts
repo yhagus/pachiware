@@ -231,10 +231,13 @@ export interface SkillModule {
   /** Display order of the groups the tools sit in; large skills only. */
   groups?: string[];
   /**
-   * Tools of this skill that the place does not support although Availability rules allow them (Plane's workspace tools where the
-   * Plane scope names specific Plane projects). They are not offered to the model, and a call to one is refused as unavailable.
+   * Tools of this skill that the place does not support although Availability rules allow them (git and Plane tools where no scope
+   * opens an account, Plane's workspace tools where the Plane scope names specific Plane projects). They are not offered to the model,
+   * and a call to one is refused with `hiddenReason`, or as unavailable.
    */
   hiddenTools?: (ctx: SkillContext) => Promise<string[]>;
+  /** What the refusal of a hidden tool says, so the model can tell the person who can open it. */
+  hiddenReason?: (ctx: SkillContext, tool: string) => Promise<string>;
 }
 
 export interface CatalogueTool { name: string; description: string; effect?: Effect; group?: string; playbook?: string }

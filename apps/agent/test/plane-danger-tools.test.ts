@@ -272,7 +272,7 @@ discordScenario("workspaceInvite and workspaceCancelInvite are offered only wher
   expect(s.model.tools.at(-1)).toContain("workItemDelete");
   expect(s.model.tools.at(-1)).not.toContain("workspaceInvite");
   expect(s.model.tools.at(-1)).not.toContain("workspaceCancelInvite");
-  expect(JSON.stringify(refused)).toContain("unavailable here");
+  expect(refused.error).toBe("This needs the whole Plane workspace, and this channel is limited to specific Plane projects.");
   expect(plane.writes.length).toBe(2);
 });
 

@@ -38,9 +38,11 @@ export function orgAllowed(access: GitAccess, org: string): boolean {
   return access.sets.every((set) => set.some((p) => patternCovers(p, probe)));
 }
 
+export const GIT_NOT_ENABLED = "No git account is enabled for this channel. An admin can enable one in the console under the server's git access.";
+
 /** `name` may be omitted only when exactly one account is usable. */
 export function pickAccess(list: GitAccess[], name?: unknown): GitAccess {
-  if (!list.length) throw new Error("No git account is enabled for this channel. An admin can enable one in the console under the server's git access.");
+  if (!list.length) throw new Error(GIT_NOT_ENABLED);
   const names = list.map((a) => a.account.name).join(", ");
   if (typeof name !== "string" || !name.trim()) {
     if (list.length === 1) return list[0]!;

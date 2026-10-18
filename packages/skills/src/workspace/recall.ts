@@ -6,6 +6,8 @@ import { agentPaths } from "./paths.js";
 import { dateRange, nameDate, queriesTerms, wordingsOf } from "./search.js";
 import { rankKept, readableSources, sourcePath, type Source } from "./sources.js";
 import { workspaceStore } from "./store.js";
+import { GIT_NOT_ENABLED, loadGitAccess } from "../gitScope.js";
+import { PLANE_NOT_ENABLED, loadPlaneAccess } from "../plane/scope.js";
 
 /**
  * "Was X discussed, decided, done?" in one call (#211): Kept material, Tasks of every status, git issues, pull requests and commits,
@@ -63,9 +65,15 @@ async function keptLink(tenantId: string, path: string, kind: Kind, lines: numbe
   return undefined;
 }
 
+/** Why a part whose tool is not offered here is not searched, when the cause is that no scope opens its accounts (its tools are then hidden). */
+const NO_SCOPE: Record<string, (ctx: SkillContext) => Promise<string | null>> = {
+  repoSearchWork: async (ctx) => ((await loadGitAccess(ctx).catch(() => [])).length ? null : GIT_NOT_ENABLED),
+  workItemList: async (ctx) => ((await loadPlaneAccess(ctx)).length ? null : PLANE_NOT_ENABLED),
+};
+
 /** Runs one of the tools recall combines, when the model could call it here; the reason it is not searched otherwise. */
 async function part(ctx: SkillContext, tool: string, args: Record<string, unknown>): Promise<{ data: any } | { unavailable: string }> {
-  if (!ctx.tools?.here.has(tool)) return { unavailable: textIn(ctx.language).recallNotAvailable };
+  if (!ctx.tools?.here.has(tool)) return { unavailable: (await NO_SCOPE[tool]?.(ctx)) ?? textIn(ctx.language).recallNotAvailable };
   const result: ToolResult = await ctx.tools.run(tool, args);
   return result.success ? { data: result.data } : { unavailable: result.error ?? textIn(ctx.language).recallNotAvailable };
 }

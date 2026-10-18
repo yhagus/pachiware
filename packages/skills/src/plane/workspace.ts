@@ -4,7 +4,7 @@
  */
 import type { Effect, SkillContext, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeRequest, inWorkspace } from "./client.js";
-import { loadPlaneAccess, pickPlaneAccess, allPlaneProjectsAllowed, planeConnOf, type PlaneAccess } from "./scope.js";
+import { PLANE_NOT_ENABLED, loadPlaneAccess, pickPlaneAccess, allPlaneProjectsAllowed, planeConnOf, type PlaneAccess } from "./scope.js";
 import { planeTargetOf, ACCOUNT_ARG, type PlaneTarget } from "./projectRef.js";
 import { planeWrite, inPlainWords, DANGER, DANGER_NOTE } from "./write.js";
 import { text } from "./args.js";
@@ -14,17 +14,26 @@ const READ: Effect = "read";
 /** A Plane tool's policy; `workspaceLevel` hides the tool unless some usable account has every Plane project open here. */
 export type PlaneToolPolicy = ToolPolicy & { workspaceLevel?: true };
 
-/** The workspace-level tools of `policy` to hide here: all of them unless some usable account has every Plane project open. */
+/**
+ * The Plane tools of `policy` to hide here: all but planeAccounts where no Plane scope opens an account, since each could only refuse;
+ * else the workspace-level ones, unless some usable account has every Plane project open.
+ */
 export async function hiddenWorkspaceTools(ctx: SkillContext, policy: Record<string, PlaneToolPolicy>): Promise<string[]> {
-  if ((await loadPlaneAccess(ctx)).some(allPlaneProjectsAllowed)) return [];
+  const access = await loadPlaneAccess(ctx);
+  if (!access.length) return Object.keys(policy).filter((name) => name !== "planeAccounts");
+  if (access.some(allPlaneProjectsAllowed)) return [];
   return Object.keys(policy).filter((name) => policy[name]!.workspaceLevel);
 }
+
+const WHOLE_WORKSPACE = "This needs the whole Plane workspace, and this channel is limited to specific Plane projects.";
+/** Why a hidden Plane tool is refused: no Plane scope opens an account here, or the tool needs every Plane project open. */
+export const hiddenPlaneReason = async (ctx: SkillContext) => ((await loadPlaneAccess(ctx)).length ? WHOLE_WORKSPACE : PLANE_NOT_ENABLED);
 
 /** The account a workspace-level tool uses: only accounts with every Plane project open here count. */
 export async function pickWorkspaceAccess(ctx: SkillContext, name?: unknown): Promise<PlaneAccess> {
   const list = await loadPlaneAccess(ctx);
   const whole = list.filter(allPlaneProjectsAllowed);
-  if (list.length && !whole.length) throw new Error("This needs the whole Plane workspace, and this channel is limited to specific Plane projects.");
+  if (list.length && !whole.length) throw new Error(WHOLE_WORKSPACE);
   return pickPlaneAccess(whole, name);
 }
 
