@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type PlaneAccount, type Tenant } from "@/lib/api";
 import { planeHost } from "@/lib/plane";
+import { useLastShown } from "@/hooks/use-last-shown";
 
 const EMPTY = { name: "", baseUrl: "", workspaceSlug: "", apiKey: "" };
 
@@ -20,6 +21,7 @@ export function TenantPlaneAccounts() {
   const tenant = useOutletContext<Tenant>();
   const [accounts, setAccounts] = useState<PlaneAccount[] | null>(null);
   const [editing, setEditing] = useState<PlaneAccount | "new" | null>(null);
+  const shown = useLastShown(editing);
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -43,7 +45,7 @@ export function TenantPlaneAccounts() {
   const remove = async (a: PlaneAccount) => {
     try { await api.deletePlaneAccount(a.id); toast.success("Plane account deleted"); await load(); } catch (e: any) { toast.error(e.message); }
   };
-  const hostChanged = editing !== "new" && !!editing && (form.baseUrl.trim() || null) !== editing.baseUrl;
+  const hostChanged = shown !== "new" && !!shown && (form.baseUrl.trim() || null) !== shown.baseUrl;
 
   return (
     <div className="space-y-5">
@@ -87,13 +89,13 @@ export function TenantPlaneAccounts() {
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           <form onSubmit={save} className="space-y-5">
-            <DialogHeader><DialogTitle>{editing === "new" ? "Add Plane account" : "Edit Plane account"}</DialogTitle><DialogDescription className="sr-only">Plane account settings</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>{shown === "new" ? "Add Plane account" : "Edit Plane account"}</DialogTitle><DialogDescription className="sr-only">Plane account settings</DialogDescription></DialogHeader>
             <div className="space-y-2"><Label htmlFor="pn">Name</Label><Input id="pn" required placeholder="e.g. Acme Plane" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pb">Base URL (optional)</Label><Input id="pb" type="url" placeholder="https://plane.example.com" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
               <p className="text-xs text-muted-foreground">Leave blank for Plane's cloud. Set it for a self-hosted Plane, where raising API_KEY_RATE_LIMIT (60 a minute by default) helps a busy bot.{hostChanged && " Changing the base URL requires entering the API key again."}</p></div>
             <div className="space-y-2"><Label htmlFor="ps">Workspace slug</Label><Input id="ps" required autoComplete="off" spellCheck={false} placeholder="acme" value={form.workspaceSlug} onChange={(e) => setForm({ ...form, workspaceSlug: e.target.value })} />
               <p className="text-xs text-muted-foreground">The part after the host in your Plane workspace's address, as in app.plane.so/<span className="font-mono">acme</span>/.</p></div>
-            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" autoComplete="off" required={editing === "new" || hostChanged} placeholder={editing !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />
+            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" autoComplete="off" required={shown === "new" || hostChanged} placeholder={shown !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />
               <p className="text-xs text-muted-foreground">The bot can do whatever this key's Plane user can. Use a dedicated Plane user, added only to the Plane projects it needs as a Member (Admin only for intake triage or project admin), and give the key an expiry. The key is checked with Plane on save and never shown again.</p></div>
             <DialogFooter><Button disabled={saving}>{saving ? "Checking with Plane" : "Save"}</Button></DialogFooter>
           </form>

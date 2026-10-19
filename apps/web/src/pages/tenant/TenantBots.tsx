@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { api, type Bot, type GitAccount, type PlaneAccount, type Profile, type Tenant } from "@/lib/api";
 import { PLATFORMS, emptyValues, platformOf, toInput, valuesOf, type Platform } from "@/lib/platforms";
 import { label } from "@/lib/utils";
+import { useLastShown } from "@/hooks/use-last-shown";
 
 const PAGE_SIZE = 12;
 const statusVariant = (s: string) => (s === "connected" ? "secondary" : s === "error" ? "destructive" : "outline");
@@ -69,6 +70,7 @@ export function TenantBots() {
   const [q, setQ] = useState("");
   const [platform, setPlatform] = useState("");
   const [editing, setEditing] = useState<Editing | null>(null);
+  const shown = useLastShown(editing);
   const [form, setForm] = useState<Record<string, string>>({});
   const [name, setName] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -79,6 +81,7 @@ export function TenantBots() {
   const [planeAccountIds, setPlaneAccountIds] = useState<string[]>([]);
   const [planeAccounts, setPlaneAccounts] = useState<PlaneAccount[]>([]);
   const [deleting, setDeleting] = useState<Bot | null>(null);
+  const shownDeleting = useLastShown(deleting);
   const seq = useRef(0);
 
   useEffect(() => { const t = setTimeout(() => { setQ(search.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [search]);
@@ -156,7 +159,7 @@ export function TenantBots() {
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
-          {editing && !editing.platform && (
+          {shown && !shown.platform && (
             <div className="space-y-5">
               <DialogHeader><DialogTitle>Choose a platform</DialogTitle><DialogDescription>Each platform has its own setup.</DialogDescription></DialogHeader>
               <div className="grid gap-2">
@@ -170,17 +173,17 @@ export function TenantBots() {
               </div>
             </div>
           )}
-          {editing?.platform && (
+          {shown?.platform && (
             <form onSubmit={save} className="space-y-5">
               <DialogHeader>
-                <DialogTitle>{editing.bot ? "Edit" : "Add"} {editing.platform.name} integration</DialogTitle>
-                <DialogDescription className="sr-only">{editing.platform.name} settings</DialogDescription>
+                <DialogTitle>{shown.bot ? "Edit" : "Add"} {shown.platform.name} integration</DialogTitle>
+                <DialogDescription className="sr-only">{shown.platform.name} settings</DialogDescription>
               </DialogHeader>
               <div className="space-y-2"><Label htmlFor="in">Name</Label><Input id="in" required value={name} onChange={(e) => setName(e.target.value)} /></div>
-              {editing.platform.fields.map((f) => (
+              {shown.platform.fields.map((f) => (
                 <div key={f.key} className="space-y-2"><Label htmlFor={`f-${f.key}`}>{f.label}</Label>
-                  <Input id={`f-${f.key}`} type={f.secret ? "password" : "text"} required={f.secret && !editing.bot}
-                    placeholder={f.secret && editing.bot ? "Leave blank to keep current" : f.placeholder} value={form[f.key] ?? ""} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} /></div>
+                  <Input id={`f-${f.key}`} type={f.secret ? "password" : "text"} required={f.secret && !shown.bot}
+                    placeholder={f.secret && shown.bot ? "Leave blank to keep current" : f.placeholder} value={form[f.key] ?? ""} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} /></div>
               ))}
               <div className="space-y-2"><Label htmlFor="ipf">Profile</Label>
                 <Select value={profileId} onValueChange={setProfileId}>
@@ -217,7 +220,7 @@ export function TenantBots() {
               </fieldset>
               <div className="flex items-center gap-2"><Switch id="ie" checked={enabled} onCheckedChange={setEnabled} /><Label htmlFor="ie">Enabled</Label></div>
               <DialogFooter className="sm:justify-between">
-                {editing.bot ? <span /> : <Button type="button" variant="ghost" onClick={() => setEditing({ platform: null })}><ArrowLeft /> Back</Button>}
+                {shown.bot ? <span /> : <Button type="button" variant="ghost" onClick={() => setEditing({ platform: null })}><ArrowLeft /> Back</Button>}
                 <Button>Save</Button>
               </DialogFooter>
             </form>
@@ -227,7 +230,7 @@ export function TenantBots() {
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Delete {deleting?.name}?</AlertDialogTitle><AlertDialogDescription>It disconnects and its credentials are removed.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Delete {shownDeleting?.name}?</AlertDialogTitle><AlertDialogDescription>It disconnects and its credentials are removed.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={() => deleting && run(() => api.deleteBot(deleting.id), "Integration deleted")}>Delete</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>

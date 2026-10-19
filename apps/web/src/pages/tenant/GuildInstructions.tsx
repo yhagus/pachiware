@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TimezoneInput } from "@/components/TimezoneInput";
 import { IconButton } from "@/components/IconButton";
 import { api, LANGUAGES, type DocSource, type Guild, type GuildConfig, type GuildGit, type Language } from "@/lib/api";
+import { useLastShown } from "@/hooks/use-last-shown";
 
 const MAX = 8000;
 const INHERIT = "tenant";
@@ -26,6 +27,7 @@ const toSource = (d: DocDraft): DocSource => ({ channelId: d.channelId, repo: d.
 const selectClass = "h-8 rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function GuildInstructions({ botId, guild, onClose }: { botId: string; guild: Guild | null; onClose: () => void }) {
+  const shown = useLastShown(guild);
   const [cfg, setCfg] = useState<GuildConfig | null>(null);
   const [savedLogs, setSavedLogs] = useState<string[]>([]);
   const [docs, setDocs] = useState<DocDraft[]>([]);
@@ -35,8 +37,8 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    setCfg(null); setError(null);
     if (!guild) return;
+    setCfg(null); setError(null);
     let live = true;
     api.getGuildConfig(botId, guild.id).then((r) => { if (live) { setCfg(r.config); setSavedLogs(r.config.dailyLogChannels.map((d) => d.channelId)); setDocs(r.config.docSources.map(toDraft)); } }).catch((e) => live && setError(e.message));
     // Only names the accounts to choose from; without them a source reads with any account the channel allows.
@@ -58,7 +60,7 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
   const logOf = (id: string) => cfg?.dailyLogChannels.find((d) => d.channelId === id);
   const toggleLog = (id: string, on: boolean) => cfg && setCfg({ ...cfg, dailyLogChannels: on ? [...cfg.dailyLogChannels, { channelId: id, backfill: true }] : cfg.dailyLogChannels.filter((d) => d.channelId !== id) });
   const setBackfill = (id: string, backfill: boolean) => cfg && setCfg({ ...cfg, dailyLogChannels: cfg.dailyLogChannels.map((d) => (d.channelId === id ? { ...d, backfill } : d)) });
-  const textChannels = guild?.channels.filter((c) => c.type === "text") ?? [];
+  const textChannels = shown?.channels.filter((c) => c.type === "text") ?? [];
   const setDoc = (i: number, change: Partial<DocDraft>) => setDocs(docs.map((d, n) => (n === i ? { ...d, ...change } : d)));
   const addDoc = () => setDocs([...docs, { channelId: textChannels[0]?.id ?? "", repo: "", account: ANY_ACCOUNT, paths: DEFAULT_DOC_PATHS }]);
 
@@ -66,7 +68,7 @@ export function GuildInstructions({ botId, guild, onClose }: { botId: string; gu
     <Sheet open={!!guild} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{guild?.name} instructions</SheetTitle>
+          <SheetTitle>{shown?.name} instructions</SheetTitle>
           <SheetDescription>Added to the assistant's system prompt for this server only.</SheetDescription>
         </SheetHeader>
         <div className="flex-1 space-y-5 overflow-y-auto px-4 pb-4">

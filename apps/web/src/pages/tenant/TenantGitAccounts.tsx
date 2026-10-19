@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type GitAccount, type Tenant } from "@/lib/api";
+import { useLastShown } from "@/hooks/use-last-shown";
 
 export const PROVIDERS = [{ id: "github", name: "GitHub" }, { id: "gitlab", name: "GitLab" }] as const;
 export const providerName = (id: string) => PROVIDERS.find((p) => p.id === id)?.name ?? id;
@@ -22,6 +23,7 @@ export function TenantGitAccounts() {
   const tenant = useOutletContext<Tenant>();
   const [accounts, setAccounts] = useState<GitAccount[] | null>(null);
   const [editing, setEditing] = useState<GitAccount | "new" | null>(null);
+  const shown = useLastShown(editing);
   const [form, setForm] = useState(EMPTY);
   const [loadError, setLoadError] = useState("");
   const [params, setParams] = useSearchParams();
@@ -55,7 +57,7 @@ export function TenantGitAccounts() {
     try { await api.deleteGitAccount(a.id); toast.success("Git account deleted"); await load(); } catch (e: any) { toast.error(e.message); }
   };
   const gitlab = form.provider === "gitlab";
-  const hostChanged = editing !== "new" && !!editing && (form.baseUrl.trim() || null) !== editing.baseUrl;
+  const hostChanged = shown !== "new" && !!shown && (form.baseUrl.trim() || null) !== shown.baseUrl;
 
   const hostField = (
             <div className="space-y-2"><Label htmlFor="gb">Host URL (optional)</Label><Input id="gb" type="url" placeholder={gitlab ? "https://gitlab.example.com" : "https://github.example.com"} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
@@ -104,8 +106,8 @@ export function TenantGitAccounts() {
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           <form onSubmit={save} className="space-y-5">
-            <DialogHeader><DialogTitle>{editing === "new" ? "Connect git account" : "Edit git account"}</DialogTitle><DialogDescription className="sr-only">Git account settings</DialogDescription></DialogHeader>
-            {editing === "new" && <>
+            <DialogHeader><DialogTitle>{shown === "new" ? "Connect git account" : "Edit git account"}</DialogTitle><DialogDescription className="sr-only">Git account settings</DialogDescription></DialogHeader>
+            {shown === "new" && <>
               {hostField}
               <div className="flex flex-wrap gap-2">
                 <Button type="button" onClick={() => oauth("github")}>Continue with GitHub</Button>
@@ -115,13 +117,13 @@ export function TenantGitAccounts() {
             </>}
             <div className="space-y-2"><Label htmlFor="gn">Name</Label><Input id="gn" required placeholder="e.g. Work GitHub" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="gp">Provider</Label>
-              <Select value={form.provider} onValueChange={(v) => setForm({ ...form, provider: v })} disabled={editing !== "new"}>
+              <Select value={form.provider} onValueChange={(v) => setForm({ ...form, provider: v })} disabled={shown !== "new"}>
                 <SelectTrigger id="gp" className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>{PROVIDERS.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
               </Select>
-              {editing !== "new" && <p className="text-xs text-muted-foreground">Provider cannot be changed. Create a new account instead.</p>}</div>
-            {editing !== "new" && hostField}
-            <div className="space-y-2"><Label htmlFor="gt">Access token</Label><Input id="gt" type="password" required={editing === "new" || hostChanged} placeholder={editing !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} />
+              {shown !== "new" && <p className="text-xs text-muted-foreground">Provider cannot be changed. Create a new account instead.</p>}</div>
+            {shown !== "new" && hostField}
+            <div className="space-y-2"><Label htmlFor="gt">Access token</Label><Input id="gt" type="password" required={shown === "new" || hostChanged} placeholder={shown !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} />
               <p className="text-xs text-muted-foreground">The bot can do whatever this token can. Prefer a token limited to the repositories it needs. It is checked with the provider on save.{hostChanged && " Changing the host requires entering the token again."}</p></div>
             <DialogFooter><Button>Save</Button></DialogFooter>
           </form>

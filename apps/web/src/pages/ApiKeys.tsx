@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ApiKey } from "@/lib/api";
+import { useLastShown } from "@/hooks/use-last-shown";
 
 const date = (s: string | null) => (s ? new Date(s).toLocaleString() : "Never");
 
@@ -18,6 +19,7 @@ export function ApiKeys() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [created, setCreated] = useState("");
+  const shownKey = useLastShown(created);
   const [copied, setCopied] = useState(false);
   const load = useCallback(() => api.listApiKeys().then((r) => setKeys(r.apiKeys.sort((a, b) => b.createdAt.localeCompare(a.createdAt)))).catch((e) => toast.error(e.message)), []);
   useEffect(() => { void load(); }, [load]);
@@ -76,7 +78,7 @@ export function ApiKeys() {
         <DialogContent>
           <DialogHeader><DialogTitle>Copy your key now</DialogTitle><DialogDescription>It is shown only once. Store it somewhere safe.</DialogDescription></DialogHeader>
           <div className="flex items-center gap-1 rounded-md border p-2">
-            <code className="min-w-0 flex-1 break-all font-mono text-xs">{created}</code>
+            <code className="min-w-0 flex-1 break-all font-mono text-xs">{shownKey}</code>
             <IconButton label={copied ? "Copied" : "Copy"} onClick={copy}>{copied ? <Check /> : <Copy />}</IconButton>
           </div>
           <DialogFooter><Button onClick={() => setCreated("")}>Done</Button></DialogFooter>

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { api, type ApiFormat, type Profile, type ProfileChecks, type Tenant } from "@/lib/api";
+import { useLastShown } from "@/hooks/use-last-shown";
 import { ProfileChecklist, ProfilePlayground } from "./ProfilePlayground";
 
 // Mirrors PROVIDERS, DEFAULT_BASE_URLS and DEFAULT_MODELS in apps/agent/src/llm/providers.ts.
@@ -36,6 +37,7 @@ export function TenantProfiles() {
   const tenant = useOutletContext<Tenant>();
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [editing, setEditing] = useState<Profile | "new" | null>(null);
+  const shown = useLastShown(editing);
   const [form, setForm] = useState(EMPTY);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -78,7 +80,7 @@ export function TenantProfiles() {
   };
   const custom = form.provider === "custom";
   const nameOf = (id: string | null) => profiles?.find((p) => p.id === id)?.name;
-  const fallbackChoices = (profiles ?? []).filter((p) => editing === "new" || p.id !== editing?.id);
+  const fallbackChoices = (profiles ?? []).filter((p) => shown === "new" || p.id !== shown?.id);
 
   return (
     <div className="space-y-5">
@@ -116,7 +118,7 @@ export function TenantProfiles() {
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <form onSubmit={save} className="space-y-5">
-            <DialogHeader><DialogTitle>{editing === "new" ? "New profile" : "Edit profile"}</DialogTitle><DialogDescription className="sr-only">Model profile settings</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>{shown === "new" ? "New profile" : "Edit profile"}</DialogTitle><DialogDescription className="sr-only">Model profile settings</DialogDescription></DialogHeader>
             <div className="space-y-2"><Label htmlFor="pn">Name</Label><Input id="pn" required placeholder="e.g. Support bot" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pp">Provider</Label>
               <Select value={form.provider} onValueChange={(v) => { edit({ provider: v }); setModels([]); }}>
@@ -130,7 +132,7 @@ export function TenantProfiles() {
                 <SelectContent>{API_FORMATS.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} <span className="font-mono text-xs text-muted-foreground">{f.path}</span></SelectItem>)}</SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">The request shape your server expects. Most OpenAI-compatible servers take Chat Completions; Test tells you when the answer looks like another one.</p></div>}
-            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" placeholder={editing !== "new" && editing?.hasApiKey ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => edit({ apiKey: e.target.value })} /></div>
+            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" placeholder={shown !== "new" && shown?.hasApiKey ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => edit({ apiKey: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pm">Model</Label>
               <div className="flex gap-2">
                 <Input id="pm" required list="profile-models" className="flex-1" placeholder={MODEL_HINT[form.provider]} value={form.model} onChange={(e) => edit({ model: e.target.value })} />

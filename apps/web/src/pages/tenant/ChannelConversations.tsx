@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "@/components/ui/skeleton";
 import { CopyId } from "@/components/CopyId";
 import { api, type ChatMessage, type Conversation, type GuildChannel } from "@/lib/api";
+import { useLastShown } from "@/hooks/use-last-shown";
 
 // Guild turns are stored as "Name: text"; older rows have no prefix.
 const speaker = (m: ChatMessage) => (m.role === "user" ? m.content?.match(/^([^:\n]{1,40}): /)?.[1] ?? "User" : "Bot");
@@ -14,6 +15,7 @@ const body = (m: ChatMessage) => (m.role === "user" ? m.content?.replace(/^[^:\n
 const time = (s: string | null) => (s ? new Date(s).toLocaleString() : "–");
 
 export function ChannelConversations({ botId, channel, onClose }: { botId: string; channel: GuildChannel | null; onClose: () => void }) {
+  const shown = useLastShown(channel);
   const [list, setList] = useState<Conversation[] | null>(null);
   const [open, setOpen] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
@@ -33,8 +35,8 @@ export function ChannelConversations({ botId, channel, onClose }: { botId: strin
   };
 
   useEffect(() => {
-    setList(null); setOpen(null);
     if (!channel) return;
+    setList(null); setOpen(null);
     let live = true;
     api.listBotConversations(botId, channel.id).then((r) => live && setList(r.conversations)).catch((e) => { toast.error(e.message); live && setList([]); });
     return () => { live = false; };
@@ -52,7 +54,7 @@ export function ChannelConversations({ botId, channel, onClose }: { botId: strin
     <Sheet open={!!channel} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{open ? "Conversation" : `# ${channel?.name ?? ""}`}</SheetTitle>
+          <SheetTitle>{open ? "Conversation" : `# ${shown?.name ?? ""}`}</SheetTitle>
           <SheetDescription>{open ? `Shared conversation · started ${time(open.createdAt)}${open.endedAt ? ` · ended ${time(open.endedAt)}` : ""}` : "Conversations the bot handled in this channel and its threads. Messages it did not respond to are not stored. After the tenant's quiet hours, or once you end one, the next message starts a fresh conversation."}</SheetDescription>
         </SheetHeader>
         <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
@@ -85,7 +87,7 @@ export function ChannelConversations({ botId, channel, onClose }: { botId: strin
               </button>
             ))}
         </div>
-        {channel && <div className="border-t px-4 py-3 text-xs text-muted-foreground">Channel ID <CopyId value={channel.id} /></div>}
+        {shown && <div className="border-t px-4 py-3 text-xs text-muted-foreground">Channel ID <CopyId value={shown.id} /></div>}
       </SheetContent>
     </Sheet>
   );
