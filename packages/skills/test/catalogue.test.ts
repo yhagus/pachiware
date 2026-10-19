@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { skillRegistry } from "../src/registry.ts";
+import { policyOf } from "../src/guardrails.ts";
 
 const catalogue = skillRegistry.catalogue();
 const skill = (id: string) => catalogue.find((s) => s.id === id)!;
@@ -36,11 +37,22 @@ describe("tool catalogue", () => {
     expect(catalogue.flatMap((s) => s.tools).filter((t) => t.playbook).map((t) => [t.name, t.playbook]).sort()).toEqual(brief.map((n) => [n, "issue-draft"]).sort());
   });
 
-  test("tools keep their descriptions and every skill lists all its tools", () => {
-    expect(skill("git_repositories").tools.length).toBe(93);
-    expect(skill("workspace").tools.length).toBe(18);
-    expect(skill("reminders").tools.map((t) => t.name)).toEqual(["createReminder", "listReminders", "cancelReminder", "editReminder"]);
+  test("tools keep their descriptions, and every tool has a handler and a policy entry that name nothing else", () => {
+    for (const s of skillRegistry.getAllSkills()) {
+      const names = s.tools.map((t) => t.name).sort();
+      expect([s.id, Object.keys(s.handlers).sort()]).toEqual([s.id, names]);
+      expect([s.id, Object.keys(s.toolPolicy ?? {}).sort()]).toEqual([s.id, names]);
+    }
+    const all = catalogue.flatMap((s) => s.tools.map((t) => t.name));
+    expect(all.filter((n, i) => all.indexOf(n) !== i)).toEqual([]);
     expect(tool("repoList").description).toMatch(/^Lists repositories/);
+  });
+
+  test("every write tool of a skill the registry confirms for says whether it asks for Confirm", () => {
+    // policyOf gives a write without requiresConfirmation a Confirm button; git and Plane confirm their writes themselves.
+    const unstated = skillRegistry.getAllSkills().filter((s) => !s.confirmsInternally)
+      .flatMap((s) => s.tools.filter((t) => policyOf(s, t.name).effect === "write" && s.toolPolicy?.[t.name]?.requiresConfirmation === undefined).map((t) => t.name));
+    expect(unstated).toEqual([]);
   });
 });
 

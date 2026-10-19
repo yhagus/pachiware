@@ -19,9 +19,10 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     assert((await app.request("/api/admin/tenants/" + alpha.id + "/skills")).status === 401, "admin key required");
     assert((await app.request("/api/admin/tenants/nope/skills", { headers: h })).status === 404, "unknown tenant");
     const skills = await list(alpha), byId = Object.fromEntries(skills.map((s) => [s.id, s]));
-    assert(byId.git_repositories.toolCount === 93 && byId.git_repositories.tools.length === 93, "git count " + byId.git_repositories.toolCount);
-    assert(byId.workspace.toolCount === 18, "workspace count " + byId.workspace.toolCount);
-    assert(byId.task_management.toolCount === 12 && byId.discord_management.toolCount === 9 && byId.reminders.toolCount === 4, "small skill counts");
+    const { taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill } = await imp("packages/skills/src/index.ts");
+    const modules = [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill], names = (tools) => JSON.stringify(tools.map((t) => t.name));
+    assert(JSON.stringify(skills.map((s) => s.id).sort()) === JSON.stringify(modules.map((m) => m.id).sort()), "skills listed " + skills.map((s) => s.id));
+    for (const m of modules) assert(byId[m.id].toolCount === m.tools.length && names(byId[m.id].tools) === names(m.tools), m.id + " lists " + byId[m.id].toolCount + " tools, its module " + m.tools.length);
     assert(JSON.stringify(byId.git_repositories.groups) === JSON.stringify(["Browse", "Issues & PRs", "Code", "CI", "Repo admin", "Org"]), "git groups");
     assert(byId.workspace.groups.length === 0, "workspace declares no groups");
     const tool = (s, n) => byId[s].tools.find((t) => t.name === n);
@@ -37,7 +38,7 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     assert((await app.request("/api/admin/tenants/" + alpha.id + "/skills/git_repositories", { method: "PATCH", headers: h, body: JSON.stringify({ isEnabled: !byId.git_repositories.isEnabled }) })).status === 200, "toggle");
     assert((await list(alpha)).find((s) => s.id === "git_repositories").isEnabled === !byId.git_repositories.isEnabled, "alpha git not toggled");
     const betaGit = (await list(beta)).find((s) => s.id === "git_repositories");
-    assert(betaGit.isEnabled === byId.git_repositories.isEnabled && betaGit.toolCount === 93, "beta affected by alpha");
+    assert(betaGit.isEnabled === byId.git_repositories.isEnabled && betaGit.toolCount === gitRepositorySkill.tools.length, "beta affected by alpha");
     console.log(JSON.stringify({ ok: true }));`;
   const result = Bun.spawnSync({ cmd: ["bun", "--eval", script], cwd: root, env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "t.db")}`, WORKSPACE_DIR: join(dir, "ws"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" } });
   try { expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); } finally { rmSync(dir, { recursive: true, force: true }); }

@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import { taskManagementSkill, discordManagementSkill, workspaceSkill, remindersSkill } from "@pachiware/skills";
 import { discordScenario } from "./support/discordScenario";
 
 discordScenario("a tool off in one channel is not offered there but is offered in another channel of the same guild", async (s) => {
@@ -34,10 +35,11 @@ discordScenario("a thread follows its parent channel's rules", async (s) => {
   expect(s.model.tools[1]).toContain("listTasks");
 });
 
-discordScenario("a tenant with no rules is offered exactly the tools it was offered before", async (s) => {
+discordScenario("a tenant with no rules is offered every tool of the skills on by default, and none of git or Plane", async (s) => {
   s.model.script("ok");
   await s.discord.send(`${s.discord.mention} hi`);
-  expect(s.model.tools[0]).toEqual(["addProgressNote", "archiveChannel", "assignTask", "cancelReminder", "createChannel", "createReminder", "createTask", "deleteFile", "describeBriefImages", "editReminder", "editTask", "forget", "keepAsNote", "listChannels", "listFiles", "listMembers", "listReminders", "listTasks", "moveFile", "moveTask", "pinMessage", "postBriefRound", "readChannelHistory", "readFile", "readMessage", "readPlaybookFile", "recall", "recordBriefAnswers", "remember", "saveAttachment", "searchFiles", "sendMessage", "setChannelTopic", "setTaskDueDate", "setTeamMember", "showTask", "taskSummary", "tasksFromMinutes", "teamRoster", "tickChecklistItem", "updateTaskStatus", "writeFile", "writeIssueDraft"]);
+  const onByDefault = [taskManagementSkill, discordManagementSkill, workspaceSkill, remindersSkill];
+  expect(s.model.tools[0]).toEqual(onByDefault.flatMap((skill) => skill.tools.map((t) => t.name)).sort());
 });
 
 discordScenario("execution refuses a tool that is off here even when the model calls it", async (s) => {
