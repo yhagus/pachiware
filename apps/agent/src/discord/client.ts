@@ -565,7 +565,9 @@ export class DiscordBotManager {
     const botUserId = runtime.client.user?.id;
     const working = await Promise.all(items.filter((i) => i.direct !== false && i.msg.author.id !== botUserId).map((i) => i.msg.react("⏳").catch(() => null)));
     const send = (content: string) => thread ? thread.send({ content, allowedMentions: { parse: [] } }) : msg.reply({ content, allowedMentions: { parse: [] } });
-    const language = replyLanguage(...items.map((i) => i.text)), t = textIn(language);
+    const said = items.map((i) => i.text).join("\n"), language = replyLanguage(said), t = textIn(language);
+    // Named to the model as the language to answer in only when the people's own words show it, not the quotes and framing around them.
+    const heard = languageOf(said, 2);
     try {
       const agent = await repositories().agentConfig.get(runtime.tenantId);
       const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
@@ -591,7 +593,7 @@ export class DiscordBotManager {
       const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
       const shots = place && !brief?.outsider ? media.shots : [];
       if (shots.length) await recordBriefImages(runtime.tenantId, place!, shots).catch(() => null);
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined } } });
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), replyLanguage: heard === "unknown" ? undefined : heard, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       const briefed = briefTurn(output.toolCallsExecuted);

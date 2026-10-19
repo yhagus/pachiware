@@ -82,7 +82,14 @@ export interface PromptContext {
   timezone?: string;
   /** The configured language of the place, for text written with no message to detect from. */
   language?: Language;
+  /**
+   * The language of the person's own words this turn, only when they clearly read as one; the per-turn context then names it as the
+   * language to answer in, so long tool results in another language do not pull the reply over (#257). Absent, the policy's rule stands.
+   */
+  replyLanguage?: Language;
 }
+
+const LANGUAGE_NAME: Record<Language, string> = { en: "English", id: "Indonesian" };
 
 const tenantConfig = async (tenantId: string) => {
   const cacheKey = tenantKey(tenantId, "agent:config");
@@ -197,6 +204,7 @@ ${toolNames.length > 0 ? toolNames : "None currently active."}
     if (context.channelName || context.channelId) lines.push(`Channel: ${context.channelName ? `#${context.channelName} ` : ""}(ID: ${context.channelId})`);
     if (context.userName) lines.push(`User: ${context.userName} (ID: ${context.userId})`);
     if (context.addressed !== undefined) lines.push(`Addresses you: ${context.addressed ? "yes" : context.follows ? "no, but it follows your last reply" : "no"}`);
+    if (context.replyLanguage) lines.push(`Reply in: ${LANGUAGE_NAME[context.replyLanguage]} (the language of the message; sources and tool results in another language do not change it, server instructions that name a language do)`);
     if (context.skillContext?.privateThread) lines.push("Private thread: thread/ is this private thread's own folder, readable only by people added to it; the minutes, notes, decisions and files kept here go there. channel/ is the parent channel's folder.");
     const zone = context.timezone ?? configuredTimezone(await tenantConfig(context.tenantId)), at = now();
     lines.push(`Now: ${describeTime(zone, at)}`);

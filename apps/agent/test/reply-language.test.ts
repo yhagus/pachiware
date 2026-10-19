@@ -103,3 +103,17 @@ discordScenario("minutes of an Indonesian discussion get an Indonesian header an
   expect(minutes.edits.at(-1)!.embeds![0].description).toContain("Rilis hari Kamis");
   expect(minutes.edits.at(-1)!.embeds![0].footer.text).toMatch(/^Balas untuk mengoreksi · minutes\//);
 });
+
+discordScenario("each turn's context names the language of the person's message to answer in, not the sources' or the server's, and none when the words show no language", async (s) => {
+  await s.guildSettings({ language: "id", useThreads: false });
+  s.model.script({ tool: "createTask", args: { title: "Fix the Bluetooth reconnect on Android", description: "The headset drops when the phone sleeps and it never comes back." } }, "Created the task.");
+  await s.discord.send(`${s.discord.mention} please make a task to fix the Bluetooth reconnect on Android`);
+  s.model.script({ tool: "listTasks" }, "Task Bluetooth masih terbuka dan belum ada yang pegang.");
+  await s.discord.send(`${s.discord.mention} task bluetooth itu sudah sampai mana?`);
+  s.model.script("ENG-42 belum ada di sini.");
+  await s.discord.send(`${s.discord.mention} ENG-42?`);
+
+  const named = (call: { content: unknown }[]) => call.flatMap((m) => (typeof m.content === "string" ? [...m.content.matchAll(/^Reply in: (\w+)/gm)].map((r) => r[1]) : []));
+  expect(s.model.calls.map(named)).toEqual([["English"], ["English"], ["Indonesian"], ["Indonesian"], []]);
+  expect(JSON.stringify(s.model.calls[3])).toContain("Fix the Bluetooth reconnect on Android");
+});
