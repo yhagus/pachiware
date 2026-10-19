@@ -5,7 +5,7 @@ import { labelFolder } from "./workspace.js";
 import { ambiguousAssignee, assigneeFilter, assigneeLabel, nameOnlyNote, resolveAssignee } from "./assignee.js";
 import { checklistOf, checklistLine, tickItem } from "./checklist.js";
 import { historyEntry, historyLine, noteLine, progressNote } from "./progressNotes.js";
-import { PRIORITIES, STATUSES, dueAtArg, dueBound, dueMoment, isLate, isOpen, loadTasks, parseTask, readInFull, render, slug, taskLine, type Found, type MadeFrom, type Task, type TaskPriority, type TaskStatus } from "./taskFile.js";
+import { PRIORITIES, STATUSES, dueAtArg, dueBound, dueMoment, isLate, isOpen, loadTasks, parseTask, readInFull, render, slug, taskLine, walkTasks, type Found, type MadeFrom, type Task, type TaskPriority, type TaskStatus } from "./taskFile.js";
 import { findProject, linkHeld, mustHold, personalTasksOf, taskChannelOf } from "./taskAccess.js";
 import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, anywhereSources, groupTasks, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
 import { textIn } from "../language.js";
@@ -415,10 +415,21 @@ function changesOf(before: Task, after: Task): string[] {
 }
 
 const LATEST_NOTES = 3, LATEST_HISTORY = 5;
-/** One task by id or id prefix among the folders this turn can see, read in full (description and notes), with the file it was found in. */
+/**
+ * One task by id or id prefix, read in full (description and notes), with the file it was found in: among this place's folders first,
+ * then among the tasks of every channel listTasks scope anywhere reads (#260), so a task is changed from wherever its channel's tasks
+ * can be viewed. One of a channel whose tasks may not be shown here is refused without naming it.
+ */
 async function findTask(ctx: SkillContext, taskId: string): Promise<{ hit: Found; task: Task }> {
   if (typeof taskId !== "string" || !/^[0-9a-f-]{8,36}$/.test(taskId)) throw new Error(`Task with ID ${taskId} not found.`);
-  const store = workspaceStore(), [hit] = (await loadTasks(store, ctx, taskId.slice(0, 8))).filter((f) => f.task.id.startsWith(taskId));
+  const store = workspaceStore(), prefix = taskId.slice(0, 8), byId = (found: Found[]) => found.find((f) => f.task.id.startsWith(taskId));
+  let hit = byId(await loadTasks(store, ctx, prefix));
+  if (!hit) {
+    const sources = await anywhereSources(store, ctx);
+    hit = byId(await walkTasks(store, ctx.tenantId, sources.flatMap((s) => s.folders), prefix));
+    const hidden = hit && sources.some((s) => s.quotable === false && s.folders.some((folder) => hit!.path.startsWith(`${folder}/`)));
+    if (hidden) throw new Error(`Task with ID ${taskId} cannot be shown or changed in this channel. Nothing was changed. Do not say what or where it is; suggest asking in a DM instead.`);
+  }
   const file = hit && (await store.read(ctx.tenantId, hit.path).catch(() => null)), task = file && parseTask(file.content);
   if (!hit || !task) throw new Error(`Task with ID ${taskId} not found.`);
   return { hit, task };

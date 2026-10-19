@@ -18,7 +18,7 @@ Since #250 and #253 a task may also carry, written only when set: `completedAt` 
 
 ## Modules (`packages/skills/src/builtin/`)
 
-- `tasks.ts`: the `task_management` skill, meaning the tool schemas, the handlers, and `change()`, the one read-edit-write path for an existing task.
+- `tasks.ts`: the `task_management` skill, meaning the tool schemas, the handlers, and `change()`, the one read-edit-write path for an existing task. A Task is changed (and shown by `showTask`) from any channel whose tasks the asker can view: `findTask` looks in this place's folders, then in `anywhereSources`, and refuses, naming nothing, a task of a Source not quotable here (#260). The turn context's active tasks stay this place's.
 - `taskFile.ts`: the file format (`render`, `parseTask`), statuses, due dates, `taskLine`, `isOpen`, `isLate`, plus `loadTasks` and `readInFull`.
 - `assignee.ts`: the Assignee value (a member id plus a name, or a name only), resolving one from a mention, "me", or a name (`resolveAssignee`), and matching one (`isAssignee`).
 - `taskAccess.ts`: who may see or hold a task. This covers `canHold`/`mustHold`, finding a channel by name (`findProject`), and listing the channels a user can view (`viewableProjects`).
