@@ -22,6 +22,8 @@ import { oauthRoutes } from "./routes/oauth.js";
 import { usageAdminRoutes } from "./routes/admin/usage.js";
 import { infrastructureRoutes } from "./routes/admin/infrastructure.js";
 import { statsAdminRoutes } from "./routes/admin/stats.js";
+import { logAdminRoutes } from "./routes/admin/logs.js";
+import { logAt } from "./logs/agentLog.js";
 import { tenantMiddleware } from "./middleware/tenant.js";
 import { platformAdminMiddleware } from "./middleware/platformAdmin.js";
 import { HTTPException } from "hono/http-exception";
@@ -47,8 +49,11 @@ export function createServer() {
     const start = Date.now();
     await next();
     const duration = Date.now() - start;
-    if (!c.req.path.startsWith("/api/health")) {
-      console.log(`[HTTP] ${c.req.method} ${c.req.path} - ${c.res.status} (${duration}ms)`);
+    // The Console page's own requests would fill the log it shows.
+    if (!c.req.path.startsWith("/api/health") && !c.req.path.startsWith("/api/admin/logs")) {
+      // A refused request is kept as a warning and a failed one as an error, so the Console page's level filter finds them;
+      // the terminal gets every one on standard output as before.
+      logAt(c.res.status >= 500 ? "error" : c.res.status >= 400 ? "warn" : "info", `[HTTP] ${c.req.method} ${c.req.path} - ${c.res.status} (${duration}ms)`);
     }
   });
 
@@ -76,6 +81,7 @@ export function createServer() {
   app.route("/api/oauth", oauthRoutes);
   app.route("/api/admin", usageAdminRoutes);
   app.route("/api/admin", statsAdminRoutes);
+  app.route("/api/admin", logAdminRoutes);
   app.route("/api/admin/infrastructure", infrastructureRoutes);
 
   // Fallback root endpoint
@@ -100,7 +106,7 @@ export function createServer() {
     if (err instanceof SyntaxError) return c.json({ success: false, error: "Invalid JSON body" }, 400);
     const message = String(err.message || "");
     if (/unique constraint|duplicate key/i.test(message)) return c.json({ success: false, error: "Resource already exists" }, 409);
-    console.error("Unhandled API error on", c.req.method, c.req.path);
+    console.error("[http] Unhandled API error on", c.req.method, c.req.path);
     return c.json(
       {
         success: false,

@@ -176,6 +176,10 @@ _Avoid_: Session, chat history, context
 What the bot keeps about a place to answer better later: the team's decisions, how people like to be addressed and to work, and the conventions of the place. One memory per tenant, per guild, and per channel; a channel's memory is not read in another channel. Conversation itself and private details are never memory.
 _Avoid_: Notes (notes are files a person asked for), context, history
 
+**Agent log**:
+A line the agent process writes about itself: its time, level (debug, info, warn, error), source (the leading tag, such as `http` or `llm`, else `agent`) and text. Text shaped like a key or token is masked first. The newest lines are kept in memory for the live tail and every line in one file per UTC day, for 7 days by default. The console's **Console** page shows them to the platform admin; in prose "the console" still means the whole web app. An Agent log is never a Daily log and never reaches a bot's answers.
+_Avoid_: Daily log (the bot's record of a channel's talk), audit (the record of tool calls and refusals), Minutes
+
 **Daily log**:
 The record the bot writes on its own, each night, of one channel's talk on the day before, with links to the messages it rests on. Nobody asks for it, it is never posted, and nobody owns it; an admin turns it on per channel.
 _Avoid_: Summary, recap, journal, automatic minutes

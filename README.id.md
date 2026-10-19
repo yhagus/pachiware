@@ -143,6 +143,8 @@ Instalasi siap dipakai ketika dashboard terhubung, chat mendapat respons dari mo
 | `pachiware update` | Mengambil pembaruan dan menjalankan migrasi |
 | `pachiware --help` | Melihat semua perintah |
 
+Halaman **Console** di dashboard menampilkan apa yang ditulis agent ke terminalnya, secara langsung, dengan pencarian (kata atau regular expression), filter level, sumber, dan rentang waktu, serta unduhan. Setiap baris juga disimpan dalam satu file per hari (UTC) di `data/logs` selama 7 hari (`LOG_DIR` dan `LOG_RETENTION_DAYS` di `.env`), sehingga penyebab crash, atau output `pachiware start --daemon`, masih ada setelah restart. Key dan token disamarkan sebelum baris disimpan.
+
 Untuk instalasi lama yang belum menyelesaikan setup, jalankan `pachiware init` lalu `pachiware start`. Jika wizard masih muncul, periksa hasil setup dan jalankan `pachiware doctor`; pastikan database yang dipilih dapat diakses.
 
 Sebelum memperbarui aplikasi, cadangkan database dan file konfigurasi di direktori instalasi: `.env`, `runtime-config.json` jika ada, dan `operator-access.json`. Simpan kunci enkripsi bersama backup; kunci tersebut diperlukan untuk membaca kredensial yang tersimpan.

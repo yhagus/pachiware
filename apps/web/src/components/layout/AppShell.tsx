@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation } from "react-router";
-import { Bot, KeyRound, LayoutDashboard, LogOut, Settings, Users } from "lucide-react";
+import { Bot, KeyRound, LayoutDashboard, LogOut, Settings, SquareTerminal, Users } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarHeader,
   SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger,
@@ -12,6 +12,7 @@ const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/tenants", label: "Tenants", icon: Users, end: false },
   { to: "/api-keys", label: "API Keys", icon: KeyRound, end: false },
+  { to: "/console", label: "Console", icon: SquareTerminal, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
 

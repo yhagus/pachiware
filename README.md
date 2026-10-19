@@ -154,6 +154,8 @@ Your installation is ready when the dashboard connects, chat receives a model re
 | `pachiware update` | Fetch updates and run migrations |
 | `pachiware --help` | Show all commands |
 
+The dashboard's **Console** page shows what the agent writes to its terminal, live, with search (words or a regular expression), level, source and time range filters, and a download. Lines are also kept in one file per UTC day under `data/logs` for 7 days (`LOG_DIR` and `LOG_RETENTION_DAYS` in `.env`), so the reason for a crash, or the output of `pachiware start --daemon`, is still there after a restart. Keys and tokens are masked before a line is kept.
+
 For older installations with incomplete setup, run `pachiware init` followed by `pachiware start`. If the wizard still appears, review the setup output and run `pachiware doctor`; make sure the selected database is reachable.
 
 Before updating, back up your database and configuration files in the installation directory: `.env`, `runtime-config.json` if present, and `operator-access.json`. Keep the encryption key with your backup; it is required to read stored credentials.

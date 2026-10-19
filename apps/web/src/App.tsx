@@ -22,6 +22,7 @@ import { IntegrationPlaneAccess } from "@/pages/tenant/IntegrationPlaneAccess";
 import { GitRepos, GitRepoDetail } from "@/pages/tenant/GitBrowse";
 import { ApiKeys } from "@/pages/ApiKeys";
 import { Settings } from "@/pages/Settings";
+import { Console } from "@/pages/Console";
 import { Toaster } from "@/components/ui/sonner";
 import { api, connectLocalConsole, getPlatformKey, type HealthResponse } from "@/lib/api";
 
@@ -70,6 +71,7 @@ export default function App() {
             </Route>
           </Route>
           <Route path="api-keys" element={<ApiKeys />} />
+          <Route path="console" element={<Console />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

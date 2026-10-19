@@ -1,3 +1,4 @@
+import "./logs/install.js";
 import { createServer } from "./server.js";
 import { config } from "./config.js";
 import { redis } from "./cache/redis.js";
@@ -29,7 +30,7 @@ async function main() {
 
   // 3. Start Discord Bot Service in background
   discordBotManager.startAll().catch((err) => {
-    console.warn("Notice during Discord bot startup:", err.message);
+    console.warn("[discord] Notice during bot startup:", err.message);
   });
   startScheduler(discordBotManager);
 

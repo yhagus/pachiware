@@ -253,7 +253,7 @@ export class DiscordBotManager {
     };
     for (const guildId of runtime.guildIds.filter((g) => runtime.client.guilds.cache.has(g))) {
       const report = await moveOldThreadFiles(runtime.tenantId, guildId, kindOf).catch(() => null);
-      for (const { from, to } of report?.taken ?? []) console.warn(`Kept in place, "${to}" is taken: ${from}`);
+      for (const { from, to } of report?.taken ?? []) console.warn(`[discord] Kept in place, "${to}" is taken: ${from}`);
     }
   }
   /** Re-registers the commands of every running bot of the tenant, so an edited playbook or rule needs no restart. */

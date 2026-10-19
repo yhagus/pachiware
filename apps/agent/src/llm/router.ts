@@ -261,7 +261,7 @@ export class LLMRouter {
           : undefined,
       };
     } catch (err: any) {
-      console.warn("LLM provider request failed.");
+      console.warn("[llm] Provider request failed.");
       return this.handleFallback("Provider request failed", messages, options);
     }
   }
@@ -377,7 +377,7 @@ export class LLMRouter {
           : undefined,
       };
     } catch (err: any) {
-      console.warn("LLM provider request failed.");
+      console.warn("[llm] Provider request failed.");
       return this.handleFallback("Provider request failed", messages, options);
     }
   }
@@ -501,7 +501,7 @@ export class LLMRouter {
           : undefined,
       };
     } catch (err: any) {
-      console.warn("LLM provider request failed.");
+      console.warn("[llm] Provider request failed.");
       return this.handleFallback("Provider request failed", messages, options);
     }
   }
@@ -560,7 +560,7 @@ export class LLMRouter {
           : undefined,
       };
     } catch {
-      console.warn("LLM provider request failed.");
+      console.warn("[llm] Provider request failed.");
       return this.handleFallback("Provider request failed", messages, options);
     }
   }
@@ -575,7 +575,7 @@ export class LLMRouter {
   }
 
   private rejected(status: number, messages: ChatMessage[], options: LLMRequestOptions): LLMResponse {
-    console.warn(`LLM provider rejected the request (${status}).`);
+    console.warn(`[llm] Provider rejected the request (${status}).`);
     return { ...this.handleFallback("Provider request failed", messages, options), httpStatus: status };
   }
 
