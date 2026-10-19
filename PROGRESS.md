@@ -1702,10 +1702,19 @@ The failures the first live lived-in exam showed (Phase 44). Built on `spec/262-
 
 ## Phase 46 — HTML Documents and a reader for long files (spec #263, #264–#266)
 
-Asked by the user on 2026-10-19: keep an HTML file and answer later what it holds, and read files through a model call ("spawn a subagent") so long files are read whole. Built on `spec/263-html-reader`, one commit per issue; #266 waits for #264 and #265.
+Asked by the user on 2026-10-19: keep an HTML file and answer later what it holds, and read files through a model call ("spawn a subagent") so long files are read whole. Built on `spec/263-html-reader`, one commit per issue, each by a subagent in its own worktree and fast-forwarded in; #266 waited for #264 and #265.
 
-- [ ] #264 HTML Documents: `.html`/`.htm` filed like a PDF, their text converted to a sibling Markdown file that search and readFile use.
-- [ ] #265 The turn's deadline reaches `ctx.complete`.
-- [ ] #266 A reader for long files: readFile answers a question about a file over `READ_LIMIT` through the bot's model, with quotes the server checks.
-- [ ] Code review of the phase's new code.
+- [x] Decided with the user before building: the reader reads only files over `READ_LIMIT` (short files are read directly), with the bot's own Profile; a general subagent (a nested loop with its own tools) waits until the reader has proved itself; HTML from the repository documentation mirror stays out.
+- [x] #265 The turn's deadline reaches `ctx.complete` (2240ad0): `botCompletion` carries the turn's deadline to the router, so a tool's own model call made past it returns null without reaching the provider, and one in flight is cut there. Calls outside a turn (Minutes, Daily logs, the docs mirror, filing on arrival) still have none.
+- [x] #264 HTML Documents (de9e412): `.html`/`.htm` are filed like a PDF. The body is parsed with domino (turndown's own parser) and its text goes to a sibling `.md`, which search, readFile and keepAsNote use. Script, style, noscript, template, svg and iframe are dropped, the title becomes the first heading when the body has none, and bytes are read as UTF-8. Decided: an image keeps only its alt text, since saved pages inline images as base64. `isBinaryDocument` is now `readsThroughMarkdown`.
+- [x] #266 A reader for long files (b3746ad):
+  - `readFile` takes `question`. A file over `READ_LIMIT` is read by the bot's model in chunks of about 40,000 characters, in parallel, at most 8 a call, the rest named by `unreadFrom`. With a question it returns a short answer plus quotes; without one, a summary and an outline with line ranges. Short files and plain line ranges are read as before.
+  - Decided: the server joins the chunks' answers itself, labelled by their lines, with no second model call.
+  - readFile on a PDF, DOCX, XLSX or HTML path reads its sibling `.md`.
+  - Persona: main's Phase 45 default frozen once as `PERSONA_LIVED_IN_FIXES`; the readFile line says to pass the question for a long file and to answer from the quotes.
+- [x] Code review of the phase's new code (Standards and Spec reviewers, read-only), fixed in c22572b:
+  - A tool sees when its call must answer (`callDeadline`: the earlier of the tool ceiling and the turn's deadline). The reader cuts its calls 5 s before it and starts none with under 15 s left, falling back at once with `readerFailed` saying why.
+  - A quote holds only on a line of its own chunk, never from a chunk that found nothing, and under three words only as its whole line. A file that does not answer says so for the lines read. `cutLines` names lines longer than a chunk; `unreadBecause` tells the 8-chunk cap from a failed part. Summaries are in the place's language.
+  - One turndown setup for Plane and HTML (`htmlMarkdown.ts`), the file type lists built from `DOCUMENT_TYPES`, `filedText` shared by readFile and keepAsNote, `botCompletion` taking one bundle.
+- Verification: typecheck 0 at every commit; every new scenario failed before its change; full suite 1309 pass, 0 fail on c22572b. A first run had one failure, the #254 deadline test in `router-hardening` (a 60 ms deadline passed before the request was sent under four workers); it passed alone three times and in the rerun.
 - [ ] Live re-run of the Rapor and the lived-in exam, judged offline (the lead, after the branch is green).
