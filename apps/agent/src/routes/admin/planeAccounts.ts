@@ -2,13 +2,19 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { repositories, encryptSecret, decryptSecret, type PlaneAccount, type PlaneAccountUpdate } from "@pachiware/db";
 import { object, string } from "../validation.js";
-import { planeBaseUrl, planeConnOf, verifyPlaneAccount, listPlaneProjects, PLANE_VERSIONS, findPlaneVersion, newestPlaneVersion, type PlaneConn, type PlaneVersion } from "@pachiware/skills";
+import {
+  planeBaseUrl, planeConnOf, verifyPlaneAccount, listPlaneProjects, planeServerRelease,
+  PLANE_VERSIONS, findPlaneVersion, newestPlaneVersion, versionForRelease, versionNote, type PlaneConn, type PlaneVersion,
+} from "@pachiware/skills";
 
 export const planeAccountAdminRoutes = new Hono();
 
-/** The key is write-only: a response says only that one is saved, behind a fixed mask. */
+/**
+ * The key is write-only: a response says only that one is saved, behind a fixed mask. `versionNote` warns when the release the
+ * Plane server reported is outside the account's Plane version.
+ */
 export const API_KEY_MASK = "••••••••";
-const publicAccount = ({ apiKeyEncrypted, ...a }: PlaneAccount) => ({ ...a, hasApiKey: Boolean(apiKeyEncrypted), apiKey: API_KEY_MASK });
+const publicAccount = ({ apiKeyEncrypted, ...a }: PlaneAccount) => ({ ...a, hasApiKey: Boolean(apiKeyEncrypted), apiKey: API_KEY_MASK, versionNote: versionNote(a) });
 
 const bad = (message: string) => new HTTPException(400, { message });
 function baseUrlOf(value: unknown): string | null {
@@ -21,9 +27,9 @@ function slugOf(value: unknown): string {
   if (!/^[a-z0-9][a-z0-9_-]{0,47}$/.test(slug)) throw bad("workspaceSlug must be the Plane workspace's slug, as in its URL (letters, digits, - and _)");
   return slug;
 }
-/** A Plane version from the list; left out, the newest. */
-function versionOf(value: unknown): PlaneVersion {
-  if (value === undefined || value === null || value === "") return newestPlaneVersion();
+/** A Plane version from the list; left out, `fallback`. */
+function versionOf(value: unknown, fallback: PlaneVersion = newestPlaneVersion()): PlaneVersion {
+  if (value === undefined || value === null || value === "") return fallback;
   const version = typeof value === "string" ? findPlaneVersion(value.trim()) : null;
   if (!version) throw bad(`planeVersion must be one of: ${PLANE_VERSIONS.map((v) => v.id).join(", ")}`);
   return version;
@@ -37,8 +43,14 @@ async function verify(conn: PlaneConn) {
 }
 
 // The Plane versions an account can be set to, oldest first. They are hard-coded, since each needs its own tool code (ADR 0016).
-planeAccountAdminRoutes.get("/plane-versions", (c) =>
-  c.json({ success: true, planeVersions: PLANE_VERSIONS.map(({ id, label, checkedAgainst, auth }) => ({ id, label, checkedAgainst, auth })) }));
+// With `baseUrl` (empty for Plane's cloud), also the release that Plane reports and the version covering it, as a suggestion.
+planeAccountAdminRoutes.get("/plane-versions", async (c) => {
+  const planeVersions = PLANE_VERSIONS.map(({ id, label, checkedAgainst, auth }) => ({ id, label, checkedAgainst, auth }));
+  const asked = c.req.query("baseUrl");
+  if (asked === undefined) return c.json({ success: true, planeVersions });
+  const release = await planeServerRelease(baseUrlOf(asked));
+  return c.json({ success: true, planeVersions, server: release ? { release, suggested: versionForRelease(release)?.id ?? null } : null });
+});
 
 planeAccountAdminRoutes.get("/tenants/:id/plane-accounts", async (c) => {
   const tenantId = c.req.param("id");
@@ -53,11 +65,14 @@ planeAccountAdminRoutes.post("/tenants/:id/plane-accounts", async (c) => {
   if (!await repositories().tenants.get(tenantId)) return c.json({ error: "Tenant not found" }, 404);
   const body = object(await c.req.json(), "body");
   const name = string(body.name, "name")!, baseUrl = baseUrlOf(body.baseUrl), workspaceSlug = slugOf(body.workspaceSlug);
-  const apiKey = newKey(body.apiKey), version = versionOf(body.planeVersion);
+  const apiKey = newKey(body.apiKey);
   if (!apiKey) throw bad("apiKey must be a non-empty string");
+  // Left out, the version is the one covering the release the server reports, else the newest.
+  const release = await planeServerRelease(baseUrl);
+  const version = versionOf(body.planeVersion, versionForRelease(release) ?? newestPlaneVersion());
   const { user } = await verify({ baseUrl, workspaceSlug, apiKey, version });
   try {
-    const row = await repositories().plane.createAccount({ tenantId, name, baseUrl, workspaceSlug, apiKeyEncrypted: encryptSecret(apiKey), planeUserId: user.id, planeUserName: user.name, planeVersion: version.id });
+    const row = await repositories().plane.createAccount({ tenantId, name, baseUrl, workspaceSlug, apiKeyEncrypted: encryptSecret(apiKey), planeUserId: user.id, planeUserName: user.name, planeVersion: version.id, planeServerVersion: release });
     return c.json({ success: true, planeAccount: publicAccount(row) }, 201);
   } catch { return c.json({ error: "A Plane account with this name already exists" }, 409); }
 });
@@ -82,6 +97,8 @@ planeAccountAdminRoutes.patch("/plane-accounts/:accountId", async (c) => {
     Object.assign(values, { baseUrl, workspaceSlug, planeUserId: user.id, planeUserName: user.name, planeVersion: version.id });
     if (apiKey) values.apiKeyEncrypted = encryptSecret(apiKey);
   }
+  // Read again on every save, so saving an account unchanged refreshes it after a Plane upgrade.
+  values.planeServerVersion = await planeServerRelease(baseUrl);
   try {
     const row = await repositories().plane.updateAccount(current.id, values);
     return c.json({ success: true, planeAccount: publicAccount(row!) });

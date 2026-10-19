@@ -52,7 +52,7 @@ export function createMongoPlaneRepository(connection: MongoConnection): PlaneRe
       const now = new Date();
       const doc: AccountDoc = {
         _id: randomUUID(), tenantId: input.tenantId, name: input.name, baseUrl: input.baseUrl ?? null, workspaceSlug: input.workspaceSlug,
-        apiKeyEncrypted: input.apiKeyEncrypted, planeUserId: input.planeUserId, planeUserName: input.planeUserName, planeVersion: input.planeVersion, createdAt: now, updatedAt: now,
+        apiKeyEncrypted: input.apiKeyEncrypted, planeUserId: input.planeUserId, planeUserName: input.planeUserName, planeVersion: input.planeVersion, planeServerVersion: input.planeServerVersion ?? null, createdAt: now, updatedAt: now,
       };
       await accounts.insertOne(doc);
       return toAccount(doc);
@@ -139,7 +139,7 @@ export function createMongoPlaneRepository(connection: MongoConnection): PlaneRe
 function toAccount({ _id, ...doc }: AccountDoc): PlaneAccount {
   return {
     id: _id, tenantId: doc.tenantId, name: doc.name, baseUrl: doc.baseUrl ?? null, workspaceSlug: doc.workspaceSlug, apiKeyEncrypted: doc.apiKeyEncrypted,
-    planeUserId: doc.planeUserId, planeUserName: doc.planeUserName, planeVersion: doc.planeVersion ?? FIRST_PLANE_VERSION, createdAt: doc.createdAt, updatedAt: doc.updatedAt,
+    planeUserId: doc.planeUserId, planeUserName: doc.planeUserName, planeVersion: doc.planeVersion ?? FIRST_PLANE_VERSION, planeServerVersion: doc.planeServerVersion ?? null, createdAt: doc.createdAt, updatedAt: doc.updatedAt,
   };
 }
 

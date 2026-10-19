@@ -21,10 +21,17 @@ function adminScenario(name: string, body: string) {
           const admin = { "X-Platform-Key": "k", "Content-Type": "application/json" };
           const P1 = "11111111-1111-4111-8111-111111111111", P2 = "22222222-2222-4222-8222-222222222222";
           const seen = [];
+          // The release each host reports at /api/instances/; a host left out answers 404, null is an instance not set up yet.
+          const releases = {};
           const page = (results) => ({ grouped_by: null, sub_grouped_by: null, total_count: results.length, next_cursor: "100:1:0", prev_cursor: "100:-1:1", next_page_results: false, prev_page_results: false, count: results.length, total_pages: 1, total_results: results.length, extra_stats: null, results });
           globalThis.fetch = async (url, init = {}) => {
             const u = new URL(String(url)), key = new Headers(init.headers).get("x-api-key");
             seen.push({ url: String(url), redirect: init.redirect, key });
+            if (u.pathname === "/api/instances/") {
+              if (!(u.host in releases)) return Response.json({ detail: "Not found." }, { status: 404 });
+              if (releases[u.host] === null) return Response.json({ is_activated: false, is_setup_done: false });
+              return Response.json({ config: { posthog_api_key: "phc-secret", is_self_managed: true }, instance: { id: "i-1", instance_name: "Acme", current_version: releases[u.host], latest_version: "v1.4.0" } });
+            }
             if (u.host === "moved.example") {
               if (init.redirect === "error") throw new TypeError("fetch failed: unexpected redirect");
               return new Response(null, { status: 301, headers: { Location: "https://elsewhere.example/" } });
@@ -153,6 +160,45 @@ adminScenario("a Plane account is set to a Plane version from the list: the newe
   const fixed = await call("PATCH", "/plane-accounts/" + acc.id, { planeVersion: "1.3" });
   assert(fixed.status === 200 && fixed.json.planeAccount.planeVersion === "1.3", "version not changed: " + JSON.stringify(fixed.json));
   assert(seen.filter((s) => s.url.endsWith("/users/me/")).length === checks + 1, "a version change was not checked with Plane");
-  assert(seen.every((s) => s.key === "good-key"), "a request went without the saved key in X-Api-Key");
+  assert(seen.filter((s) => s.url.includes("/api/v1/")).every((s) => s.key === "good-key"), "a request went without the saved key in X-Api-Key");
   assert((await call("PATCH", "/plane-accounts/" + acc.id, { planeVersion: "0.9" })).status === 400, "an unknown version was saved");
+`);
+
+adminScenario("the release a Plane server reports suggests its Plane version, is recorded, and a release outside the account's version gives a note", `
+  const a = await tenant("a");
+  await call("PUT", "/infrastructure/allowed-hosts", { hosts: ["plane.corp.example", "plane.new.example", "plane.blank.example"] });
+  releases["plane.corp.example"] = "1.3.1";
+  releases["plane.new.example"] = "v1.4.0";
+  releases["plane.blank.example"] = null;
+  const suggest = async (baseUrl) => (await call("GET", "/plane-versions?baseUrl=" + encodeURIComponent(baseUrl))).json;
+  const corp = await suggest("https://plane.corp.example");
+  assert(JSON.stringify(corp.server) === JSON.stringify({ release: "1.3.1", suggested: "1.3" }), "suggestion wrong: " + JSON.stringify(corp));
+  assert(JSON.stringify((await suggest("https://plane.new.example")).server) === JSON.stringify({ release: "v1.4.0", suggested: null }), "a release no version covers was suggested");
+  assert((await suggest("")).server === null, "Plane's cloud answering 404 still gave a release");
+  assert(!("server" in (await call("GET", "/plane-versions")).json), "the list alone asked a Plane server");
+  assert((await call("GET", "/plane-versions?baseUrl=" + encodeURIComponent("https://evil.example"))).status === 400, "a host outside Allowed hosts was asked");
+
+  const post = (b) => call("POST", "/tenants/" + a.id + "/plane-accounts", { workspaceSlug: "acme", apiKey: "good-key", ...b });
+  const onCorp = (await post({ name: "corp", baseUrl: "https://plane.corp.example" })).json.planeAccount;
+  assert(onCorp.planeVersion === "1.3" && onCorp.planeServerVersion === "1.3.1" && onCorp.versionNote === null, "covered release wrong: " + JSON.stringify(onCorp));
+  const onNew = await post({ name: "new", baseUrl: "https://plane.new.example" });
+  assert(onNew.status === 201, "a release outside every version blocked the save: " + JSON.stringify(onNew.json));
+  assert(onNew.json.planeAccount.planeServerVersion === "v1.4.0" && onNew.json.planeAccount.planeVersion === "1.3", "release not recorded: " + JSON.stringify(onNew.json));
+  assert(onNew.json.planeAccount.versionNote === "Plane at plane.new.example reports v1.4.0; this account is set to Plane 1.3 (checked against v1.3.1). Some tools may fail.", "note wrong: " + onNew.json.planeAccount.versionNote);
+  const listed = (await call("GET", "/tenants/" + a.id + "/plane-accounts")).json.planeAccounts.find((x) => x.name === "new");
+  assert(listed.versionNote === onNew.json.planeAccount.versionNote, "the list leaves the note out");
+  const blank = (await post({ name: "blank", baseUrl: "https://plane.blank.example" })).json.planeAccount;
+  assert(blank.planeServerVersion === null && blank.versionNote === null, "an instance not set up gave a release: " + JSON.stringify(blank));
+  const cloud = (await post({ name: "cloud" })).json.planeAccount;
+  assert(cloud.planeServerVersion === null && cloud.versionNote === null, "a 404 gave a release");
+
+  // After the server is downgraded into 1.3, saving the account unchanged reads the release again and the note goes.
+  releases["plane.new.example"] = "v1.3.1";
+  const saved = (await call("PATCH", "/plane-accounts/" + onNew.json.planeAccount.id, {})).json.planeAccount;
+  assert(saved.planeServerVersion === "v1.3.1" && saved.versionNote === null, "the release was not read again: " + JSON.stringify(saved));
+
+  const instances = seen.filter((s) => s.url.includes("/api/instances/"));
+  assert(instances.length > 0 && instances.every((s) => s.key === null && s.redirect === "error"), "the release was asked with a key or without redirect: error");
+  assert(!seen.some((s) => s.url.includes("evil.example")), "an unlisted host was called");
+  assert(bodies.every((b) => !b.includes("phc-secret") && !b.includes("Acme")), "more than the release was kept from Plane's answer");
 `);

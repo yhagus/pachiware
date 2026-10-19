@@ -4,7 +4,7 @@
  * never written twice. The behaviour noted below is Plane v1.3.1's.
  */
 import { assertHostAllowed, isListedHost } from "@pachiware/db";
-import type { PlaneVersion } from "./versions.js";
+import { parseRelease, type PlaneVersion } from "./versions.js";
 
 /** Plane's cloud API. A Plane account with no base URL uses it. */
 export const PLANE_CLOUD_URL = "https://api.plane.so";
@@ -183,6 +183,26 @@ function uploadTarget(conn: PlaneConn, raw: string): URL {
   if (url.host === base.host) url.protocol = base.protocol;
   else if (url.protocol !== "https:" && !(url.protocol === "http:" && isListedHost(url.href))) throw new PlaneError(`Plane's file storage at ${url.host} is not served over https, so the file was not sent. An admin can add its host to Allowed hosts.`, 0);
   return url;
+}
+
+/** How long saving an account waits for the Plane server's release; it is only a hint. */
+const RELEASE_TIMEOUT_MS = 5_000;
+
+/**
+ * The release a Plane server reports, such as `v1.3.1`, or null when it cannot be read. Plane v1.3.1 answers `GET /api/instances/`
+ * to anyone (`AllowAny`) with `{ config, instance }`, the release in `instance.current_version`; an instance not set up yet has no
+ * `instance`. No key is sent, a redirect is refused, and only the version string is kept: the rest of the answer is dropped.
+ */
+export async function planeServerRelease(baseUrl: string | null): Promise<string | null> {
+  try {
+    assertPlaneUrl(baseUrl);
+    const res = await fetch(`${baseUrl ?? PLANE_CLOUD_URL}/api/instances/`, { headers: { Accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(RELEASE_TIMEOUT_MS) });
+    if (!res.ok) return null;
+    const release = (await res.json())?.instance?.current_version;
+    return typeof release === "string" && parseRelease(release) ? release.trim().slice(0, 40) : null;
+  } catch {
+    return null;
+  }
 }
 
 export type PlaneProject = { id: string; name: string; identifier: string };

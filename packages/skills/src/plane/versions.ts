@@ -47,3 +47,31 @@ export const CHOOSE_PLANE_VERSION = "An admin can choose a supported version in 
 
 /** The refusal for an account whose stored version this server does not know, e.g. after going back to an older Pachiware. */
 export const unknownPlaneVersion = (account: Named) => `Plane account "${account.name}" ${onPlaneVersion(account)}. ${CHOOSE_PLANE_VERSION}`;
+
+/** A Plane release as Plane names it (`v1.3.1`, `1.3.1`, `v1.3.2-ce`) read as major, minor and patch; null when it is not one. */
+export function parseRelease(text: string | null | undefined): [number, number, number] | null {
+  const m = /^\s*v?(\d+)\.(\d+)(?:\.(\d+))?/i.exec(text ?? "");
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)] : null;
+}
+
+const before = (a: [number, number, number], b: [number, number, number]) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+
+/** The Plane version whose releases cover this release, or null when none does. */
+export function versionForRelease(release: string | null | undefined, versions: readonly PlaneVersion[] = PLANE_VERSIONS): PlaneVersion | null {
+  const r = parseRelease(release);
+  if (!r) return null;
+  return versions.find((v) => before(r, parseRelease(v.releases.from)!) >= 0 && before(r, parseRelease(v.releases.before)!) < 0) ?? null;
+}
+
+/**
+ * What the console says when the release the Plane server last reported falls outside the account's Plane version, naming the
+ * version that covers it when there is one; null when they agree, or when either is unknown.
+ */
+export function versionNote(account: { baseUrl: string | null; planeVersion: string; planeServerVersion: string | null }, versions: readonly PlaneVersion[] = PLANE_VERSIONS): string | null {
+  const chosen = findPlaneVersion(account.planeVersion, versions);
+  if (!chosen || !parseRelease(account.planeServerVersion)) return null;
+  const covering = versionForRelease(account.planeServerVersion, versions);
+  if (covering?.id === chosen.id) return null;
+  const where = account.baseUrl ? `Plane at ${new URL(account.baseUrl).host}` : "Plane's cloud";
+  return `${where} reports ${account.planeServerVersion}; this account is set to ${chosen.label} (checked against ${chosen.checkedAgainst}). ${covering ? `Choose ${covering.label}.` : "Some tools may fail."}`;
+}

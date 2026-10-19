@@ -15,7 +15,7 @@ export function createSqlPlaneRepository(connection: SqlConnection): PlaneReposi
       const now = new Date();
       const [row] = await db.insert(t.planeAccounts).values({
         id: randomUUID(), tenantId: input.tenantId, name: input.name, baseUrl: input.baseUrl ?? null, workspaceSlug: input.workspaceSlug,
-        apiKeyEncrypted: input.apiKeyEncrypted, planeUserId: input.planeUserId, planeUserName: input.planeUserName, planeVersion: input.planeVersion, createdAt: now, updatedAt: now,
+        apiKeyEncrypted: input.apiKeyEncrypted, planeUserId: input.planeUserId, planeUserName: input.planeUserName, planeVersion: input.planeVersion, planeServerVersion: input.planeServerVersion ?? null, createdAt: now, updatedAt: now,
       }).returning();
       return toAccount(row);
     },
@@ -119,6 +119,6 @@ function toScope(row: any): PlaneScope {
 function toAccount(row: any): PlaneAccount {
   return {
     id: row.id, tenantId: row.tenantId, name: row.name, baseUrl: row.baseUrl ?? null, workspaceSlug: row.workspaceSlug, apiKeyEncrypted: row.apiKeyEncrypted,
-    planeUserId: row.planeUserId, planeUserName: row.planeUserName, planeVersion: row.planeVersion ?? FIRST_PLANE_VERSION, createdAt: row.createdAt, updatedAt: row.updatedAt,
+    planeUserId: row.planeUserId, planeUserName: row.planeUserName, planeVersion: row.planeVersion ?? FIRST_PLANE_VERSION, planeServerVersion: row.planeServerVersion ?? null, createdAt: row.createdAt, updatedAt: row.updatedAt,
   };
 }

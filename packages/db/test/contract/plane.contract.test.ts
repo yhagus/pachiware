@@ -36,6 +36,16 @@ contract("Plane accounts and Plane scopes", (use) => {
     expect(await plane.updateAccount(created.id, { name: "renamed" })).toMatchObject({ planeVersion: "1.3", name: "renamed" });
   });
 
+  test("an account records the release its Plane server reported, or none, and an update replaces it", async () => {
+    const { plane } = use().repos;
+    const t = await tenant("acme");
+    expect((await account(t.id, "unread")).planeServerVersion).toBeNull();
+    const created = await account(t.id, "main", { planeServerVersion: "v1.3.1" });
+    expect((await plane.getAccount(created.id))?.planeServerVersion).toBe("v1.3.1");
+    expect(await plane.updateAccount(created.id, { planeServerVersion: "v1.4.0" })).toMatchObject({ planeServerVersion: "v1.4.0", planeVersion: "1.3" });
+    expect(await plane.updateAccount(created.id, { planeServerVersion: null })).toMatchObject({ planeServerVersion: null });
+  });
+
   test("linking a Plane account switches the plane skill on for the tenant, and only for that tenant", async () => {
     const { plane, skills } = use().repos;
     const [a, b] = [await tenant("a"), await tenant("b")];

@@ -87,11 +87,17 @@ export interface GuildGit { accounts: { id: string; name: string; provider: "git
 export interface PlaneRule { planeAccountId: string; projectIds: string[]; }
 export interface GuildPlane { accounts: { id: string; name: string; baseUrl: string | null; workspaceSlug: string; planeUserName: string }[]; guild: PlaneRule[]; channels: Record<string, PlaneRule[]>; }
 export const ALL_PLANE_PROJECTS = "*";
-/** The key is never returned: `hasApiKey` says one is saved. `planeUserName` is the Plane user the key acts as; `planeVersion` a PlaneVersion id. */
-export interface PlaneAccount { id: string; tenantId: string; name: string; baseUrl: string | null; workspaceSlug: string; planeUserId: string; planeUserName: string; planeVersion: string; hasApiKey: boolean; bots: { id: string; name: string }[]; createdAt: string; }
+/**
+ * The key is never returned: `hasApiKey` says one is saved. `planeUserName` is the Plane user the key acts as; `planeVersion` a
+ * PlaneVersion id. `planeServerVersion` is the release the Plane server reported at the last save, and `versionNote` a warning
+ * when it is outside `planeVersion`.
+ */
+export interface PlaneAccount { id: string; tenantId: string; name: string; baseUrl: string | null; workspaceSlug: string; planeUserId: string; planeUserName: string; planeVersion: string; planeServerVersion: string | null; versionNote: string | null; hasApiKey: boolean; bots: { id: string; name: string }[]; createdAt: string; }
 export interface PlaneAccountInput { name?: string; baseUrl?: string | null; workspaceSlug?: string; apiKey?: string; planeVersion?: string; }
 /** A Plane release line the server has tool code for, oldest first. */
 export interface PlaneVersion { id: string; label: string; checkedAgainst: string; auth: "api-key"; }
+/** The release a Plane server reports, and the PlaneVersion id covering it (null when none does). */
+export interface PlaneServer { release: string; suggested: string | null; }
 export interface PlaneProject { id: string; name: string; identifier: string; }
 export interface Conversation { id: string; channelId: string | null; userId: string | null; createdAt: string; lastMessageAt: string | null; messageCount: number; endedAt: string | null; }
 export interface ChatMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; }
@@ -194,6 +200,8 @@ export const api = {
   deleteGitOAuthApp: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/git-oauth-apps/${id}`, json("DELETE")),
   deleteGitAccount: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/git-accounts/${id}`, json("DELETE")),
   listPlaneVersions: () => fetchJSON<{ planeVersions: PlaneVersion[] }>("/api/admin/plane-versions"),
+  /** `baseUrl` empty means Plane's cloud; `server` is null when the release cannot be read. */
+  readPlaneServer: (baseUrl: string) => fetchJSON<{ server: PlaneServer | null }>(`/api/admin/plane-versions?baseUrl=${encodeURIComponent(baseUrl)}`),
   listPlaneAccounts: (tenantId: string) => fetchJSON<{ planeAccounts: PlaneAccount[] }>(`/api/admin/tenants/${tenantId}/plane-accounts`),
   createPlaneAccount: (tenantId: string, data: PlaneAccountInput) => fetchJSON<{ planeAccount: PlaneAccount }>(`/api/admin/tenants/${tenantId}/plane-accounts`, json("POST", data)),
   updatePlaneAccount: (id: string, data: PlaneAccountInput) => fetchJSON<{ planeAccount: PlaneAccount }>(`/api/admin/plane-accounts/${id}`, json("PATCH", data)),

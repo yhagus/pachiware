@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { FIRST_PLANE_VERSION, type PlaneAccount } from "@pachiware/db";
-import { PLANE_VERSIONS, findPlaneVersion } from "../src/plane/versions.ts";
+import { PLANE_VERSIONS, findPlaneVersion, parseRelease, versionForRelease, versionNote } from "../src/plane/versions.ts";
 import { hiddenPlaneToolsFor, hiddenPlaneReasonFor, accountForTool, type PlaneToolPolicy } from "../src/plane/workspace.ts";
 import { planeToolPolicy } from "../src/builtin/plane.ts";
 import type { PlaneAccess } from "../src/plane/scope.ts";
@@ -105,5 +105,35 @@ describe("the shipped Plane versions", () => {
     const ids = new Set(PLANE_VERSIONS.map((v) => v.id));
     const unknown = Object.entries(planeToolPolicy).flatMap(([tool, p]) => (p.versions ?? []).filter((v) => !ids.has(v)).map((v) => `${tool}: ${v}`));
     expect(unknown).toEqual([]);
+  });
+});
+
+describe("the release a Plane server reports", () => {
+  test("is read with or without a leading v and with a suffix; anything else is not a release", () => {
+    expect(parseRelease("v1.3.1")).toEqual([1, 3, 1]);
+    expect(parseRelease("1.3.1")).toEqual([1, 3, 1]);
+    expect(parseRelease("v1.3.2-ce")).toEqual([1, 3, 2]);
+    expect(parseRelease("abc")).toBeNull();
+    expect(parseRelease("")).toBeNull();
+    expect(parseRelease(null)).toBeNull();
+  });
+
+  test("falls in the Plane version whose range covers it, from inclusive and before exclusive", () => {
+    expect(versionForRelease("1.3.1")?.id).toBe("1.3");
+    expect(versionForRelease("v1.3.2-ce")?.id).toBe("1.3");
+    expect(versionForRelease("1.3.0")?.id).toBe("1.3");
+    expect(versionForRelease("1.4.0")).toBeNull();
+    expect(versionForRelease("v1.2.9")).toBeNull();
+    expect(versionForRelease("abc")).toBeNull();
+    expect(versionForRelease("v9.9.3", VERSIONS)?.id).toBe("9.9");
+  });
+
+  test("outside the account's version, it gives a note naming the host and the version that covers it, if any", () => {
+    const account = { baseUrl: "https://plane.acme.id", planeVersion: "1.3", planeServerVersion: "v1.4.0" };
+    expect(versionNote(account)).toBe("Plane at plane.acme.id reports v1.4.0; this account is set to Plane 1.3 (checked against v1.3.1). Some tools may fail.");
+    expect(versionNote({ ...account, baseUrl: null, planeServerVersion: "v9.9.0" }, VERSIONS)).toBe("Plane's cloud reports v9.9.0; this account is set to Plane 1.3 (checked against v1.3.1). Choose Plane 9.9.");
+    expect(versionNote({ ...account, planeServerVersion: "1.3.1" })).toBeNull();
+    expect(versionNote({ ...account, planeServerVersion: null })).toBeNull();
+    expect(versionNote({ ...account, planeVersion: "0.9" })).toBeNull();
   });
 });
