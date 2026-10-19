@@ -127,15 +127,15 @@ describe("Router hardening", () => {
       const ask = { system: "Name the venue in one word.", user: "Hall B or Hall C?" };
       reply = () => HANG;
       const started = performance.now();
-      const hung = await botCompletion(tenant.id, undefined, "en", Date.now() + 60)(ask);
+      const hung = await botCompletion({ tenantId: tenant.id, language: "en" }, Date.now() + 60)(ask);
       const elapsed = performance.now() - started;
       assert(hung === null && calls.length === 1 && calls[0].aborted, "hung call not given up: " + JSON.stringify(hung) + " / " + calls.length);
       assert(elapsed >= 50 && elapsed < 1000, "not cut at the deadline: " + elapsed);
 
       calls.length = 0; reply = () => json(openai("Hall B"));
-      const late = await botCompletion(tenant.id, undefined, "en", Date.now() - 1)(ask);
+      const late = await botCompletion({ tenantId: tenant.id, language: "en" }, Date.now() - 1)(ask);
       assert(late === null && calls.length === 0, "a call made past the deadline: " + JSON.stringify(late) + " / " + calls.length);
-      const inTime = await botCompletion(tenant.id, undefined, "en", Date.now() + 5000)(ask);
+      const inTime = await botCompletion({ tenantId: tenant.id, language: "en" }, Date.now() + 5000)(ask);
       assert(inTime === "Hall B" && calls.length === 1, "a call within the deadline not answered: " + JSON.stringify(inTime));
     `);
     expect(code, stderr).toBe(0);
@@ -147,7 +147,7 @@ describe("Router hardening", () => {
       const { botCompletion } = await import(${src("apps/agent/src/llm/completion.ts")});
       retryPolicy.timeoutMs = 1500; retryPolicy.retries = 0;
       const ask = { system: "Name the venue in one word.", user: "Hall B or Hall C?" };
-      const turn = botCompletion(tenant.id, undefined, "en", Date.now() + 60_000);
+      const turn = botCompletion({ tenantId: tenant.id, language: "en" }, Date.now() + 60_000);
       reply = () => HANG;
       const started = performance.now();
       const hung = await turn({ ...ask, deadline: Date.now() + 60 });

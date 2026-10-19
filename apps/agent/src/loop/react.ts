@@ -243,7 +243,7 @@ export class AgentReActLoop {
       userId: input.context.userId,
       timezone: input.context.timezone,
       language: input.context.language,
-      complete: botCompletion(input.tenantId, input.botId, input.context.language, deadline),
+      complete: botCompletion({ tenantId: input.tenantId, botId: input.botId, language: input.context.language }, deadline),
       metadata: input.context.skillContext?.metadata,
       auth: {
         tenantId: input.tenantId, botId: input.botId, userId: input.context.userId, guildId: input.context.guildId, channelId: input.context.channelId,
@@ -258,6 +258,7 @@ export class AgentReActLoop {
     // Nested calls get the same ceiling, and the call running them is given until theirs has passed, so a hung part is reported as such.
     let running: Ceiling | undefined;
     const setRunning = (ceiling?: Ceiling) => { running = ceiling; };
+    skillContext.callDeadline = () => Math.min(running?.until ?? deadline, deadline);
     skillContext.tools = {
       here: new Set(activeTools.map((t) => t.name)),
       run: (name, args) => {

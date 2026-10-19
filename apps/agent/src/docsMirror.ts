@@ -65,7 +65,7 @@ function refreshSource(where: Omit<GuildPlace, "timezone">, source: DocSource): 
         await audit(where, "docs_mirror_not_allowed", meta);
         return;
       }
-      await mirrorSource({ tenantId: where.tenantId, folder, conn: await connectionOf(access), repo: source.repo, paths: source.paths, complete: botCompletion(where.tenantId, where.botId) });
+      await mirrorSource({ tenantId: where.tenantId, folder, conn: await connectionOf(access), repo: source.repo, paths: source.paths, complete: botCompletion(where) });
     } catch (error) {
       const failure = failureOf(error);
       console.error(`[docs-mirror] could not refresh ${source.repo} in channel ${source.channelId}: ${failure.error}: ${failure.message}`);

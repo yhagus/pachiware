@@ -58,7 +58,7 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
 
   /**
    * Every file under a folder (a tenant-relative store path) that holds any of the query terms, in the order a walk of the folder
-   * gives. Hidden files and folders are skipped, and a PDF, DOCX, XLSX or HTML Document matches by name only (its text is searched in the
+   * gives. Hidden files and folders are skipped, and a Document read through Markdown matches by name only (its text is searched in the
    * .md beside it). `nameOf` gives the name a file is matched by, from its store path. Uncapped: the caller caps.
    */
   async searchFolder(tenantId: string, folder: string, terms: string[], nameOf: (path: string) => string): Promise<FolderSearch> {

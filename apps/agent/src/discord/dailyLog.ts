@@ -52,7 +52,7 @@ export async function writeDailyLog(run: DailyLogRun): Promise<DailyLogResult> {
   if (!playbook) return "off";
   const { messages, stoppedAt } = await run.adapter.readSpan(run.channelId, daySpan(run.timezone, run.day), DAY_LIMIT);
   if (!messages.length) return "empty";
-  const complete = botCompletion(run.tenantId, run.botId), count = Math.ceil(messages.length / PART);
+  const complete = botCompletion(run), count = Math.ceil(messages.length / PART);
   const parts: DailyLog[] = [];
   for (let from = 0; from < messages.length; from += PART) {
     const part = messages.slice(from, from + PART);

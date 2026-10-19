@@ -90,7 +90,7 @@ export async function writeMinutes(run: MinutesRun, now = clockNow()): Promise<s
   if (!posted) return t.minutesNotPosted(payload.files.length > 0);
   const record: MinutesRecord = { title: minutes.title, guildId: run.guildId, channelId: run.parentId ?? run.channelId, postedIn: run.channelId, messageId: posted.id, requesterId: run.requesterId, header, minutes, corrections: [], input: [] };
   await workspaceStore().write(run.tenantId, `${folder}/${file}`, recordText(record));
-  await addKeywords(run.tenantId, `${folder}/${file}`, botCompletion(run.tenantId, run.botId, language));
+  await addKeywords(run.tenantId, `${folder}/${file}`, botCompletion({ tenantId: run.tenantId, botId: run.botId, language }));
   return null;
 }
 

@@ -202,6 +202,12 @@ export interface SkillContext {
   /** One tool-free call to the bot's own model, set by the host; null when the provider failed or the turn's deadline passed (#265). Memory compaction uses it. */
   complete?: Completion;
   /**
+   * Set by the host for one turn: when the tool call now running must have answered (epoch ms), at its ceiling or the turn's
+   * deadline, whichever comes first; for a call another tool runs (recall's parts), the ceiling of the call running it. A tool
+   * that spends model time on its own (readFile's reader) plans within it.
+   */
+  callDeadline?: () => number;
+  /**
    * Set by the host for one turn: the names of the tools the model may call at this place (after Availability rules, playbook
    * closures and hidden tools), and `run`, which calls one of them through the registry with every check a model's call gets.
    * A tool that combines others (`recall`) reaches only what they reach.

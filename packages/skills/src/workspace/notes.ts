@@ -1,7 +1,7 @@
 import { placeRoot, resolvePath } from "./paths.js";
 import { WorkspaceConflict, workspaceStore } from "./store.js";
 import { extensionOf, extractsText } from "./extract.js";
-import { provenanceOf, unrecordedTextPath } from "./files.js";
+import { filedText } from "./files.js";
 import { withoutKeywords } from "./keywords.js";
 import { DEFAULT_TIMEZONE, isoInZone } from "../clock.js";
 import { textIn } from "../language.js";
@@ -25,7 +25,7 @@ function pathInPlaceFolder(ctx: SkillContext, path: unknown, folder: string, par
 }
 
 /**
- * The text of the Document at `path`, as filed: an MD, TXT or CSV as it is, the extracted Markdown of a PDF, DOCX, XLSX, HTML page or CSV too large to read.
+ * The text of the Document at `path`, as filed: an MD, TXT or CSV as it is, else its extracted Markdown.
  * In a private thread the parent channel's Documents can be kept too.
  */
 export async function keptDocument(ctx: SkillContext, path: unknown): Promise<KeptText> {
@@ -36,10 +36,8 @@ export async function keptDocument(ctx: SkillContext, path: unknown): Promise<Ke
   const entries = await store.list(ctx.tenantId, folder);
   const entry = entries.find((e) => e.path === full && e.type === "file");
   if (!entry) throw new Error(t.keepNoDocument(document));
-  const given = await provenanceOf(ctx.tenantId, ctx, document);
-  const siblings = entries.map((e) => e.path.slice(folder.length + 1));
-  const textPath = !extractsText(document, entry.size ?? 0) ? (TEXT_TYPES.includes(extensionOf(document)) ? document : null)
-    : given ? given.textPath ?? null : unrecordedTextPath(document, siblings);
+  const { given, textPath: extracted } = await filedText(ctx.tenantId, ctx, document, async () => entries.map((e) => e.path.slice(folder.length + 1)));
+  const textPath = !extractsText(document, entry.size ?? 0) ? (TEXT_TYPES.includes(extensionOf(document)) ? document : null) : extracted;
   const file = textPath ? await store.read(ctx.tenantId, resolvePath(ctx, textPath)).catch(() => null) : null;
   if (!file) throw new Error(t.keepNoText(document));
   return { text: withoutKeywords(file.content), source: document, ...(given && { author: given.name }) };

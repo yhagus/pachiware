@@ -3,17 +3,17 @@ import { placeRoot, resolvePath, visibleRoots } from "./paths.js";
 import { documentText, extensionOf, extractsText, scannedPages, type ScannedPage } from "./extract.js";
 import { addKeywords } from "./keywords.js";
 import type { Completion, SkillContext } from "../types.js";
+import { DOCUMENT_TYPES } from "./documentTypes.js";
 
-export const DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "html", "htm", "csv", "md", "txt"] as const;
 export const MAX_DOCUMENT_BYTES = MAX_BLOB_BYTES;
 const DOWNLOAD_TIMEOUT_MS = 15000;
 const MAX_NAME = 100;
 
 export type Document = { name: string; url: string; size: number };
 export type NotFiledReason = "type" | "tooLarge" | "download" | "place";
-/** The sibling Markdown holding a PDF's, DOCX's, XLSX's, HTML page's or large CSV's text, or that none could be extracted. */
+/** The sibling Markdown holding a Document's extracted text, or that none could be extracted. */
 export type Extracted = { path: string } | { failed: true };
-/** `path` is the agent-facing path (`channel/files/report.pdf`), which `readFile` and `searchFiles` accept; `text` is set for a PDF, DOCX, XLSX, HTML page, or a CSV too large for `readFile`. */
+/** `path` is the agent-facing path (`channel/files/report.pdf`), which `readFile` and `searchFiles` accept; `text` is set for a Document whose text is extracted (`extractsText`). */
 export type Filed = { path: string; bytes: Uint8Array; text?: Extracted };
 /** Reads the text of page images through a model that sees images (#246); null when it cannot. Given only where the bot's Profile accepts images. */
 export type PageReader = (pages: ScannedPage[]) => Promise<string | null>;
@@ -56,14 +56,14 @@ const textName = (name: string) => name.replace(/\.[^.]+$/, ".md");
  * Where the extracted text of the Document `path` went, read from the names beside it, for a Document filed without a record of it:
  * `<stem>.md`, unless a `<stem>-N.md` sibling means `freeName` may have numbered the text away from it; then null.
  */
-export function unrecordedTextPath(path: string, siblings: string[]) {
+function unrecordedTextPath(path: string, siblings: string[]) {
   const text = textName(path), stem = text.slice(text.lastIndexOf("/") + 1, -".md".length);
   return siblings.some((name) => name.startsWith(`${stem}-`) && /^\d+\.md$/.test(name.slice(stem.length + 1))) ? null : text;
 }
 
 /**
  * Fetches one allowed document and writes it into `files/` under the turn's folder, never over an existing file.
- * The text of a PDF, DOCX, XLSX, HTML page or large CSV then goes to a sibling `<name>.md` for `readFile` and `searchFiles`; `saveAttachment` calls this for a named message.
+ * The text of a Document read through Markdown, or of a large CSV, then goes to a sibling `<name>.md` for `readFile` and `searchFiles`; `saveAttachment` calls this for a named message.
  */
 export async function fileDocument(tenantId: string, where: Where, doc: Document, { taken, givenBy, complete, readPages }: { taken?: Set<string>; givenBy?: Giver; complete?: Completion; readPages?: PageReader } = {}): Promise<Filed | NotFiled> {
   const reason = documentReason(doc);
@@ -105,13 +105,22 @@ async function recordProvenance(tenantId: string, where: Where, path: string, re
 }
 
 /** Who gave the Document at `path` (agent-facing), when it was filed with a giver; null for a file filed otherwise. */
-export async function provenanceOf(tenantId: string, where: Where, path: string): Promise<Provenance | null> {
+async function provenanceOf(tenantId: string, where: Where, path: string): Promise<Provenance | null> {
   const at = provenancePath(where, path);
   const file = at ? await workspaceStore().read(tenantId, at).catch(() => null) : null;
   try {
     const record = file && JSON.parse(file.content);
     return typeof record?.name === "string" && typeof record.id === "string" ? { name: record.name, id: record.id, ...(typeof record.textPath === "string" && { textPath: record.textPath }) } : null;
   } catch { return null; }
+}
+
+/**
+ * A filed Document's record (`given`) and where its extracted text went (`textPath`, agent-facing): the record's, or for a Document
+ * filed without a record, read from the names in its folder (`siblings`, asked only then); null when none is known.
+ */
+export async function filedText(tenantId: string, where: Where, path: string, siblings: () => Promise<string[]>) {
+  const given = await provenanceOf(tenantId, where, path);
+  return { given, textPath: given ? given.textPath ?? null : unrecordedTextPath(path, await siblings()) };
 }
 
 async function extractInto(tenantId: string, where: Where, root: string, name: string, bytes: Uint8Array, names: Set<string>, readPages?: PageReader): Promise<Extracted> {

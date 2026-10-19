@@ -599,7 +599,7 @@ export class DiscordBotManager {
       if (media.blind && !briefAuthor && !items.some((i) => i.text)) { await send(`${t.blind} ${t.describeImage}`); return; }
       // A Profile that sees images reads scanned PDFs, and the images people send are filed with a description written after the turn (#246).
       const sees = !media.blind && await llmRouter.acceptsImages(runtime.tenantId, botId).catch(() => false);
-      const filed = await fileTurnDocuments(runtime.tenantId, items, language, botCompletion(runtime.tenantId, botId, language), sees ? pageReader(runtime.tenantId, botId) : undefined);
+      const filed = await fileTurnDocuments(runtime.tenantId, items, language, botCompletion({ tenantId: runtime.tenantId, botId, language }), sees ? pageReader(runtime.tenantId, botId) : undefined);
       const images = sees && !opts.playbook ? await fileTurnImages(runtime.tenantId, items, media.shots) : null;
       for (const [id, note] of images?.notes ?? []) filed.set(id, note);
       const lines = items.flatMap((i) => [replyLine(i.replyTo, botUserId), speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed), keepableId(i.text, i.msg.id), i.msg.author.id === botUserId ? undefined : i.msg.author.id)]);
@@ -630,7 +630,7 @@ export class DiscordBotManager {
       }
       for (const f of output.imagesRejected ? [] : images?.filed ?? []) {
         const seen = await describeImage(runtime.tenantId, botId, f.image);
-        if (seen) await describeImageInto(runtime.tenantId, f.where, f.path, seen, { complete: botCompletion(runtime.tenantId, botId, language) }).catch(() => null);
+        if (seen) await describeImageInto(runtime.tenantId, f.where, f.path, seen, { complete: botCompletion({ tenantId: runtime.tenantId, botId, language }) }).catch(() => null);
       }
       // Still inside this conversation's serialized job, so the next turn reads the rewritten summary.
       if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});

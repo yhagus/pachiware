@@ -172,6 +172,29 @@ discordScenario("a tool's own model call made past the turn's deadline gets no a
   expect(s.discord.botMessages.at(-1)!.content).toBe("I ran out of time before the venue was named.");
 });
 
+// A tool that spends model time (the reader of long files, #266) plans within the time its call has left.
+discordScenario("a tool call sees when it must answer: at the tool ceiling, or at the turn's deadline when that comes first", async (s) => {
+  await s.guildSettings({ language: "en", useThreads: false });
+  let seen: { at: number; ends: unknown } | undefined;
+  await slowSkill(s, { slowAsk: async (ctx) => { seen = { at: Date.now(), ends: ctx.callDeadline?.() }; return { asked: true }; } });
+
+  // The ceiling (90 s) is far past a 5 s turn: the call must answer by the turn's deadline.
+  await deadline(5000);
+  s.model.script({ tool: "slowAsk", args: {} }, "done");
+  await s.discord.send(`${s.discord.mention} which hall is the venue?`);
+  expect(typeof seen!.ends).toBe("number");
+  expect((seen!.ends as number) - seen!.at).toBeGreaterThan(0);
+  expect((seen!.ends as number) - seen!.at).toBeLessThanOrEqual(5000);
+
+  // A 3 s ceiling comes long before the 180 s turn's deadline.
+  (await import("../src/loop/react.ts")).turnDeadline.ms = shippedDeadline!;
+  await ceiling(3000);
+  s.model.script({ tool: "slowAsk", args: {} }, "done");
+  await s.discord.send(`${s.discord.mention} and the room?`);
+  expect((seen!.ends as number) - seen!.at).toBeGreaterThan(0);
+  expect((seen!.ends as number) - seen!.at).toBeLessThanOrEqual(3000);
+});
+
 discordScenario("a turn without a saved iteration setting gets the shared default of 32 model calls, not 12", async (s) => {
   await s.guildSettings({ language: "en", useThreads: false });
   const { repositories } = await import("@pachiware/db");

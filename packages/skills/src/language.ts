@@ -1,3 +1,5 @@
+import { DOCUMENT_TYPES, typeNames } from "./workspace/documentTypes.js";
+
 /** The languages the bot's own fixed text comes in; anything else gets English. */
 export type Language = "en" | "id";
 
@@ -24,6 +26,8 @@ export const replyLanguage = (...texts: (string | null | undefined)[]): Language
 
 export const DEFAULT_LANGUAGE: Language = "id";
 export const isLanguage = (value: unknown): value is Language => value === "id" || value === "en";
+/** Each language's name in English, for instructions to a model. */
+export const LANGUAGE_NAME: Record<Language, string> = { en: "English", id: "Indonesian" };
 /** The language for text the bot writes with no message to detect from (Digest, Reminder framing, provider errors): the guild's override, else the tenant's. */
 export const configuredLanguage = (...levels: ({ language?: string | null } | null | undefined)[]): Language => levels.map((l) => l?.language).find(isLanguage) ?? DEFAULT_LANGUAGE;
 
@@ -32,8 +36,11 @@ const MONTHS_ID = "Jan Feb Mar Apr Mei Jun Jul Agu Sep Okt Nov Des".split(" ");
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const list = (items: string[], and: string) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ${and} ${items.at(-1)}`);
 
+const DOCUMENT_NAMES = typeNames(DOCUMENT_TYPES);
+
 const en = {
   and: "and",
+  or: "or",
   // Replies
   cutNote: "-# Cut to stay within 3 messages. Ask for the rest if you need the full version.",
   nothingToAdd: "I have nothing to add here.",
@@ -63,7 +70,7 @@ const en = {
   skipped: (items: string[]) => `Skipped ${items.join(", ")}.`,
   skip: { format: "not a PNG, JPEG, WebP or GIF", tooMany: (n: number) => `over the ${n}-image limit`, tooLarge: "too large to download", download: "could not be downloaded", unreadable: "could not be read as an image", tooBig: "could not be reduced under 5 MB" },
   // Filed documents
-  notFiled: { type: "not filed: not a PDF, DOCX, XLSX, HTML, CSV, MD or TXT", tooLarge: "not filed: over 10 MB", download: "not filed: could not be downloaded", place: "not filed: no folder for this place" },
+  notFiled: { type: `not filed: not a ${list(DOCUMENT_NAMES, "or")}`, tooLarge: "not filed: over 10 MB", download: "not filed: could not be downloaded", place: "not filed: no folder for this place" },
   textNotExtracted: "its text could not be extracted",
   folderRefused: (allowed: string[]) => `Only ${allowed.join(", ")} may sit at the top of a channel or DM folder; put it under one of them.`,
   // Private thread folders (ADR 0009)
@@ -252,6 +259,7 @@ const en = {
 
 const id: typeof en = {
   and: "dan",
+  or: "atau",
   cutNote: "-# Dipotong agar muat dalam 3 pesan. Minta sisanya kalau perlu versi lengkapnya.",
   nothingToAdd: "Tidak ada yang perlu saya tambahkan di sini.",
   done: "Selesai.",
@@ -273,7 +281,7 @@ const id: typeof en = {
   rejected: "Profil ini menolak gambarnya; admin bisa mematikan input gambar untuk profil ini.",
   skipped: (items) => `Dilewati: ${items.join(", ")}.`,
   skip: { format: "bukan PNG, JPEG, WebP, atau GIF", tooMany: (n) => `melebihi batas ${n} gambar`, tooLarge: "terlalu besar untuk diunduh", download: "tidak bisa diunduh", unreadable: "tidak bisa dibaca sebagai gambar", tooBig: "tidak bisa diperkecil di bawah 5 MB" },
-  notFiled: { type: "tidak disimpan: bukan PDF, DOCX, XLSX, HTML, CSV, MD, atau TXT", tooLarge: "tidak disimpan: lebih dari 10 MB", download: "tidak disimpan: tidak bisa diunduh", place: "tidak disimpan: tidak ada folder untuk tempat ini" },
+  notFiled: { type: `tidak disimpan: bukan ${list(DOCUMENT_NAMES, "atau")}`, tooLarge: "tidak disimpan: lebih dari 10 MB", download: "tidak disimpan: tidak bisa diunduh", place: "tidak disimpan: tidak ada folder untuk tempat ini" },
   textNotExtracted: "teksnya tidak bisa diekstrak",
   folderRefused: (allowed: string[]) => `Di tingkat atas folder channel atau DM hanya boleh ada ${allowed.join(", ")}; letakkan di salah satunya.`,
   threadFolderRefused: "Hanya orang yang ditambahkan ke thread privat itu yang bisa meminta file-nya dibaca.",
@@ -443,3 +451,5 @@ export type Strings = typeof en;
 export const textIn = (language: Language = "en"): Strings => (language === "id" ? id : en);
 /** "a, b and c" in `language`. */
 export const listOf = (items: string[], language?: Language) => list(items, textIn(language).and);
+/** "a, b or c" in `language`. */
+export const oneOf = (items: string[], language?: Language) => list(items, textIn(language).or);

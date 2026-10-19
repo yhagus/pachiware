@@ -29,7 +29,7 @@ discordScenario("an answer near line 1,500 of a 120 KB Document is found by sear
   expect(s.discord.botMessages.at(-1)?.content).toBe("1480-1560 of 1600: 1500 Clause 14.2: the vendor contract renews automatically on 3 March 2027 unless cancelled.");
 });
 
-discordScenario("when the model cannot read a large file, readFile returns its first lines within 10,000 characters, with totalLines, nextLine and readerFailed", async (s) => {
+discordScenario("when the model cannot read a large file, readFile returns its first lines within 10,000 characters, with totalLines, nextLine and readerFailed saying why", async (s) => {
   const lines = Array.from({ length: 2000 }, (_, i) => `Entry ${i + 1}: "quoted" notes from the long log, kept for the record.`);
   await s.workspace.write("guilds/guild-1/channels/channel-1/notes/log.md", lines.join("\n") + "\n");
   const failed = { error: "Provider request failed" };
@@ -51,7 +51,7 @@ discordScenario("when the model cannot read a large file, readFile returns its f
   await s.discord.send(`${s.discord.mention} what is in the log?`);
   // Lines 1-146 are 9,968 characters as JSON; line 147 would pass 10,000.
   expect(s.discord.botMessages.at(-1)!.content.split(" | ")).toEqual([
-    "true", "2000", "146",
+    "the model could not read the file", "2000", "146",
     `Entry 1: "quoted" notes from the long log, kept for the record.`,
     `Entry 146: "quoted" notes from the long log, kept for the record.`,
     "147",

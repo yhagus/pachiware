@@ -1,4 +1,4 @@
-import { expect } from "bun:test";
+import { afterEach, expect } from "bun:test";
 import { discordScenario, type ModelTurn } from "./support/discordScenario";
 
 // A file longer than READ_LIMIT is read by the bot's own model in chunks, which answer the model's question with quotes the server checks (#266).
@@ -41,4 +41,26 @@ discordScenario("a question about a 900-line Document is answered by the reader 
   await s.discord.send(`${s.discord.mention} ${QUESTION} cek bagian 600 sampai 620`);
   expect(s.model.calls.length - asked).toBe(3);
   expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toMatchObject({ quotes: [{ line: 612 }], read: { fromLine: 600, toLine: 620 }, droppedQuotes: 1 });
+});
+
+let shippedDeadline: number | undefined;
+afterEach(async () => {
+  if (shippedDeadline === undefined) return;
+  (await import("../src/loop/react.ts")).turnDeadline.ms = shippedDeadline;
+  shippedDeadline = undefined;
+});
+
+discordScenario("with too little of the turn left, the reader starts no chunk and readFile falls back at once, saying why", async (s) => {
+  await s.workspace.write(`${FILES}/genset-manual.md`, MANUAL.join("\n") + "\n");
+  // An 8 s turn leaves the reader less than it needs, though the 90 s tool ceiling would not.
+  const { turnDeadline } = await import("../src/loop/react.ts");
+  shippedDeadline = turnDeadline.ms;
+  turnDeadline.ms = 8000;
+  let result: any;
+  s.model.script({ tool: "readFile", args: { path: "channel/files/genset-manual.md", question: QUESTION } }, (turn) => { result = turn.toolResults.at(-1); return "ok"; });
+  await s.discord.send(`${s.discord.mention} ${QUESTION}`);
+  expect(s.model.calls.length).toBe(2);
+  expect(result.readerFailed).toContain("too little time");
+  expect(result).toMatchObject({ totalLines: 900, nextLine: expect.any(Number) });
+  expect(result.content.split("\n")[0]).toBe(MANUAL[0]);
 });

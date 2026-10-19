@@ -1,6 +1,6 @@
 import { repositories, DEFAULT_SYSTEM_PROMPT, type DigestChannel, type DailyLogChannel, type DocSource, type GuildConfigInput } from "@pachiware/db";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { skillRegistry, configuredLanguage, loadMemory, loadTasks, readInFull, workspaceStore, EFFECT_MEANING, describeTime, configuredTimezone, dueMoment, taskLine, isOpen, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
+import { skillRegistry, configuredLanguage, loadMemory, loadTasks, readInFull, workspaceStore, EFFECT_MEANING, LANGUAGE_NAME, describeTime, configuredTimezone, dueMoment, taskLine, isOpen, now, type OffSummary, type Language, type ThreadRepository, type ThreadDocuments } from "@pachiware/skills";
 import { SILENCE_MARKER, reactionMarker } from "../discord/replyStyle.js";
 import { syncDigestSchedules } from "../digest.js";
 import { syncDailyLogSchedules, startDailyLogs } from "../discord/dailyLogDays.js";
@@ -88,8 +88,6 @@ export interface PromptContext {
    */
   answerIn?: Language;
 }
-
-const LANGUAGE_NAME: Record<Language, string> = { en: "English", id: "Indonesian" };
 
 const tenantConfig = async (tenantId: string) => {
   const cacheKey = tenantKey(tenantId, "agent:config");

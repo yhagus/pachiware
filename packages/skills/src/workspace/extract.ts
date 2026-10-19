@@ -1,7 +1,7 @@
 import { extractImages, extractText, getDocumentProxy } from "unpdf";
 import type { Cell, Row } from "exceljs";
 import { createDocument } from "@mixmark-io/domino";
-import TurndownService from "turndown";
+import { turndown } from "../htmlMarkdown.js";
 import { MAX_FILE_BYTES } from "./store.js";
 // mammoth and exceljs load on first use: together they add ~140 ms to every process start.
 
@@ -12,7 +12,7 @@ const CLIPPED = `[Clipped at ${MAX_TEXT_BYTES / 1024} KB: the rows after this li
 
 /** "pdf" from "Report.PDF"; empty without an extension. */
 export const extensionOf = (name: string) => name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
-/** PDF, DOCX, XLSX and HTML: never read or searched as they are, only through their sibling Markdown file. */
+/** A Document never read or searched as it is, only through its sibling Markdown file (`throughMarkdown` in TYPES). */
 export const readsThroughMarkdown = (name: string) => TYPES[extensionOf(name)]?.throughMarkdown ?? false;
 /** Whether the file's text gets a sibling Markdown file: a Document read through it always, a CSV only when too large for `readFile`. */
 export const extractsText = (name: string, size: number) => {
@@ -107,9 +107,6 @@ async function fromXlsx(bytes: Uint8Array) {
 
 const fromCsv = async (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-", emDelimiter: "_" });
-// A saved page often inlines its images as data: addresses, which would fill the text with base64: only the alt text is kept.
-turndown.addRule("image", { filter: "img", replacement: (_c, node) => `[image${(node as HTMLElement).getAttribute("alt") ? `: ${(node as HTMLElement).getAttribute("alt")}` : ""}]` });
 const NOT_TEXT = "script, style, noscript, template, svg, iframe";
 
 /** An HTML page, decoded as UTF-8, as Markdown: its body without what is not text, headed by its title when the body has no h1. */
