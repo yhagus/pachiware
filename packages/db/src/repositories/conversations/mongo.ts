@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Filter } from "mongodb";
 import { ensureCollection, inTransaction, type MongoConnection, type MongoMigration } from "../../mongo/connection.js";
-import type { Conversation, ConversationRepository, Message } from "./types.js";
+import { endedAtOf, type Conversation, type ConversationRepository, type Message } from "./types.js";
 
 /** `messageSeq` counts the messages ever added, so each message takes the next number in its conversation. */
 type ConversationDoc = Omit<Conversation, "id"> & { _id: string; messageSeq?: number };
@@ -63,7 +63,7 @@ export function createMongoConversationRepository(connection: MongoConnection): 
     async listForBot(botId, { channelId, limit }) {
       if (limit <= 0) return [];
       const where: Filter<ConversationDoc> = channelId ? { botId, $or: [{ channelId }, { "metadata.parentChannelId": channelId }] } : { botId };
-      const docs = await conversations.find(where, { projection: { channelId: 1, userId: 1, createdAt: 1 } }).sort(newest).limit(limit).toArray();
+      const docs = await conversations.find(where, { projection: { channelId: 1, userId: 1, createdAt: 1, "metadata.endedAt": 1 } }).sort(newest).limit(limit).toArray();
       const stats = docs.length
         ? await messages.aggregate<{ _id: string; n: number; last: Date }>([
           { $match: { conversationId: { $in: docs.map((d) => d._id) } } },
@@ -73,7 +73,7 @@ export function createMongoConversationRepository(connection: MongoConnection): 
       const byId = new Map(stats.map((s) => [s._id, s]));
       return docs.map((d) => {
         const s = byId.get(d._id);
-        return { id: d._id, channelId: d.channelId ?? null, userId: d.userId ?? null, createdAt: d.createdAt, messageCount: s?.n ?? 0, lastMessageAt: s?.last ?? null };
+        return { id: d._id, channelId: d.channelId ?? null, userId: d.userId ?? null, createdAt: d.createdAt, messageCount: s?.n ?? 0, lastMessageAt: s?.last ?? null, endedAt: endedAtOf(d.metadata) };
       });
     },
     async setMetadata(tenantId, id, metadata) {

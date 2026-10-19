@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { SqlConnection } from "../../connection.js";
-import type { Conversation, ConversationRepository, Message } from "./types.js";
+import { endedAtOf, type Conversation, type ConversationRepository, type Message } from "./types.js";
 
 /** Conversations and their messages on SQLite and PostgreSQL. */
 export function createSqlConversationRepository({ engine, db, tables: t }: SqlConnection): ConversationRepository {
@@ -31,7 +31,7 @@ export function createSqlConversationRepository({ engine, db, tables: t }: SqlCo
     getForBot: (botId, id) => one(and(eq(c.id, id), eq(c.botId, botId))),
     async listForBot(botId, { channelId, limit }) {
       const where = and(eq(c.botId, botId), channelId ? or(eq(c.channelId, channelId), sql`${c.metadata}->>'parentChannelId' = ${channelId}`) : undefined);
-      const rows = await db.select({ id: c.id, channelId: c.channelId, userId: c.userId, createdAt: c.createdAt }).from(c).where(where).orderBy(desc(c.createdAt)).limit(limit);
+      const rows = await db.select({ id: c.id, channelId: c.channelId, userId: c.userId, createdAt: c.createdAt, metadata: c.metadata }).from(c).where(where).orderBy(desc(c.createdAt)).limit(limit);
       const ids = rows.map((r: any) => r.id);
       const stats = ids.length ? await db.select({
         id: m.conversationId, n: sql`count(*)`.mapWith(Number), last: sql`max(${m.createdAt})`.mapWith(m.createdAt),
@@ -39,7 +39,7 @@ export function createSqlConversationRepository({ engine, db, tables: t }: SqlCo
       const byId = new Map(stats.map((s: any) => [s.id, s]));
       return rows.map((r: any) => {
         const s: any = byId.get(r.id);
-        return { id: r.id, channelId: r.channelId ?? null, userId: r.userId ?? null, createdAt: r.createdAt, messageCount: s?.n ?? 0, lastMessageAt: s?.last ?? null };
+        return { id: r.id, channelId: r.channelId ?? null, userId: r.userId ?? null, createdAt: r.createdAt, messageCount: s?.n ?? 0, lastMessageAt: s?.last ?? null, endedAt: endedAtOf(r.metadata) };
       });
     },
     async setMetadata(tenantId, id, metadata) {

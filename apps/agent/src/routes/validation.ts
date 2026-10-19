@@ -22,6 +22,15 @@ export function placeSettings(body: Record<string, any>, nullable = false): Plac
   return out;
 }
 
+export const MAX_IDLE_HOURS = 720;
+/** `conversationIdleHours` from a tenant settings body: whole hours from 0 (never) to MAX_IDLE_HOURS; undefined when left out. */
+export function conversationIdleHours(body: Record<string, any>): number | undefined {
+  const hours = body.conversationIdleHours;
+  if (hours === undefined) return undefined;
+  if (!Number.isInteger(hours) || hours < 0 || hours > MAX_IDLE_HOURS) throw new HTTPException(400, { message: `conversationIdleHours must be a whole number of hours from 0 (never) to ${MAX_IDLE_HOURS}` });
+  return hours;
+}
+
 export const MAX_DIGEST_CHANNELS = 50;
 /** `digestChannels` from a guild settings body: `{ channelId, hour }` entries, the hour a whole number from 0 to 23, one entry per channel. */
 export function digestChannels(value: unknown): DigestChannel[] {

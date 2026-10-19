@@ -147,10 +147,12 @@ contract("Conversations and messages", (use) => {
     await Bun.sleep(2);
     const last = await conversations.addMessage({ tenantId: acme.id, conversationId: channel.id, role: "assistant", content: "two" });
 
+    await conversations.setMetadata(acme.id, thread.id, { parentChannelId: "c1", endedAt: "2026-10-19T12:00:00.000Z" });
+
     const listed = await conversations.listForBot(bot, { limit: 50 });
     expect(listed.map((c) => c.id)).toEqual([elsewhere.id, thread.id, channel.id]);
-    expect(listed[2]).toEqual({ id: channel.id, channelId: "c1", userId: "u1", createdAt: channel.createdAt, messageCount: 2, lastMessageAt: last.createdAt });
-    expect(listed[1]).toMatchObject({ messageCount: 0, lastMessageAt: null });
+    expect(listed[2]).toEqual({ id: channel.id, channelId: "c1", userId: "u1", createdAt: channel.createdAt, messageCount: 2, lastMessageAt: last.createdAt, endedAt: null });
+    expect(listed[1]).toMatchObject({ messageCount: 0, lastMessageAt: null, endedAt: new Date("2026-10-19T12:00:00.000Z") });
     expect((await conversations.listForBot(bot, { channelId: "c1", limit: 50 })).map((c) => c.id)).toEqual([thread.id, channel.id]);
     expect((await conversations.listForBot(bot, { limit: 1 })).map((c) => c.id)).toEqual([elsewhere.id]);
 

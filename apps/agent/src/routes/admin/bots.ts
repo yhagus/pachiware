@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { repositories, type GuildConfigInput, type PlaneScope } from "@pachiware/db";
+import { now } from "@pachiware/skills";
 import { discordBotManager } from "../../discord/client.js";
 import { loadGuildSettings, saveGuildSettings, DailyLogTaken } from "../../loop/prompt.js";
 import { object, string, stringArray, placeSettings, digestChannels, dailyLogChannels, docSources } from "../validation.js";
@@ -7,6 +8,7 @@ import { DocSourceRefused } from "../../docsMirror.js";
 import { botFields, assertProfile, assertAccounts, botColumns, saveAccounts, botsOut } from "../v1/bots.js";
 import { botAvailabilityRoutes } from "../availability.js";
 import { botReminderRoutes } from "../reminders.js";
+import { patchConversationMetadata } from "../../loop/conversationMetadata.js";
 export const botAdminRoutes = new Hono();
 botAdminRoutes.post("/tenants/:id/bots", async (c) => {
   if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
@@ -133,6 +135,14 @@ botAdminRoutes.get("/bots/:botId/conversations/:id/messages", async (c) => {
   if (!owned) return c.json({ error: "Conversation not found" }, 404);
   const rows = await conversations.latestMessages(owned.tenantId, owned.id, { limit: 200, chatOnly: true });
   return c.json({ success: true, messages: rows.map(({ id, role, content, createdAt }) => ({ id, role, content, createdAt })) });
+});
+// Ends a conversation, so the next message in its channel or thread starts a fresh one; nothing is posted in Discord. Ending it again keeps the first time.
+botAdminRoutes.post("/bots/:botId/conversations/:id/end", async (c) => {
+  const owned = await repositories().conversations.getForBot(c.req.param("botId")!, c.req.param("id")!);
+  if (!owned) return c.json({ error: "Conversation not found" }, 404);
+  const endedAt: string = owned.metadata?.endedAt ?? new Date(now()).toISOString();
+  if (!owned.metadata?.endedAt) await patchConversationMetadata(owned.tenantId, owned.id, { endedAt });
+  return c.json({ success: true, endedAt });
 });
 botAdminRoutes.patch("/bots/:botId", async (c) => {
   const fields = botFields(object(await c.req.json(), "body"));

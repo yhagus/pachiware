@@ -51,6 +51,23 @@ describe("time zone and language settings", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("a conversation starts fresh after 24 quiet hours unless the tenant sets other whole hours, 0 for never", () => {
+    const { code, stderr } = scenario(`
+      const path = "/api/admin/tenants/" + tenant.id + "/settings";
+      assert((await read("GET", path)).settings.conversationIdleHours === 24, "default not 24");
+      const changed = await read("PUT", path, { conversationIdleHours: 12 });
+      assert(changed.settings.conversationIdleHours === 12 && changed.settings.timezone === "Asia/Jakarta" && changed.settings.language === "id", "update: " + JSON.stringify(changed));
+      assert((await read("PUT", path, { conversationIdleHours: 0 })).settings.conversationIdleHours === 0, "0 refused");
+      assert((await read("PUT", path, { conversationIdleHours: 720 })).settings.conversationIdleHours === 720, "720 refused");
+      for (const bad of [-1, 721, 1.5, "12", null]) assert(await status("PUT", path, { conversationIdleHours: bad }) === 400, JSON.stringify(bad) + " accepted");
+      const row = await repositories().agentConfig.get(tenant.id);
+      assert(row.settings.conversationIdleHours === 720 && row.settings.maxReActIterations === 32, "settings not merged: " + JSON.stringify(row.settings));
+      await read("PUT", path, { timezone: "Asia/Tokyo" });
+      assert((await read("GET", path)).settings.conversationIdleHours === 720, "a time zone change reset the hours");
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("the tenant API carries both settings on the config resource with the same validation", () => {
     const { code, stderr } = scenario(`
       const key = await repositories().tenants.issueApiKey("one");

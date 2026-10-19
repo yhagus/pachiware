@@ -31,6 +31,14 @@ export type ConversationListing = {
   createdAt: Date;
   messageCount: number;
   lastMessageAt: Date | null;
+  /** When it was ended from the console; null otherwise, also for one left quiet past the tenant's hours (its next message just starts another). */
+  endedAt: Date | null;
+};
+
+/** `metadata.endedAt` as a date; both engines list it. */
+export const endedAtOf = (metadata: unknown): Date | null => {
+  const at = (metadata as { endedAt?: unknown } | null)?.endedAt;
+  return typeof at === "string" ? new Date(at) : null;
 };
 
 export type Message = {

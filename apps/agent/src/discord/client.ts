@@ -1,14 +1,15 @@
 import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type SendableChannels, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
-import { repositories } from "@pachiware/db";
+import { repositories, DEFAULT_CONVERSATION_IDLE_HOURS } from "@pachiware/db";
 import { DiscordJSAdapter } from "./adapter.js";
 import { catchUpDailyLogs } from "./dailyLogDays.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
+import { continuesConversation, patchConversationMetadata } from "../loop/conversationMetadata.js";
 import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel, replyLine, requestedWord, asksForTasks } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
 import { prepareReply, replyQuietly, splitReply, withNotes, type ReplyPlan } from "./replyStyle.js";
@@ -588,7 +589,10 @@ export class DiscordBotManager {
     try {
       const agent = await repositories().agentConfig.get(runtime.tenantId);
       const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
-      const conversation = await repositories().conversations.latestInChannel(runtime.tenantId, botId, channelId);
+      // The channel's latest conversation goes on unless the console ended it or it has been quiet past the tenant's hours; then the loop starts another.
+      const latest = await repositories().conversations.latestInChannel(runtime.tenantId, botId, channelId);
+      const idleMs = (agent?.settings?.conversationIdleHours ?? DEFAULT_CONVERSATION_IDLE_HOURS) * 3600_000;
+      const conversation = latest && continuesConversation(latest.metadata, { idleMs, at: now(), playbook: !!opts.playbook }) ? latest : null;
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const repository = opts.binding && threadRepositoryOf(opts.binding), documents = opts.binding && threadDocumentsOf(opts.binding);
       const chained = opts.playbook && withLoads(opts.playbook, await listPlaybooks(runtime.tenantId));
@@ -632,7 +636,8 @@ export class DiscordBotManager {
         const seen = await describeImage(runtime.tenantId, botId, f.image);
         if (seen) await describeImageInto(runtime.tenantId, f.where, f.path, seen, { complete: botCompletion({ tenantId: runtime.tenantId, botId, language }) }).catch(() => null);
       }
-      // Still inside this conversation's serialized job, so the next turn reads the rewritten summary.
+      // Still inside this conversation's serialized job, so the next turn reads the rewritten summary and when this one ran.
+      await patchConversationMetadata(runtime.tenantId, output.conversationId, { lastTurnAt: new Date(now()).toISOString() }).catch(() => {});
       if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});
     } catch (error) {
       const failure = failureOf(error);
