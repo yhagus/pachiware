@@ -19,13 +19,13 @@ import { PLANE_NOT_ENABLED, loadPlaneAccess } from "../plane/scope.js";
  */
 
 export const RECALL_PART = 10;
-const MAX_QUERIES = 5, LINES = 2, LINE_CHARS = 160, TITLE_CHARS = 80;
+const MAX_QUERIES = 5, LINES = 2, LINE_CHARS = 160, TITLE_CHARS = 80, SAID = 3;
 /** Under the loop's 12,000-character cut, with room for the wrapper it adds. */
 export const RECALL_BUDGET = 11_000;
 
 export const recallTool: ToolDefinition = {
   name: "recall",
-  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, the server's Team roster (team: who is responsible for what), today's messages of this place when no kept file answers well (talk: no Daily log holds them yet), and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A kept file or Task marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are. notLogged, given when no kept file answers, names the channels searched that keep no Daily logs.",
+  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, the server's Team roster (team: who is responsible for what), today's messages of this place when no kept file answers well (talk: no Daily log holds them yet), and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A Minutes or Daily log item also gives its items that hold a word asked, each with its message url: decided, open and, for a Daily log, next (who does what next). A kept file or Task marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are. notLogged, given when no kept file answers, names the channels searched that keep no Daily logs.",
   parameters: {
     type: "object",
     properties: {
@@ -63,9 +63,9 @@ const newest = (links: string[]) => links.reduce((a, b) => {
  * or next step holding the most of the query words it holds (`held`), where it was settled. Every row of the log is weighed, since the
  * head and the topic rows, which repeat its keywords, fill the few lines a match shows. A topic row links every message of its topic,
  * so it is cited only when no other row holds a query word, by its first message, where the talk began. A Document whose name holds
- * no date is dated by the date its first line gives.
+ * no date is dated by the date its first line gives. Minutes and a Daily log also give what their record says about the question.
  */
-async function keptSource(tenantId: string, path: string, kind: Kind, held: string[]): Promise<{ url?: string; day?: string }> {
+async function keptSource(tenantId: string, path: string, kind: Kind, held: string[]): Promise<{ url?: string; day?: string } & Said> {
   const named = nameDate(path);
   if (kind !== "minutes" && kind !== "daily-log" && (kind !== "document" || named)) return {};
   const file = await workspaceStore().read(tenantId, path).catch(() => null);
@@ -73,7 +73,11 @@ async function keptSource(tenantId: string, path: string, kind: Kind, held: stri
   if (kind === "document") return { day: titleDate(file.content) ?? undefined };
   const head = parseFrontmatter(file.content)?.fields ?? {};
   if (kind === "minutes") {
-    return typeof head.postedIn === "string" && typeof head.messageId === "string" ? { url: jumpLink(typeof head.guildId === "string" ? head.guildId : null, head.postedIn, head.messageId) } : {};
+    const record = head.minutes as { decided?: unknown; open?: unknown } | undefined, link = (i: any) => i?.link;
+    return {
+      ...(typeof head.postedIn === "string" && typeof head.messageId === "string" ? { url: jumpLink(typeof head.guildId === "string" ? head.guildId : null, head.postedIn, head.messageId) } : {}),
+      ...said(held, { decided: itemsOf(record?.decided, textOf, link), open: itemsOf(record?.open, textOf, link) }),
+    };
   }
   const text = file.content.split("\n"), title = text.findIndex((l) => l.startsWith("# "));
   const topicsShown = !(Array.isArray(head.leftOut) && head.leftOut.includes("topics"));
@@ -86,9 +90,31 @@ async function keptSource(tenantId: string, path: string, kind: Kind, held: stri
     return links ? [{ line: i + 1, text: t, links, topic: topicsShown && heading === 1 }] : [];
   });
   const matched = linesHolding(held, rows), settled = matched.find((r) => !r.topic);
-  if (settled) return { url: newest(settled.links) };
-  return matched[0] ? { url: matched[0].links[0] } : {};
+  const log = head.log as { decided?: unknown; open?: unknown; next?: unknown; labels?: { noOwner?: string; due?: string } } | undefined;
+  const labels = { noOwner: "no owner yet", due: "due", ...log?.labels }, latest = (i: any) => (Array.isArray(i?.links) && i.links.length ? newest(i.links) : undefined);
+  const step = (a: any) => (typeof a?.task === "string" ? `${a.owner ?? labels.noOwner}: ${a.task}${a.due ? ` (${labels.due} ${a.due})` : ""}` : undefined);
+  const fromLog = said(held, { decided: itemsOf(log?.decided, textOf, latest), open: itemsOf(log?.open, textOf, latest), next: itemsOf(log?.next, step, latest) });
+  return { ...(settled ? { url: newest(settled.links) } : matched[0] ? { url: matched[0].links[0] } : {}), ...fromLog };
 }
+
+type SaidItem = { text: string; url: string };
+/**
+ * What a Minutes or Daily log record says about the question (#259): its decided and open items (a Daily log's next steps too) that
+ * hold a query word, each with its message link. The two lines a match shows often hold only the head's keywords, not the decision.
+ */
+type Said = { decided?: SaidItem[]; open?: SaidItem[]; next?: SaidItem[] };
+const SAID_PARTS = ["decided", "open", "next"] as const;
+const textOf = (i: any) => i?.text;
+/** A record list's items with their text and message link; an item missing either is skipped. */
+const itemsOf = (list: unknown, text: (i: any) => unknown, url: (i: any) => unknown): SaidItem[] => (Array.isArray(list) ? list : []).flatMap((i) => {
+  const t = text(i), u = url(i);
+  return typeof t === "string" && typeof u === "string" ? [{ text: t, url: u }] : [];
+});
+/** Of each part, the SAID items holding the most of `held`, ties to the earlier one; a part with none is left out. */
+const said = (held: string[], parts: Record<string, SaidItem[]>): Said => Object.fromEntries(Object.entries(parts).flatMap(([part, items]) => {
+  const found = linesHolding(held, items.map((i, line) => ({ ...i, line }))).slice(0, SAID);
+  return found.length ? [[part, found.map((i) => ({ text: clip(i.text, LINE_CHARS), url: i.url }))]] : [];
+}));
 
 /** Why a part whose tool is not offered here is not searched, when the cause is that no scope opens its accounts (its tools are then hidden). */
 const NO_SCOPE: Record<string, (ctx: SkillContext) => Promise<string | null>> = {
@@ -121,12 +147,12 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
 
   const keptItems = await Promise.all(kept.matches.map(async (m) => {
     const rel = m.path.slice(m.source.folder.length + 1), kind = KIND_OF[rel.split("/")[0]!] ?? "document";
-    const { url, day } = await keptSource(ctx.tenantId, m.path, kind, m.held), named = nameDate(m.path) || day;
+    const { url, day, ...saidHere } = await keptSource(ctx.tenantId, m.path, kind, m.held), named = nameDate(m.path) || day;
     const dated = named ? `${t.keptKinds[kind]} ${named}` : t.keptFiled(t.keptKinds[kind], isoInZone(zone, m.modified).slice(0, 10));
     return {
       ref: refFor(ctx, "K"), label: `${m.source.label} · ${dated}`, ...(url ? { url } : {}),
       path: agentPaths(m.source.root, m.source.folder)(m.path), lines: m.lines.slice(0, LINES).map((l) => ({ line: l.line, text: clip(l.text, LINE_CHARS) })),
-      ...(m.strong ? {} : { partial: true as const }),
+      ...saidHere, ...(m.strong ? {} : { partial: true as const }),
     };
   }));
   const taskGroups: any[] = "data" in tasks ? (tasks.data.groups ?? []).filter((g: any) => !only || g.group === only.label) : [];
@@ -184,11 +210,18 @@ async function unlogged(store: ReturnType<typeof workspaceStore>, tenantId: stri
   return channels.filter((_, i) => empty[i]).map((s) => s.label);
 }
 
-/** Drops matching lines, then the lowest-ranked item of the longest part, until the result fits RECALL_BUDGET characters. */
-function withinBudget<R extends { kept: { lines: unknown[] }[]; tasks: unknown[]; work: unknown[]; workItems: unknown[] }>(result: R): R & { cut?: true } {
+/**
+ * Drops matching lines, then the decided, open and next items of kept files from the lowest-ranked up, then the lowest-ranked item
+ * of the longest part, until the result fits RECALL_BUDGET characters.
+ */
+function withinBudget<R extends { kept: ({ lines: unknown[] } & Said)[]; tasks: unknown[]; work: unknown[]; workItems: unknown[] }>(result: R): R & { cut?: true } {
   const size = () => JSON.stringify(result).length;
   if (size() <= RECALL_BUDGET) return result;
   for (const k of result.kept) k.lines = k.lines.slice(0, 1);
+  for (const k of [...result.kept].reverse()) {
+    if (size() <= RECALL_BUDGET) break;
+    for (const part of SAID_PARTS) delete k[part];
+  }
   const parts = [result.kept, result.tasks, result.work, result.workItems] as unknown[][];
   while (size() > RECALL_BUDGET) {
     const longest = parts.reduce((a, b) => (b.length > a.length ? b : a));

@@ -81,6 +81,78 @@ discordScenario("a Task named in other words is found and marked partial, after 
   ]);
 });
 
+const at = (channel: string, id: number) => `https://discord.com/channels/guild-1/${channel}/${id}`;
+/** Minutes as minutes.ts keeps them: the whole record in the frontmatter, the keywords addKeywords adds at the end of the head. */
+const LOUDNESS_MINUTES = `---\n${Object.entries({
+  title: "Loudness normalization", guildId: "guild-1", channelId: "channel-2", postedIn: "channel-2", messageId: "5100", requesterId: "user-alice",
+  header: { from: 1786518000000, to: 1786521000000, count: 44, participants: ["Rani", "Joko", "Bayu", "Alice"], cut: null, language: "en" },
+  minutes: {
+    title: "Loudness normalization",
+    decided: [{ text: "Normalize every export to -16 LUFS integrated, true peak at -1 dBTP", link: at("channel-2", 5003) }, { text: "Loudness is measured over the whole episode (EBU R128), not per segment", link: at("channel-2", 5006) }],
+    open: [{ text: "Music-heavy shows may need -14 LUFS; revisit after the beta", link: at("channel-2", 5009) }],
+    actions: [{ owner: "Rani", task: "Implement loudness normalization in the export pipeline", due: "Aug 28", link: at("channel-2", 5012) }],
+    labels: { decided: "Decided", open: "Still open", actions: "Action items", participants: "Participants", noOwner: "no owner yet", due: "due", none: "None" },
+  },
+  corrections: [], input: [],
+  topics: ["loudness normalization", "LUFS target", "EBU R128"],
+  keywords: ["loudness", "normalization", "normalisasi", "normalisasi volume", "volume", "LUFS", "true peak", "dBTP", "EBU R128", "export"],
+}).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")}\n---\n# Loudness normalization\n\n2026-08-12 07:00 – 07:50 UTC · 44 messages\nParticipants: Rani, Joko, Bayu, Alice\n\n`
+  + `## Decided\n1. Normalize every export to -16 LUFS integrated, true peak at -1 dBTP [↗](${at("channel-2", 5003)})\n2. Loudness is measured over the whole episode (EBU R128), not per segment [↗](${at("channel-2", 5006)})\n\n`
+  + `## Still open\n3. Music-heavy shows may need -14 LUFS; revisit after the beta [↗](${at("channel-2", 5009)})\n\n`
+  + `## Action items\n4. **Rani**: Implement loudness normalization in the export pipeline (due Aug 28) [↗](${at("channel-2", 5012)})\n`;
+
+// #259: the lived-in exam's loudness-dibahas-selesai. The keywords and topics lines hold the most words, so they are the two lines a
+// match shows, and replies left out the decision itself.
+discordScenario("a Minutes match carries its Decided and Still open items that hold a query word, each with its message link, beside its two matching lines", async (s) => {
+  await channels(s);
+  await s.workspace.write(`${AUDIO}/minutes/2026-08-12-loudness-normalization.md`, LOUDNESS_MINUTES);
+  const [result] = await recall(s, [{ queries: ["loudness normalization", "normalisasi loudness", "normalisasi volume audio"] }]);
+  expect(result.kept).toHaveLength(1);
+  expect(result.kept[0].lines).toHaveLength(2);
+  expect(result.kept[0].decided).toEqual([
+    { text: "Normalize every export to -16 LUFS integrated, true peak at -1 dBTP", url: "https://discord.com/channels/guild-1/channel-2/5003" },
+    { text: "Loudness is measured over the whole episode (EBU R128), not per segment", url: "https://discord.com/channels/guild-1/channel-2/5006" },
+  ]);
+  // The open point names neither loudness, normalization, volume nor audio.
+  expect(result.kept[0].open).toBeUndefined();
+});
+
+/** A Daily log as dailyLog.ts keeps it: the whole log in the frontmatter, rendered below. */
+const g = (id: number) => at("channel-1", id);
+const MIGRATION_LOG = (() => {
+  const log = {
+    topics: [{ name: "Migrasi database", keywords: { id: ["migrasi", "database", "skema"], en: ["migration", "downtime"] }, links: [g(7001), g(7002)] }, { name: "Recap mingguan", keywords: { id: ["recap"], en: ["weekly recap"] }, links: [g(7020)] }],
+    decided: [{ text: "Tabel shows dipisah dari episodes (normalisasi skema)", links: [g(7003)] }, { text: "Migrasi jalan Minggu 20 September 02:00 WIB, downtime maksimal 15 menit", links: [g(7005), g(7006)] }],
+    open: [{ text: "Recap mingguan pindah ke hari Jumat?", links: [g(7021)] }],
+    next: [{ owner: "Tomi", task: "Tulis script migrasi dan rollback", due: "Sabtu", links: [g(7008)] }, { owner: "Joko", task: "Tes migrasi di staging", due: "Jumat", links: [g(7010), g(7011)] }, { owner: null, task: "Kirim recap mingguan", due: null, links: [g(7022)] }],
+    labels: { topics: "Topik", decided: "Diputuskan", open: "Masih terbuka", next: "Siapa mengerjakan apa", noOwner: "belum ada pemilik", due: "tenggat", none: "Tidak ada" },
+  };
+  const fields = { kind: "daily-log", guildId: "guild-1", channelId: "channel-1", channel: "general", day: "2026-09-17", timezone: "Asia/Jakarta", header: { count: 31, participants: ["Tomi", "Joko", "Alice"], stoppedAt: null }, log, topics: ["Migrasi database", "Recap mingguan"], keywords: ["migrasi", "database", "skema", "migration", "downtime", "recap", "weekly recap"] };
+  const row = (n: number, text: string, links: string[]) => `${n}. ${text} ${links.map((l) => `[↗](${l})`).join(" ")}`;
+  return `---\n${Object.entries(fields).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")}\n---\n# Daily log #general, 2026-09-17\n\n`
+    + "Topics: Migrasi database, Recap mingguan\nKeywords: migrasi, database, skema, migration, downtime, recap, weekly recap\n31 messages from Tomi, Joko, Alice\n\n"
+    + `## Topik\n${row(1, "Migrasi database: migrasi, database, skema, migration, downtime", [g(7001), g(7002)])}\n${row(2, "Recap mingguan: recap, weekly recap", [g(7020)])}\n\n`
+    + `## Diputuskan\n${row(3, "Tabel shows dipisah dari episodes (normalisasi skema)", [g(7003)])}\n${row(4, "Migrasi jalan Minggu 20 September 02:00 WIB, downtime maksimal 15 menit", [g(7005), g(7006)])}\n\n`
+    + `## Masih terbuka\n${row(5, "Recap mingguan pindah ke hari Jumat?", [g(7021)])}\n\n`
+    + `## Siapa mengerjakan apa\n${row(6, "**Tomi**: Tulis script migrasi dan rollback (tenggat Sabtu)", [g(7008)])}\n${row(7, "**Joko**: Tes migrasi di staging (tenggat Jumat)", [g(7010), g(7011)])}\n${row(8, "*belum ada pemilik*: Kirim recap mingguan", [g(7022)])}\n`;
+})();
+
+// #259: the lived-in exam's db-normalization-done, where replies said only "agreed in the Minutes".
+discordScenario("a Daily log match carries its decided, open and next items that hold a query word, each with the latest of its message links", async (s) => {
+  await channels(s);
+  await s.workspace.write(`${GENERAL}/daily-logs/2026-09/2026-09-17.md`, MIGRATION_LOG);
+  const [result] = await recall(s, [{ queries: ["database migration downtime", "downtime migrasi database"] }]);
+  expect(result.kept).toHaveLength(1);
+  expect(result.kept[0]).toMatchObject({
+    decided: [{ text: "Migrasi jalan Minggu 20 September 02:00 WIB, downtime maksimal 15 menit", url: "https://discord.com/channels/guild-1/channel-1/7006" }],
+    next: [
+      { text: "Tomi: Tulis script migrasi dan rollback (tenggat Sabtu)", url: "https://discord.com/channels/guild-1/channel-1/7008" },
+      { text: "Joko: Tes migrasi di staging (tenggat Jumat)", url: "https://discord.com/channels/guild-1/channel-1/7011" },
+    ],
+  });
+  expect(result.kept[0].open).toBeUndefined();
+});
+
 discordScenario("a Daily log match is cited by the message link on its matching line; a Decision has a label and no link", async (s) => {
   await channels(s);
   await s.workspace.write(`${GENERAL}/daily-logs/2026-10-05.md`, "# Daily log #general, 2026-10-05\n\n## Topics\n1. Audio normalization: loudness [↗](https://discord.com/channels/guild-1/channel-1/7001)\n");
@@ -190,6 +262,23 @@ discordScenario("on a crowded Workspace the result keeps to its budgets and stay
   expect(result.tasks.length).toBeLessThanOrEqual(10);
   expect(JSON.stringify(result).length).toBeLessThan(12000);
   expect(s.model.calls.at(-1)!.map((m) => String(m.content)).join("")).not.toContain("[truncated");
+});
+
+discordScenario("on a crowded Workspace the decided and open items of the lower-ranked Minutes give way before any kept file does, and the best match keeps its own", async (s) => {
+  await channels(s);
+  const item = (d: number, k: number) => ({ text: `Audio normalization point ${k} of ${d} September keeps every export within one decibel of the loudness target agreed`, link: at("channel-1", 9000 + d * 10 + k) });
+  for (let d = 1; d <= 20; d++) {
+    const day = `2026-09-${String(d).padStart(2, "0")}`, decided = [1, 2, 3].map((k) => item(d, k)), open = [4, 5, 6].map((k) => item(d, k));
+    const record = { title: "Audio normalization", guildId: "guild-1", channelId: "channel-1", postedIn: "channel-1", messageId: String(8000 + d), requesterId: "user-alice", header: { from: 0, to: 0, count: 6, participants: ["Rani"], cut: null }, minutes: { title: "Audio normalization", decided, open, actions: [] }, corrections: [], input: [] };
+    const rows = [...decided, ...open].map((i, n) => `${n + 1}. ${i.text} [↗](${i.link})`);
+    await s.workspace.write(`${GENERAL}/minutes/${day}-audio-normalization.md`, `---\n${Object.entries(record).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")}\n---\n# Audio normalization\n\n## Decided\n${rows.slice(0, 3).join("\n")}\n\n## Still open\n${rows.slice(3).join("\n")}\n`);
+  }
+  const [result] = await recall(s, [QUERIES]);
+  expect(JSON.stringify(result).length).toBeLessThan(12000);
+  expect(result.kept).toHaveLength(10);
+  expect(result.kept[0].decided).toHaveLength(3);
+  expect(result.kept[0].open).toHaveLength(3);
+  expect(result.kept[9].decided).toBeUndefined();
 });
 
 discordScenario("two recall calls in one turn give refs that do not repeat", async (s) => {
