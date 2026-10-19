@@ -36,6 +36,12 @@ const markLastBlock = (message: any) => {
 };
 // A response cut at the output limit is "length" whatever else it holds: its text is unfinished and any tool call in it may be.
 const finishOf = (cut: boolean, toolCalls: ToolCall[]): LLMResponse["finishReason"] => (cut ? "length" : toolCalls.length > 0 ? "tool_calls" : "stop");
+// Some servers open a streamed answer's text with the model's reasoning in a <think> block, often empty; it is never the reply.
+const withoutThink = (text: string | null | undefined) => text?.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, "") || null;
+// A Chat Completions answer that says the model called a tool ("tool_calls", or "tool_use" from proxies) yet holds neither the call nor text.
+const lostCall = (choice: any) => /^tool/.test(choice?.finish_reason ?? "") && !choice?.message?.tool_calls?.length && !withoutThink(choice?.message?.content);
+// Chat Completions servers that dropped a tool call unless they streamed, by base URL and model; asked streaming from then on, until restart.
+const streamsOnly = new Set<string>();
 
 export class LLMRouter {
   private async getActiveTenantConfig(tenantId: string) {
@@ -437,20 +443,32 @@ export class LLMRouter {
       if (options.toolChoice) body.tool_choice = options.toolChoice;
     }
 
+    // Streaming is only for a server known to drop tool calls otherwise; it is asked for usage, which a stream leaves out by default.
+    const server = `${baseUrl}|${model}`;
+    const send = (stream: boolean) => providerRequest(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(stream ? { ...body, stream, stream_options: { include_usage: true } } : body),
+    }, options.deadline);
+
     try {
-      const response = await providerRequest(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-      }, options.deadline);
+      const response = await send(streamsOnly.has(server));
 
       if (!response.ok) return this.rejected(response.status, messages, options);
 
-      const data = await readAnswer("chat_completions", response);
+      let data = await readAnswer("chat_completions", response);
+      if (lostCall(data.choices?.[0]) && !streamsOnly.has(server)) {
+        const again = await send(true);
+        if (again.ok) {
+          data = await readAnswer("chat_completions", again);
+          if (!lostCall(data.choices?.[0])) streamsOnly.add(server);
+        }
+      }
       const choice = data.choices[0];
+      if (lostCall(choice)) return this.handleFallback("Provider answered a tool call without it", messages, options);
       const toolCalls: ToolCall[] = [];
 
       if (choice.message?.tool_calls) {
@@ -470,7 +488,7 @@ export class LLMRouter {
       }
 
       return {
-        content: choice.message?.content || null,
+        content: withoutThink(choice.message?.content),
         toolCalls,
         finishReason: finishOf(choice.finish_reason === "length", toolCalls),
         usage: data.usage

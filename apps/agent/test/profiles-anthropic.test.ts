@@ -350,6 +350,62 @@ describe("Anthropic profiles and image input", () => {
     expect(code, stderr).toBe(0);
   });
 
+  // A proxy seen in use (2026-10-19): without streaming it answers a tool call as empty text with finish_reason "tool_use" and no
+  // tool_calls, so the bot said "Selesai." to everything that needed a tool; streamed, the same proxy sends the call, and its text
+  // starts with an empty <think></think>.
+  test("a Chat Completions server that drops tool calls unless it streams is asked again streaming, remembered, and its <think> block left out", () => {
+    const { code, stderr } = scenario(`
+      const sse = (chunks) => new Response(chunks.map((c) => "data: " + JSON.stringify(c) + "\\n\\n").join("") + "data: [DONE]\\n\\n", { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      let streamed = "call";
+      reply = (call) => {
+        if (call.method === "GET") return json({ data: [{ id: "dsh/deepseek-flash" }] });
+        if (call.body.stream !== true) return json({ choices: [{ index: 0, message: { role: "assistant", content: "" }, finish_reason: "tool_use" }], usage: { prompt_tokens: 9, completion_tokens: 7, total_tokens: 16 } });
+        return sse([
+          { choices: [{ index: 0, delta: { role: "assistant" } }] },
+          { choices: [{ index: 0, delta: { content: "<think>" } }] },
+          { choices: [{ index: 0, delta: { content: "</think>" } }] },
+          ...(streamed === "call"
+            ? [{ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c1", type: "function", function: { name: "listFiles", arguments: "" } }] } }] },
+               { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"path":"channel"}' } }] } }] },
+               { choices: [{ index: 0, delta: {}, finish_reason: "tool_use" }] }]
+            : [{ choices: [{ index: 0, delta: { content: "Halo!" } }] }, { choices: [{ index: 0, delta: {}, finish_reason: "end_turn" }] }]),
+          { choices: [], usage: { prompt_tokens: 9, completion_tokens: 7, total_tokens: 16 } },
+        ]);
+      };
+      const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Proxy", provider: "custom", apiFormat: "chat_completions", model: "dsh/deepseek-flash", baseUrl: "https://proxy.example/v1", apiKey: "k" })).json()).profile;
+      const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t-proxy", isEnabled: false, profileId: profile.id });
+      const tools = [{ name: "listFiles", description: "List files", parameters: { type: "object", properties: { path: { type: "string" } } } }];
+      const ask = () => llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id, tools });
+      const posts = () => calls.filter((c) => c.method === "POST");
+
+      const first = await ask();
+      assert(JSON.stringify(first.toolCalls) === JSON.stringify([{ id: "c1", name: "listFiles", arguments: { path: "channel" } }]), "the dropped tool call was not fetched again: " + JSON.stringify(first));
+      assert(first.finishReason === "tool_calls" && !first.content, "the call came back with text or the wrong finish: " + JSON.stringify(first));
+      assert(posts().length === 2 && posts()[0].body.stream === false && posts()[1].body.stream === true && posts()[1].body.stream_options?.include_usage === true, "not asked again streaming, with usage: " + JSON.stringify(posts().map((c) => [c.body.stream, c.body.stream_options])));
+      assert(first.usage?.promptTokens === 9 && first.usage?.completionTokens === 7, "usage of the streamed answer not read: " + JSON.stringify(first.usage));
+
+      calls.length = 0; streamed = "text";
+      const next = await ask();
+      assert(posts().length === 1 && posts()[0].body.stream === true, "the server's need to stream was not remembered: " + JSON.stringify(posts().map((c) => c.body.stream)));
+      assert(next.content === "Halo!" && next.finishReason === "stop", "the empty <think> block reached the reply: " + JSON.stringify(next));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
+  test("a Chat Completions answer that says it called a tool but holds no call or text, streamed or not, is a provider failure, never an empty reply", () => {
+    const { code, stderr } = scenario(`
+      const sse = (chunks) => new Response(chunks.map((c) => "data: " + JSON.stringify(c) + "\\n\\n").join("") + "data: [DONE]\\n\\n", { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      reply = (call) => call.method === "GET" ? json({ data: [{ id: "m" }] })
+        : call.body.stream === true ? sse([{ choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: "tool_calls" }] }])
+        : json({ choices: [{ index: 0, message: { role: "assistant", content: "" }, finish_reason: "tool_calls" }] });
+      const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Broken", provider: "custom", apiFormat: "chat_completions", model: "m", baseUrl: "https://broken.example/v1", apiKey: "k" })).json()).profile;
+      const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t-broken", isEnabled: false, profileId: profile.id });
+      const answer = await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id, tools: [{ name: "listFiles", description: "List files", parameters: { type: "object", properties: {} } }] });
+      assert(answer.finishReason === "error", "an answer with neither the call nor text passed as a reply: " + JSON.stringify(answer));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("image capability follows the bot's profile flag, and an Anthropic tenant default asks the models endpoint", () => {
     const { code, stderr } = scenario(`
       const { encryptSecret } = await import(${src("packages/db/src/index.ts")});
