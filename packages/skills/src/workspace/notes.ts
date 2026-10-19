@@ -25,7 +25,7 @@ function pathInPlaceFolder(ctx: SkillContext, path: unknown, folder: string, par
 }
 
 /**
- * The text of the Document at `path`, as filed: an MD, TXT or CSV as it is, the extracted Markdown of a PDF, DOCX, XLSX or CSV too large to read.
+ * The text of the Document at `path`, as filed: an MD, TXT or CSV as it is, the extracted Markdown of a PDF, DOCX, XLSX, HTML page or CSV too large to read.
  * In a private thread the parent channel's Documents can be kept too.
  */
 export async function keptDocument(ctx: SkillContext, path: unknown): Promise<KeptText> {

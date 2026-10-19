@@ -1,5 +1,5 @@
 import type { SearchableWorkspaceStore, WorkspaceStore } from "./store.js";
-import { isBinaryDocument } from "./extract.js";
+import { readsThroughMarkdown } from "./extract.js";
 import type { FileMatch, FolderSearch } from "./search.js";
 import { fileWords, matchWords, type FileWords } from "./terms.js";
 
@@ -38,7 +38,7 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
 
   async write(tenantId: string, path: string, content: string, expectedVersion?: string) {
     const written = await this.inner.write(tenantId, path, content, expectedVersion);
-    this.index(tenantId).set(path, { version: written.version, text: isBinaryDocument(path) ? "" : content });
+    this.index(tenantId).set(path, { version: written.version, text: readsThroughMarkdown(path) ? "" : content });
     return written;
   }
   async writeBytes(tenantId: string, path: string, bytes: Uint8Array) {
@@ -58,7 +58,7 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
 
   /**
    * Every file under a folder (a tenant-relative store path) that holds any of the query terms, in the order a walk of the folder
-   * gives. Hidden files and folders are skipped, and a binary Document matches by name only (its text is searched in the
+   * gives. Hidden files and folders are skipped, and a PDF, DOCX, XLSX or HTML Document matches by name only (its text is searched in the
    * .md beside it). `nameOf` gives the name a file is matched by, from its store path. Uncapped: the caller caps.
    */
   async searchFolder(tenantId: string, folder: string, terms: string[], nameOf: (path: string) => string): Promise<FolderSearch> {
@@ -68,7 +68,7 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
     for (const file of files) {
       let entry = index.get(file.path);
       if (entry?.version !== file.version) {
-        const read = isBinaryDocument(file.path) ? null : await this.inner.read(tenantId, file.path).catch(() => null);
+        const read = readsThroughMarkdown(file.path) ? null : await this.inner.read(tenantId, file.path).catch(() => null);
         entry = { version: read?.version ?? file.version, text: read?.content ?? "" };
         index.set(file.path, entry);
       }

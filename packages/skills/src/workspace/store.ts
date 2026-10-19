@@ -33,7 +33,7 @@ export interface WorkspaceStore {
 export interface SearchableWorkspaceStore extends WorkspaceStore {
   /**
    * Every file under a folder (a tenant-relative store path) that holds any of the query terms (`queryTerms`), in the order a walk
-   * of the folder gives. Hidden files are skipped, and a binary Document matches by name only. `nameOf` gives the name a file is
+   * of the folder gives. Hidden files are skipped, and a Document read through its Markdown matches by name only. `nameOf` gives the name a file is
    * matched by, from its store path. Uncapped: the caller caps.
    */
   searchFolder(tenantId: string, folder: string, terms: string[], nameOf: (path: string) => string): Promise<FolderSearch>;

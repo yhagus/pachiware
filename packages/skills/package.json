@@ -9,6 +9,7 @@
     "export-tasks": "bun src/workspace/exportTasks.ts"
   },
   "dependencies": {
+    "@mixmark-io/domino": "^2.2.0",
     "@pachiware/db": "workspace:*",
     "drizzle-orm": "^0.39.3",
     "exceljs": "^4.4.0",

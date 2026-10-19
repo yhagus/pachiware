@@ -63,7 +63,7 @@ const en = {
   skipped: (items: string[]) => `Skipped ${items.join(", ")}.`,
   skip: { format: "not a PNG, JPEG, WebP or GIF", tooMany: (n: number) => `over the ${n}-image limit`, tooLarge: "too large to download", download: "could not be downloaded", unreadable: "could not be read as an image", tooBig: "could not be reduced under 5 MB" },
   // Filed documents
-  notFiled: { type: "not filed: not a PDF, DOCX, XLSX, CSV, MD or TXT", tooLarge: "not filed: over 10 MB", download: "not filed: could not be downloaded", place: "not filed: no folder for this place" },
+  notFiled: { type: "not filed: not a PDF, DOCX, XLSX, HTML, CSV, MD or TXT", tooLarge: "not filed: over 10 MB", download: "not filed: could not be downloaded", place: "not filed: no folder for this place" },
   textNotExtracted: "its text could not be extracted",
   folderRefused: (allowed: string[]) => `Only ${allowed.join(", ")} may sit at the top of a channel or DM folder; put it under one of them.`,
   // Private thread folders (ADR 0009)
@@ -273,7 +273,7 @@ const id: typeof en = {
   rejected: "Profil ini menolak gambarnya; admin bisa mematikan input gambar untuk profil ini.",
   skipped: (items) => `Dilewati: ${items.join(", ")}.`,
   skip: { format: "bukan PNG, JPEG, WebP, atau GIF", tooMany: (n) => `melebihi batas ${n} gambar`, tooLarge: "terlalu besar untuk diunduh", download: "tidak bisa diunduh", unreadable: "tidak bisa dibaca sebagai gambar", tooBig: "tidak bisa diperkecil di bawah 5 MB" },
-  notFiled: { type: "tidak disimpan: bukan PDF, DOCX, XLSX, CSV, MD, atau TXT", tooLarge: "tidak disimpan: lebih dari 10 MB", download: "tidak disimpan: tidak bisa diunduh", place: "tidak disimpan: tidak ada folder untuk tempat ini" },
+  notFiled: { type: "tidak disimpan: bukan PDF, DOCX, XLSX, HTML, CSV, MD, atau TXT", tooLarge: "tidak disimpan: lebih dari 10 MB", download: "tidak disimpan: tidak bisa diunduh", place: "tidak disimpan: tidak ada folder untuk tempat ini" },
   textNotExtracted: "teksnya tidak bisa diekstrak",
   folderRefused: (allowed: string[]) => `Di tingkat atas folder channel atau DM hanya boleh ada ${allowed.join(", ")}; letakkan di salah satunya.`,
   threadFolderRefused: "Hanya orang yang ditambahkan ke thread privat itu yang bisa meminta file-nya dibaca.",

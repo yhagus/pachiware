@@ -1,5 +1,7 @@
 import { extractImages, extractText, getDocumentProxy } from "unpdf";
 import type { Cell, Row } from "exceljs";
+import { createDocument } from "@mixmark-io/domino";
+import TurndownService from "turndown";
 import { MAX_FILE_BYTES } from "./store.js";
 // mammoth and exceljs load on first use: together they add ~140 ms to every process start.
 
@@ -10,15 +12,15 @@ const CLIPPED = `[Clipped at ${MAX_TEXT_BYTES / 1024} KB: the rows after this li
 
 /** "pdf" from "Report.PDF"; empty without an extension. */
 export const extensionOf = (name: string) => name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
-/** PDF, DOCX and XLSX: bytes that are not text, read through their sibling Markdown file. */
-export const isBinaryDocument = (name: string) => TYPES[extensionOf(name)]?.binary ?? false;
-/** Whether the file's text gets a sibling Markdown file: a binary document always, a CSV only when too large for `readFile`. */
+/** PDF, DOCX, XLSX and HTML: never read or searched as they are, only through their sibling Markdown file. */
+export const readsThroughMarkdown = (name: string) => TYPES[extensionOf(name)]?.throughMarkdown ?? false;
+/** Whether the file's text gets a sibling Markdown file: a Document read through it always, a CSV only when too large for `readFile`. */
 export const extractsText = (name: string, size: number) => {
   const type = TYPES[extensionOf(name)];
-  return !!type && (type.binary || size > MAX_FILE_BYTES);
+  return !!type && (type.throughMarkdown || size > MAX_FILE_BYTES);
 };
 
-/** The text of a PDF or DOCX, an XLSX's sheets as Markdown tables, or a CSV as it is, trimmed to MAX_TEXT_BYTES; null when the file is unreadable or has no text layer. */
+/** The text of a PDF or DOCX, an XLSX's sheets as Markdown tables, an HTML page as Markdown, or a CSV as it is, trimmed to MAX_TEXT_BYTES; null when the file is unreadable or has no text layer. */
 export async function documentText(name: string, bytes: Uint8Array): Promise<string | null> {
   const type = TYPES[extensionOf(name)];
   if (!type) return null;
@@ -105,12 +107,32 @@ async function fromXlsx(bytes: Uint8Array) {
 
 const fromCsv = async (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-/** Per extension: how its text is read, whether its bytes are not text, and whether the text is rows, clipped on a whole row. */
-const TYPES: Record<string, { read: (bytes: Uint8Array) => Promise<string>; binary: boolean; rows: boolean }> = {
-  pdf: { read: fromPdf, binary: true, rows: false },
-  docx: { read: fromDocx, binary: true, rows: false },
-  xlsx: { read: fromXlsx, binary: true, rows: true },
-  csv: { read: fromCsv, binary: false, rows: true },
+const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-", emDelimiter: "_" });
+// A saved page often inlines its images as data: addresses, which would fill the text with base64: only the alt text is kept.
+turndown.addRule("image", { filter: "img", replacement: (_c, node) => `[image${(node as HTMLElement).getAttribute("alt") ? `: ${(node as HTMLElement).getAttribute("alt")}` : ""}]` });
+const NOT_TEXT = "script, style, noscript, template, svg, iframe";
+
+/** An HTML page, decoded as UTF-8, as Markdown: its body without what is not text, headed by its title when the body has no h1. */
+async function fromHtml(bytes: Uint8Array) {
+  const doc = createDocument(new TextDecoder().decode(bytes));
+  for (const node of Array.from(doc.querySelectorAll(NOT_TEXT))) node.remove();
+  const body = doc.body ?? doc.documentElement;
+  if (doc.title.trim() && !body.querySelector("h1")) {
+    const heading = doc.createElement("h1");
+    heading.textContent = doc.title;
+    body.insertBefore(heading, body.firstChild);
+  }
+  return turndown.turndown(body);
+}
+
+/** Per extension: how its text is read, whether the file is read only through its Markdown, and whether the text is rows, clipped on a whole row. */
+const TYPES: Record<string, { read: (bytes: Uint8Array) => Promise<string>; throughMarkdown: boolean; rows: boolean }> = {
+  pdf: { read: fromPdf, throughMarkdown: true, rows: false },
+  docx: { read: fromDocx, throughMarkdown: true, rows: false },
+  xlsx: { read: fromXlsx, throughMarkdown: true, rows: true },
+  html: { read: fromHtml, throughMarkdown: true, rows: false },
+  htm: { read: fromHtml, throughMarkdown: true, rows: false },
+  csv: { read: fromCsv, throughMarkdown: false, rows: true },
 };
 
 /** What a cell shows: a formula's cached result, a date as ISO; pipes and line breaks escaped for the table. */

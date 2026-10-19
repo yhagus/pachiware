@@ -33,7 +33,7 @@ discordScenario("a 12 MB file and a file of another type stay placeholders with 
   const shot = await image(s, "screenshot.png", 300, 200);
   s.model.script("Noted.");
   const ask = await s.discord.send(`${s.discord.mention} keep these`, { attachments: [big, tool, shot] });
-  expect(turnOf(s)).toBe(`Alice (<@user-alice>): keep these [file: archive.pdf (message ${ask.id}): not filed: over 10 MB] [file: setup.exe (message ${ask.id}): not filed: not a PDF, DOCX, XLSX, CSV, MD or TXT] [image: screenshot.png, 300×200]`);
+  expect(turnOf(s)).toBe(`Alice (<@user-alice>): keep these [file: archive.pdf (message ${ask.id}): not filed: over 10 MB] [file: setup.exe (message ${ask.id}): not filed: not a PDF, DOCX, XLSX, HTML, CSV, MD or TXT] [image: screenshot.png, 300×200]`);
   expect(s.http.requests).toEqual([]);
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual([]);
   expect(s.discord.botMessages.at(-1)?.content).toBe("Noted.\nI can't see images with this profile.");
@@ -97,7 +97,7 @@ discordScenario("saveAttachment picks the attachment by name, keeps a taken name
 
   s.model.script({ tool: "saveAttachment", args: { messageId: post.id, name: "setup.exe" } }, saved);
   await s.discord.send(`${s.discord.mention} and the installer`);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("refused: not filed: not a PDF, DOCX, XLSX, CSV, MD or TXT");
+  expect(s.discord.botMessages.at(-1)?.content).toBe("refused: not filed: not a PDF, DOCX, XLSX, HTML, CSV, MD or TXT");
 
   s.model.script({ tool: "saveAttachment", args: { messageId: "999999" } }, saved);
   await s.discord.send(`${s.discord.mention} save the file from message 999999`);

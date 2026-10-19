@@ -4,16 +4,16 @@ import { documentText, extensionOf, extractsText, scannedPages, type ScannedPage
 import { addKeywords } from "./keywords.js";
 import type { Completion, SkillContext } from "../types.js";
 
-export const DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "csv", "md", "txt"] as const;
+export const DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "html", "htm", "csv", "md", "txt"] as const;
 export const MAX_DOCUMENT_BYTES = MAX_BLOB_BYTES;
 const DOWNLOAD_TIMEOUT_MS = 15000;
 const MAX_NAME = 100;
 
 export type Document = { name: string; url: string; size: number };
 export type NotFiledReason = "type" | "tooLarge" | "download" | "place";
-/** The sibling Markdown holding a PDF's, DOCX's, XLSX's or large CSV's text, or that none could be extracted. */
+/** The sibling Markdown holding a PDF's, DOCX's, XLSX's, HTML page's or large CSV's text, or that none could be extracted. */
 export type Extracted = { path: string } | { failed: true };
-/** `path` is the agent-facing path (`channel/files/report.pdf`), which `readFile` and `searchFiles` accept; `text` is set for a PDF, DOCX, XLSX, or a CSV too large for `readFile`. */
+/** `path` is the agent-facing path (`channel/files/report.pdf`), which `readFile` and `searchFiles` accept; `text` is set for a PDF, DOCX, XLSX, HTML page, or a CSV too large for `readFile`. */
 export type Filed = { path: string; bytes: Uint8Array; text?: Extracted };
 /** Reads the text of page images through a model that sees images (#246); null when it cannot. Given only where the bot's Profile accepts images. */
 export type PageReader = (pages: ScannedPage[]) => Promise<string | null>;
@@ -63,7 +63,7 @@ export function unrecordedTextPath(path: string, siblings: string[]) {
 
 /**
  * Fetches one allowed document and writes it into `files/` under the turn's folder, never over an existing file.
- * The text of a PDF, DOCX, XLSX or large CSV then goes to a sibling `<name>.md` for `readFile` and `searchFiles`; `saveAttachment` calls this for a named message.
+ * The text of a PDF, DOCX, XLSX, HTML page or large CSV then goes to a sibling `<name>.md` for `readFile` and `searchFiles`; `saveAttachment` calls this for a named message.
  */
 export async function fileDocument(tenantId: string, where: Where, doc: Document, { taken, givenBy, complete, readPages }: { taken?: Set<string>; givenBy?: Giver; complete?: Completion; readPages?: PageReader } = {}): Promise<Filed | NotFiled> {
   const reason = documentReason(doc);
