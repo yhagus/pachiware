@@ -37,7 +37,8 @@ test("the seed stores no copy of a skill's tools, and clears the copy an older v
   await repositories().skills.register({ id: "task_management", name: "Task Management", description: "Create, view, update status, and assign tasks stored in the Workspace.", defaultEnabled: true, toolDefinitions: old, handlerType: "builtin", config: {} });
 `));
 
-test("GET /api/v1/skills lists each skill's tools as its module declares them", () => run(`
+test("GET /api/v1/skills lists each skill's name, description and tools as its module declares them", () => run(`
+  await repositories().skills.register({ id: "task_management", name: "Tasks (old)", description: "Old text.", defaultEnabled: true, toolDefinitions: [], handlerType: "builtin", config: {} });
   const res = await app.request("/api/v1/skills", { headers });
   assert(res.status === 200, "status " + res.status);
   const listed = Object.fromEntries((await res.json()).skills.map((s) => [s.id, s]));
@@ -46,6 +47,7 @@ test("GET /api/v1/skills lists each skill's tools as its module declares them", 
   for (const m of modules) {
     const s = listed[m.id];
     assert(JSON.stringify(s.tools) === JSON.stringify(m.tools) && s.toolCount === m.tools.length, m.id + " lists " + s.toolCount + " tools, its module " + m.tools.length);
+    assert(s.name === m.name && s.description === m.description, m.id + " shows " + JSON.stringify([s.name, s.description]));
     assert(!("toolDefinitions" in s), m.id + " still carries toolDefinitions");
   }
   assert(listed.task_management.isEnabled === true && listed.git_repositories.isEnabled === false, "tenant state");

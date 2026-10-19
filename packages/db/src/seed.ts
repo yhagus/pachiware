@@ -17,13 +17,14 @@ export async function seedDatabase(connection: Connection) {
 
 /**
  * The skills the platform ships with, as the seed registers them. Their tools live only in the skill modules
- * (packages/skills/src/builtin), which the registry serves, so no skill stores a copy here (#134).
+ * (packages/skills/src/builtin), which the registry serves, so no skill stores a copy here (#134). The APIs show the
+ * modules' names and descriptions too; the ones here only label the stored rows.
  */
 export function builtInSkills(): SkillDefinition[] {
   const taskManagementSkill = {
     id: "task_management",
     name: "Task Management",
-    description: "Create, view, update status, and assign tasks stored in the Workspace.",
+    description: "Create, view, update status, assign, and set due dates of tasks kept as Markdown files in the Workspace.",
     defaultEnabled: true,
     handlerType: "builtin",
     toolDefinitions: [],
@@ -44,7 +45,7 @@ export function builtInSkills(): SkillDefinition[] {
   const gitRepositorySkill = {
     id: "git_repositories",
     name: "Git Repositories",
-    description: "Read and change repositories on the git account connected to this bot (GitHub, GitLab, self-hosted GitLab).",
+    description: "Browse and change repositories on the git accounts enabled for this server and channel (GitHub, GitLab, self-hosted GitLab).",
     defaultEnabled: false,
     handlerType: "builtin",
     toolDefinitions: [],
@@ -64,7 +65,7 @@ export function builtInSkills(): SkillDefinition[] {
   const remindersSkill = {
     id: "reminders",
     name: "Reminders",
-    description: "Post a message at a time a person chose, where they asked, pinging them.",
+    description: "Post a message at a time a person chose, once or repeating, where they asked, pinging them.",
     defaultEnabled: true,
     handlerType: "builtin",
     toolDefinitions: [],

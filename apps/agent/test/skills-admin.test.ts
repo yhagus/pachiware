@@ -18,11 +18,16 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     const list = async (t) => (await (await app.request("/api/admin/tenants/" + t.id + "/skills", { headers: h })).json()).skills;
     assert((await app.request("/api/admin/tenants/" + alpha.id + "/skills")).status === 401, "admin key required");
     assert((await app.request("/api/admin/tenants/nope/skills", { headers: h })).status === 404, "unknown tenant");
+    // A row holding text an older version stored; the console shows the module's.
+    await repositories().skills.register({ id: "task_management", name: "Tasks (old)", description: "Old text.", defaultEnabled: true, toolDefinitions: [], handlerType: "builtin", config: {} });
     const skills = await list(alpha), byId = Object.fromEntries(skills.map((s) => [s.id, s]));
     const { taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill } = await imp("packages/skills/src/index.ts");
     const modules = [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill], names = (tools) => JSON.stringify(tools.map((t) => t.name));
     assert(JSON.stringify(skills.map((s) => s.id).sort()) === JSON.stringify(modules.map((m) => m.id).sort()), "skills listed " + skills.map((s) => s.id));
-    for (const m of modules) assert(byId[m.id].toolCount === m.tools.length && names(byId[m.id].tools) === names(m.tools), m.id + " lists " + byId[m.id].toolCount + " tools, its module " + m.tools.length);
+    for (const m of modules) {
+      assert(byId[m.id].toolCount === m.tools.length && names(byId[m.id].tools) === names(m.tools), m.id + " lists " + byId[m.id].toolCount + " tools, its module " + m.tools.length);
+      assert(byId[m.id].name === m.name && byId[m.id].description === m.description, m.id + " shows " + JSON.stringify([byId[m.id].name, byId[m.id].description]));
+    }
     assert(JSON.stringify(byId.git_repositories.groups) === JSON.stringify(["Browse", "Issues & PRs", "Code", "CI", "Repo admin", "Org"]), "git groups");
     assert(byId.workspace.groups.length === 0, "workspace declares no groups");
     const tool = (s, n) => byId[s].tools.find((t) => t.name === n);

@@ -61,7 +61,7 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | GET | `/api/admin/bots/:botId/guilds/:guildId/plane` | `{accounts, guild, channels}`: the bot's Plane accounts, the guild's Plane scope rules, and each channel's |
 | PUT | `/api/admin/bots/:botId/guilds/:guildId/plane` | `{rules: [{planeAccountId, projectIds}]}`; `projectIds` are Plane project ids, or `["*"]` for all. Replaces the guild rules and prunes channel rules that no longer fit |
 | PUT | `/api/admin/bots/:botId/guilds/:guildId/channels/:channelId/plane` | Same body; a channel rule must sit inside the guild rule. Threads follow their channel |
-| GET | `/api/admin/tenants/:id/skills` | `{skills, playbooks}`. `skills`: each `{id, name, description, isEnabled, groups, tools, toolCount}`. `tools` come from the code registry: `{name, description, effect: read, write or danger, group?, playbook?}`. `groups` lists the skill's groups in display order (git and Plane); `playbook` marks a tool that only serves that playbook. `{playbooks}` lists the tenant's playbooks (built-in and its own), each `{name, description, requires}` with `requires` the skill ids it needs |
+| GET | `/api/admin/tenants/:id/skills` | `{skills, playbooks}`. `skills`: each `{id, name, description, isEnabled, groups, tools, toolCount}`. `name`, `description` and `tools` come from the code registry; `tools` are `{name, description, effect: read, write or danger, group?, playbook?}`. `groups` lists the skill's groups in display order (git and Plane); `playbook` marks a tool that only serves that playbook. `{playbooks}` lists the tenant's playbooks (built-in and its own), each `{name, description, requires}` with `requires` the skill ids it needs |
 | PATCH | `/api/admin/tenants/:id/skills/:skillId` | `{isEnabled}` turns the skill on or off for the tenant |
 | GET, PUT, DELETE | `/api/admin/tenants/:id/availability` | Tenant-level availability rules (see below) |
 | GET, PUT, DELETE | `/api/admin/bots/:botId/availability` | Bot-level availability rules |
@@ -101,7 +101,7 @@ All `/api/v1/*` requests require `Authorization: Bearer <API key>`. Except `/api
 | GET | `/api/v1/conversations/:id/messages` | Tenant-owned history |
 | GET, POST | `/api/v1/tasks` | Filter/search/counts or create task |
 | PATCH, DELETE | `/api/v1/tasks/:id` | Update/delete owned task |
-| GET | `/api/v1/skills` | Platform definitions plus tenant state. `tools` (`{name, description, parameters}`) and `toolCount` come from the code registry |
+| GET | `/api/v1/skills` | Platform definitions plus tenant state. `name`, `description`, `tools` (`{name, description, parameters}`) and `toolCount` come from the code registry |
 | PATCH | `/api/v1/skills/:id/toggle` | Toggle tenant skill |
 | PUT | `/api/v1/skills/:id` | `{config}` tenant skill settings |
 | POST | `/api/v1/skills/test` | `{toolName, arguments?}` execute enabled tenant tool |

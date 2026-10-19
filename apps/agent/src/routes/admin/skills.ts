@@ -11,11 +11,11 @@ skillAdminRoutes.get("/tenants/:id/skills", async (c) => {
   if (!await repositories().tenants.get(id)) return c.json({ error: "Tenant not found" }, 404);
   await repositories().skills.seedTenant(id);
   const rows = await repositories().skills.listForTenant(id);
-  // Tools, groups and effects come from the code registry, never from the tool_definitions column (#134).
+  // Names, descriptions, tools, groups and effects come from the code registry, never from the stored row (#134).
   const code = new Map(skillRegistry.catalogue().map((s) => [s.id, s]));
   return c.json({ success: true, skills: rows.map(({ skill: s, state }) => {
-    const { groups = [], tools = [] } = code.get(s.id) ?? {};
-    return { id: s.id, name: s.name, description: s.description, groups, tools, toolCount: tools.length, isEnabled: state.isEnabled };
+    const { name = s.name, description = s.description, groups = [], tools = [] } = code.get(s.id) ?? {};
+    return { id: s.id, name, description, groups, tools, toolCount: tools.length, isEnabled: state.isEnabled };
   }).sort((a: any, b: any) => a.name.localeCompare(b.name)),
   playbooks: await playbookSummaries(id) });
 });

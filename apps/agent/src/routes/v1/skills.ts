@@ -9,10 +9,10 @@ export const skillRoutes = new Hono<TenantEnv>();
 skillRoutes.get("/", async (c) => {
   await repositories().skills.seedTenant(c.get("tenantId"));
   const rows = await repositories().skills.listForTenant(c.get("tenantId"));
-  // Tools come from the skill modules, never from the tool_definitions column (#134).
+  // Names, descriptions and tools come from the skill modules, never from the stored row (#134).
   return c.json({ success: true, skills: rows.map(({ skill: { toolDefinitions: _, ...s }, state }) => {
-    const tools = skillRegistry.getSkill(s.id)?.tools ?? [];
-    return { ...s, isEnabled: state.isEnabled, config: state.config, tools, toolCount: tools.length, updatedAt: state.updatedAt };
+    const code = skillRegistry.getSkill(s.id), tools = code?.tools ?? [];
+    return { ...s, name: code?.name ?? s.name, description: code?.description ?? s.description, isEnabled: state.isEnabled, config: state.config, tools, toolCount: tools.length, updatedAt: state.updatedAt };
   }) });
 });
 skillRoutes.patch("/:id/toggle", async (c) => {
