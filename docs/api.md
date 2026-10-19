@@ -37,7 +37,7 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | GET | `/api/admin/tenants/:id` | `{tenant}` |
 | PATCH | `/api/admin/tenants/:id` | `{name?, status?: active or suspended, metadata?}`; slug immutable |
 | DELETE | `/api/admin/tenants/:id` | Soft delete; stops tenant bots |
-| GET, PUT | `/api/admin/tenants/:id/settings` | `{timezone, language}`: the tenant's defaults (seeded `Asia/Jakarta`, `id`). PUT is partial; `timezone` must be an IANA name, `language` `id` or `en` |
+| GET, PUT | `/api/admin/tenants/:id/settings` | `{timezone, language, conversationIdleHours}`: the tenant's defaults (seeded `Asia/Jakarta`, `id`, 24). PUT is partial; `timezone` must be an IANA name, `language` `id` or `en`, `conversationIdleHours` whole hours from 0 to 720: a channel, thread or DM whose last turn is that long ago starts a fresh conversation with its next message (0 never) |
 | POST | `/api/admin/api-keys` | `{name?}` -> raw key once |
 | GET | `/api/admin/api-keys` | `{apiKeys}` (prefix, metadata, `tenantCount`) |
 | DELETE | `/api/admin/api-keys/:keyId` | Revoke key |
@@ -68,6 +68,9 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | GET, PUT, DELETE | `/api/admin/bots/:botId/guilds/:guildId/availability` | Rules for one guild of that bot |
 | GET, PUT, DELETE | `/api/admin/bots/:botId/guilds/:guildId/channels/:channelId/availability` | Rules for one channel of that guild; its threads follow them |
 | GET | `/api/admin/bots/:botId/reminders` | `{reminders}`: the bot's active Reminders, soonest first, each `{id, ownerId, ownerName, guildId, channelId, text, withTasks, mentions, recurrence, weekdays, dayOfMonth, timeOfDay, timezone, until, nextAt, lastFiredAt, createdAt}`. Reminders are set from chat; nothing creates one here |
+| GET | `/api/admin/bots/:botId/conversations?channelId=&limit=` | `{conversations}`: the bot's conversations, newest first, of that channel and its threads when `channelId` is given; each `{id, channelId, userId, createdAt, messageCount, lastMessageAt, endedAt}`, `endedAt` set once ended from the console |
+| GET | `/api/admin/bots/:botId/conversations/:id/messages` | `{messages}`: its last 200 chat messages, oldest first |
+| POST | `/api/admin/bots/:botId/conversations/:id/end` | Ends it -> `{endedAt}`, so the next message in its channel or thread starts a fresh conversation; nothing is posted in Discord. Again keeps the first `endedAt`; 404 when the bot has no such conversation |
 | DELETE | `/api/admin/bots/:botId/reminders/:reminderId` | Marks the Reminder cancelled (the row stays) -> `{reminder}`; 404 when it is not an active Reminder of that bot |
 | GET | `/api/admin/tenants/:id/usage?from=&to=` | `{usage}` grouped by tenant/type/provider/model |
 | GET | `/api/admin/usage?from=&to=` | Platform usage aggregation |

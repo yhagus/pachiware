@@ -164,6 +164,10 @@ _Avoid_: Attachment (Discord's word for any file on a message), upload, Note
 A guild's list of the people its team keeps: each one's role, what they are responsible for, and their time zone. Anyone in the guild sets a line from chat, and each line says who set it and when. It answers "who owns X?" and is searched by recall beside the Tasks; it is neither Memory nor kept material, and its time zones do not change when Reminders post.
 _Avoid_: Directory, org chart, members list (Discord's own)
 
+**Conversation**:
+What the bot reads back of its talk in one channel, thread or DM: the recent messages and a summary of the older ones, shared by everyone there. It ends when nobody has talked with the bot there for the tenant's quiet hours (24 by default) or when an admin ends it in the console; the next message then starts a fresh one. A Playbook thread keeps its conversation however long it waits. Memory, Tasks and kept material are not part of it, so a fresh conversation still has them.
+_Avoid_: Session, chat history, context
+
 **Memory**:
 What the bot keeps about a place to answer better later: the team's decisions, how people like to be addressed and to work, and the conventions of the place. One memory per tenant, per guild, and per channel; a channel's memory is not read in another channel. Conversation itself and private details are never memory.
 _Avoid_: Notes (notes are files a person asked for), context, history
