@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TimezoneInput } from "@/components/TimezoneInput";
 import { api, LANGUAGES, type Language, type Tenant, type TenantSettings as Settings } from "@/lib/api";
+
+const MAX_IDLE_HOURS = 720;
+const validHours = (h: number) => Number.isInteger(h) && h >= 0 && h <= MAX_IDLE_HOURS;
 
 export function TenantSettings() {
   const tenant = useOutletContext<Tenant>();
@@ -34,8 +38,8 @@ export function TenantSettings() {
   return (
     <div className="max-w-3xl space-y-5">
       <div>
-        <h2 className="text-lg font-semibold">Time zone and language</h2>
-        <p className="text-sm text-muted-foreground">The defaults for every server of this tenant. A server can set its own under its settings.</p>
+        <h2 className="text-lg font-semibold">Tenant defaults</h2>
+        <p className="text-sm text-muted-foreground">The defaults for every server of this tenant. A server can set its own time zone and language under its settings.</p>
       </div>
       {error ? (
         <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4 text-sm">
@@ -61,7 +65,16 @@ export function TenantSettings() {
               <p className="text-xs text-muted-foreground">For posts the bot writes on its own, such as reminders and provider errors. Replies follow the language of each message.</p>
             </div>
           </div>
-          <Button size="sm" disabled={saving || !settings.timezone}>{saving ? "Saving" : "Save settings"}</Button>
+          <div className="space-y-2">
+            <Label htmlFor="tenant-idle">Fresh conversation after</Label>
+            <div className="flex items-center gap-2">
+              <Input id="tenant-idle" type="number" inputMode="numeric" min={0} max={MAX_IDLE_HOURS} step={1} className="w-24" aria-invalid={!validHours(settings.conversationIdleHours)}
+                value={Number.isNaN(settings.conversationIdleHours) ? "" : settings.conversationIdleHours} onChange={(e) => setSettings({ ...settings, conversationIdleHours: e.target.valueAsNumber })} />
+              <span className="text-sm text-muted-foreground">hours</span>
+            </div>
+            <p className="text-xs text-muted-foreground">When nobody has talked with the bot in a channel, thread or DM for this long, its next message there starts a fresh conversation without the earlier chat. Memory, tasks and files stay. 0 keeps every conversation going; at most {MAX_IDLE_HOURS}.</p>
+          </div>
+          <Button size="sm" disabled={saving || !settings.timezone || !validHours(settings.conversationIdleHours)}>{saving ? "Saving" : "Save settings"}</Button>
         </form>
       )}
     </div>

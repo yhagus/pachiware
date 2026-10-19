@@ -73,7 +73,7 @@ export interface Guild { id: string; name: string; icon: string | null; memberCo
 export type Language = "id" | "en";
 export const LANGUAGES: { id: Language; name: string }[] = [{ id: "id", name: "Indonesian" }, { id: "en", name: "English" }];
 /** The tenant's defaults; a guild overrides them with its own, null meaning "the tenant's". */
-export interface TenantSettings { timezone: string; language: Language; }
+export interface TenantSettings { timezone: string; language: Language; conversationIdleHours: number; }
 /** A channel opted in to the daily Digest and the hour (0 to 23, in the server's zone) it posts at. */
 export interface DigestChannel { channelId: string; hour: number; }
 /** A channel this bot writes a Daily log of every night; `backfill` asks for the last 30 days when it is turned on. */
@@ -91,7 +91,7 @@ export const ALL_PLANE_PROJECTS = "*";
 export interface PlaneAccount { id: string; tenantId: string; name: string; baseUrl: string | null; workspaceSlug: string; planeUserId: string; planeUserName: string; hasApiKey: boolean; bots: { id: string; name: string }[]; createdAt: string; }
 export interface PlaneAccountInput { name?: string; baseUrl?: string | null; workspaceSlug?: string; apiKey?: string; }
 export interface PlaneProject { id: string; name: string; identifier: string; }
-export interface Conversation { id: string; channelId: string | null; userId: string | null; createdAt: string; lastMessageAt: string | null; messageCount: number; }
+export interface Conversation { id: string; channelId: string | null; userId: string | null; createdAt: string; lastMessageAt: string | null; messageCount: number; endedAt: string | null; }
 export interface ChatMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; }
 export interface Profile { id: string; tenantId: string; name: string; provider: "openai" | "anthropic" | "custom"; model: string; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; fallbackProfileId: string | null; createdAt: string; }
 export type ApiFormat = "chat_completions" | "responses" | "messages";
@@ -211,6 +211,7 @@ export const api = {
   cancelReminder: (id: string, reminderId: string) => fetchJSON<{ reminder: Reminder }>(`/api/admin/bots/${id}/reminders/${reminderId}`, json("DELETE")),
   listBotConversations: (id: string, channelId: string) => fetchJSON<{ conversations: Conversation[] }>(`/api/admin/bots/${id}/conversations?channelId=${encodeURIComponent(channelId)}`),
   getBotConversationMessages: (id: string, conversationId: string) => fetchJSON<{ messages: ChatMessage[] }>(`/api/admin/bots/${id}/conversations/${conversationId}/messages`),
+  endBotConversation: (id: string, conversationId: string) => fetchJSON<{ endedAt: string }>(`/api/admin/bots/${id}/conversations/${conversationId}/end`, json("POST")),
   updateBot: (id: string, data: BotInput) => fetchJSON<{ bot: Bot }>(`/api/admin/bots/${id}`, json("PATCH", data)),
   restartBot: (id: string) => fetchJSON<{ success: boolean; message?: string; error?: string }>(`/api/admin/bots/${id}/restart`, json("POST")),
   deleteBot: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/bots/${id}`, json("DELETE")),
