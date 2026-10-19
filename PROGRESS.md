@@ -1699,3 +1699,13 @@ The failures the first live lived-in exam showed (Phase 44). Built on `spec/262-
 - Verification: typecheck 0 at every commit; every new scenario failed before its change; full suite 1284 pass, 0 fail on baab5d9.
 - [x] Merged: `spec/262-lived-in-fixes` fast-forwarded into `main` and pushed, as the user asked (2026-10-19). #257–#260 and spec #262 closed with their commits.
 - [ ] Live re-run of the Rapor and the lived-in exam, judged offline (the lead, after the branch is green).
+
+## Phase 46 — HTML Documents and a reader for long files (spec #263, #264–#266)
+
+Asked by the user on 2026-10-19: keep an HTML file and answer later what it holds, and read files through a model call ("spawn a subagent") so long files are read whole. Built on `spec/263-html-reader`, one commit per issue; #266 waits for #264 and #265.
+
+- [ ] #264 HTML Documents: `.html`/`.htm` filed like a PDF, their text converted to a sibling Markdown file that search and readFile use.
+- [ ] #265 The turn's deadline reaches `ctx.complete`.
+- [ ] #266 A reader for long files: readFile answers a question about a file over `READ_LIMIT` through the bot's model, with quotes the server checks.
+- [ ] Code review of the phase's new code.
+- [ ] Live re-run of the Rapor and the lived-in exam, judged offline (the lead, after the branch is green).
