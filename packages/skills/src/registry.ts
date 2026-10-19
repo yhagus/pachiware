@@ -92,7 +92,7 @@ export class SkillRegistry {
   public async getActiveTools(tenantId: string): Promise<ToolDefinition[]> {
     const enabled = await repositories().skills.listEnabled(tenantId);
     // Sorted so the tool list, which leads the provider's cached prefix, never depends on row order.
-    return enabled.flatMap((definition) => this.skills.get(definition.id)?.tools || definition.toolDefinitions).sort((a: ToolDefinition, b: ToolDefinition) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return enabled.flatMap((definition) => this.skills.get(definition.id)?.tools ?? []).sort((a: ToolDefinition, b: ToolDefinition) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
   /** Skills enabled for the tenant, in registry terms (used to classify a request before the loop starts). */

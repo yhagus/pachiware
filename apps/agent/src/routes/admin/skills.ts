@@ -11,7 +11,7 @@ skillAdminRoutes.get("/tenants/:id/skills", async (c) => {
   if (!await repositories().tenants.get(id)) return c.json({ error: "Tenant not found" }, 404);
   await repositories().skills.seedTenant(id);
   const rows = await repositories().skills.listForTenant(id);
-  // Tools, groups and effects come from the code registry; the seeded tool_definitions column is not kept in sync with it.
+  // Tools, groups and effects come from the code registry, never from the tool_definitions column (#134).
   const code = new Map(skillRegistry.catalogue().map((s) => [s.id, s]));
   return c.json({ success: true, skills: rows.map(({ skill: s, state }) => {
     const { groups = [], tools = [] } = code.get(s.id) ?? {};

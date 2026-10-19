@@ -170,7 +170,7 @@ export const skills = pgTable("skills", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   defaultEnabled: boolean("default_enabled").notNull().default(true),
-  toolDefinitions: jsonb("tool_definitions").notNull().default([]), // array of OpenAI/Anthropic tool schemas
+  toolDefinitions: jsonb("tool_definitions").notNull().default([]), // kept empty: tools live in the skill modules (#134)
   handlerType: text("handler_type").notNull().default("builtin"), // 'builtin' | 'custom_code' | 'webhook'
   config: jsonb("config").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true })

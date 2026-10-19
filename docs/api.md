@@ -101,7 +101,7 @@ All `/api/v1/*` requests require `Authorization: Bearer <API key>`. Except `/api
 | GET | `/api/v1/conversations/:id/messages` | Tenant-owned history |
 | GET, POST | `/api/v1/tasks` | Filter/search/counts or create task |
 | PATCH, DELETE | `/api/v1/tasks/:id` | Update/delete owned task |
-| GET | `/api/v1/skills` | Platform definitions plus tenant state |
+| GET | `/api/v1/skills` | Platform definitions plus tenant state. `tools` (`{name, description, parameters}`) and `toolCount` come from the code registry |
 | PATCH | `/api/v1/skills/:id/toggle` | Toggle tenant skill |
 | PUT | `/api/v1/skills/:id` | `{config}` tenant skill settings |
 | POST | `/api/v1/skills/test` | `{toolName, arguments?}` execute enabled tenant tool |

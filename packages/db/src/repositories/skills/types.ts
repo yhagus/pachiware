@@ -6,6 +6,7 @@ export type Skill = {
   name: string;
   description: string;
   defaultEnabled: boolean;
+  /** Empty for the built-in skills: their tools live in the skill modules, which the registry serves (#134). */
   toolDefinitions: any[];
   handlerType: string;
   config: Record<string, any>;
