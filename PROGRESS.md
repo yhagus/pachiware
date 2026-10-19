@@ -1684,3 +1684,14 @@ The issues filed from the harness review after Phase 43, plus #144. Asked by the
   - Below 1: `bulk-cancel` 0 (the exam defect noted in Phase 43, and one trial stopped after one cancel), `cancel-with-reason` 0.67 (the list of active tasks also named the cancelled one), `notulen-jadi-tugas` 0.67 (the model wrote one action item as two; tasksFromMinutes made the three with owners and days right), `private-channel-dm` 0.67 (Indonesian reply), `recall-decision-replaced` 0.67 ("replaces", not the checked "replaced"), `colek-h-1` 0.83 ("18 Okt", not "18 Oktober"), `member-joins-thread` 0.89 (as in Phase 43). None traced to a change of this phase; at three trials a brief moves by a third on one trial.
 - [x] First live lived-in exam (same day and judging): **Lived-in v1: 61.4.** capture 100, recall 66.2, tasks 58.3, group 0 (one session), loop 66.7; live recall@5 0.81, MRR 0.84. The failures it shows, filed: replies drift to the sources' language (#257), recall's Tasks part needs every word (#258), recall shows too little of a Minutes file for its decisions (#259), a change reported without being made in multi-turn sessions (#260).
 - [x] Merged: `feat/review-246-256` fast-forwarded into `main` and pushed through the pre-push hook, as the user asked (2026-10-19). #144 and #246–#256 closed with their commits; #257–#261 stay open for the next phase.
+
+## Phase 45 — Fixes from the first lived-in exam (spec #262, #257–#260)
+
+The failures the first live lived-in exam showed (Phase 44). Built on `spec/262-lived-in-fixes`, one commit per issue; #259 and #260 wait for #258.
+
+- [ ] #257 Reply language: the per-turn context names the language to answer in.
+- [ ] #258 Tasks ranked like kept files: a Task holding some terms of a wording is kept, best first, marked partial.
+- [ ] #259 Minutes decisions in recall: a kept Minutes or Daily log carries its Decided and Still open items that hold a query term.
+- [ ] #260 A change reported without being made: diagnosed from the lived-in trials, then fixed.
+- [ ] Code review of the phase's new code.
+- [ ] Live re-run of the Rapor and the lived-in exam, judged offline (the lead, after the branch is green).
