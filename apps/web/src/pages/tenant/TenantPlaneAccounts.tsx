@@ -10,12 +10,13 @@ import { IconButton } from "@/components/IconButton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type PlaneAccount, type Tenant } from "@/lib/api";
+import { api, type PlaneAccount, type PlaneVersion, type Tenant } from "@/lib/api";
 import { planeHost } from "@/lib/plane";
 import { useLastShown } from "@/hooks/use-last-shown";
 
-const EMPTY = { name: "", baseUrl: "", workspaceSlug: "", apiKey: "" };
+const EMPTY = { name: "", baseUrl: "", workspaceSlug: "", apiKey: "", planeVersion: "" };
 
 export function TenantPlaneAccounts() {
   const tenant = useOutletContext<Tenant>();
@@ -25,16 +26,24 @@ export function TenantPlaneAccounts() {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [versions, setVersions] = useState<PlaneVersion[]>([]);
   const load = useCallback(() => api.listPlaneAccounts(tenant.id).then((r) => { setAccounts(r.planeAccounts); setLoadError(""); }).catch((e) => setLoadError(e.message)), [tenant.id]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { api.listPlaneVersions().then((r) => setVersions(r.planeVersions)).catch((e) => toast.error(e.message)); }, []);
+  const versionOf = (id: string) => versions.find((v) => v.id === id);
+  // Until the list loads, an account's version reads as its id; once loaded, one the server does not know is marked.
+  const versionBadge = (id: string) => versionOf(id)
+    ? <Badge variant="secondary">{versionOf(id)!.label}</Badge>
+    : <Badge variant={versions.length ? "destructive" : "secondary"}>{versions.length ? `Unknown Plane version "${id}"` : `Plane ${id}`}</Badge>;
+  const chosen = versionOf(form.planeVersion);
 
   const open = (a: PlaneAccount | "new") => {
-    setForm(a === "new" ? EMPTY : { name: a.name, baseUrl: a.baseUrl ?? "", workspaceSlug: a.workspaceSlug, apiKey: "" });
+    setForm(a === "new" ? { ...EMPTY, planeVersion: versions.at(-1)?.id ?? "" } : { name: a.name, baseUrl: a.baseUrl ?? "", workspaceSlug: a.workspaceSlug, apiKey: "", planeVersion: a.planeVersion });
     setEditing(a);
   };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    const body = { name: form.name.trim(), baseUrl: form.baseUrl.trim() || null, workspaceSlug: form.workspaceSlug.trim(), ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}) };
+    const body = { name: form.name.trim(), baseUrl: form.baseUrl.trim() || null, workspaceSlug: form.workspaceSlug.trim(), ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}), ...(chosen ? { planeVersion: chosen.id } : {}) };
     setSaving(true);
     try {
       const r = editing === "new" ? await api.createPlaneAccount(tenant.id, body) : await api.updatePlaneAccount((editing as PlaneAccount).id, body);
@@ -73,6 +82,7 @@ export function TenantPlaneAccounts() {
                     <div className="min-w-0 flex-1"><div className="truncate font-medium">{a.name}</div><div className="truncate text-xs text-muted-foreground">{planeHost(a.baseUrl)} · {a.workspaceSlug}</div></div>
                   </div>
                   <p className="break-words text-xs">Connected as <span className="font-medium">{a.planeUserName}</span></p>
+                  <div>{versionBadge(a.planeVersion)}</div>
                   <div className="flex flex-wrap gap-1.5">
                     {a.bots.length === 0 ? <span className="text-xs text-muted-foreground">Not used by any integration</span> : a.bots.map((b) => <Badge key={b.id} variant="outline">{b.name}</Badge>)}
                   </div>
@@ -93,6 +103,12 @@ export function TenantPlaneAccounts() {
             <div className="space-y-2"><Label htmlFor="pn">Name</Label><Input id="pn" required placeholder="e.g. Acme Plane" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pb">Base URL (optional)</Label><Input id="pb" type="url" placeholder="https://plane.example.com" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} />
               <p className="text-xs text-muted-foreground">Leave blank for Plane's cloud. Set it for a self-hosted Plane, where raising API_KEY_RATE_LIMIT (60 a minute by default) helps a busy bot.{hostChanged && " Changing the base URL requires entering the API key again."}</p></div>
+            <div className="space-y-2"><Label htmlFor="pv">Plane version</Label>
+              <Select value={chosen ? chosen.id : ""} onValueChange={(v) => setForm({ ...form, planeVersion: v })}>
+                <SelectTrigger id="pv" className="w-full"><SelectValue placeholder="Choose a Plane version" /></SelectTrigger>
+                <SelectContent>{versions.map((v) => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}</SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">The Plane release your server runs. It decides which tools the bot can use there, so change it here after you upgrade Plane.{chosen && ` ${chosen.label} was checked against ${chosen.checkedAgainst}.`}</p></div>
             <div className="space-y-2"><Label htmlFor="ps">Workspace slug</Label><Input id="ps" required autoComplete="off" spellCheck={false} placeholder="acme" value={form.workspaceSlug} onChange={(e) => setForm({ ...form, workspaceSlug: e.target.value })} />
               <p className="text-xs text-muted-foreground">The part after the host in your Plane workspace's address, as in app.plane.so/<span className="font-mono">acme</span>/.</p></div>
             <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" autoComplete="off" required={shown === "new" || hostChanged} placeholder={shown !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />

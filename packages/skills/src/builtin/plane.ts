@@ -11,7 +11,8 @@ import { moduleWriteTools, moduleWriteHandlers, moduleWriteToolPolicy } from "..
 import { intakeTools, intakeHandlers, intakeToolPolicy } from "../plane/intake.js";
 import { intakeWriteTools, intakeWriteHandlers, intakeWriteToolPolicy } from "../plane/intakeWrites.js";
 import { projectAdminTools, projectAdminHandlers, projectAdminToolPolicy } from "../plane/projectAdmin.js";
-import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenWorkspaceTools, hiddenPlaneReason, type PlaneToolPolicy } from "../plane/workspace.js";
+import { workspaceTools, workspaceHandlers, workspaceToolPolicy, hiddenPlaneTools, hiddenPlaneReason, checkedByVersion, type PlaneToolPolicy } from "../plane/workspace.js";
+import { findPlaneVersion } from "../plane/versions.js";
 
 /** Tool groups in display order, as Availability rules and the console show them. Every Plane tool joins one; a group shows once it holds a tool. */
 export const PLANE_GROUPS = ["Browse", "Work items", "Cycles", "Modules", "Intake", "Plane project admin", "Plane workspace"];
@@ -19,7 +20,7 @@ export const PLANE_GROUPS = ["Browse", "Work items", "Cycles", "Modules", "Intak
 const READ: Effect = "read";
 
 export const planeTools: ToolDefinition[] = [
-  { name: "planeAccounts", description: "Lists the Plane accounts you may use in this channel, the Plane user each acts as, and the Plane projects open here (id, identifier and name). Call it first when unsure which account or Plane project to use.",
+  { name: "planeAccounts", description: "Lists the Plane accounts you may use in this channel, the Plane user and Plane version of each, and the Plane projects open here (id, identifier and name). Call it first when unsure which account or Plane project to use.",
     parameters: { type: "object", properties: {} } },
   ...browseTools,
   ...workItemTools,
@@ -54,13 +55,15 @@ export const planeToolPolicy: Record<string, PlaneToolPolicy> = withAdminOff({
   ...workspaceToolPolicy,
 });
 
-export const planeHandlers: Record<string, ToolHandler> = {
+// Each handler first refuses an account whose Plane version lacks the tool (checkedByVersion).
+export const planeHandlers: Record<string, ToolHandler> = checkedByVersion({
   planeAccounts: async (_a, ctx) => {
     const list = await loadPlaneAccess(ctx);
     if (!list.length) throw new Error(PLANE_NOT_ENABLED);
     return {
       accounts: await Promise.all(list.map(async (access) => {
-        const head = { name: access.account.name, planeUser: access.account.planeUserName };
+        const { name, planeUserName, planeVersion } = access.account;
+        const head = { name, planeUser: planeUserName, planeVersion: findPlaneVersion(planeVersion)?.label ?? `unknown ("${planeVersion}")` };
         try {
           const open = allowedPlaneProjectIds(access);
           const projects = (await listPlaneProjects(planeConnOf(access.account))).filter((p) => !open || open.includes(p.id.toLowerCase()));
@@ -82,7 +85,7 @@ export const planeHandlers: Record<string, ToolHandler> = {
   ...intakeWriteHandlers,
   ...projectAdminHandlers,
   ...workspaceHandlers,
-};
+}, planeToolPolicy);
 
 export const planeSkill: SkillModule = {
   id: "plane",
@@ -94,8 +97,9 @@ export const planeSkill: SkillModule = {
   toolPolicy: planeToolPolicy,
   // Every write goes through planeWrite (plane/write.ts), which queues it for the asker's Confirm.
   confirmsInternally: true,
-  // Offered only where a Plane scope opens an account (planeAccounts always), and workspace-level tools only where it is "all Plane projects".
-  hiddenTools: (ctx) => hiddenWorkspaceTools(ctx, planeToolPolicy),
-  hiddenReason: (ctx) => hiddenPlaneReason(ctx),
+  // Offered only where a Plane scope opens an account whose Plane version has the tool (planeAccounts always), and workspace-level
+  // tools only where that account has "all Plane projects".
+  hiddenTools: (ctx) => hiddenPlaneTools(ctx, planeToolPolicy),
+  hiddenReason: (ctx, tool) => hiddenPlaneReason(ctx, tool, planeToolPolicy),
   groups: PLANE_GROUPS.filter((g) => Object.values(planeToolPolicy).some((p) => p.group === g)),
 };

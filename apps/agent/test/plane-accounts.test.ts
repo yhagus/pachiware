@@ -133,3 +133,26 @@ adminScenario("Plane accounts attach to bots, are tenant-bound, cannot be delete
   assert(after.guild.map((r) => r.planeAccountId).join() === alt.id && !after.channels.c1, "detaching kept scopes: " + JSON.stringify(after));
   assert((await call("DELETE", "/plane-accounts/" + main.id)).status === 200, "delete after detaching failed");
 `);
+
+adminScenario("a Plane account is set to a Plane version from the list: the newest unless chosen, and a change is checked with Plane again", `
+  const a = await tenant("a");
+  const versions = await call("GET", "/plane-versions");
+  assert(JSON.stringify(versions.json.planeVersions) === JSON.stringify([{ id: "1.3", label: "Plane 1.3", checkedAgainst: "v1.3.1", auth: "api-key" }]), "versions wrong: " + JSON.stringify(versions.json));
+  const post = (b) => call("POST", "/tenants/" + a.id + "/plane-accounts", { name: "main", workspaceSlug: "acme", apiKey: "good-key", ...b });
+  const unknown = await post({ planeVersion: "0.9" });
+  assert(unknown.status === 400 && unknown.json.error === "planeVersion must be one of: 1.3", "an unknown version was accepted: " + JSON.stringify(unknown.json));
+  const created = await post({});
+  assert(created.status === 201 && created.json.planeAccount.planeVersion === "1.3", "not on the newest version: " + JSON.stringify(created.json));
+  const acc = created.json.planeAccount;
+  assert((await call("GET", "/tenants/" + a.id + "/plane-accounts")).json.planeAccounts[0].planeVersion === "1.3", "the list leaves the version out");
+  // An account left on a version this server does not know, as after going back to an older release.
+  await repositories().plane.updateAccount(acc.id, { planeVersion: "0.9" });
+  const rename = await call("PATCH", "/plane-accounts/" + acc.id, { name: "renamed" });
+  assert(rename.status === 400 && /does not know/.test(rename.json.error), "edited without choosing a known version: " + JSON.stringify(rename.json));
+  const checks = seen.filter((s) => s.url.endsWith("/users/me/")).length;
+  const fixed = await call("PATCH", "/plane-accounts/" + acc.id, { planeVersion: "1.3" });
+  assert(fixed.status === 200 && fixed.json.planeAccount.planeVersion === "1.3", "version not changed: " + JSON.stringify(fixed.json));
+  assert(seen.filter((s) => s.url.endsWith("/users/me/")).length === checks + 1, "a version change was not checked with Plane");
+  assert(seen.every((s) => s.key === "good-key"), "a request went without the saved key in X-Api-Key");
+  assert((await call("PATCH", "/plane-accounts/" + acc.id, { planeVersion: "0.9" })).status === 400, "an unknown version was saved");
+`);

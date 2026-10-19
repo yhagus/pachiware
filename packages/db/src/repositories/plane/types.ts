@@ -13,6 +13,8 @@ export type PlaneAccount = {
   /** The Plane user the key acts as, recorded when the account was last checked against Plane. */
   planeUserId: string;
   planeUserName: string;
+  /** The Plane version the account's server runs, as an admin chose it: an id from the Plane skill's list of Plane versions. */
+  planeVersion: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -25,9 +27,10 @@ export type NewPlaneAccount = {
   apiKeyEncrypted: string;
   planeUserId: string;
   planeUserName: string;
+  planeVersion: string;
 };
 
-export type PlaneAccountUpdate = Partial<Pick<PlaneAccount, "name" | "baseUrl" | "workspaceSlug" | "apiKeyEncrypted" | "planeUserId" | "planeUserName">>;
+export type PlaneAccountUpdate = Partial<Pick<PlaneAccount, "name" | "baseUrl" | "workspaceSlug" | "apiKeyEncrypted" | "planeUserId" | "planeUserName" | "planeVersion">>;
 
 /** Which Plane projects one account may reach in one scope: Plane project ids, or ["*"] for all of them (ALL_PLANE_PROJECTS). */
 export type PlaneScopeRule = { planeAccountId: string; projectIds: string[] };

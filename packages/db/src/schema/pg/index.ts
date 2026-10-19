@@ -84,7 +84,7 @@ export const gitScopes = pgTable("git_scopes", {
 export const planeAccounts = pgTable("plane_accounts", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   name: text("name").notNull(), baseUrl: text("base_url"), workspaceSlug: text("workspace_slug").notNull(), apiKeyEncrypted: text("api_key_encrypted").notNull(),
-  planeUserId: text("plane_user_id").notNull(), planeUserName: text("plane_user_name").notNull(),
+  planeUserId: text("plane_user_id").notNull(), planeUserName: text("plane_user_name").notNull(), planeVersion: text("plane_version").notNull().default("1.3"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("plane_accounts_tenant_name_idx").on(t.tenantId, t.name), uniqueIndex("plane_accounts_tenant_id_idx").on(t.tenantId, t.id)]);
 

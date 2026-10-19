@@ -3,6 +3,9 @@ import type { PlaneScope, PlaneScopeRule } from "./types.js";
 /** In a rule's projectIds, every Plane project of the account. It stands alone. */
 export const ALL_PLANE_PROJECTS = "*";
 
+/** The Plane version every account made before accounts carried one was built for (Plane 1.3); it never follows the newest. */
+export const FIRST_PLANE_VERSION = "1.3";
+
 /** A Plane id (UUID), in any case. Project ids are stored lowercased so a channel rule compares with its guild rule exactly. */
 export const PLANE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

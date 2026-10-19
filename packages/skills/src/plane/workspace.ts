@@ -1,33 +1,82 @@
 /**
- * Plane workspace tools. A tool whose policy sets `workspaceLevel` reaches the whole Plane workspace, so it is offered only
- * where the Plane scope is "all Plane projects", and its handler chooses an account with `pickWorkspaceAccess`.
+ * Plane workspace tools, and which Plane tools a place offers. A tool exists only on the Plane versions its policy lists (all,
+ * when it lists none). A tool whose policy sets `workspaceLevel` reaches the whole Plane workspace, so it is offered only where
+ * the Plane scope is "all Plane projects", and its handler chooses an account with `pickWorkspaceAccess`.
  */
 import type { Effect, SkillContext, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeRequest, inWorkspace } from "./client.js";
 import { PLANE_NOT_ENABLED, loadPlaneAccess, pickPlaneAccess, allPlaneProjectsAllowed, planeConnOf, type PlaneAccess } from "./scope.js";
 import { planeTargetOf, ACCOUNT_ARG, type PlaneTarget } from "./projectRef.js";
 import { planeWrite, inPlainWords, DANGER, DANGER_NOTE } from "./write.js";
+import { PLANE_VERSIONS, findPlaneVersion, versionHasTool, onPlaneVersion, CHOOSE_PLANE_VERSION, type PlaneVersion } from "./versions.js";
 import { text } from "./args.js";
 
 const READ: Effect = "read";
 
-/** A Plane tool's policy; `workspaceLevel` hides the tool unless some usable account has every Plane project open here. */
-export type PlaneToolPolicy = ToolPolicy & { workspaceLevel?: true };
+/**
+ * A Plane tool's policy. `versions` lists the Plane versions that have the tool (absent: every version); `workspaceLevel` hides
+ * the tool unless a usable account has every Plane project open here.
+ */
+export type PlaneToolPolicy = ToolPolicy & { workspaceLevel?: true; versions?: string[] };
+type Policies = Record<string, PlaneToolPolicy>;
+type Versions = readonly PlaneVersion[];
+
+const hasTool = (access: PlaneAccess, tool: string, policy: Policies, versions: Versions) =>
+  versionHasTool(findPlaneVersion(access.account.planeVersion, versions), policy[tool]);
+
+/** True when this account can run the tool here: its Plane version has it, and a workspace-level tool has every Plane project open. */
+export const offersTool = (access: PlaneAccess, tool: string, policy: Policies, versions: Versions = PLANE_VERSIONS) =>
+  hasTool(access, tool, policy, versions) && (!policy[tool]?.workspaceLevel || allPlaneProjectsAllowed(access));
 
 /**
- * The Plane tools of `policy` to hide here: all but planeAccounts where no Plane scope opens an account, since each could only refuse;
- * else the workspace-level ones, unless some usable account has every Plane project open.
+ * The Plane tools of `policy` to hide where these accounts are usable: all but planeAccounts when there are none, since each could
+ * only refuse; else every tool no usable account offers.
  */
-export async function hiddenWorkspaceTools(ctx: SkillContext, policy: Record<string, PlaneToolPolicy>): Promise<string[]> {
-  const access = await loadPlaneAccess(ctx);
-  if (!access.length) return Object.keys(policy).filter((name) => name !== "planeAccounts");
-  if (access.some(allPlaneProjectsAllowed)) return [];
-  return Object.keys(policy).filter((name) => policy[name]!.workspaceLevel);
+export function hiddenPlaneToolsFor(list: PlaneAccess[], policy: Policies, versions: Versions = PLANE_VERSIONS): string[] {
+  return Object.keys(policy).filter((name) => name !== "planeAccounts" && !list.some((a) => offersTool(a, name, policy, versions)));
 }
 
+export const hiddenPlaneTools = async (ctx: SkillContext, policy: Policies) => hiddenPlaneToolsFor(await loadPlaneAccess(ctx), policy);
+
 const WHOLE_WORKSPACE = "This needs the whole Plane workspace, and this channel is limited to specific Plane projects.";
-/** Why a hidden Plane tool is refused: no Plane scope opens an account here, or the tool needs every Plane project open. */
-export const hiddenPlaneReason = async (ctx: SkillContext) => ((await loadPlaneAccess(ctx)).length ? WHOLE_WORKSPACE : PLANE_NOT_ENABLED);
+
+const known = (access: PlaneAccess, versions: Versions) => !!findPlaneVersion(access.account.planeVersion, versions);
+
+/** Why a hidden Plane tool is refused: Plane is not enabled here, no usable account's Plane version has it, or it needs every Plane project open. */
+export function hiddenPlaneReasonFor(list: PlaneAccess[], tool: string, policy: Policies, versions: Versions = PLANE_VERSIONS): string {
+  if (!list.length) return PLANE_NOT_ENABLED;
+  if (list.some((a) => hasTool(a, tool, policy, versions))) return WHOLE_WORKSPACE;
+  const each = list.map((a) => `"${a.account.name}" ${onPlaneVersion(a.account, versions)}`).join("; ");
+  return `No Plane account usable here has ${tool} on its Plane version: ${each}.${list.every((a) => known(a, versions)) ? "" : ` ${CHOOSE_PLANE_VERSION}`}`;
+}
+
+export const hiddenPlaneReason = async (ctx: SkillContext, tool: string, policy: Policies) => hiddenPlaneReasonFor(await loadPlaneAccess(ctx), tool, policy);
+
+/**
+ * The `account` a call to `tool` should run with, before its handler picks one. A named account whose Plane version lacks the tool
+ * is refused, naming the accounts that have it; with none named, several usable and only one offering the tool, that one is used.
+ * Null leaves the arguments as they are.
+ */
+export function accountForTool(list: PlaneAccess[], tool: string, named: unknown, policy: Policies, versions: Versions = PLANE_VERSIONS): string | null {
+  const name = typeof named === "string" ? named.trim().toLowerCase() : "";
+  if (!name) {
+    const able = list.filter((a) => offersTool(a, tool, policy, versions));
+    return list.length > 1 && able.length === 1 ? able[0]!.account.name : null;
+  }
+  const hit = list.find((a) => a.account.name.toLowerCase() === name);
+  if (!hit || hasTool(hit, tool, policy, versions)) return null;
+  const others = list.filter((a) => hasTool(a, tool, policy, versions)).map((a) => a.account.name);
+  const next = others.length ? ` Use one of: ${others.join(", ")}.` : known(hit, versions) ? "" : ` ${CHOOSE_PLANE_VERSION}`;
+  throw new Error(`${tool} is not available on Plane account "${hit.account.name}": it ${onPlaneVersion(hit.account, versions)}.${next}`);
+}
+
+/** Wraps each Plane tool's handler so `accountForTool` runs first, on the model's call and again on the confirmed run. */
+export function checkedByVersion(handlers: Record<string, ToolHandler>, policy: Policies): Record<string, ToolHandler> {
+  return Object.fromEntries(Object.entries(handlers).map(([tool, handler]) => [tool, tool === "planeAccounts" ? handler : async (args, ctx) => {
+    const account = accountForTool(await loadPlaneAccess(ctx), tool, args?.account, policy);
+    return handler(account ? { ...args, account } : args, ctx);
+  }]));
+}
 
 /** The account a workspace-level tool uses: only accounts with every Plane project open here count. */
 export async function pickWorkspaceAccess(ctx: SkillContext, name?: unknown): Promise<PlaneAccess> {

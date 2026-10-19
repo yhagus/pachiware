@@ -135,7 +135,7 @@ The bot acts in Plane as the user whose API key you give it, so it can do whatev
 
 1. In Plane, create a dedicated user for the bot. Add it only to the Plane projects the bot needs, as a Member. Make it an Admin only in a Plane project where it should triage intake or manage the project itself.
 2. Signed in as that user, create an API key with an expiry date, and replace it before it runs out.
-3. In the tenant's **Plane accounts**, add the account: a name, the base URL (blank for Plane's cloud), the Plane workspace slug and the API key. The key is checked with Plane on save and never shown again. A self-hosted Plane on plain http, or any host while the list is not empty, must be on **Allowed hosts** in **Settings**.
+3. In the tenant's **Plane accounts**, add the account: a name, the base URL (blank for Plane's cloud), the **Plane version** your Plane runs, the Plane workspace slug and the API key. The key is checked with Plane on save and never shown again. After you upgrade Plane, edit the account and choose the matching version; the bot uses only the tools that version has. A self-hosted Plane on plain http, or any host while the list is not empty, must be on **Allowed hosts** in **Settings**.
 4. Attach the account to a bot in **Integrations**, then pick the Plane projects each server may use under **Plane access**. Plane stays off in a server until it has a rule there.
 
 Plane allows 60 requests a minute per API key by default. On a self-hosted Plane, consider raising `API_KEY_RATE_LIMIT` on the Plane server if the bot reports the limit often.

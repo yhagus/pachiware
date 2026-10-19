@@ -11,4 +11,4 @@ Plane ships an official MCP server (`makeplane/plane-mcp-server`), but the Plane
 
 - A self-hosted Plane needs no Python process next to the agent: the stdio server runs through `uvx`, the HTTP one is another service to run.
 - The model sees only the tools a channel may use, instead of all 30 tools and the 207 operations in their descriptions on every turn.
-- Plane API changes are ours to follow. The skill targets the `/api/v1/` API of Plane v1.3.1.
+- Plane API changes are ours to follow. The skill first targeted the `/api/v1/` API of Plane v1.3.1; each Plane account now names the Plane version it talks to (ADR 0016).

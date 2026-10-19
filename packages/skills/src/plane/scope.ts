@@ -2,6 +2,7 @@
 import { repositories, decryptSecret, ALL_PLANE_PROJECTS, type PlaneAccount } from "@pachiware/db";
 import type { SkillContext } from "../types.js";
 import { assertPlaneUrl, type PlaneConn } from "./client.js";
+import { findPlaneVersion, unknownPlaneVersion } from "./versions.js";
 
 type Rule = { planeAccountId: string; channelId: string; projectIds: string[] };
 
@@ -68,8 +69,13 @@ export async function loadPlaneAccess(ctx: SkillContext): Promise<PlaneAccess[]>
   return computePlaneAccess(attached, rules, ctx.channelId, ctx.parentChannelId);
 }
 
-/** The connection of an account, with its key decrypted; Allowed hosts is checked again, since it may have changed. */
+/**
+ * The connection of an account, with its key decrypted; Allowed hosts is checked again, since it may have changed. An account
+ * whose Plane version this server does not know is refused here, so it fails alone.
+ */
 export function planeConnOf(account: PlaneAccount): PlaneConn {
   assertPlaneUrl(account.baseUrl);
-  return { baseUrl: account.baseUrl, workspaceSlug: account.workspaceSlug, apiKey: decryptSecret(account.apiKeyEncrypted) };
+  const version = findPlaneVersion(account.planeVersion);
+  if (!version) throw new Error(unknownPlaneVersion(account));
+  return { baseUrl: account.baseUrl, workspaceSlug: account.workspaceSlug, apiKey: decryptSecret(account.apiKeyEncrypted), version };
 }

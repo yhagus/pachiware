@@ -1,8 +1,10 @@
 /**
- * The one way the agent talks to Plane's `/api/v1/` REST API (Plane v1.3.1). Every Plane tool and admin route goes through
- * `planeRequest`, so the key header, the redirect refusal, the host check and the rate-limit wait are never written twice.
+ * The one way the agent talks to Plane's `/api/v1/` REST API. Every Plane tool and admin route goes through `planeRequest`, so
+ * the credential headers (from the account's Plane version), the redirect refusal, the host check and the rate-limit wait are
+ * never written twice. The behaviour noted below is Plane v1.3.1's.
  */
 import { assertHostAllowed, isListedHost } from "@pachiware/db";
+import type { PlaneVersion } from "./versions.js";
 
 /** Plane's cloud API. A Plane account with no base URL uses it. */
 export const PLANE_CLOUD_URL = "https://api.plane.so";
@@ -12,7 +14,7 @@ const MAX_RATE_LIMIT_WAIT_S = 10;
 const TIMEOUT_MS = 15_000;
 
 /** What a request needs: never shown to the model, which names an account instead. */
-export type PlaneConn = { baseUrl: string | null; workspaceSlug: string; apiKey: string };
+export type PlaneConn = { baseUrl: string | null; workspaceSlug: string; apiKey: string; version: PlaneVersion };
 
 /** Plane refused a request, or could not be reached; `status` is 0 when no answer came. The message is safe to show. */
 export class PlaneError extends Error {
@@ -72,8 +74,9 @@ type Query = Record<string, string | number | boolean | undefined | null>;
 export type PlaneRequest = { method?: string; query?: Query; body?: unknown };
 
 /**
- * Sends one request to `<baseUrl>/api/v1/<path>` with the key in `X-Api-Key` and returns the parsed JSON (null for an empty answer).
- * A redirect is refused, since the key header would follow it to another host. On 429 it waits once when the reset is near.
+ * Sends one request to `<baseUrl>/api/v1/<path>` with the headers of the account's Plane version, and returns the parsed JSON
+ * (null for an empty answer). A redirect is refused, since the key header would follow it to another host. On 429 it waits
+ * once when the reset is near.
  */
 export async function planeRequest<T = any>(conn: PlaneConn, path: string, req: PlaneRequest = {}): Promise<T> {
   assertPlaneUrl(conn.baseUrl);
@@ -96,7 +99,7 @@ export async function planeRequest<T = any>(conn: PlaneConn, path: string, req: 
 }
 
 async function sendOnce(conn: PlaneConn, url: URL, req: PlaneRequest): Promise<Response> {
-  const headers: Record<string, string> = { "X-Api-Key": conn.apiKey, Accept: "application/json" };
+  const headers: Record<string, string> = { ...conn.version.headers(conn.apiKey), Accept: "application/json" };
   if (req.body !== undefined) headers["Content-Type"] = "application/json";
   try {
     return await fetch(url, { method: req.method ?? "GET", headers, redirect: "error", signal: AbortSignal.timeout(TIMEOUT_MS), ...(req.body !== undefined ? { body: JSON.stringify(req.body) } : {}) });

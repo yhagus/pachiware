@@ -78,6 +78,18 @@ afterAll(async () => {
     expect(custom).toBe("custom persona");
   });
 
+  test("a Plane account stored before Plane versions reads as Plane 1.3", async () => {
+    const connection = connect();
+    await migrateMongo(connection);
+    const { tenants, plane } = createRepositories(connection);
+    const tenant = await tenants.create({ name: "Acme", slug: "acme" });
+    const now = new Date();
+    await connection.db.collection<{ _id: string; [field: string]: unknown }>("plane_accounts").insertOne({
+      _id: "p1", tenantId: tenant.id, name: "main", baseUrl: null, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", createdAt: now, updatedAt: now,
+    });
+    expect((await plane.getAccount("p1"))?.planeVersion).toBe("1.3");
+  });
+
   test("migrating twice at once leaves a working database", async () => {
     await Promise.all([migrateMongo(connect()), migrateMongo(connect())]);
     const { tenants } = createRepositories(connect());

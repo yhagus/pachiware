@@ -27,7 +27,7 @@ discordScenario("planeAccounts lists the Plane user and the Plane projects this 
   ask();
   const msg = await s.discord.send(`${s.discord.mention} which Plane projects can you reach?`);
   expect(msg.thread).toBeDefined();
-  expect(results[0]).toEqual({ accounts: [{ name: "plane", planeUser: "pachibot (bot@acme.test)", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] }] });
+  expect(results[0]).toEqual({ accounts: [{ name: "plane", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] }] });
 
   ask();
   s.discord.channel("channel-2");
@@ -93,4 +93,30 @@ discordScenario("Allowed hosts is checked again on every call, so a host taken o
   expect(result.accounts[0].error).toContain("not in Allowed hosts");
   expect(s.http.requests).toEqual([]);
   saveAllowedHosts([]);
+});
+
+discordScenario("an account on a Plane version this server does not know is refused alone; the bot's other Plane account keeps working", async (s) => {
+  const P1 = "11111111-1111-4111-8111-111111111111";
+  await s.plane({ name: "work" });
+  // On Plane's cloud too: another scenario in this file changes Allowed hosts, which the scenario processes share.
+  await s.plane({ name: "old", workspaceSlug: "legacy", version: "0.9" });
+  s.http.on("GET api.plane.so/api/v1/workspaces/acme/projects/", () => ({ next_cursor: "100:1:0", next_page_results: false, results: [{ id: P1, name: "Engineering", identifier: "ENG" }] }));
+  const results: any[] = [];
+  s.model.script(
+    { tool: "planeProjects", args: { account: "old" } },
+    (turn) => { results.push(turn.toolResults.at(-1)); return { tool: "planeProjects" }; },
+    (turn) => { results.push(turn.toolResults.at(-1)); return { tool: "planeAccounts" }; },
+    (turn) => { results.push(turn.toolResults.at(-1)); return "done"; },
+  );
+  await s.discord.send(`${s.discord.mention} which Plane projects can you reach?`);
+
+  expect(results[0].error).toBe('planeProjects is not available on Plane account "old": it is set to Plane version "0.9", which this server does not know. Use one of: work.');
+  // With no account named, the one whose Plane version has the tool is used, instead of asking which.
+  expect(results[1].projects.map((p: any) => p.identifier)).toEqual(["ENG"]);
+  // Both accounts are made in the same instant, so their order is not fixed.
+  expect([...results[2].accounts].sort((a: any, b: any) => a.name.localeCompare(b.name))).toEqual([
+    { name: "old", planeUser: "pachibot (bot@acme.test)", planeVersion: 'unknown ("0.9")', error: 'Plane account "old" is set to Plane version "0.9", which this server does not know. An admin can choose a supported version in the console.' },
+    { name: "work", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] },
+  ]);
+  expect(s.http.requests.some((r) => r.url.includes("/workspaces/legacy/"))).toBe(false);
 });

@@ -292,4 +292,26 @@ describe("SQLite tenancy migration", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  test("puts every existing Plane account on Plane 1.3", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-plane-version-"));
+    const database = join(directory, "plane-version.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
+        await runMigrations();
+        queryClient.exec("ALTER TABLE plane_accounts DROP COLUMN plane_version");
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
+        queryClient.exec("INSERT INTO plane_accounts (id,tenant_id,name,workspace_slug,api_key_encrypted,plane_user_id,plane_user_name) VALUES ('p1','t1','main','acme','enc','u-1','Pachi Bot')");
+        await runMigrations();
+        await runMigrations();
+        console.log(JSON.stringify(queryClient.query("SELECT id, name, plane_version AS version FROM plane_accounts").all()));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual([{ id: "p1", name: "main", version: "1.3" }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

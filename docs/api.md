@@ -53,9 +53,10 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | PATCH | `/api/admin/bots/:botId` | Bot fields; token encrypted on write |
 | POST | `/api/admin/bots/:botId/restart` | Restart this gateway |
 | DELETE | `/api/admin/bots/:botId` | Stop and remove bot from active listings |
-| GET | `/api/admin/tenants/:id/plane-accounts` | `{planeAccounts}`, each `{id, name, baseUrl (null for Plane's cloud), workspaceSlug, planeUserId, planeUserName, hasApiKey, apiKey: "••••••••", bots}`. The key is never returned |
-| POST | `/api/admin/tenants/:id/plane-accounts` | `{name, baseUrl?, workspaceSlug, apiKey}` -> 201 `{planeAccount}`. Plane's `users/me/` and the workspace's projects are called first; a bad key, a wrong slug, a redirect, plain http on a host not on Allowed hosts, or a host outside a non-empty Allowed hosts gives 400 naming which. 409 for a taken name |
-| PATCH | `/api/admin/plane-accounts/:accountId` | Account fields; a blank or masked `apiKey` keeps the saved one. A new `baseUrl` needs the key again; a new key, slug or URL is checked with Plane again |
+| GET | `/api/admin/plane-versions` | `{planeVersions}`, each `{id, label, checkedAgainst, auth}`, oldest first: the Plane versions this server has tool code for. `auth` is `"api-key"` |
+| GET | `/api/admin/tenants/:id/plane-accounts` | `{planeAccounts}`, each `{id, name, baseUrl (null for Plane's cloud), workspaceSlug, planeUserId, planeUserName, planeVersion, hasApiKey, apiKey: "••••••••", bots}`. The key is never returned |
+| POST | `/api/admin/tenants/:id/plane-accounts` | `{name, baseUrl?, workspaceSlug, apiKey, planeVersion?}` -> 201 `{planeAccount}`. `planeVersion` is an id from `/plane-versions`, the newest when left out; another value gives 400. Plane's `users/me/` and the workspace's projects are called first; a bad key, a wrong slug, a redirect, plain http on a host not on Allowed hosts, or a host outside a non-empty Allowed hosts gives 400 naming which. 409 for a taken name |
+| PATCH | `/api/admin/plane-accounts/:accountId` | Account fields; a blank or masked `apiKey` keeps the saved one. A new `baseUrl` needs the key again; a new key, slug, URL or `planeVersion` is checked with Plane again. An account on a version this server does not know takes no edit until `planeVersion` names one it knows |
 | DELETE | `/api/admin/plane-accounts/:accountId` | Delete; 409 with `{bots}` while an integration uses it |
 | GET | `/api/admin/plane-accounts/:accountId/projects` | `{projects}`, each `{id, name, identifier}`, as the account's Plane user sees them; 502 when Plane fails |
 | GET | `/api/admin/bots/:botId/guilds/:guildId/plane` | `{accounts, guild, channels}`: the bot's Plane accounts, the guild's Plane scope rules, and each channel's |

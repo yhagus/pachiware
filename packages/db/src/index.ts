@@ -17,7 +17,7 @@ export { ReplicaSetRequiredError } from "./mongo/connection.js";
 export { patternCovers } from "./repositories/git/rules.js";
 export { FallbackRefused } from "./repositories/profiles/types.js";
 export { DEFAULT_REACT_ITERATIONS, DEFAULT_CONVERSATION_IDLE_HOURS } from "./repositories/agent-config/types.js";
-export { ALL_PLANE_PROJECTS, PLANE_ID } from "./repositories/plane/rules.js";
+export { ALL_PLANE_PROJECTS, PLANE_ID, FIRST_PLANE_VERSION } from "./repositories/plane/rules.js";
 export type { DigestChannel, DailyLogChannel, DocSource } from "./schema/types.js";
 export type { Repositories, Tenant, TenantStatus, NewTenant, TenantUpdate, ApiKey, ApiKeyListing, IssuedApiKey, TenantRepository } from "./repositories/index.js";
 export type { Schedule, NewSchedule, ScheduleUpdate, ScheduleFilter, ScheduleKind, ScheduleRecurrence, ScheduleStatus, ScheduleRepository, TaskRow, NewTaskRow, TaskRowRepository } from "./repositories/index.js";

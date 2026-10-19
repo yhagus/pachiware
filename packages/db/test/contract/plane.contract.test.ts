@@ -9,7 +9,7 @@ const P3 = "33333333-3333-4333-8333-333333333333";
 contract("Plane accounts and Plane scopes", (use) => {
   const tenant = (slug: string) => use().repos.tenants.create({ name: slug, slug });
   const account = (tenantId: string, name: string, extra: Record<string, any> = {}) =>
-    use().repos.plane.createAccount({ tenantId, name, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", ...extra });
+    use().repos.plane.createAccount({ tenantId, name, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", planeVersion: "1.3", ...extra });
   const newBot = async (tenantId: string, name = "Bot") => (await use().repos.bots.create({ tenantId, name, token: "x" })).id;
 
   test("a new Plane account can be read back, on Plane's cloud unless a base URL is given", async () => {
@@ -23,6 +23,17 @@ contract("Plane accounts and Plane scopes", (use) => {
     const own = await account(t.id, "own", { baseUrl: "https://plane.corp.example" });
     expect(own.baseUrl).toBe("https://plane.corp.example");
     expect(await plane.getAccount("missing")).toBeNull();
+  });
+
+  test("an account keeps the Plane version it was given, and an update changes only that", async () => {
+    const { plane } = use().repos;
+    const t = await tenant("acme");
+    const created = await account(t.id, "main", { planeVersion: "1.4" });
+    expect(created.planeVersion).toBe("1.4");
+    expect((await plane.getAccount(created.id))?.planeVersion).toBe("1.4");
+    expect((await plane.listAccounts(t.id))[0]?.planeVersion).toBe("1.4");
+    expect(await plane.updateAccount(created.id, { planeVersion: "1.3" })).toMatchObject({ planeVersion: "1.3", name: "main", workspaceSlug: "acme", apiKeyEncrypted: "enc" });
+    expect(await plane.updateAccount(created.id, { name: "renamed" })).toMatchObject({ planeVersion: "1.3", name: "renamed" });
   });
 
   test("linking a Plane account switches the plane skill on for the tenant, and only for that tenant", async () => {
