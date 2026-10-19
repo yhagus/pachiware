@@ -29,11 +29,14 @@ discordScenario("an answer near line 1,500 of a 120 KB Document is found by sear
   expect(s.discord.botMessages.at(-1)?.content).toBe("1480-1560 of 1600: 1500 Clause 14.2: the vendor contract renews automatically on 3 March 2027 unless cancelled.");
 });
 
-discordScenario("a large file read without a range returns its first lines within 10,000 characters, with totalLines and nextLine", async (s) => {
+discordScenario("when the model cannot read a large file, readFile returns its first lines within 10,000 characters, with totalLines, nextLine and readerFailed", async (s) => {
   const lines = Array.from({ length: 2000 }, (_, i) => `Entry ${i + 1}: "quoted" notes from the long log, kept for the record.`);
   await s.workspace.write("guilds/guild-1/channels/channel-1/notes/log.md", lines.join("\n") + "\n");
+  const failed = { error: "Provider request failed" };
   s.model.script(
     { tool: "readFile", args: { path: "channel/notes/log.md" } },
+    // The reader asks the log's four chunks of about 40,000 characters, and the provider fails each time.
+    failed, failed, failed, failed,
     (turn) => {
       const r = turn.toolResults.at(-1);
       if (typeof r === "string") return `clipped by the loop: ${r.slice(0, 100)}`;
@@ -42,13 +45,13 @@ discordScenario("a large file read without a range returns its first lines withi
     (turn) => {
       const [head, next] = turn.toolResults.slice(-2);
       const shown = head.content.split("\n").filter(Boolean);
-      return [head.totalLines, shown.length, shown[0], shown.at(-1), head.nextLine, next.lines[0].text, typeof head.version].join(" | ");
+      return [head.readerFailed, head.totalLines, shown.length, shown[0], shown.at(-1), head.nextLine, next.lines[0].text, typeof head.version].join(" | ");
     },
   );
   await s.discord.send(`${s.discord.mention} what is in the log?`);
   // Lines 1-146 are 9,968 characters as JSON; line 147 would pass 10,000.
   expect(s.discord.botMessages.at(-1)!.content.split(" | ")).toEqual([
-    "2000", "146",
+    "true", "2000", "146",
     `Entry 1: "quoted" notes from the long log, kept for the record.`,
     `Entry 146: "quoted" notes from the long log, kept for the record.`,
     "147",

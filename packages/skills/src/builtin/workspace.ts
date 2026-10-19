@@ -9,7 +9,9 @@ import { recordBriefAnswers, recordBriefAnswersTool, writeIssueDraft, writeIssue
 import { describeBriefImages, describeBriefImagesTool } from "../briefImages.js";
 import { ISSUE_DRAFT_PLAYBOOK } from "../grounding.js";
 import { forget, memoryLevel, remember } from "../workspace/memory.js";
-import { fileDocument, isDocument } from "../workspace/files.js";
+import { fileDocument, isDocument, provenanceOf, unrecordedTextPath } from "../workspace/files.js";
+import { readsThroughMarkdown } from "../workspace/extract.js";
+import { READER_NOTE, readThrough } from "../workspace/reader.js";
 import { keepNote, keptDocument, keptMessages, MAX_KEPT_MESSAGES } from "../workspace/notes.js";
 import { addKeywords } from "../workspace/keywords.js";
 import { capMatches, dateRange, queriesTerms, shownMatch, wordingsOf, type FileMatch } from "../workspace/search.js";
@@ -91,13 +93,28 @@ const lineArg = (value: unknown, name: string) => {
   return n;
 };
 
+/** A file's lines, without the empty one after a final newline. */
+function linesOf(content: string) {
+  const all = content.split("\n");
+  if (all.at(-1) === "") all.pop();
+  return all;
+}
+
+/** The lines `from`..`to` name, each checked against the file's `totalLines`; the whole file when neither is given. */
+function rangeOf(totalLines: number, from: unknown, to: unknown) {
+  const fromLine = lineArg(from, "fromLine"), toLine = lineArg(to, "toLine");
+  const start = fromLine ?? 1, end = toLine ?? totalLines;
+  if (start > totalLines) throw new Error(`fromLine ${start} is past the end: the file has ${totalLines} lines.`);
+  if (end < start) throw new Error(`toLine ${end} is before fromLine ${start}.`);
+  if (end > totalLines) throw new Error(`toLine ${end} is past the end: the file has ${totalLines} lines.`);
+  return { fromLine: start, toLine: end };
+}
+
 /** A whole small file as before (content and version, for writeFile's check); a range, or the head of a large file, within READ_LIMIT. */
 function readPart(file: { content: string; version: string }, from: unknown, to: unknown) {
-  const fromLine = lineArg(from, "fromLine"), toLine = lineArg(to, "toLine");
-  const all = file.content.split("\n");
-  if (all.at(-1) === "") all.pop();
+  const all = linesOf(file.content);
   const totalLines = all.length;
-  if (fromLine === undefined && toLine === undefined) {
+  if (lineArg(from, "fromLine") === undefined && lineArg(to, "toLine") === undefined) {
     if (JSON.stringify(file.content).length <= READ_LIMIT) return { content: file.content, version: file.version };
     const kept: string[] = [];
     let size = 2;
@@ -109,10 +126,7 @@ function readPart(file: { content: string; version: string }, from: unknown, to:
     }
     return { content: kept.join("\n") + "\n", totalLines, nextLine: kept.length + 1, version: file.version };
   }
-  const start = fromLine ?? 1, end = toLine ?? totalLines;
-  if (start > totalLines) throw new Error(`fromLine ${start} is past the end: the file has ${totalLines} lines.`);
-  if (end < start) throw new Error(`toLine ${end} is before fromLine ${start}.`);
-  if (end > totalLines) throw new Error(`toLine ${end} is past the end: the file has ${totalLines} lines.`);
+  const { fromLine: start, toLine: end } = rangeOf(totalLines, from, to);
   const lines: { line: number; text: string }[] = [];
   let size = 0;
   for (let n = start; n <= end; n++) {
@@ -127,6 +141,33 @@ function readPart(file: { content: string; version: string }, from: unknown, to:
   }
   const last = lines.at(-1)!.line, more = last < end ? { nextLine: last + 1 } : {};
   return { fromLine: start, toLine: last, totalLines, ...more, lines, version: file.version };
+}
+
+/**
+ * What readFile gives of a file's text: a file within READ_LIMIT whole, a range without a question as it is, and otherwise the
+ * reader's answer to `question` with checked quotes, or its summary and outline; when the reader cannot help, the read it
+ * replaces, marked `readerFailed`.
+ */
+async function readText(ctx: SkillContext, path: string, file: { content: string; version: string }, args: Record<string, unknown>) {
+  const question = typeof args.question === "string" ? args.question.trim() : "";
+  const ranged = lineArg(args.fromLine, "fromLine") !== undefined || lineArg(args.toLine, "toLine") !== undefined;
+  if (JSON.stringify(file.content).length <= READ_LIMIT || (ranged && !question)) return readPart(file, args.fromLine, args.toLine);
+  const lines = linesOf(file.content);
+  const reading = ctx.complete ? await readThrough(ctx.complete, lines, { ...rangeOf(lines.length, args.fromLine, args.toLine), question }) : null;
+  if (!reading) return { ...readPart(file, args.fromLine, args.toLine), readerFailed: true };
+  return { path, totalLines: lines.length, ...reading, note: READER_NOTE, version: file.version };
+}
+
+/**
+ * The `.md` beside a Document read through Markdown (a PDF, DOCX, XLSX or HTML page), from its filing record or else from the
+ * names beside it: as stored (`full`) and as the agent names it (`shown`); null when none is known.
+ */
+async function textBeside(ctx: SkillContext, shown: string, full: string) {
+  const folder = full.slice(0, full.lastIndexOf("/"));
+  const recorded = (await provenanceOf(ctx.tenantId, ctx, shown))?.textPath;
+  const text = recorded ?? unrecordedTextPath(full, (await workspaceStore().list(ctx.tenantId, folder)).map((e) => e.path.slice(folder.length + 1)));
+  const name = text?.slice(text.lastIndexOf("/") + 1);
+  return name ? { full: `${folder}/${name}`, shown: `${shown.slice(0, shown.lastIndexOf("/"))}/${name}` } : null;
 }
 
 /** A single line too long to return whole, cut so its JSON stays within `room`. */
@@ -147,17 +188,17 @@ export const workspaceSkill: SkillModule = {
   checks: { deleteFile: async (args, ctx) => notElsewhere(ctx, args.path) },
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: readPathArg }, required: ["path"] } },
-    { name: "readFile", description: `Reads a text file from the Workspace: Markdown, CSV or TXT. A filed PDF, DOCX, XLSX or HTML page, or a CSV over 256 KB, is read through the .md beside it (named in the file note as "text in ..."); an XLSX's .md holds each sheet as a table. fromLine and toLine (1-based, inclusive) read only those lines, each with its number: when searchFiles or recall gave a matching line, read around it, e.g. 20 lines before to 60 after. Without them, a file over ${READ_LIMIT.toLocaleString("en")} characters returns its first lines with totalLines and nextLine, the line to read from next. A range returns at most that much too, with nextLine when it stopped early.`, parameters: { type: "object", properties: { path: readPathArg, fromLine: { type: "integer", description: "First line to read, 1-based" }, toLine: { type: "integer", description: "Last line to read, inclusive; at most the file's last line" } }, required: ["path"] } },
+    { name: "readFile", description: `Reads a text file from the Workspace: Markdown, CSV or TXT. A filed PDF, DOCX, XLSX or HTML page is read through the .md beside it, also when you name the Document itself; a CSV over 256 KB through its .md too (named in the file note as "text in ..."); an XLSX's .md holds each sheet as a table. A file within ${READ_LIMIT.toLocaleString("en")} characters is returned whole. A longer one is read for you by the bot's own model: with question, it returns a short answer and quotes, the file's own lines with their numbers, checked against the file; without question, a summary and an outline of sections with their lines. answer is the reader's words: rely on the quotes. unreadFrom is the line the reader did not reach: read on with fromLine. When the reader fails, readerFailed comes with the file's first lines, totalLines and nextLine. fromLine and toLine (1-based, inclusive) limit the reader to those lines; without question they read only those lines, each with its number: when searchFiles or recall gave a matching line, read around it, e.g. 20 lines before to 60 after. Such a range returns at most ${READ_LIMIT.toLocaleString("en")} characters, with nextLine when it stopped early.`, parameters: { type: "object", properties: { path: readPathArg, question: { type: "string", description: "The person's question, in their words, for a long file's reader" }, fromLine: { type: "integer", description: "First line to read, 1-based" }, toLine: { type: "integer", description: "Last line to read, inclusive; at most the file's last line" } }, required: ["path"] } },
     { name: "writeFile", description: "Creates or replaces a Markdown file in the Workspace. Missing folders are created. To replace an existing file, pass the version from readFile. Under notes/ and decisions/ the server then writes topics and keywords into the file's head, replacing any already there.", parameters: { type: "object", properties: { path: pathArg, content: { type: "string", description: "Full file content" }, version: { type: "string", description: "Version returned by readFile; required when the file exists" } }, required: ["path", "content"] } },
     { name: "moveFile", description: "Moves or renames a file or folder. Refuses to overwrite.", parameters: { type: "object", properties: { from: pathArg, to: pathArg }, required: ["from", "to"] } },
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
-    { name: "searchFiles", description: "Finds files that hold words of the queries in their name, their topics and keywords, or their text, in any order and case. Words match whole in any of their forms (\"normalisasi\", \"normalization\" and \"normalize\" meet; \"diimplementasikan\" meets \"implementasi\"; \"log\" never matches \"blog\"), common work words meet across Indonesian and English (\"rilis\" and \"release\", \"rapat\" and \"meeting\"), and filler words such as \"yang\", \"sudah\" or \"the\" are ignored; the words need not share a line and a file need not hold them all. Pass several wordings of the same question in queries (Indonesian, English, same-meaning words) to search them at once. Best match first: files holding more of a query's words and rarer ones, above all in their name, topics or keywords, then newest first by the date a file name starts with; at most 50 files, and when more matched, total and leftOut say how many. Each match gives up to three of the file's lines, those holding the most query words, with their line numbers. The text of a PDF, DOCX or XLSX is searched in the .md beside it. Without a path, searches the minutes, Daily logs, decisions, notes and files of this place and of every other channel you may read from here, grouped by channel. A match marked partial holds only some words of every query; nothingStrong means no match holds every word of any query, so nothing matched well: read before relying on a partial match, and say plainly when nothing answers the question. since and until keep only files dated in that range (the date a file name starts with, else the day it last changed). notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are.", parameters: { type: "object", properties: { query: { type: "string", description: "Words to find, e.g. \"pricing decision\"" }, queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\", \"loudness\"]" }, path: { type: "string", description: 'Folder to search, e.g. "channel/minutes" or "#marketing"; leave it out to search every channel you may read from here' }, since: { type: "string", description: "Only files dated on or after this day, YYYY-MM-DD" }, until: { type: "string", description: "Only files dated on or before this day, YYYY-MM-DD" } } } },
+    { name: "searchFiles", description: "Finds files that hold words of the queries in their name, their topics and keywords, or their text, in any order and case. Words match whole in any of their forms (\"normalisasi\", \"normalization\" and \"normalize\" meet; \"diimplementasikan\" meets \"implementasi\"; \"log\" never matches \"blog\"), common work words meet across Indonesian and English (\"rilis\" and \"release\", \"rapat\" and \"meeting\"), and filler words such as \"yang\", \"sudah\" or \"the\" are ignored; the words need not share a line and a file need not hold them all. Pass several wordings of the same question in queries (Indonesian, English, same-meaning words) to search them at once. Best match first: files holding more of a query's words and rarer ones, above all in their name, topics or keywords, then newest first by the date a file name starts with; at most 50 files, and when more matched, total and leftOut say how many. Each match gives up to three of the file's lines, those holding the most query words, with their line numbers. The text of a PDF, DOCX, XLSX or HTML page is searched in the .md beside it. Without a path, searches the minutes, Daily logs, decisions, notes and files of this place and of every other channel you may read from here, grouped by channel. A match marked partial holds only some words of every query; nothingStrong means no match holds every word of any query, so nothing matched well: read before relying on a partial match, and say plainly when nothing answers the question. since and until keep only files dated in that range (the date a file name starts with, else the day it last changed). notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are.", parameters: { type: "object", properties: { query: { type: "string", description: "Words to find, e.g. \"pricing decision\"" }, queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\", \"loudness\"]" }, path: { type: "string", description: 'Folder to search, e.g. "channel/minutes" or "#marketing"; leave it out to search every channel you may read from here' }, since: { type: "string", description: "Only files dated on or after this day, YYYY-MM-DD" }, until: { type: "string", description: "Only files dated on or before this day, YYYY-MM-DD" } } } },
     recallTool,
     { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
     { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name. Mention it only when the person asked you to remember it. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { level: levelArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["text"] } },
     { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { level: levelArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["match"] } },
     { name: "saveAttachment", description: "Files one attachment of a message in this channel under files/, when a person asks to keep a file that was not sent to the bot. Same rules as files sent to the bot: PDF, DOCX, XLSX, HTML, CSV, MD or TXT, 10 MB at most, a taken name gets -2. The result's text names the .md holding the text of a PDF, DOCX, XLSX, HTML page or CSV over 256 KB.", parameters: { type: "object", properties: { messageId: { type: "string", description: 'The message id from the file placeholder, e.g. "[file: report.pdf (message 123)]"' }, name: { type: "string", description: "Attachment name, when the message holds more than one file" } }, required: ["messageId"] } },
-    { name: "keepAsNote", description: `Keeps text a person gave you as a new Note, word for word: the server copies a Document's text (a PDF's, DOCX's or XLSX's extracted text), or the texts of messages in this channel or thread joined in the order given, under notes/, headed with who wrote it, who asked and the date, however long it is. Use it when a person asks to keep that text as it is; use writeFile for your own writing. Give exactly one source: document, or messageIds (at most ${MAX_KEPT_MESSAGES}), any person's messages. The Document stays in files/. Refuses a path that exists.`, parameters: { type: "object", properties: { document: { type: "string", description: 'The Document under files/, e.g. "channel/files/minutes.pdf"' }, messageIds: { type: "array", items: { type: "string" }, description: 'Message ids in reading order, from turn lines such as "Alice (message 123): ..."' }, path: { type: "string", description: 'The new Note under notes/, e.g. "channel/notes/2026-10-14-minutes.md"' } }, required: ["path"] } },
+    { name: "keepAsNote", description: `Keeps text a person gave you as a new Note, word for word: the server copies a Document's text (a PDF's, DOCX's, XLSX's or HTML page's extracted text), or the texts of messages in this channel or thread joined in the order given, under notes/, headed with who wrote it, who asked and the date, however long it is. Use it when a person asks to keep that text as it is; use writeFile for your own writing. Give exactly one source: document, or messageIds (at most ${MAX_KEPT_MESSAGES}), any person's messages. The Document stays in files/. Refuses a path that exists.`, parameters: { type: "object", properties: { document: { type: "string", description: 'The Document under files/, e.g. "channel/files/minutes.pdf"' }, messageIds: { type: "array", items: { type: "string" }, description: 'Message ids in reading order, from turn lines such as "Alice (message 123): ..."' }, path: { type: "string", description: 'The new Note under notes/, e.g. "channel/notes/2026-10-14-minutes.md"' } }, required: ["path"] } },
     ...teamTools,
     postBriefRoundTool,
     recordBriefAnswersTool,
@@ -181,9 +222,12 @@ export const workspaceSkill: SkillModule = {
     readFile: async (args, ctx) => {
       const path = namesChannel(args.path) ? (await namedSource(ctx, args.path)).path : resolvePath(ctx, args.path);
       await threadAccess(ctx).check(path);
-      const file = await workspaceStore().read(ctx.tenantId, path);
+      const text = readsThroughMarkdown(path) ? await textBeside(ctx, String(args.path), path) : null;
+      const textFile = text && await workspaceStore().read(ctx.tenantId, text.full).catch(() => null);
+      const file = textFile ?? await workspaceStore().read(ctx.tenantId, path);
       if (!file) throw new Error(`File "${args.path}" not found.`);
-      return readPart(file, args.fromLine, args.toLine);
+      const shown = textFile ? text!.shown : String(args.path), read = await readText(ctx, shown, file, args);
+      return textFile ? { path: shown, ...read } : read;
     },
     writeFile: async (args, ctx) => {
       if (typeof args.content !== "string") throw new Error("content is required");

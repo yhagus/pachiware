@@ -70,3 +70,22 @@ discordScenario("saveAttachment files an HTML page with its Markdown, and keepAs
     `---\nsource: "channel/files/prices.htm"\nauthor: "Alice"\naskedBy: "Bob"\ndate: "2026-10-19"\n---\n${MARKDOWN}`,
   );
 });
+
+discordScenario("readFile on the page itself reads the Markdown its filing recorded, whole, with or without a question, and a page this short never asks the model", async (s) => {
+  await s.guildSettings({ language: "en" });
+  // An earlier prices.md is in files/, so the page's text is filed as prices-2.md: only the filing record says so.
+  await s.workspace.write(`${FILES}/prices.md`, "Last year's prices, typed by hand.\n");
+  const page = attachment(s, "prices.html", PAGE, { contentType: "text/html" });
+  s.model.script("Kept.");
+  await s.discord.send(`${s.discord.mention} keep this page`, { attachments: [page] });
+  expect(await s.workspace.read(`${FILES}/prices-2.md`)).toBe(MARKDOWN);
+
+  s.model.script(
+    [{ tool: "readFile", args: { path: "channel/files/prices.html" } }, { tool: "readFile", args: { path: "channel/files/prices.html", question: "How much do brochures cost?" } }],
+    (turn) => JSON.stringify(turn.toolResults.map((r: any) => ({ path: r.path, content: r.content, answer: r.answer }))),
+  );
+  const asked = s.model.calls.length;
+  await s.discord.send(`${s.discord.mention} how much do brochures cost?`);
+  expect(s.model.calls.length - asked).toBe(2);
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toEqual([{ path: "channel/files/prices-2.md", content: MARKDOWN }, { path: "channel/files/prices-2.md", content: MARKDOWN }]);
+});

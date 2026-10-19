@@ -97,6 +97,17 @@ discordScenario("the persona opens a Daily log item's linked message for the exa
   expect(line).toMatch(/never guess/i);
 });
 
+discordScenario("the persona passes the person's question to readFile, reads without one for a summary of what a file holds, and answers from the quotes", async (s) => {
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} hi`);
+  const persona = systemPrompt(s.model.calls[0]!).split("### Policy")[0]!;
+  const line = persona.split("\n").find((l) => l.startsWith("- Read a file with readFile"));
+  expect(line).toContain("question");
+  expect(line).toMatch(/what a file holds/i);
+  expect(line).toContain("summary");
+  expect(line).toMatch(/from the quotes/i);
+});
+
 discordScenario("a question about channels reaches the model when the Discord skill is off, instead of a regex refusal", async (s) => {
   const { repositories } = await import("../../../packages/db/src/index.ts");
   await repositories().skills.setEnabled(s.tenant.id, "discord_management", false);

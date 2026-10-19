@@ -210,7 +210,8 @@ export interface SkillContext {
   metadata?: Record<string, any>;
 }
 
-export type Completion = (request: { system: string; user: string }) => Promise<string | null>;
+/** `deadline` (epoch ms) is the caller's own cut, before the turn's when it is earlier: a call made past it gets null without reaching the provider, and one in flight is cut there. */
+export type Completion = (request: { system: string; user: string; deadline?: number }) => Promise<string | null>;
 
 export type ToolHandler = (args: any, context: SkillContext) => Promise<any>;
 
