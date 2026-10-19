@@ -19,7 +19,7 @@ import { PLANE_NOT_ENABLED, loadPlaneAccess } from "../plane/scope.js";
  */
 
 export const RECALL_PART = 10;
-const MAX_QUERIES = 5, LINES = 2, LINE_CHARS = 160, TITLE_CHARS = 80, SAID = 3;
+const MAX_QUERIES = 5, LINES = 2, LINE_CHARS = 160, TITLE_CHARS = 80, ITEMS_PER_LIST = 3;
 /** Under the loop's 12,000-character cut, with room for the wrapper it adds. */
 export const RECALL_BUDGET = 11_000;
 
@@ -65,7 +65,7 @@ const newest = (links: string[]) => links.reduce((a, b) => {
  * so it is cited only when no other row holds a query word, by its first message, where the talk began. A Document whose name holds
  * no date is dated by the date its first line gives. Minutes and a Daily log also give what their record says about the question.
  */
-async function keptSource(tenantId: string, path: string, kind: Kind, held: string[]): Promise<{ url?: string; day?: string } & Said> {
+async function keptSource(tenantId: string, path: string, kind: Kind, held: string[]): Promise<{ url?: string; day?: string } & RecordItems> {
   const named = nameDate(path);
   if (kind !== "minutes" && kind !== "daily-log" && (kind !== "document" || named)) return {};
   const file = await workspaceStore().read(tenantId, path).catch(() => null);
@@ -76,7 +76,7 @@ async function keptSource(tenantId: string, path: string, kind: Kind, held: stri
     const record = head.minutes as { decided?: unknown; open?: unknown } | undefined, link = (i: any) => i?.link;
     return {
       ...(typeof head.postedIn === "string" && typeof head.messageId === "string" ? { url: jumpLink(typeof head.guildId === "string" ? head.guildId : null, head.postedIn, head.messageId) } : {}),
-      ...said(held, { decided: itemsOf(record?.decided, textOf, link), open: itemsOf(record?.open, textOf, link) }),
+      ...itemsHolding(held, { decided: itemsOf(record?.decided, textOf, link), open: itemsOf(record?.open, textOf, link) }),
     };
   }
   const text = file.content.split("\n"), title = text.findIndex((l) => l.startsWith("# "));
@@ -93,27 +93,27 @@ async function keptSource(tenantId: string, path: string, kind: Kind, held: stri
   const log = head.log as { decided?: unknown; open?: unknown; next?: unknown; labels?: { noOwner?: string; due?: string } } | undefined;
   const labels = { noOwner: "no owner yet", due: "due", ...log?.labels }, latest = (i: any) => (Array.isArray(i?.links) && i.links.length ? newest(i.links) : undefined);
   const step = (a: any) => (typeof a?.task === "string" ? `${a.owner ?? labels.noOwner}: ${a.task}${a.due ? ` (${labels.due} ${a.due})` : ""}` : undefined);
-  const fromLog = said(held, { decided: itemsOf(log?.decided, textOf, latest), open: itemsOf(log?.open, textOf, latest), next: itemsOf(log?.next, step, latest) });
+  const fromLog = itemsHolding(held, { decided: itemsOf(log?.decided, textOf, latest), open: itemsOf(log?.open, textOf, latest), next: itemsOf(log?.next, step, latest) });
   return { ...(settled ? { url: newest(settled.links) } : matched[0] ? { url: matched[0].links[0] } : {}), ...fromLog };
 }
 
-type SaidItem = { text: string; url: string };
+type RecordItem = { text: string; url: string };
 /**
  * What a Minutes or Daily log record says about the question (#259): its decided and open items (a Daily log's next steps too) that
  * hold a query word, each with its message link. The two lines a match shows often hold only the head's keywords, not the decision.
  */
-type Said = { decided?: SaidItem[]; open?: SaidItem[]; next?: SaidItem[] };
-const SAID_PARTS = ["decided", "open", "next"] as const;
+type RecordItems = { decided?: RecordItem[]; open?: RecordItem[]; next?: RecordItem[] };
+const RECORD_LISTS = ["decided", "open", "next"] as const;
 const textOf = (i: any) => i?.text;
 /** A record list's items with their text and message link; an item missing either is skipped. */
-const itemsOf = (list: unknown, text: (i: any) => unknown, url: (i: any) => unknown): SaidItem[] => (Array.isArray(list) ? list : []).flatMap((i) => {
+const itemsOf = (list: unknown, text: (i: any) => unknown, url: (i: any) => unknown): RecordItem[] => (Array.isArray(list) ? list : []).flatMap((i) => {
   const t = text(i), u = url(i);
   return typeof t === "string" && typeof u === "string" ? [{ text: t, url: u }] : [];
 });
-/** Of each part, the SAID items holding the most of `held`, ties to the earlier one; a part with none is left out. */
-const said = (held: string[], parts: Record<string, SaidItem[]>): Said => Object.fromEntries(Object.entries(parts).flatMap(([part, items]) => {
-  const found = linesHolding(held, items.map((i, line) => ({ ...i, line }))).slice(0, SAID);
-  return found.length ? [[part, found.map((i) => ({ text: clip(i.text, LINE_CHARS), url: i.url }))]] : [];
+/** Of each of the record's lists, at most ITEMS_PER_LIST items, those holding the most of `held`, ties to the earlier one; a list with none is left out. */
+const itemsHolding = (held: string[], lists: Record<string, RecordItem[]>): RecordItems => Object.fromEntries(Object.entries(lists).flatMap(([list, items]) => {
+  const found = linesHolding(held, items.map((i, line) => ({ ...i, line }))).slice(0, ITEMS_PER_LIST);
+  return found.length ? [[list, found.map((i) => ({ text: clip(i.text, LINE_CHARS), url: i.url }))]] : [];
 }));
 
 /** Why a part whose tool is not offered here is not searched, when the cause is that no scope opens its accounts (its tools are then hidden). */
@@ -147,12 +147,12 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
 
   const keptItems = await Promise.all(kept.matches.map(async (m) => {
     const rel = m.path.slice(m.source.folder.length + 1), kind = KIND_OF[rel.split("/")[0]!] ?? "document";
-    const { url, day, ...saidHere } = await keptSource(ctx.tenantId, m.path, kind, m.held), named = nameDate(m.path) || day;
+    const { url, day, ...recordItems } = await keptSource(ctx.tenantId, m.path, kind, m.held), named = nameDate(m.path) || day;
     const dated = named ? `${t.keptKinds[kind]} ${named}` : t.keptFiled(t.keptKinds[kind], isoInZone(zone, m.modified).slice(0, 10));
     return {
       ref: refFor(ctx, "K"), label: `${m.source.label} · ${dated}`, ...(url ? { url } : {}),
       path: agentPaths(m.source.root, m.source.folder)(m.path), lines: m.lines.slice(0, LINES).map((l) => ({ line: l.line, text: clip(l.text, LINE_CHARS) })),
-      ...saidHere, ...(m.strong ? {} : { partial: true as const }),
+      ...recordItems, ...(m.strong ? {} : { partial: true as const }),
     };
   }));
   const taskGroups: any[] = "data" in tasks ? (tasks.data.groups ?? []).filter((g: any) => !only || g.group === only.label) : [];
@@ -211,17 +211,20 @@ async function unlogged(store: ReturnType<typeof workspaceStore>, tenantId: stri
 }
 
 /**
- * Drops matching lines, then the decided, open and next items of kept files from the lowest-ranked up, then the lowest-ranked item
- * of the longest part, until the result fits RECALL_BUDGET characters.
+ * Until the result fits RECALL_BUDGET characters, drops the decided, open and next items of the kept files below the best, from the
+ * lowest-ranked up, so they never cost a file its second matching line (#259); then the second lines; then the best file's items; then
+ * the lowest-ranked item of the longest part.
  */
-function withinBudget<R extends { kept: ({ lines: unknown[] } & Said)[]; tasks: unknown[]; work: unknown[]; workItems: unknown[] }>(result: R): R & { cut?: true } {
+function withinBudget<R extends { kept: ({ lines: unknown[] } & RecordItems)[]; tasks: unknown[]; work: unknown[]; workItems: unknown[] }>(result: R): R & { cut?: true } {
   const size = () => JSON.stringify(result).length;
   if (size() <= RECALL_BUDGET) return result;
-  for (const k of result.kept) k.lines = k.lines.slice(0, 1);
-  for (const k of [...result.kept].reverse()) {
+  const [best, ...below] = result.kept, dropItems = (k: RecordItems) => { for (const list of RECORD_LISTS) delete k[list]; };
+  for (const k of below.reverse()) {
     if (size() <= RECALL_BUDGET) break;
-    for (const part of SAID_PARTS) delete k[part];
+    dropItems(k);
   }
+  if (size() > RECALL_BUDGET) for (const k of result.kept) k.lines = k.lines.slice(0, 1);
+  if (best && size() > RECALL_BUDGET) dropItems(best);
   const parts = [result.kept, result.tasks, result.work, result.workItems] as unknown[][];
   while (size() > RECALL_BUDGET) {
     const longest = parts.reduce((a, b) => (b.length > a.length ? b : a));

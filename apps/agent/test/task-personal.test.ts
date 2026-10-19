@@ -94,7 +94,9 @@ discordScenario("from a DM a person files a task into a project by naming its ch
 
   s.model.script({ tool: "createTask", args: { title: "Draft the Q4 report", channel: "#laporan-q4", assignedTo: "bob" } }, lastResult);
   await s.discord.send("catat di #laporan-q4: draft the Q4 report, for Bob", { channel: dm });
-  expect(JSON.parse(s.discord.botMessages.at(-1)!.content).success).toBe(true);
+  expect(JSON.parse(s.discord.botMessages.filter((m) => m.channelId === dm.id).at(-1)!.content).success).toBe(true);
+  // Bob is told in #laporan-q4, where the task is and he can view it, not in the DM (#260).
+  expect(s.discord.botMessages.filter((m) => m.allowedMentions?.users?.length).map((m) => [m.channelId, m.allowedMentions!.users])).toEqual([["channel-2", ["user-bob"]]]);
   const [path] = await files(s, TASKS);
   const file = (await s.workspace.read(path!))!;
   expect(file).toContain('title: "Draft the Q4 report"');

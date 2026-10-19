@@ -14,8 +14,13 @@ export function languageOf(text: string, least = 3): Language | "unknown" {
   return en + id < least || en === id ? "unknown" : en > id ? "en" : "id";
 }
 
-/** The language for the bot's own text about these messages: Indonesian when they read so, English otherwise. Chat is short, so two function words decide. */
-export const replyLanguage = (...texts: (string | null | undefined)[]): Language => (languageOf(texts.filter(Boolean).join("\n"), 2) === "id" ? "id" : "en");
+/** The language messages clearly read as, or undefined when they show none. Chat is short, so two function words decide. */
+export const shownLanguage = (...texts: (string | null | undefined)[]): Language | undefined => {
+  const language = languageOf(texts.filter(Boolean).join("\n"), 2);
+  return language === "unknown" ? undefined : language;
+};
+/** The language for the bot's own text about these messages: the one they read as, English when they show none. */
+export const replyLanguage = (...texts: (string | null | undefined)[]): Language => shownLanguage(...texts) ?? "en";
 
 export const DEFAULT_LANGUAGE: Language = "id";
 export const isLanguage = (value: unknown): value is Language => value === "id" || value === "en";
@@ -70,6 +75,7 @@ const en = {
   sourceReadOnly: "Another channel's files can only be read from here; they are changed in that channel.",
   notQuotableHere: "Files from there cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.",
   tasksNotShownHere: (n: number) => `${n} more matching ${n === 1 ? "task" : "tasks"} you can see cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.`,
+  taskNotShownHere: (id: string) => `Task with ID ${id} cannot be shown or changed in this channel. Nothing was changed. Do not say what or where it is; suggest asking in a DM instead.`,
   notShownHere: (n: number) => `${n} more matching ${n === 1 ? "file" : "files"} you can read cannot be shown in this channel. Do not say what or where they are; suggest asking in a DM instead.`,
   keptKinds: { minutes: "Minutes", "daily-log": "Daily log", decision: "Decision", note: "Note", document: "Document" },
   keptFiled: (kind: string, day: string) => `${kind}, filed ${day}`,
@@ -277,6 +283,7 @@ const id: typeof en = {
   sourceReadOnly: "File channel lain hanya bisa dibaca dari sini; mengubahnya dilakukan di channel itu.",
   notQuotableHere: "File dari sana tidak bisa ditampilkan di channel ini. Jangan sebutkan isi atau tempatnya; sarankan bertanya lewat DM.",
   tasksNotShownHere: (n) => `${n} tugas lain yang cocok dan bisa kamu lihat tidak bisa ditampilkan di channel ini. Jangan sebutkan isi atau tempatnya; sarankan bertanya lewat DM.`,
+  taskNotShownHere: (id) => `Task dengan ID ${id} tidak bisa ditampilkan atau diubah di channel ini. Tidak ada yang diubah. Jangan sebutkan isi atau tempatnya; sarankan bertanya lewat DM.`,
   notShownHere: (n) => `${n} file lain yang cocok dan bisa kamu baca tidak bisa ditampilkan di channel ini. Jangan sebutkan isi atau tempatnya; sarankan bertanya lewat DM.`,
   keptKinds: { minutes: "Notulen", "daily-log": "Log harian", decision: "Keputusan", note: "Catatan", document: "Dokumen" },
   keptFiled: (kind, day) => `${kind}, disimpan ${day}`,

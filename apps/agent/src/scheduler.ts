@@ -84,7 +84,7 @@ async function ownerTaskLines(row: Schedule, discord: DiscordClientAdapter | nul
   const sources = await scopeSources(store, { tenantId: row.tenantId, guildId: row.guildId ?? undefined, userId: row.ownerId, discord: discord ?? undefined });
   const groups = groupTasks((await tasksIn(store, row.tenantId, sources)).filter((f) => isOpen(f.task) && inScope("mine", owner)(f)), sources, row.timezone);
   const heading = (source: TaskSource) => (source.kind === "personal" ? strings.personalTasks : source.kind === "shared" ? strings.sharedTasks : source.label);
-  const chunks = (await readGroups(store, row.tenantId, groups, MAX_SCOPED)).flatMap((g) => g.tasks.map((t, n) => [...(n ? [] : [heading(g.source)]), taskLine(t, row.timezone, at)]));
+  const chunks = (await readGroups(store, row.tenantId, groups, MAX_SCOPED)).flatMap((g) => g.tasks.map((f, n) => [...(n ? [] : [heading(g.source)]), taskLine(f.task, row.timezone, at)]));
   if (chunks[0]) chunks[0].unshift(strings.openTasks);
   return { chunks, unlisted: groups.reduce((n, g) => n + g.tasks.length, 0) - chunks.length };
 }

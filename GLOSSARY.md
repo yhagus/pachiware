@@ -137,7 +137,7 @@ A dated line on a task saying who reported what about it. Notes accumulate; they
 _Avoid_: Comment, update, Note (a Note is a file of its own)
 
 **Due date**:
-The day, and optionally the time, by which a task should be done. A task without one is not late. Set and changed by anyone in the task's channel, like the rest of the task.
+The day, and optionally the time, by which a task should be done. A task without one is not late. Set and changed, like the rest of the task, by anyone who can view the task's channel, from any channel whose tasks they can view.
 _Avoid_: Deadline (reserved for people's wording in minutes), ETA
 
 **Reminder**:
@@ -203,4 +203,5 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A **Daily log** is written by one **Bot** of the tenant, following a **Playbook** that only the schedule starts; it covers one channel and one day, with the channel's public threads; a private thread and a DM never get one. The messages stay in Discord: the Daily log links to them and keeps no copy, and what rests only on a deleted message leaves it.
 - **Minutes**, **Daily logs**, **Decisions**, **Notes** and **Documents** of a channel can be read from another channel of the same guild, or from a DM, by someone who can view that channel, unless an **Availability rule** turns the Workspace off there; only a **Public channel**'s may be quoted in a channel other than their own. **Memory** is never read this way.
 - When someone asks whether work was done, the **Tasks** of the channels they can view are read under the same rules as **Sources**: only a **Public channel**'s may be quoted in a channel other than their own.
+- A **Task** is changed by its id from any channel whose tasks the asker can view, under the same rules: one that may not be shown here is changed only from its own channel or a DM. It stays in its own **Project**, and its **Assignee** is told there.
 - What the bot kept from a private thread belongs to that thread: only people added to it can have it read, in its parent channel too. Inside another private thread of the same channel it is a **Source** that is not quotable.

@@ -7,7 +7,7 @@ import { checklistOf, checklistLine, tickItem } from "./checklist.js";
 import { historyEntry, historyLine, noteLine, progressNote } from "./progressNotes.js";
 import { PRIORITIES, STATUSES, dueAtArg, dueBound, dueMoment, isLate, isOpen, loadTasks, parseTask, readInFull, render, slug, taskLine, walkTasks, type Found, type MadeFrom, type Task, type TaskPriority, type TaskStatus } from "./taskFile.js";
 import { findProject, linkHeld, mustHold, personalTasksOf, taskChannelOf } from "./taskAccess.js";
-import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, anywhereSources, groupTasks, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
+import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, anywhereSources, groupTasks, inFolders, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
 import { textIn } from "../language.js";
 import { tasksFromMinutes } from "./minutesTasks.js";
 import { fileWords, matchWords, queriesTerms, scoreOf, wordingsOf } from "../workspace/terms.js";
@@ -219,7 +219,7 @@ export const taskManagementSkill: SkillModule = {
       const task: Task = { id, title: args.title.trim(), description: args.description?.trim() || null, status: "pending", priority: args.priority ?? "medium", assignedTo: who?.assignee ?? null, dueAt, createdBy: ctx.userId ?? null, createdByName: ctx.userName ?? null, createdAt: at, updatedAt: at, ...(madeFrom ? { madeFrom } : {}) };
       await workspaceStore().write(ctx.tenantId, `${home}/${slug(task.title)}-${id.slice(0, 8)}.md`, render(task));
       await labelTaskFolder(ctx);
-      return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.${who?.nameOnly ? nameOnlyNote(who.assignee, ctx) : ""}`, task };
+      return { success: true, message: `Task "${task.title}" created successfully with ID ${id}.${who?.nameOnly ? nameOnlyNote(who.assignee, ctx) : ""}`, task, ...channelOfTask(`${home}/`) };
     },
 
     listTasks: async (args: { scope?: Scope; status?: TaskStatus | "all"; assignedTo?: string; query?: string; queries?: unknown; dueAfter?: string; dueBefore?: string; late?: boolean | string; limit?: number }, ctx: SkillContext) => {
@@ -240,17 +240,17 @@ export const taskManagementSkill: SkillModule = {
         .sort((a, b) => (byDue ? (a.due ?? Infinity) - (b.due ?? Infinity) || a.t.createdAt.localeCompare(b.t.createdAt) : (b.f.score ?? 0) - (a.f.score ?? 0) || b.t.createdAt.localeCompare(a.t.createdAt)));
       // A task of a source that may not be shown here is only counted, as files are.
       const hidden = sources?.filter((s) => s.quotable === false).flatMap((s) => s.folders) ?? [];
-      const found = all.filter((x) => !hidden.some((folder) => x.f.path.startsWith(`${folder}/`))), notShownHere = all.length - found.length;
+      const found = all.filter((x) => !inFolders(x.f.path, hidden)), notShownHere = all.length - found.length;
       if (sources) {
         // A query shows its best matches, cut before grouping so a better match in a later group is not left out; the best one's group comes first.
-        const cap = Math.min(MAX_SCOPED, limit), ranked = queries.length > 0 && !byDue, partial = new Set(found.filter((x) => x.f.partial).map((x) => x.t.id));
+        const cap = Math.min(MAX_SCOPED, limit), ranked = queries.length > 0 && !byDue;
         const groups = ranked ? groupTasks(found.slice(0, cap).map((x) => x.f), sources, zone, (f) => f.score ?? 0) : groupTasks(found.map((x) => x.f), sources, zone);
         const kept = await readGroups(store, ctx.tenantId, groups, cap);
         const shown = kept.reduce((n, g) => n + g.tasks.length, 0), more = found.length - shown;
         return {
           scope, total: found.length, shown,
           ...(more > 0 && { more, note: `${more} more not shown. Say how many more there are; a status, query, or due date filter narrows the list to show them.` }),
-          groups: kept.map((g) => ({ group: g.source.label, ...(g.source.channelId && { channelId: g.source.channelId }), tasks: g.tasks.map((t) => ({ ...t, late: isLate(t, zone, at), line: taskLine(t, zone, at), ...(partial.has(t.id) && { partial: true }) })) })),
+          groups: kept.map((g) => ({ group: g.source.label, ...(g.source.channelId && { channelId: g.source.channelId }), tasks: g.tasks.map(({ task: t, partial }) => ({ ...t, late: isLate(t, zone, at), line: taskLine(t, zone, at), ...(partial && { partial }) })) })),
           ...(notShownHere && { notShownHere, suggestion: textIn(ctx.language).tasksNotShownHere(notShownHere) }),
         };
       }
@@ -268,13 +268,15 @@ export const taskManagementSkill: SkillModule = {
 
     assignTask: async (args: { taskId: string; assignedTo: string }, ctx: SkillContext) => {
       if (typeof args.assignedTo !== "string" || !args.assignedTo.trim()) throw new Error("assignedTo is required");
-      const who = await resolveAssignee(args.assignedTo, ctx);
+      // A name is looked up among the members of the task's own server, wherever it is asked from (#260).
+      const found = await findTask(ctx, args.taskId), place = taskPlace(ctx, found.hit.path);
+      const who = await resolveAssignee(args.assignedTo, place);
       if ("candidates" in who) return ambiguousAssignee(args.assignedTo, who.candidates);
-      const updated = await change(ctx, args.taskId, async (t, path) => {
+      const updated = await change(ctx, found, async (t, path) => {
         if (!who.nameOnly) await mustHold(ctx, path, who.assignee);
         return { ...t, assignedTo: who.assignee };
       });
-      return { success: true, message: `Task "${updated.title}" assigned to @${assigneeLabel(updated.assignedTo)}.${who.nameOnly ? nameOnlyNote(who.assignee, ctx) : ""}`, task: updated };
+      return { success: true, message: `Task "${updated.title}" assigned to @${assigneeLabel(updated.assignedTo)}.${who.nameOnly ? nameOnlyNote(who.assignee, place) : ""}`, task: updated, ...channelOfTask(found.hit.path) };
     },
 
     setTaskDueDate: async (args: { taskId: string; dueAt?: string | null }, ctx: SkillContext) => {
@@ -337,10 +339,25 @@ export const taskManagementSkill: SkillModule = {
 };
 
 /** The turn as if it were in a project channel `findProject` found: still the asker's turn, in that channel's guild. */
-function projectPlace(ctx: SkillContext, channel: FoundChannel): SkillContext {
+function projectPlace(ctx: SkillContext, channel: Pick<FoundChannel, "id" | "guildId"> & Partial<FoundChannel>): SkillContext {
   const { id, name, guildId, guildName } = channel;
   return { ...ctx, guildId, guildName, channelId: id, channelName: name, parentChannelId: undefined, discord: ctx.discord?.forGuild(guildId) };
 }
+
+/**
+ * The turn as if it were in the project channel of the task at `path`, so a name is looked up and linked among that server's members:
+ * a write by id reaches a task of another server's channel, or comes from a DM, which has none (#260). This turn's own place otherwise.
+ */
+function taskPlace(ctx: SkillContext, path: string): SkillContext {
+  const home = taskChannelOf(path);
+  return home && home.guildId !== ctx.guildId ? projectPlace(ctx, { id: home.channelId, guildId: home.guildId }) : ctx;
+}
+
+/** The channel a project task is in, given with a write that hands it to someone: the host pings its Assignee there, where they can view it. */
+const channelOfTask = (path: string) => {
+  const home = taskChannelOf(path);
+  return home ? { channelId: home.channelId } : {};
+};
 
 /** The turn as if it were in the project channel a person named from a DM: still their turn, in that channel's guild. Throws, creating nothing, when they cannot file there. */
 async function filingPlace(ctx: SkillContext, channel: string): Promise<SkillContext> {
@@ -415,31 +432,33 @@ function changesOf(before: Task, after: Task): string[] {
 }
 
 const LATEST_NOTES = 3, LATEST_HISTORY = 5;
+type FoundTask = { hit: Found; task: Task };
 /**
  * One task by id or id prefix, read in full (description and notes), with the file it was found in: among this place's folders first,
  * then among the tasks of every channel listTasks scope anywhere reads (#260), so a task is changed from wherever its channel's tasks
  * can be viewed. One of a channel whose tasks may not be shown here is refused without naming it.
  */
-async function findTask(ctx: SkillContext, taskId: string): Promise<{ hit: Found; task: Task }> {
+async function findTask(ctx: SkillContext, taskId: string): Promise<FoundTask> {
   if (typeof taskId !== "string" || !/^[0-9a-f-]{8,36}$/.test(taskId)) throw new Error(`Task with ID ${taskId} not found.`);
   const store = workspaceStore(), prefix = taskId.slice(0, 8), byId = (found: Found[]) => found.find((f) => f.task.id.startsWith(taskId));
   let hit = byId(await loadTasks(store, ctx, prefix));
   if (!hit) {
     const sources = await anywhereSources(store, ctx);
     hit = byId(await walkTasks(store, ctx.tenantId, sources.flatMap((s) => s.folders), prefix));
-    const hidden = hit && sources.some((s) => s.quotable === false && s.folders.some((folder) => hit!.path.startsWith(`${folder}/`)));
-    if (hidden) throw new Error(`Task with ID ${taskId} cannot be shown or changed in this channel. Nothing was changed. Do not say what or where it is; suggest asking in a DM instead.`);
+    const hidden = hit && sources.some((s) => s.quotable === false && inFolders(hit!.path, s.folders));
+    if (hidden) throw new Error(textIn(ctx.language).taskNotShownHere(taskId));
   }
   const file = hit && (await store.read(ctx.tenantId, hit.path).catch(() => null)), task = file && parseTask(file.content);
   if (!hit || !task) throw new Error(`Task with ID ${taskId} not found.`);
   return { hit, task };
 }
 
-async function change(ctx: SkillContext, taskId: string, edit: (t: Task, path: string) => Task | Promise<Task>): Promise<Task> {
-  const { hit, task: parsed } = await findTask(ctx, taskId), store = workspaceStore();
+/** A task by id, or one `findTask` already found, edited and written back; the write fails when the file changed since it was read. */
+async function change(ctx: SkillContext, target: string | FoundTask, edit: (t: Task, path: string) => Task | Promise<Task>): Promise<Task> {
+  const { hit, task: parsed } = typeof target === "string" ? await findTask(ctx, target) : target, store = workspaceStore();
   const edited = await edit(parsed, hit.path);
-  // A name-only Assignee the edit kept is linked when its name now matches exactly one member who may hold the task.
-  const assignedTo = edited.assignedTo === parsed.assignedTo ? await linkHeld(ctx, hit.path, edited.assignedTo) : edited.assignedTo;
+  // A name-only Assignee the edit kept is linked when its name now matches exactly one member, of the task's server, who may hold the task.
+  const assignedTo = edited.assignedTo === parsed.assignedTo ? await linkHeld(ctx, hit.path, edited.assignedTo, taskPlace(ctx, hit.path)) : edited.assignedTo;
   const next = recordChange(parsed, { ...edited, assignedTo }, ctx);
   try { await store.write(ctx.tenantId, hit.path, render(next), hit.version); }
   catch (e) { if (e instanceof WorkspaceConflict) throw new Error("The task was changed by someone else just now. Try again."); throw e; }
@@ -459,7 +478,7 @@ async function move(ctx: SkillContext, taskId: string, channel: string): Promise
   const sharedIn = /^guilds\/([\w-]+)\/shared\//.exec(hit.path)?.[1];
   if (sharedIn && sharedIn !== found.channel.guildId) throw new Error(`Task "${parsed.title}" is in a server's shared tasks, so it only moves into one of its own server's channels, and #${found.channel.name} is in another. Nothing was changed.`);
   const place = projectPlace(ctx, found.channel), folder = taskHome(place);
-  if (hit.path.startsWith(`${folder}/`)) throw new Error(`Task "${parsed.title}" is already in #${found.channel.name}. Nothing was changed.`);
+  if (inFolders(hit.path, [folder])) throw new Error(`Task "${parsed.title}" is already in #${found.channel.name}. Nothing was changed.`);
   const to = `${folder}/${hit.path.split("/").pop()}`;
   if (parsed.assignedTo) await mustHold(ctx, to, parsed.assignedTo);
   // A name-only Assignee is linked against the destination's guild, as `change()` does for its own.
@@ -500,7 +519,7 @@ async function summary(ctx: SkillContext, scope: "here" | "anywhere") {
   const store = workspaceStore(), zone = zoneOf(ctx), at = now();
   const sources = scope === "anywhere" ? (await anywhereSources(store, ctx)).filter((s) => s.kind === "project") : null;
   const found = sources ? await tasksIn(store, ctx.tenantId, sources) : await loadTasks(store, ctx);
-  const groups = sources ? sources.map((s) => ({ label: s.label, quotable: s.quotable !== false, tasks: found.filter((f) => s.folders.some((folder) => f.path.startsWith(`${folder}/`))).map((f) => f.task) }))
+  const groups = sources ? sources.map((s) => ({ label: s.label, quotable: s.quotable !== false, tasks: found.filter((f) => inFolders(f.path, s.folders)).map((f) => f.task) }))
     : [{ label: ctx.channelName ? `#${ctx.channelName}` : "here", quotable: true, tasks: found.map((f) => f.task) }];
   const shown = groups.filter((g) => g.quotable && g.tasks.length), notShownHere = groups.filter((g) => !g.quotable && g.tasks.length).length;
   return {

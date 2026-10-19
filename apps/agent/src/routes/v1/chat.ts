@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { GuardrailService, audit, isEnforced } from "@pachiware/skills";
+import { GuardrailService, audit, isEnforced, shownLanguage } from "@pachiware/skills";
 import type { TenantEnv } from "../../middleware/tenant.js";
 import { agentReActLoop } from "../../loop/react.js";
 import { object, string } from "../validation.js";
@@ -17,7 +17,7 @@ chatRoutes.post("/", async (c) => {
   }
   const steps: any[] = [];
   try {
-    const output = await agentReActLoop.run({ tenantId: c.get("tenantId"), message, conversationId, context: { tenantId: c.get("tenantId"), platform: "web", userName: "Operator", userId: "web-operator" }, onStep: (step) => steps.push(step) });
+    const output = await agentReActLoop.run({ tenantId: c.get("tenantId"), message, conversationId, context: { tenantId: c.get("tenantId"), platform: "web", userName: "Operator", userId: "web-operator", answerIn: shownLanguage(message) }, onStep: (step) => steps.push(step) });
     return c.json({ success: true, reply: output.reply, conversationId: output.conversationId, iterations: output.iterations, toolsExecuted: output.toolCallsExecuted, steps });
   } catch (err: any) {
     if (err.message === "Conversation not found") throw new HTTPException(404, { message: err.message });

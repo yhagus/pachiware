@@ -89,3 +89,35 @@ test("web chat cannot read or search another channel's Minutes", () => {
     expect(decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("web chat names the language of the person's message to answer in, as Discord does, and none when the words show no language", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pachiware-webchat-"));
+  try {
+    const r = Bun.spawnSync({
+      cmd: ["bun", "--eval", `
+        const imp = (p) => import(${JSON.stringify(w + "/")} + p);
+        const { runMigrations } = await imp("packages/db/src/migrate.ts");
+        const { runSeed } = await imp("packages/db/src/seed.ts");
+        const { repositories } = await imp("packages/db/src/index.ts");
+        await runMigrations(); await runSeed();
+        const t = await repositories().tenants.create({ name: "Web", slug: "web" }); const key = await repositories().tenants.issueApiKey("web");
+        await repositories().tenants.linkApiKey(t.id, key.keyId);
+        const { createServer } = await imp("apps/agent/src/server.ts"); const app = createServer();
+        const headers = { Authorization: "Bearer " + key.raw, "Content-Type": "application/json", "X-Tenant-Id": t.id };
+        await app.request("/api/v1/config", { method: "PUT", headers, body: JSON.stringify({ openaiApiKeyEncrypted: "mock-openai-key" }) });
+        const named = [];
+        globalThis.fetch = async (_url, init) => {
+          const sent = JSON.parse(init.body).messages.map((m) => typeof m.content === "string" ? m.content : "").join("\\n");
+          named.push([...sent.matchAll(/^Reply in: (\\w+)/gm)].map((m) => m[1]));
+          return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { headers: { "Content-Type": "application/json" } });
+        };
+        for (const message of ["task bluetooth itu sudah sampai mana?", "what is the status of the bluetooth task?", "ENG-42?"]) await app.request("/api/v1/chat", { method: "POST", headers, body: JSON.stringify({ message }) });
+        console.log(JSON.stringify(named));
+      `],
+      cwd: w,
+      env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "w.db")}`, WORKSPACE_DIR: join(dir, "workspace"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
+    });
+    expect(decode(r.stderr).trim()).toBe("");
+    expect(JSON.parse(decode(r.stdout).trim().split("\n").at(-1)!)).toEqual([["Indonesian"], ["English"], []]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

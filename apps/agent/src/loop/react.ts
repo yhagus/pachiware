@@ -16,10 +16,7 @@ export interface ReActInput {
   /** Sent with this turn only; `message` should already name them, since that text is what history keeps. */
   images?: ImagePart[];
   conversationId?: string;
-  /**
-   * The language the person wrote in, for a refusal they read; detected from `message` when absent. `context.language` stays the place's,
-   * and `context.replyLanguage` names this language to the model, set only when the person's words clearly show it.
-   */
+  /** The language the person wrote in, for a refusal they read; detected from `message` when absent. `context.language` stays the place's. */
   replyLanguage?: Language;
   context: PromptContext & {
     skillContext?: Partial<SkillContext> & { member?: MemberAuth };

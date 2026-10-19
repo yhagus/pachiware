@@ -8,7 +8,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
 import { prepareReply, replyQuietly, splitReply, withNotes, type ReplyPlan } from "./replyStyle.js";
@@ -55,14 +55,16 @@ const commandTurn = (i: ChatInputCommandInteraction, channel: SendableChannels, 
   attachments: attachmentsOf(file), reply: (payload: any) => channel.send(payload), react: async () => {},
 }) as unknown as Message;
 // A guild member from the cache has a roles collection; one sent raw with an interaction has an id array.
-type Assignment = { assigneeId: string; title: string; dueAt: string | null };
+/** `channelId` is the channel the task is in, when the write says so. */
+type Assignment = { assigneeId: string; title: string; dueAt: string | null; channelId?: string };
 /** The member Assignees this turn's task writes gave work to, from createTask, assignTask and tasksFromMinutes results (#250). */
 function assignmentsOf(executed: { call: { name: string }; result: { success: boolean; data?: any } }[]): Assignment[] {
   return executed.flatMap(({ call, result }): Assignment[] => {
     if (!result.success) return [];
     if (call.name === "tasksFromMinutes") return (result.data?.created ?? []).filter((c: any) => c.assigneeId).map((c: any) => ({ assigneeId: c.assigneeId, title: c.title, dueAt: c.dueAt }));
     const task = (call.name === "createTask" || call.name === "assignTask") && result.data?.success !== false ? result.data?.task : null;
-    return task?.assignedTo?.id ? [{ assigneeId: task.assignedTo.id, title: task.title, dueAt: task.dueAt }] : [];
+    const channelId = typeof result.data?.channelId === "string" ? result.data.channelId : undefined;
+    return task?.assignedTo?.id ? [{ assigneeId: task.assignedTo.id, title: task.title, dueAt: task.dueAt, ...(channelId ? { channelId } : {}) }] : [];
   });
 }
 /**
@@ -76,6 +78,21 @@ async function tellAssignees(channel: any, assignments: Assignment[], actorId: s
   const t = textIn(language);
   // One message per person keeps every ping under Discord's length limit; a long list is split at line breaks.
   for (const [id, tasks] of byPerson) for (const content of splitReply(t.assigned(`<@${id}>`, tasks))) await channel.send({ content, allowedMentions: { users: [id] } }).catch(() => {});
+}
+/**
+ * `tellAssignees` where each Assignee can view their task (#260): a task of this turn's channel (`projectChannelId`, a thread's parent)
+ * in the turn's own channel or thread, and one of another channel, written from here or from a DM, in that channel, in its server's language.
+ */
+async function tellAssigneesWhereTasksAre(runtime: BotRuntime, botId: string, turn: { target: any; guildId: string | null; projectChannelId?: string; language: Language }, assignments: Assignment[], actorId: string) {
+  const botUserId = runtime.client.user?.id, elsewhere = new Map<string, Assignment[]>();
+  for (const a of assignments) if (a.channelId && a.channelId !== turn.projectChannelId) elsewhere.set(a.channelId, [...(elsewhere.get(a.channelId) ?? []), a]);
+  if (turn.guildId) await tellAssignees(turn.target, assignments.filter((a) => !a.channelId || a.channelId === turn.projectChannelId), actorId, botUserId, turn.language);
+  for (const [id, theirs] of elsewhere) {
+    const channel: any = await runtime.client.channels.fetch(id).catch(() => null);
+    if (!channel?.isSendable?.()) continue;
+    const guild = channel.guildId ? await loadGuildSettings(runtime.tenantId, botId, channel.guildId) : null;
+    await tellAssignees(channel, theirs, actorId, botUserId, configuredLanguage(guild, await repositories().agentConfig.get(runtime.tenantId)));
+  }
 }
 
 const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
@@ -565,9 +582,9 @@ export class DiscordBotManager {
     const botUserId = runtime.client.user?.id;
     const working = await Promise.all(items.filter((i) => i.direct !== false && i.msg.author.id !== botUserId).map((i) => i.msg.react("⏳").catch(() => null)));
     const send = (content: string) => thread ? thread.send({ content, allowedMentions: { parse: [] } }) : msg.reply({ content, allowedMentions: { parse: [] } });
-    const said = items.map((i) => i.text).join("\n"), language = replyLanguage(said), t = textIn(language);
-    // Named to the model as the language to answer in only when the people's own words show it, not the quotes and framing around them.
-    const heard = languageOf(said, 2);
+    // The language to answer in is judged on the people's own words, not the quotes and framing around them (#257).
+    const shown = shownLanguage(items.map((i) => i.text).join("\n")), language: Language = shown ?? "en", t = textIn(language);
+    const projectChannelId = (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined;
     try {
       const agent = await repositories().agentConfig.get(runtime.tenantId);
       const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
@@ -593,7 +610,7 @@ export class DiscordBotManager {
       const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
       const shots = place && !brief?.outsider ? media.shots : [];
       if (shots.length) await recordBriefImages(runtime.tenantId, place!, shots).catch(() => null);
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), replyLanguage: heard === "unknown" ? undefined : heard, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined } } });
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       const briefed = briefTurn(output.toolCallsExecuted);
@@ -609,7 +626,7 @@ export class DiscordBotManager {
           const p = result.success ? pendingOf(result.data) : null;
           if (p) await target.send(confirmMessage(p, actor.id));
         }
-        if (msg.guildId) await tellAssignees(target, assignmentsOf(output.toolCallsExecuted), actor.id, botUserId, configuredLanguage(guild, agent));
+        await tellAssigneesWhereTasksAre(runtime, botId, { target, guildId: msg.guildId, projectChannelId, language: configuredLanguage(guild, agent) }, assignmentsOf(output.toolCallsExecuted), actor.id);
       }
       for (const f of output.imagesRejected ? [] : images?.filed ?? []) {
         const seen = await describeImage(runtime.tenantId, botId, f.image);

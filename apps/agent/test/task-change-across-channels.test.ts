@@ -85,3 +85,32 @@ discordScenario("a Task of a channel that is not a Public channel is not changed
   expect(await redate("push the devices budget to next Friday", s.discord.channel(`dm-${s.discord.alice.id}`, { dm: true }))).toBe('Task "Budget for the beta devices" is due 2026-10-23.');
   expect(await s.workspace.read(BUDGET)).toContain("## History\n- 2026-10-14 10:05 Alice: due 2026-10-20 → 2026-10-23\n");
 });
+
+/** Where each Assignee ping went: its channel and who it pinged. */
+const pings = (s: Scenario) => s.discord.botMessages.filter((m) => m.allowedMentions?.users?.length).map((m) => [m.channelId, m.allowedMentions!.users]);
+const dm = (s: Scenario) => s.discord.channel(`dm-${s.discord.alice.id}`, { dm: true });
+
+discordScenario("from a DM, a #mobile Task given to Bob by name holds the member, and Bob is pinged in #mobile, where the Task is", async (s) => {
+  await threeChannels(s);
+  s.model.script({ tool: "assignTask", args: { taskId: "c0000027", assignedTo: "Bob" } }, said);
+  await s.discord.send("give Joko's regression pass to Bob", { channel: dm(s) });
+  expect(await s.workspace.read(REGRESSION)).toContain(`assignedTo: {"id":"${s.discord.bob.id}","name":"Bob"}`);
+  expect(pings(s)).toEqual([["channel-2", [s.discord.bob.id]]]);
+});
+
+discordScenario("from a DM, a change to a #mobile Task links its name-only Assignee to the one member of that name", async (s) => {
+  await threeChannels(s);
+  await s.workspace.write(REGRESSION, taskFile({ n: 27, title: "Regression pass on the 0.9 beta build", status: "in_progress", dueAt: "2026-10-12", assignee: "Bob" }));
+  s.model.script({ tool: "updateTaskStatus", args: { taskId: "c0000027", status: "completed" } }, said);
+  await s.discord.send("Bob's regression pass is done", { channel: dm(s) });
+  expect(await s.workspace.read(REGRESSION)).toContain(`assignedTo: {"id":"${s.discord.bob.id}","name":"Bob"}`);
+});
+
+discordScenario("asked in #general, a #mobile Task given to Bob pings him in #mobile, which he can view, not in #general, which he cannot", async (s) => {
+  await threeChannels(s);
+  s.discord.deny("channel-1", s.discord.bob.id, ["ViewChannel"]);
+  s.model.script({ tool: "assignTask", args: { taskId: "c0000027", assignedTo: `<@${s.discord.bob.id}>` } }, said);
+  await s.discord.send(`${s.discord.mention} give Joko's regression pass to <@${s.discord.bob.id}>`);
+  expect(await s.workspace.read(REGRESSION)).toContain(`assignedTo: {"id":"${s.discord.bob.id}","name":"Bob"}`);
+  expect(pings(s)).toEqual([["channel-2", [s.discord.bob.id]]]);
+});

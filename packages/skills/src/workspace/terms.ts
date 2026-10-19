@@ -212,7 +212,7 @@ const tally = (keys: string[]) => {
   return counts;
 };
 
-/** Whether a text holds every term of at least one query. Tasks are ranked instead, partial matches kept (`matching` in builtin/tasks.ts). */
+/** Whether a text holds every term of at least one query: how commits (git.ts), Plane Work items, Team roster lines and recall's talk items match. */
 export function holdsQuery(queries: string[][], text: string): boolean {
   const counts = tally(textWords(text).keys);
   return queries.some((terms) => terms.every((t) => countOf(counts, t) > 0));

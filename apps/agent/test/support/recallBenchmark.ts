@@ -6,6 +6,8 @@
  * and files kept with and without a topics/keywords header.
  */
 
+import type { Scenario } from "./discordScenario";
+
 /** A channel of the corpus: its id, its name, and the root its files are shown under when asked from #general. */
 const CHANNELS = {
   general: { id: "channel-1", shown: "channel" },
@@ -531,3 +533,42 @@ export const TASK_QUESTIONS: readonly TaskQuestion[] = [
   { group: "other-words", id: "newsletter-sent", asked: "newsletter bulan ini udah dikirim?", queries: ["newsletter bulan ini dikirim", "newsletter sent this month"], expected: ["Newsletter for October"] },
   { group: "other-words", id: "office-booked", asked: "sewa kantor baru udah beres?", queries: ["sewa kantor baru", "office lease signed"], expected: ["Book the new office"] },
 ];
+
+/**
+ * Asks every question in one turn from #general, over the corpus channels holding `files`: one `tool` call per question, `step` calls
+ * per model response, the per-minute tool counters cleared before each (a person may make 30 tool calls a minute). Returns every tool
+ * result of the turn, in order.
+ */
+export async function askAll(s: Scenario, files: readonly KeptFile[], tool: string, questions: readonly { queries: string[] }[], step: number): Promise<any[]> {
+  await s.guildSettings({ language: "en", useThreads: false });
+  for (const c of BENCHMARK_CHANNELS) s.discord.channel(c.id).name = c.name;
+  for (const f of files) await s.workspace.write(f.path, f.content);
+  const { resetGuardrailState } = await import(process.cwd() + "/packages/skills/src/guardrails.ts");
+  const calls = questions.map((q) => ({ tool, args: { queries: q.queries } }));
+  const chunks = Array.from({ length: Math.ceil(calls.length / step) }, (_, i) => calls.slice(i * step, i * step + step));
+  let results: any[] = [];
+  s.model.script(...chunks.map((chunk) => () => {
+    resetGuardrailState();
+    return chunk;
+  }), (turn) => {
+    results = turn.toolResults;
+    return "Done.";
+  }, "The benchmark ran."); // the turn's tool results move the history window, so the rolling summary asks the model once
+  await s.discord.send(`${s.discord.mention} benchmark`);
+  return results;
+}
+
+/** A question's result: the rank (from 1) of the first item shown that `hits`, 0 when none does, and the first three shown. A question with no group is one of v1. */
+export interface Row { id: string; group: string; rank: number; expected: string[]; top3: string[] }
+export const rowOf = (q: { id: string; group?: string; expected: string[] }, shown: string[], hits: (item: string) => boolean): Row =>
+  ({ id: q.id, group: q.group ?? "v1", rank: shown.findIndex(hits) + 1, expected: q.expected, top3: shown.slice(0, 3) });
+export const inTop3 = (r: Row) => r.rank >= 1 && r.rank <= 3;
+
+/** Top-1 hits, top-3 hits and mean reciprocal rank (two places) of the rows; prints every row, then `title` with the totals and `corpus`. */
+export function scored(rows: readonly Row[], title: string, corpus: string) {
+  const top1 = rows.filter((r) => r.rank === 1).length, top3 = rows.filter(inTop3).length;
+  const mrr = Math.round((rows.reduce((sum, r) => sum + (r.rank ? 1 / r.rank : 0), 0) / rows.length) * 100) / 100;
+  console.log(rows.map((r) => `${inTop3(r) ? "HIT " : "MISS"} ${r.group}/${r.id} (rank ${r.rank || "-"})\n     expected: ${r.expected.join(", ")}\n     top 3:    ${r.top3.join(", ") || "(none)"}`).join("\n"));
+  console.log(`${title} top-1: ${top1}/${rows.length}  Top-3: ${top3}/${rows.length}  MRR@10: ${mrr.toFixed(2)}  (${corpus})`);
+  return { top1, top3, mrr };
+}

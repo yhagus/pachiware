@@ -3,7 +3,7 @@ import { safeId } from "../workspace/paths.js";
 import { readableSources } from "../workspace/sources.js";
 import type { WorkspaceStore } from "../workspace/store.js";
 import { isAssignee } from "./assignee.js";
-import { dueMoment, readInFull, walkTasks, type Found, type Task } from "./taskFile.js";
+import { dueMoment, readInFull, walkTasks, type Found } from "./taskFile.js";
 import { personalTasksOf, viewableProjects } from "./taskAccess.js";
 
 /**
@@ -20,9 +20,12 @@ export const MAX_SCOPED = 20;
  * a person's Personal tasks, or the shared task folders of the tenant and its guilds. `folders` are tenant-relative tasks/ folders, walked recursively.
  */
 export interface TaskSource { kind: "project" | "personal" | "shared"; label: string; folders: string[]; guildId?: string; channelId?: string; /** False: its tasks may not be shown here, only counted. */ quotable?: boolean }
-export interface TaskGroup { source: TaskSource; tasks: Found[] }
+/** `F` may carry more than the file, such as a query's `partial`; `readGroups` keeps it. */
+export interface TaskGroup<F extends Found = Found> { source: TaskSource; tasks: F[] }
 
 export const PERSONAL_TASKS = "Personal tasks", SHARED_TASKS = "Shared tasks";
+/** Whether the file at `path` lies under one of `folders` (tenant-relative, as a TaskSource's). */
+export const inFolders = (path: string, folders: readonly string[]) => folders.some((folder) => path.startsWith(`${folder}/`));
 /**
  * The folders a `mine` or `delegated` view of this turn draws from: in a guild, every project channel of it the asker can view;
  * in a DM, those of every guild the bot shares with the asker, each label naming its guild, as "#ops (Beta)".
@@ -67,20 +70,23 @@ export function inScope(scope: Scope, asker: Pick<SkillContext, "userId" | "user
  * task, then label. Given `rank` (a query's match score), the best match comes first, in a group and among groups, before the due
  * date (#258). Sources without tasks are left out.
  */
-export function groupTasks<F extends Found>(found: readonly F[], sources: readonly TaskSource[], timeZone: string, rank: (f: F) => number = () => 0): TaskGroup[] {
+export function groupTasks<F extends Found>(found: readonly F[], sources: readonly TaskSource[], timeZone: string, rank: (f: F) => number = () => 0): TaskGroup<F>[] {
   const due = (f: F) => dueMoment(f.task.dueAt, timeZone) ?? Infinity;
   const groups = sources.map((source) => ({
     source,
-    tasks: found.filter((f) => source.folders.some((folder) => f.path.startsWith(`${folder}/`))).sort((a, b) => rank(b) - rank(a) || due(a) - due(b) || a.task.createdAt.localeCompare(b.task.createdAt)),
+    tasks: found.filter((f) => inFolders(f.path, source.folders)).sort((a, b) => rank(b) - rank(a) || due(a) - due(b) || a.task.createdAt.localeCompare(b.task.createdAt)),
   })).filter((g) => g.tasks.length);
   return groups.sort((a, b) => rank(b.tasks[0]!) - rank(a.tasks[0]!) || due(a.tasks[0]!) - due(b.tasks[0]!) || a.source.label.localeCompare(b.source.label));
 }
 
-/** The first `cap` tasks of the groups, in group order, read in full for their task lines; groups left without a task are dropped. */
-export async function readGroups(store: WorkspaceStore, tenantId: string, groups: readonly TaskGroup[], cap = Infinity): Promise<{ source: TaskSource; tasks: Task[] }[]> {
+/**
+ * The first `cap` tasks of the groups, in group order, each with its task read in full for its task line and the rest of what it
+ * carried kept; groups left without a task are dropped.
+ */
+export async function readGroups<F extends Found>(store: WorkspaceStore, tenantId: string, groups: readonly TaskGroup<F>[], cap = Infinity): Promise<TaskGroup<F>[]> {
   let room = cap;
   const kept = groups.map((g) => { const tasks = g.tasks.slice(0, Math.max(0, room)); room -= tasks.length; return { source: g.source, tasks }; }).filter((g) => g.tasks.length);
   const full = await readInFull(store, tenantId, kept.flatMap((g) => g.tasks));
   let i = 0;
-  return kept.map((g) => ({ source: g.source, tasks: g.tasks.map(() => full[i++]!) }));
+  return kept.map((g) => ({ source: g.source, tasks: g.tasks.map((f) => ({ ...f, task: full[i++]! })) }));
 }

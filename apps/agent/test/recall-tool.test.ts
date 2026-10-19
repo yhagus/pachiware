@@ -264,7 +264,7 @@ discordScenario("on a crowded Workspace the result keeps to its budgets and stay
   expect(s.model.calls.at(-1)!.map((m) => String(m.content)).join("")).not.toContain("[truncated");
 });
 
-discordScenario("on a crowded Workspace the decided and open items of the lower-ranked Minutes give way before any kept file does, and the best match keeps its own", async (s) => {
+discordScenario("on a crowded Workspace the decided and open items of the lower-ranked Minutes give way before any kept file or matching line does, and the best match keeps its own", async (s) => {
   await channels(s);
   const item = (d: number, k: number) => ({ text: `Audio normalization point ${k} of ${d} September keeps every export within one decibel of the loudness target agreed`, link: at("channel-1", 9000 + d * 10 + k) });
   for (let d = 1; d <= 20; d++) {
@@ -274,8 +274,11 @@ discordScenario("on a crowded Workspace the decided and open items of the lower-
     await s.workspace.write(`${GENERAL}/minutes/${day}-audio-normalization.md`, `---\n${Object.entries(record).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")}\n---\n# Audio normalization\n\n## Decided\n${rows.slice(0, 3).join("\n")}\n\n## Still open\n${rows.slice(3).join("\n")}\n`);
   }
   const [result] = await recall(s, [QUERIES]);
-  expect(JSON.stringify(result).length).toBeLessThan(12000);
+  const { RECALL_BUDGET } = await import(process.cwd() + "/packages/skills/src/workspace/recall.ts");
+  expect(JSON.stringify(result).length).toBeLessThanOrEqual(RECALL_BUDGET);
   expect(result.kept).toHaveLength(10);
+  // The spec of #259: the two matching lines stay.
+  expect(result.kept.map((k: any) => k.lines.length)).toEqual([2, 2, 2, 2, 2, 2, 2, 2, 2, 2]);
   expect(result.kept[0].decided).toHaveLength(3);
   expect(result.kept[0].open).toHaveLength(3);
   expect(result.kept[9].decided).toBeUndefined();
