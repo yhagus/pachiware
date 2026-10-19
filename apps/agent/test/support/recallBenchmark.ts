@@ -480,3 +480,54 @@ export function shownPaths(result: unknown): string[] {
   const text = typeof result === "string" ? result : JSON.stringify(result);
   return [...text.matchAll(/"path":"([^"]+)"/g)].map((m) => m[1]!);
 }
+
+/** A Task as the bot keeps it, in a channel of the corpus: one-line JSON frontmatter values, then its description. */
+const tasks: KeptFile[] = [];
+function task(channel: Channel, title: string, status: string, created: string, description = "") {
+  const n = tasks.length + 1, id = `${String(n).padStart(8, "0")}-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const head = header({ id, title, status, priority: "medium", createdBy: "user-alice", createdByName: "Alice", createdAt: `${created}T03:00:00.000Z`, updatedAt: `${created}T03:00:00.000Z` });
+  tasks.push({ path: `guilds/guild-1/channels/${CHANNELS[channel].id}/tasks/${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${id.slice(0, 8)}.md`, content: `${head}${description}\n` });
+}
+task("audio", "Waveform trim and cut", "completed", "2026-07-29");
+task("audio", "Undo after trim", "pending", "2026-09-10", "Undo after a trim loses the selection.");
+task("audio", "Implement audio normalization in the export pipeline", "completed", "2026-08-19", "Target -14 LUFS for every export.");
+task("audio", "Fix the recording crash on Android 14", "in_progress", "2026-09-12", "The app closes when recording starts on Android 14 phones.");
+task("audio", "Noise reduction model on device", "pending", "2026-09-16");
+task("audio", "Export templates", "pending", "2026-10-12", "Saved export settings for each show.");
+task("audio", "Batch export", "cancelled", "2026-10-14", "Moved to version 2.6.");
+task("audio", "Localize the app into Malay", "pending", "2026-10-15");
+task("marketing", "Write the launch blog post", "completed", "2026-09-23");
+task("marketing", "Pick a social media scheduling tool", "pending", "2026-09-20", "Compare three tools for scheduling posts.");
+task("marketing", "Brief the influencers for Q3", "completed", "2026-08-12");
+task("marketing", "Newsletter for October", "pending", "2026-10-01", "Ideas: the new export templates and a user story.");
+task("marketing", "Update the Pro plan pricing page", "completed", "2026-09-10");
+task("ops", "Set up log rotation", "completed", "2026-09-15");
+task("ops", "Test a database restore from backup", "pending", "2026-10-06", "Restore last night's backup to staging and time it.");
+task("ops", "Raise the API rate limit for Pro", "completed", "2026-10-08");
+task("ops", "Fix the disk usage alert", "completed", "2026-10-13");
+task("ops", "On-call handover checklist", "pending", "2026-09-16");
+task("general", "Book the new office", "pending", "2026-10-05", "The team moves in November.");
+task("general", "Q4 budget sheet", "in_progress", "2026-10-12");
+
+export const BENCHMARK_TASKS: readonly KeptFile[] = tasks;
+
+/** One question about a Task, as a model would recall it, with the titles of the Tasks a person would accept as answering it. */
+export interface TaskQuestion { id: string; group: "named" | "other-words"; asked: string; queries: string[]; expected: string[] }
+
+/**
+ * #258: Tasks asked about from #general. `named` questions use words the Task holds; `other-words` questions name it in other words, so no
+ * wording is held whole (the live exam's "trim tool udah rilis?" against "Waveform trim and cut").
+ */
+export const TASK_QUESTIONS: readonly TaskQuestion[] = [
+  { group: "named", id: "normalization-done", asked: "normalisasi audio udah selesai?", queries: ["normalisasi audio", "audio normalization"], expected: ["Implement audio normalization in the export pipeline"] },
+  { group: "named", id: "log-rotation", asked: "log rotation udah diset?", queries: ["log rotation", "rotasi log"], expected: ["Set up log rotation"] },
+  { group: "named", id: "launch-blog-post", asked: "blog post peluncuran udah?", queries: ["blog post peluncuran", "launch blog post"], expected: ["Write the launch blog post"] },
+  { group: "named", id: "pro-rate-limit", asked: "rate limit Pro udah dinaikkan?", queries: ["rate limit Pro", "raise Pro rate limit"], expected: ["Raise the API rate limit for Pro"] },
+  { group: "named", id: "malay", asked: "lokalisasi ke bahasa Melayu siapa yang pegang?", queries: ["lokalisasi bahasa Melayu", "Malay localization"], expected: ["Localize the app into Malay"] },
+  { group: "named", id: "influencer-brief", asked: "brief influencer Q3 udah?", queries: ["brief influencer", "influencer brief Q3"], expected: ["Brief the influencers for Q3"] },
+  { group: "other-words", id: "trim-tool", asked: "trim tool udah rilis?", queries: ["trim tool rilis", "trim tool released"], expected: ["Waveform trim and cut"] },
+  { group: "other-words", id: "android-crash-shipped", asked: "has the Android 14 crash fix shipped?", queries: ["android 14 crash fix shipped", "crash android 14 rilis"], expected: ["Fix the recording crash on Android 14"] },
+  { group: "other-words", id: "backup-restore-tried", asked: "restore backup udah dicoba?", queries: ["restore backup dicoba", "backup restore tried"], expected: ["Test a database restore from backup"] },
+  { group: "other-words", id: "newsletter-sent", asked: "newsletter bulan ini udah dikirim?", queries: ["newsletter bulan ini dikirim", "newsletter sent this month"], expected: ["Newsletter for October"] },
+  { group: "other-words", id: "office-booked", asked: "sewa kantor baru udah beres?", queries: ["sewa kantor baru", "office lease signed"], expected: ["Book the new office"] },
+];

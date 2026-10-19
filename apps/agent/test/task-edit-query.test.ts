@@ -34,6 +34,19 @@ discordScenario("with more than ten tasks in the channel, a query finds a task b
   expect(s.discord.botMessages.at(-1)?.content).toBe("none");
 });
 
+discordScenario("a task named in other words, holding only some words of the query, is found after the one holding every word and marked partial (#258)", async (s) => {
+  await s.guildSettings({ useThreads: false });
+  await seed(s, [
+    { n: 60, title: "Waveform trim and cut", status: "completed" },
+    { n: 61, title: "Write the tooltip", body: "Explain the trim tool on first use." },
+  ]);
+
+  s.model.script({ tool: "listTasks", args: { query: "trim tool", status: "all" } }, (turn) => JSON.stringify(turn.toolResults[0].tasks.map((t: any) => [t.title, t.partial ?? false])));
+  await s.discord.send(`${s.discord.mention} is the trim tool done?`);
+  // The fillers hold neither word and stay out.
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toEqual([["Write the tooltip", false], ["Waveform trim and cut", true]]);
+});
+
 discordScenario("a task found by its description among more than ten has its title, description and priority edited without Confirm; other fields stay and updatedAt moves", async (s) => {
   s.clock.set("2026-10-14T03:00:00Z");
   await s.guildSettings({ useThreads: false });
@@ -104,7 +117,7 @@ discordScenario("a query matching several tasks returns all of them, and it narr
     { tool: "listTasks", args: { query: "INVOICE", assignedTo: "bob" } }, (turn) => titles(turn.toolResults[0]),
     { tool: "listTasks", args: { query: "invoice", late: true } }, (turn) => titles(turn.toolResults[0]),
     { tool: "listTasks", args: { query: "invoice", dueAfter: "2026-10-15" } }, (turn) => titles(turn.toolResults[0]),
-    { tool: "listTasks", args: { query: "invoice globex" } }, (turn) => titles(turn.toolResults[0]),
+    { tool: "listTasks", args: { query: "invoice globex" } }, (turn) => turn.toolResults[0].tasks.map((t: any) => `${t.title}${t.partial ? " (partial)" : ""}`).join(", "),
   );
   for (const text of ["pending ones", "Bob's", "late ones", "due later", "the Globex one"]) await s.discord.send(`${s.discord.mention} ${text}`);
   expect(s.discord.botMessages.slice(-5).map((m) => m.content)).toEqual([
@@ -112,6 +125,7 @@ discordScenario("a query matching several tasks returns all of them, and it narr
     "File the invoice, Invoice for Acme",
     "Invoice for Acme",
     "Chase payment",
-    "Chase payment",
+    // Only Chase payment holds both words; the two holding "invoice" alone follow it, newest first (#258).
+    "Chase payment, File the invoice (partial), Invoice for Acme (partial)",
   ]);
 });

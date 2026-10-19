@@ -11,8 +11,9 @@ import { discordScenario } from "./support/discordScenario";
  * never lower them; raise the literals with it. The scenario prints every question with its scores, its gold sources' ranks, and what
  * each part showed first; the table shows in the failure output, or when the scenario runs alone the way `runInSubprocess` runs it.
  */
-// 0.90 when written; 0.98 since git hits are ranked by their titles and a thin search widens to any of its words (#247).
-const RECALL_AT_5 = 0.98;
+// 0.90 when written; 0.98 since git hits are ranked by their titles and a thin search widens to any of its words (#247); 1.00 since a
+// Task holding only some words of a wording is found, marked partial (#258).
+const RECALL_AT_5 = 1;
 const MRR = 0.97;
 const QUESTIONS = 32;
 

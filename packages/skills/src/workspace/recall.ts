@@ -25,7 +25,7 @@ export const RECALL_BUDGET = 11_000;
 
 export const recallTool: ToolDefinition = {
   name: "recall",
-  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, the server's Team roster (team: who is responsible for what), today's messages of this place when no kept file answers well (talk: no Daily log holds them yet), and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A kept file marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are. notLogged, given when no kept file answers, names the channels searched that keep no Daily logs.",
+  description: "Answers \"was X discussed, decided or done?\" in one call: searches the kept material (Minutes, Daily logs, Decisions, Notes, Documents) of this place and of every other channel you may read from here, the Tasks of every status, the server's Team roster (team: who is responsible for what), today's messages of this place when no kept file answers well (talk: no Daily log holds them yet), and, where they are open here, git issues, pull requests and commits and Plane Work items. Pass 2 to 5 wordings in queries: Indonesian, English and same-meaning words. Every item has a ref, a label naming its channel and date, and a url when it has one. A kept file or Task marked partial holds only some of the words; nothingStrong means no kept file holds every word of any wording. nothingFound names the parts searched without a match, unavailable the parts not searched here and why. notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are. notLogged, given when no kept file answers, names the channels searched that keep no Daily logs.",
   parameters: {
     type: "object",
     properties: {
@@ -130,10 +130,12 @@ export async function recall(args: Record<string, unknown>, ctx: SkillContext) {
     };
   }));
   const taskGroups: any[] = "data" in tasks ? (tasks.data.groups ?? []).filter((g: any) => !only || g.group === only.label) : [];
-  // A completed task carries the day it was completed (#250), and a task made from Minutes says which, with its link (#253).
+  // A completed task carries the day it was completed (#250), a task made from Minutes says which, with its link (#253), and one
+  // holding only some words of the wordings is partial, as a kept file is (#258). listTasks gives them best match first.
   const taskItems = taskGroups.flatMap((g) => (g.tasks as any[]).map((task) => ({
     ref: refFor(ctx, "T"), label: `${g.group} · ${t.taskCited(clip(task.title, TITLE_CHARS), task.status === "completed" && task.completedAt ? `${task.status} ${isoInZone(zone, Date.parse(task.completedAt)).slice(0, 10)}` : task.status)}`, line: task.line,
     ...(task.madeFrom ? { madeFrom: task.madeFrom.link ? `${task.madeFrom.label} ${task.madeFrom.link}` : task.madeFrom.label } : {}),
+    ...(task.partial ? { partial: true as const } : {}),
   })));
   // A merged, closed or committed item's date is when that happened; an open one's is only its last update, so it carries none.
   const settled = (w: any) => (w.state !== "open" && w.date && Date.parse(w.date) ? ` ${isoInZone(zone, Date.parse(w.date)).slice(0, 10)}` : "");

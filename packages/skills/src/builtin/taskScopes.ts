@@ -62,14 +62,18 @@ export function inScope(scope: Scope, asker: Pick<SkillContext, "userId" | "user
   return () => true;
 }
 
-/** Tasks grouped by the source they are in, soonest due first within a group (no due date last), and groups ordered by their soonest task, then label. Sources without tasks are left out. */
-export function groupTasks(found: readonly Found[], sources: readonly TaskSource[], timeZone: string): TaskGroup[] {
-  const due = (f: Found) => dueMoment(f.task.dueAt, timeZone) ?? Infinity;
+/**
+ * Tasks grouped by the source they are in, soonest due first within a group (no due date last), and groups ordered by their soonest
+ * task, then label. Given `rank` (a query's match score), the best match comes first, in a group and among groups, before the due
+ * date (#258). Sources without tasks are left out.
+ */
+export function groupTasks<F extends Found>(found: readonly F[], sources: readonly TaskSource[], timeZone: string, rank: (f: F) => number = () => 0): TaskGroup[] {
+  const due = (f: F) => dueMoment(f.task.dueAt, timeZone) ?? Infinity;
   const groups = sources.map((source) => ({
     source,
-    tasks: found.filter((f) => source.folders.some((folder) => f.path.startsWith(`${folder}/`))).sort((a, b) => due(a) - due(b) || a.task.createdAt.localeCompare(b.task.createdAt)),
+    tasks: found.filter((f) => source.folders.some((folder) => f.path.startsWith(`${folder}/`))).sort((a, b) => rank(b) - rank(a) || due(a) - due(b) || a.task.createdAt.localeCompare(b.task.createdAt)),
   })).filter((g) => g.tasks.length);
-  return groups.sort((a, b) => due(a.tasks[0]!) - due(b.tasks[0]!) || a.source.label.localeCompare(b.source.label));
+  return groups.sort((a, b) => rank(b.tasks[0]!) - rank(a.tasks[0]!) || due(a.tasks[0]!) - due(b.tasks[0]!) || a.source.label.localeCompare(b.source.label));
 }
 
 /** The first `cap` tasks of the groups, in group order, read in full for their task lines; groups left without a task are dropped. */

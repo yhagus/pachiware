@@ -62,13 +62,13 @@ discordScenario("a file whose name or keyword header holds the words ranks above
 });
 
 const taskId = "00000001-0000-4000-8000-000000000001";
-discordScenario("a Task titled \"Normalisasi audio\" is found by listTasks with \"audio normalization\"; one that holds only \"audio\" is not", async (s) => {
+discordScenario("a Task titled \"Normalisasi audio\" is found by listTasks with \"audio normalization\"; one that holds only \"audio\" comes after it, marked partial (#258)", async (s) => {
   const task = (id: string, title: string) => `---\nid: "${id}"\ntitle: ${JSON.stringify(title)}\nstatus: "pending"\npriority: "medium"\nassignedTo: null\ndueAt: null\ncreatedBy: "user-bob"\ncreatedByName: "Bob"\ncreatedAt: "2026-10-01T00:00:00.000Z"\nupdatedAt: "2026-10-01T00:00:00.000Z"\n---\n`;
   await s.workspace.write(`${CHANNEL}/tasks/task-1.md`, task(taskId, "Normalisasi audio"));
   await s.workspace.write(`${CHANNEL}/tasks/task-2.md`, task("00000002-0000-4000-8000-000000000002", "Beli audio interface"));
-  s.model.script({ tool: "listTasks", args: { query: "audio normalization" } }, (turn) => JSON.stringify(turn.toolResults[0].tasks.map((t: any) => t.title)));
+  s.model.script({ tool: "listTasks", args: { query: "audio normalization" } }, (turn) => JSON.stringify(turn.toolResults[0].tasks.map((t: any) => [t.title, t.partial ?? false])));
   await s.discord.send(`${s.discord.mention} is audio normalization a task?`);
-  expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toEqual(["Normalisasi audio"]);
+  expect(JSON.parse(s.discord.botMessages.at(-1)!.content)).toEqual([["Normalisasi audio", false], ["Beli audio interface", true]]);
 });
 
 discordScenario("a commit message and a Work item title in Indonesian are found by \"audio normalization\"", async (s) => {

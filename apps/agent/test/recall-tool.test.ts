@@ -69,6 +69,18 @@ discordScenario("one recall call returns the Minutes, the completed Task, the me
   expect(s.http.requests.some((r) => r.url.includes("vault") || r.url.includes(`/projects/${SEC}/`))).toBe(false);
 });
 
+discordScenario("a Task named in other words is found and marked partial, after a Task in another channel that holds a whole wording (#258)", async (s) => {
+  await channels(s);
+  await s.workspace.write(`${AUDIO}/tasks/task-1.md`, task(1, "Waveform trim and cut", "completed"));
+  await s.workspace.write(`${GENERAL}/tasks/task-2.md`, task(2, "Trim tool release notes", "pending"));
+  await s.workspace.write(`${AUDIO}/tasks/task-3.md`, task(3, "Order new chairs", "pending"));
+  const [result] = await recall(s, [{ queries: ["trim tool rilis", "trim tool released"] }]);
+  expect(result.tasks).toEqual([
+    { ref: "T1", label: "#general · Task \"Trim tool release notes\" (pending)", line: "pending | no due date | unassigned | 00000002 | Trim tool release notes" },
+    { ref: "T2", label: "#audio · Task \"Waveform trim and cut\" (completed)", line: "completed | no due date | unassigned | 00000001 | Waveform trim and cut", partial: true },
+  ]);
+});
+
 discordScenario("a Daily log match is cited by the message link on its matching line; a Decision has a label and no link", async (s) => {
   await channels(s);
   await s.workspace.write(`${GENERAL}/daily-logs/2026-10-05.md`, "# Daily log #general, 2026-10-05\n\n## Topics\n1. Audio normalization: loudness [↗](https://discord.com/channels/guild-1/channel-1/7001)\n");

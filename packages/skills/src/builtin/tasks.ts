@@ -10,7 +10,8 @@ import { findProject, linkHeld, mustHold, personalTasksOf, taskChannelOf } from 
 import { MAX_SCOPED, PERSONAL_TASKS, SCOPES, anywhereSources, groupTasks, inScope, readGroups, scopeSources, tasksIn, type Scope } from "./taskScopes.js";
 import { textIn } from "../language.js";
 import { tasksFromMinutes } from "./minutesTasks.js";
-import { fileWords, holdsQuery, matchWords, queriesTerms, scoreOf, wordingsOf } from "../workspace/terms.js";
+import { fileWords, matchWords, queriesTerms, scoreOf, wordingsOf } from "../workspace/terms.js";
+import { isStrong } from "../workspace/search.js";
 import { DEFAULT_TIMEZONE, now, today } from "../clock.js";
 
 const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such as 2026-03-06T15:00 in the place's time zone or with an offset (2026-03-06T15:00+07:00)";
@@ -59,7 +60,7 @@ export const taskManagementSkill: SkillModule = {
     },
     {
       name: "listTasks",
-      description: "Lists tasks filtered by status, assignee, or channel. Each task comes with `line`, its task line to print as it is; a title ending in (2/5) means two of five checklist items are done. Scope mine or delegated returns `groups`, one per channel (plus Shared tasks and Personal tasks), soonest due first, at most twenty tasks in all; `total` counts every match and `more` how many were left out.",
+      description: "Lists tasks filtered by status, assignee, or channel. Each task comes with `line`, its task line to print as it is; a title ending in (2/5) means two of five checklist items are done. Scope mine or delegated returns `groups`, one per channel (plus Shared tasks and Personal tasks), soonest due first (with a query, best match first), at most twenty tasks in all; `total` counts every match and `more` how many were left out.",
       parameters: {
         type: "object",
         properties: {
@@ -74,8 +75,8 @@ export const taskManagementSkill: SkillModule = {
             description: "Filter by status (default: every status except cancelled, and with scope mine or delegated only open tasks, neither completed nor cancelled; all includes every status)",
           },
           assignedTo: { type: "string", description: "Filter by assignee: a mention, \"me\", a member's ID, or a display name or username in any letter case" },
-          query: { type: "string", description: "Words to find in the title or description, any letter case and any form of a word (\"normalisasi\" finds \"normalization\"), filler words ignored; a task must contain every word. Use it to find a task the person names that is not among the active tasks shown" },
-          queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\"]; a task matches when it contains every word of one of them, in any form" },
+          query: { type: "string", description: "Words to find in the title or description, any letter case and any form of a word (\"normalisasi\" finds \"normalization\"), filler words ignored; the best match comes first, and a task holding only some of the words is marked partial. Use it to find a task the person names that is not among the active tasks shown" },
+          queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\"]; the best match comes first, and a task holding no wording whole, in any form, is marked partial" },
           dueAfter: { type: "string", description: "Only tasks due at or after this date (YYYY-MM-DD, from the start of that day) or date-time; tasks without a due date are left out" },
           dueBefore: { type: "string", description: "Only tasks due at or before this date (YYYY-MM-DD, to the end of that day) or date-time; tasks without a due date are left out" },
           late: { type: "boolean", description: "true: only tasks past their due date and not completed or cancelled; false: only tasks that are not late" },
@@ -232,7 +233,7 @@ export const taskManagementSkill: SkillModule = {
       const store = workspaceStore(), sources = scope === "here" ? null : scope === "anywhere" ? await anywhereSources(store, ctx) : await scopeSources(store, ctx);
       const tasks = sources ? await tasksIn(store, ctx.tenantId, sources) : await loadTasks(store, ctx), whose = inScope(scope, ctx);
       const status = args.status ?? (scope === "anywhere" ? "all" : undefined), queries = queriesTerms(wordingsOf(args.query, args.queries));
-      const all = (queries.length ? await matching(store, ctx.tenantId, tasks, queries) : tasks as (Found & { score?: number })[])
+      const all = (queries.length ? await matching(store, ctx.tenantId, tasks, queries) : tasks as (Found & Partial<Matched>)[])
         .map((f) => ({ f, t: f.task, due: dueMoment(f.task.dueAt, zone), late: isLate(f.task, zone, at) }))
         .filter(({ f, t }) => (status === "all" || (status ? t.status === status : sources ? isOpen(t) : t.status !== "cancelled")) && assigned(t.assignedTo) && whose(f))
         .filter((x) => (after === undefined || (x.due !== null && x.due >= after)) && (before === undefined || (x.due !== null && x.due <= before)) && (late === undefined || x.late === late))
@@ -241,18 +242,21 @@ export const taskManagementSkill: SkillModule = {
       const hidden = sources?.filter((s) => s.quotable === false).flatMap((s) => s.folders) ?? [];
       const found = all.filter((x) => !hidden.some((folder) => x.f.path.startsWith(`${folder}/`))), notShownHere = all.length - found.length;
       if (sources) {
-        const kept = await readGroups(store, ctx.tenantId, groupTasks(found.map((x) => x.f), sources, zone), Math.min(MAX_SCOPED, limit));
+        // A query shows its best matches, cut before grouping so a better match in a later group is not left out; the best one's group comes first.
+        const cap = Math.min(MAX_SCOPED, limit), ranked = queries.length > 0 && !byDue, partial = new Set(found.filter((x) => x.f.partial).map((x) => x.t.id));
+        const groups = ranked ? groupTasks(found.slice(0, cap).map((x) => x.f), sources, zone, (f) => f.score ?? 0) : groupTasks(found.map((x) => x.f), sources, zone);
+        const kept = await readGroups(store, ctx.tenantId, groups, cap);
         const shown = kept.reduce((n, g) => n + g.tasks.length, 0), more = found.length - shown;
         return {
           scope, total: found.length, shown,
           ...(more > 0 && { more, note: `${more} more not shown. Say how many more there are; a status, query, or due date filter narrows the list to show them.` }),
-          groups: kept.map((g) => ({ group: g.source.label, ...(g.source.channelId && { channelId: g.source.channelId }), tasks: g.tasks.map((t) => ({ ...t, late: isLate(t, zone, at), line: taskLine(t, zone, at) })) })),
+          groups: kept.map((g) => ({ group: g.source.label, ...(g.source.channelId && { channelId: g.source.channelId }), tasks: g.tasks.map((t) => ({ ...t, late: isLate(t, zone, at), line: taskLine(t, zone, at), ...(partial.has(t.id) && { partial: true }) })) })),
           ...(notShownHere && { notShownHere, suggestion: textIn(ctx.language).tasksNotShownHere(notShownHere) }),
         };
       }
       // Only the tasks returned are read in full, for the checklist progress on their line; query hits already are.
       const shown = found.slice(0, limit), full = queries.length ? shown.map((x) => x.t) : await readInFull(store, ctx.tenantId, shown.map((x) => x.f));
-      return { total: shown.length, tasks: shown.map((x, i) => ({ ...x.t, late: x.late, line: taskLine(full[i]!, zone, at) })) };
+      return { total: shown.length, tasks: shown.map((x, i) => ({ ...x.t, late: x.late, line: taskLine(full[i]!, zone, at), ...(x.f.partial && { partial: true }) })) };
     },
 
     updateTaskStatus: async (args: { taskId: string; status: TaskStatus; reason?: string | null }, ctx: SkillContext) => {
@@ -367,18 +371,23 @@ async function labelTaskFolder(ctx: SkillContext) {
   try { if (!(await workspaceStore().read(ctx.tenantId, name))) await workspaceStore().write(ctx.tenantId, name, "Tasks"); } catch {}
 }
 
+/** A task a query matched, with its score, and `partial` when it holds no query whole. */
+type Matched = Found & { score: number; partial?: true };
+
 /**
- * The tasks whose title or description holds every term of one of the queries (`holdsQuery`), each scored as a file would be with
- * its title as the name and its description as the body, so a task naming the words in its title comes first. Read in full:
+ * The tasks whose title or description holds any term of the queries, each scored as a file would be with its title as the name and
+ * its description as the body, so a task naming the words in its title comes first. One holding no query whole is `partial`, as a
+ * kept file is (#258): a Task named in other words ("Waveform trim and cut" for "trim tool") is still found. Read in full:
  * `loadTasks` reads frontmatter only.
  */
-async function matching(store: WorkspaceStore, tenantId: string, found: Found[], queries: string[][]): Promise<(Found & { score: number })[]> {
-  const out: (Found & { score: number })[] = [], terms = [...new Set(queries.flat())];
+async function matching(store: WorkspaceStore, tenantId: string, found: Found[], queries: string[][]): Promise<Matched[]> {
+  const out: Matched[] = [], terms = [...new Set(queries.flat())];
   for (const f of found) {
     const file = await store.read(tenantId, f.path).catch(() => null), task = file && parseTask(file.content);
-    if (!task || !holdsQuery(queries, `${task.title}\n${task.description ?? ""}`)) continue;
+    if (!task) continue;
     const words = fileWords(task.description ?? ""), hit = matchWords(terms, task.title, words);
-    out.push({ ...f, task, score: hit ? scoreOf(hit, queries, () => 1, words.length) : 0 });
+    if (!hit) continue;
+    out.push({ ...f, task, score: scoreOf(hit, queries, () => 1, words.length), ...(isStrong(hit, queries) ? {} : { partial: true as const }) });
   }
   return out;
 }
