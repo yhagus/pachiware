@@ -1697,4 +1697,5 @@ The failures the first live lived-in exam showed (Phase 44). Built on `spec/262-
   - The change runs in the Task's own server (`taskPlace`), so an Assignee named from a DM is linked, and the Assignee ping goes to the Task's channel.
 - [x] Code review of the phase's new code (Standards and Spec reviewers, read-only), fixed in baab5d9: `main`'s default persona from Phase 44 was never frozen, so servers that kept it would not have been migrated; frozen once as `PERSONA_HARNESS_FIXES`. Also the recall budget order above, web chat's reply language, DM assigns, the refusal moved into `textIn`, one `inFolders` helper, the benchmark scaffolding in `support/recallBenchmark.ts`, clearer names (`answerIn`, `ITEMS_PER_LIST`), and `partial` carried through `readGroups`.
 - Verification: typecheck 0 at every commit; every new scenario failed before its change; full suite 1284 pass, 0 fail on baab5d9.
+- [x] Merged: `spec/262-lived-in-fixes` fast-forwarded into `main` and pushed, as the user asked (2026-10-19). #257–#260 and spec #262 closed with their commits.
 - [ ] Live re-run of the Rapor and the lived-in exam, judged offline (the lead, after the branch is green).
