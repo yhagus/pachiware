@@ -199,7 +199,7 @@ export interface SkillContext {
   /** The place's configured zone and language (the guild's, else the tenant's), for dates and for text the tool writes on its own. */
   timezone?: string;
   language?: "id" | "en";
-  /** One tool-free call to the bot's own model, set by the host; null when the provider failed. Memory compaction uses it. */
+  /** One tool-free call to the bot's own model, set by the host; null when the provider failed or the turn's deadline passed (#265). Memory compaction uses it. */
   complete?: Completion;
   /**
    * Set by the host for one turn: the names of the tools the model may call at this place (after Availability rules, playbook

@@ -243,7 +243,7 @@ export class AgentReActLoop {
       userId: input.context.userId,
       timezone: input.context.timezone,
       language: input.context.language,
-      complete: botCompletion(input.tenantId, input.botId, input.context.language),
+      complete: botCompletion(input.tenantId, input.botId, input.context.language, deadline),
       metadata: input.context.skillContext?.metadata,
       auth: {
         tenantId: input.tenantId, botId: input.botId, userId: input.context.userId, guildId: input.context.guildId, channelId: input.context.channelId,

@@ -118,6 +118,29 @@ describe("Router hardening", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("a tool's own model call given the turn's deadline is cut there in flight and gets null, and one made past it sends no request", () => {
+    const { code, stderr } = scenario(`
+      await useOpenAI(tenant.id);
+      const { botCompletion } = await import(${src("apps/agent/src/llm/completion.ts")});
+      // A short attempt timeout, so a call that ignored the deadline still ends here, well after it.
+      retryPolicy.timeoutMs = 1500; retryPolicy.retries = 0;
+      const ask = { system: "Name the venue in one word.", user: "Hall B or Hall C?" };
+      reply = () => HANG;
+      const started = performance.now();
+      const hung = await botCompletion(tenant.id, undefined, "en", Date.now() + 60)(ask);
+      const elapsed = performance.now() - started;
+      assert(hung === null && calls.length === 1 && calls[0].aborted, "hung call not given up: " + JSON.stringify(hung) + " / " + calls.length);
+      assert(elapsed >= 50 && elapsed < 1000, "not cut at the deadline: " + elapsed);
+
+      calls.length = 0; reply = () => json(openai("Hall B"));
+      const late = await botCompletion(tenant.id, undefined, "en", Date.now() - 1)(ask);
+      assert(late === null && calls.length === 0, "a call made past the deadline: " + JSON.stringify(late) + " / " + calls.length);
+      const inTime = await botCompletion(tenant.id, undefined, "en", Date.now() + 5000)(ask);
+      assert(inTime === "Hall B" && calls.length === 1, "a call within the deadline not answered: " + JSON.stringify(inTime));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("an Anthropic request marks the last system block and the last tool for caching, sends no temperature, and records cached tokens", () => {
     const { code, stderr } = scenario(`
       const created = await post("/tenants/" + tenant.id + "/profiles", { name: "Claude", provider: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-ant-profile" });

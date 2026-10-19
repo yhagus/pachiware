@@ -7,18 +7,19 @@ const NEVER = new Promise<never>(() => {});
 
 /**
  * A test skill whose tools answer only when the scenario says so: `slowLookup` reads, `slowSave` writes without asking for a Confirm,
- * and `slowChain` runs three `slowLookup`s one after another as nested calls, the way recall runs its parts.
+ * `slowChain` runs three `slowLookup`s one after another as nested calls, the way recall runs its parts, and `slowAsk` gets the tool's context.
  */
-async function slowSkill(s: Scenario, answers: { slowLookup?: () => Promise<unknown>; slowSave?: () => Promise<unknown> }) {
+async function slowSkill(s: Scenario, answers: { slowLookup?: () => Promise<unknown>; slowSave?: () => Promise<unknown>; slowAsk?: (ctx: any) => Promise<unknown> }) {
   const { skillRegistry } = await import("@pachiware/skills");
   const { repositories } = await import("../../../packages/db/src/index.ts");
   const text = { type: "object" as const, properties: { text: { type: "string" } } };
   const skill = {
     id: "test_slow", name: "Slow", description: "Tools that take their time.", confirmsInternally: true,
-    tools: ["slowLookup", "slowSave", "slowChain"].map((name) => ({ name, description: name, parameters: text })),
-    toolPolicy: { slowLookup: { effect: "read" as const }, slowSave: { effect: "write" as const }, slowChain: { effect: "read" as const } },
+    tools: ["slowLookup", "slowSave", "slowChain", "slowAsk"].map((name) => ({ name, description: name, parameters: text })),
+    toolPolicy: { slowLookup: { effect: "read" as const }, slowSave: { effect: "write" as const }, slowChain: { effect: "read" as const }, slowAsk: { effect: "read" as const } },
     handlers: {
       slowLookup: () => (answers.slowLookup ?? (() => NEVER))(), slowSave: () => (answers.slowSave ?? (() => NEVER))(),
+      slowAsk: (_args: unknown, ctx: any) => (answers.slowAsk ?? (() => NEVER))(ctx),
       slowChain: async (_args: unknown, ctx: any) => { for (let i = 0; i < 3; i++) await ctx.tools.run("slowLookup", {}); return { parts: 3 }; },
     },
   };
@@ -153,6 +154,22 @@ discordScenario("past the turn's deadline the next tool call is not run and the 
   const { repositories } = await import("@pachiware/db");
   const limits = (await repositories().usage.list({ tenantId: s.tenant.id, type: "guardrail_denied" })).map((e: any) => e.metadata).filter((m: any) => m.kind === "limit" && m.synthesized);
   expect(limits).toEqual([expect.objectContaining({ source: "deadline" })]);
+});
+
+// A tool's own model call (ctx.complete: keywords, image descriptions, Minutes, the reader of long files) stops at the turn's deadline too (#265).
+discordScenario("a tool's own model call made past the turn's deadline gets no answer and never reaches the model", async (s) => {
+  await s.guildSettings({ language: "en", useThreads: false });
+  let answer: unknown = "not asked";
+  // The tool asks only after waiting longer than the whole turn may last, so its call is made past the deadline however loaded the machine is.
+  await slowSkill(s, { slowAsk: async (ctx) => { await new Promise((resolve) => setTimeout(resolve, 900)); answer = await ctx.complete({ system: "Name the venue in one word.", user: "Hall B or Hall C?" }); return { asked: true }; } });
+  await deadline(600);
+  s.model.script({ tool: "slowAsk", args: {} }, "I ran out of time before the venue was named.");
+  await s.discord.send(`${s.discord.mention} which hall is the venue?`);
+
+  expect(answer).toBeNull();
+  expect(s.model.calls.map((call) => call[0]?.content)).not.toContain("Name the venue in one word.");
+  expect(s.model.calls.length).toBe(2);
+  expect(s.discord.botMessages.at(-1)!.content).toBe("I ran out of time before the venue was named.");
 });
 
 discordScenario("a turn without a saved iteration setting gets the shared default of 32 model calls, not 12", async (s) => {
