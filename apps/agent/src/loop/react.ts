@@ -29,8 +29,11 @@ export interface ReActInput {
    * `cacheKey` stands in for the conversation id the provider's prompt cache is keyed by.
    */
   ephemeral?: { history: TurnRow[]; cacheKey: string };
-  /** Only tools that read are offered; a call to any other is refused without running. The console's Playground runs this way. */
-  readOnly?: boolean;
+  /**
+   * Only tools that read are offered; a call to any other is refused without running, with this text as its result. The console's
+   * Playground and Routines run this way, each saying why.
+   */
+  readOnly?: string;
 }
 
 /** A conversation row as the store keeps it. */
@@ -51,6 +54,8 @@ export interface ReActOutput {
   offered: string[];
   /** An ephemeral turn's new rows, for the caller to send back with its history next turn. */
   recorded?: TurnRow[];
+  /** The provider failed, so `reply` is the host's failure text, not an answer. */
+  failed?: true;
 }
 
 /** Where a turn's conversation rows are read from and written to: the conversation store, or rows the caller holds. */
@@ -71,7 +76,6 @@ function heldRecord(history: TurnRow[], recorded: TurnRow[]): TurnRecord {
   };
 }
 
-const NOT_IN_PLAYGROUND = "Not run: this is the console's read-only Playground, where nothing is changed. Say what you would have done.";
 
 const MAX_TOOL_RESULT = 12000;
 /** A grounded brief round takes several tool steps per point, more than a tenant's usual cap. */
@@ -261,7 +265,7 @@ export class AgentReActLoop {
     // Availability rules for this place first, then a playbook may close tools in its threads, and a skill may hide tools the place does not support
     // (see SkillModule.hiddenTools); a call to any of them is refused even when the model names it anyway.
     const closed = closedTools(input.context.playbook);
-    if (input.readOnly) for (const t of available.tools) if (skillRegistry.effectOf(t.name) !== "read") closed.set(t.name, NOT_IN_PLAYGROUND);
+    if (input.readOnly) for (const t of available.tools) if (skillRegistry.effectOf(t.name) !== "read") closed.set(t.name, input.readOnly);
 
     // 6. Build execution context for tools
     const skillContext: SkillContext = {
@@ -308,7 +312,7 @@ export class AgentReActLoop {
     const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;
     let outOfTime = false;
-    let finalReply = "";
+    let finalReply = "", failed = false;
     let imagesRejected = false;
 
     // 7. ReAct execution cycle
@@ -333,6 +337,7 @@ export class AgentReActLoop {
       if (response.finishReason === "error" && Date.now() >= deadline) { outOfTime = true; break; }
       if (response.finishReason === "error") {
         finalReply = failureReply(response.content ?? "", toolCallsExecuted, input.context.language);
+        failed = true;
         break;
       }
 
@@ -423,7 +428,7 @@ export class AgentReActLoop {
       const options = { tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, language: input.context.language, deadline: Date.now() + turnDeadline.summaryMs };
       // A server that refuses tool_choice is asked once more without tools by the router, before any fallback Profile.
       const boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
-      if (boundary.finishReason === "error") finalReply = failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language);
+      if (boundary.finishReason === "error") { finalReply = failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language); failed = true; }
       else {
         const content = boundary.content ? await cite(boundary.content, toolCallsExecuted, request, skillContext) : "";
         if (content) await record.add({ role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
@@ -441,6 +446,7 @@ export class AgentReActLoop {
       historyOffset: windowOffset,
       offered: activeTools.map((t) => t.name),
       ...(input.ephemeral ? { recorded } : {}),
+      ...(failed ? { failed: true as const } : {}),
     };
   }
 }

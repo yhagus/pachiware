@@ -98,7 +98,7 @@ async function tellAssigneesWhereTasksAre(runtime: BotRuntime, botId: string, tu
   }
 }
 
-const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
+export const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
 const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
 /** Where something was asked: a message, or the channel a command was run in. */

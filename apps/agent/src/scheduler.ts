@@ -4,6 +4,7 @@ import { loadGuildSettings } from "./loop/prompt.js";
 import { digestLines, syncDigestSchedules } from "./digest.js";
 import { writeOwedDays, syncDailyLogSchedules } from "./discord/dailyLogDays.js";
 import { syncDocsMirrorSchedules, refreshChannelDocs } from "./docsMirror.js";
+import { queueRoutine } from "./discord/routine.js";
 import type { DiscordBotManager } from "./discord/client.js";
 
 export const SCHEDULER_INTERVAL_MS = 60_000;
@@ -43,10 +44,12 @@ async function fire(manager: DiscordBotManager, row: Schedule, at: number) {
   if (!client) return;
   // A daily-log row moves on even when a day fails, since a failing row would end as done; its `lastFiredAt` keeps that day owed instead.
   if (row.kind === "daily-log") { await moveOn(row, at, row.guildId ? await writeOwedDays(manager, { ...row, guildId: row.guildId }, at) : new Date(at)); return; }
-  // The mirror runs beside the pass, so a slow or failing repository holds up no Daily log, Digest or Reminder; a night missed runs at the next pass.
+  // The mirror runs beside the pass, so a slow or failing repository holds up no Daily log, Digest, Reminder or Routine; a night missed runs at the next pass.
   if (row.kind === "docs-mirror") { if (row.guildId) manager.background(refreshChannelDocs({ ...row, guildId: row.guildId })); await moveOn(row, at, new Date(at)); return; }
   const late = at - row.nextAt.getTime();
   if (late > LATE_LIMIT_MS) { await moveOn(row, at, null); return; }
+  // A Routine's turn takes the model's time, so it runs beside the pass, one per bot at a time; the row moves on first, so a run is never doubled.
+  if (row.kind === "routine") { await moveOn(row, at, new Date(at)); queueRoutine(manager, row, late > LATE_NOTE_MS); return; }
   if (late < retryDelay(row.attempts)) return;
   try { await post(client, manager.adapterOf(row.botId, row.guildId ?? undefined), row, at, late > LATE_NOTE_MS); }
   catch (error: any) { await failed(row, at, error?.message || String(error)); return; }

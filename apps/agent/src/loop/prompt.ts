@@ -87,6 +87,8 @@ export interface PromptContext {
    * in another language do not pull the reply over (#257). Absent when their words show none; the policy's rule then stands.
    */
   answerIn?: Language;
+  /** Set for a Routine's run (ADR 0019): the turn is its owner's instruction, carried out on schedule with nobody there to answer. */
+  routine?: { setBy: string };
 }
 
 const tenantConfig = async (tenantId: string) => {
@@ -202,6 +204,7 @@ ${toolNames.length > 0 ? toolNames : "None currently active."}
     if (context.channelName || context.channelId) lines.push(`Channel: ${context.channelName ? `#${context.channelName} ` : ""}(ID: ${context.channelId})`);
     if (context.userName) lines.push(`User: ${context.userName} (ID: ${context.userId})`);
     if (context.addressed !== undefined) lines.push(`Addresses you: ${context.addressed ? "yes" : context.follows ? "no, but it follows your last reply" : "no"}`);
+    if (context.routine) lines.push(`Routine: this message is a Routine ${context.routine.setBy} set, run now on its schedule. Nobody is here to answer a question: do what it asks with the tools that read, then report what you found in one reply addressed to them. Ask nothing back, and do not offer to change anything.`);
     if (context.answerIn) lines.push(`Reply in: ${LANGUAGE_NAME[context.answerIn]} (the language of the message; sources and tool results in another language do not change it, server instructions that name a language do)`);
     if (context.skillContext?.privateThread) lines.push("Private thread: thread/ is this private thread's own folder, readable only by people added to it; the minutes, notes, decisions and files kept here go there. channel/ is the parent channel's folder.");
     const zone = context.timezone ?? configuredTimezone(await tenantConfig(context.tenantId)), at = now();

@@ -208,6 +208,8 @@ const en = {
   reminderLimitTenant: (n: number) => `Reminders here are at their limit of ${n} active. Cancel one before setting another.`,
   routineLimitOwner: (n: number) => `You already have ${n} active Routines, the most one person can keep. Cancel one before setting another.`,
   routineLimitTenant: (n: number) => `Routines here are at their limit of ${n} active. Cancel one before setting another.`,
+  routine: (text: string) => `🔁 Routine: ${text}`,
+  routineFailed: (text: string) => `🔁 The Routine "${text}" could not run this time: I couldn't reach the model provider. It runs again at its next time, if it has one.`,
   reminderLate: (day: number, month: number, time: string) => `-# Posted late: this was due ${day} ${MONTHS_EN[month - 1]}, ${time}.`,
   // When a Reminder or Routine runs: what the asker's words leave open is asked about, never guessed (whenWords.ts)
   whenAsk: (asks: string[], either: [string, string] | null) => whenQuestion(asks, either, {
@@ -423,6 +425,8 @@ const id: typeof en = {
   reminderLimitTenant: (n) => `Pengingat di sini sudah mencapai batas ${n} yang aktif. Batalkan satu dulu sebelum membuat yang baru.`,
   routineLimitOwner: (n) => `Kamu sudah punya ${n} rutinitas aktif, batas untuk satu orang. Batalkan satu dulu sebelum membuat yang baru.`,
   routineLimitTenant: (n) => `Rutinitas di sini sudah mencapai batas ${n} yang aktif. Batalkan satu dulu sebelum membuat yang baru.`,
+  routine: (text) => `🔁 Rutinitas: ${text}`,
+  routineFailed: (text) => `🔁 Rutinitas "${text}" tidak bisa jalan kali ini: penyedia modelnya tidak bisa saya hubungi. Ia jalan lagi di waktu berikutnya, kalau ada.`,
   reminderLate: (day, month, time) => `-# Terlambat: seharusnya diposting ${day} ${MONTHS_ID[month - 1]} ${time}.`,
   whenAsk: (asks, either) => whenQuestion(asks, either, {
     "am-pm": "Pagi atau malam?", time: "Jam berapa? Misalnya 09:00 atau 21:00.", zone: "Zona waktunya WIB, WITA, atau WIT?",
