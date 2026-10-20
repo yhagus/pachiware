@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ComboboxInput } from "@/components/ComboboxInput";
 import { ConfirmAction } from "@/components/ConfirmAction";
 import { IconButton } from "@/components/IconButton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -135,10 +136,9 @@ export function TenantProfiles() {
             <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" placeholder={shown !== "new" && shown?.hasApiKey ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => edit({ apiKey: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pm">Model</Label>
               <div className="flex gap-2">
-                <Input id="pm" required list="profile-models" className="flex-1" placeholder={MODEL_HINT[form.provider]} value={form.model} onChange={(e) => edit({ model: e.target.value })} />
+                <ComboboxInput id="pm" required className="flex-1" options={models} placeholder={MODEL_HINT[form.provider]} value={form.model} onValueChange={(v) => edit({ model: v })} />
                 <IconButton label="Fetch models" variant="outline" type="button" disabled={loadingModels || (custom && !form.baseUrl.trim())} onClick={fetchModels}><RefreshCw className={loadingModels ? "animate-spin" : ""} /></IconButton>
               </div>
-              <datalist id="profile-models">{models.map((m) => <option key={m} value={m} />)}</datalist>
               <p className="text-xs text-muted-foreground">Fetch lists models from the base URL and API key above. You can also type one.</p></div>
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
