@@ -11,7 +11,7 @@ discordScenario("the first model call carries the administrative-assistant perso
   expect(prompt).toMatch(/administrative assistant/i);
   expect(prompt).toContain("status | due | assignee | id | title");
   expect(prompt).toMatch(/more than three tasks/i);
-  for (const name of ["setTaskDueDate", "remember", "forget", "readChannelHistory", "saveAttachment", "createReminder"]) expect(prompt).toContain(name);
+  for (const name of ["setTaskDueDate", "remember", "forget", "readChannelHistory", "saveAttachment", "createReminder", "createRoutine"]) expect(prompt).toContain(name);
   for (const folder of ["tasks/", "notes/", "decisions/", "files/", "minutes/", "MEMORY.md"]) expect(prompt).toContain(folder);
   expect(prompt.indexOf("administrative assistant")).toBeLessThan(prompt.indexOf("### Policy"));
 });
