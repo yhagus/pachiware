@@ -5,7 +5,7 @@
  */
 import type { Effect, SkillContext, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeRequest, inWorkspace } from "./client.js";
-import { PLANE_NOT_ENABLED, loadPlaneAccess, pickPlaneAccess, findPlaneAccess, allPlaneProjectsAllowed, type PlaneAccess } from "./scope.js";
+import { PLANE_NOT_ENABLED, loadPlaneAccess, pickPlaneAccess, findPlaneAccess, pinnedPlaneAccess, allPlaneProjectsAllowed, type PlaneAccess } from "./scope.js";
 import { planeTargetOf, ACCOUNT_ARG, type PlaneTarget } from "./projectRef.js";
 import { planeWrite, inPlainWords, DANGER, DANGER_NOTE } from "./write.js";
 import { PLANE_VERSIONS, findPlaneVersion, versionHasTool, onPlaneVersion, CHOOSE_PLANE_VERSION, type PlaneVersion } from "./versions.js";
@@ -71,10 +71,14 @@ export function accountForTool(list: PlaneAccess[], tool: string, named: unknown
   throw new Error(`${tool} is not available on Plane account "${hit.name}": it ${onPlaneVersion(hit.account, versions)}.${next}`);
 }
 
-/** Wraps each Plane tool's handler so `accountForTool` runs first, on the model's call and again on the confirmed run. */
+/**
+ * Wraps each Plane tool's handler so `accountForTool` runs first, on the model's call and again on the confirmed run, and the
+ * entry it picks is passed on by its full `account/workspace` name (`pinnedPlaneAccess`).
+ */
 export function checkedByVersion(handlers: Record<string, ToolHandler>, policy: Policies): Record<string, ToolHandler> {
   return Object.fromEntries(Object.entries(handlers).map(([tool, handler]) => [tool, tool === "planeAccounts" ? handler : async (args, ctx) => {
-    const account = accountForTool(await loadPlaneAccess(ctx), tool, args?.account, policy);
+    const list = await loadPlaneAccess(ctx);
+    const account = pinnedPlaneAccess(list, accountForTool(list, tool, args?.account, policy) ?? args?.account);
     return handler(account ? { ...args, account } : args, ctx);
   }]));
 }

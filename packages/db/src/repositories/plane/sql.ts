@@ -99,10 +99,10 @@ export function createSqlPlaneRepository(connection: SqlConnection): PlaneReposi
     listScopes: (botId, guildId) => scopesOf(botId, guildId),
     async replaceScopes(tenantId, botId, guildId, channelId, rules) {
       await sqlTransaction(connection, function* (tx) {
-        const linked = new Map<string, PlaneWorkspace[]>((yield tx.select({ id: t.planeAccounts.id, workspaces: t.planeAccounts.workspaces }).from(t.botPlaneAccounts)
+        const workspacesByAccount = new Map<string, PlaneWorkspace[]>((yield tx.select({ id: t.planeAccounts.id, workspaces: t.planeAccounts.workspaces }).from(t.botPlaneAccounts)
           .innerJoin(t.planeAccounts, eq(t.planeAccounts.id, t.botPlaneAccounts.planeAccountId)).where(eq(t.botPlaneAccounts.botId, botId))).map((r: any) => [r.id, r.workspaces ?? []]));
         const current: PlaneScope[] = (yield tx.select().from(t.planeScopes).where(and(eq(t.planeScopes.botId, botId), eq(t.planeScopes.guildId, guildId)))).map(toScope);
-        const clean = checkPlaneScopeRules(rules, linked, channelId, current);
+        const clean = checkPlaneScopeRules(rules, workspacesByAccount, channelId, current);
         yield tx.delete(t.planeScopes).where(and(eq(t.planeScopes.botId, botId), eq(t.planeScopes.guildId, guildId), eq(t.planeScopes.channelId, channelId)));
         if (clean.length) yield tx.insert(t.planeScopes).values(clean.map((r) => ({ id: randomUUID(), tenantId, botId, guildId, channelId, ...r, updatedAt: new Date() })));
         if (channelId) return;

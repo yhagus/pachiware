@@ -38,9 +38,12 @@ export function computePlaneAccess(attached: PlaneAccount[], rules: Rule[], chan
       out.push({ account, workspace: slug, name: account.name, sets });
     }
   }
-  for (const a of out) if (out.some((b) => b !== a && b.account.id === a.account.id)) a.name = `${a.account.name}/${a.workspace}`;
+  for (const a of out) if (out.some((b) => b !== a && b.account.id === a.account.id)) a.name = fullName(a);
   return out;
 }
+
+/** `account/workspace`, which names an entry whatever else is usable. */
+const fullName = (a: PlaneAccess) => `${a.account.name}/${a.workspace}`;
 
 export function planeProjectAllowed(access: PlaneAccess, projectId: string): boolean {
   const id = projectId.toLowerCase();
@@ -65,11 +68,22 @@ export function allowedPlaneProjectIds(access: PlaneAccess): string[] | null {
  */
 export function findPlaneAccess(list: PlaneAccess[], name: string): PlaneAccess | null {
   const want = name.trim().toLowerCase();
-  const full = list.find((a) => `${a.account.name}/${a.workspace}`.toLowerCase() === want);
+  const full = list.find((a) => fullName(a).toLowerCase() === want);
   if (full) return full;
   const bare = list.filter((a) => a.account.name.toLowerCase() === want);
   if (bare.length > 1) throw new Error(`Plane account "${bare[0]!.account.name}" has several Plane workspaces here; pass "account" with one of: ${bare.map((a) => a.name).join(", ")}`);
   return bare[0] ?? null;
+}
+
+/**
+ * The full name of the entry a call picks: the one `name` names, or the only one usable when none is named; null when it picks
+ * none yet. A write keeps it in its arguments while it waits for Confirm, so it runs in the Plane workspace it was asked for, or
+ * is refused, even if other workspaces were switched on or off meanwhile.
+ */
+export function pinnedPlaneAccess(list: PlaneAccess[], name?: unknown): string | null {
+  const given = typeof name === "string" ? name.trim() : "";
+  const hit = given ? findPlaneAccess(list, given) : list.length === 1 ? list[0]! : null;
+  return hit ? fullName(hit) : null;
 }
 
 /** `name` may be omitted only when exactly one Plane workspace is usable. */

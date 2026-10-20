@@ -150,9 +150,9 @@ export function createMongoPlaneRepository(connection: MongoConnection): PlaneRe
     listScopes: (botId, guildId) => scopesOf(botId, guildId),
     replaceScopes: (tenantId, botId, guildId, channelId, rules) => inTransaction(connection, async (session) => {
       const held = (await links.find({ botId }, { session, projection: { planeAccountId: 1 } }).toArray()).map((l) => l.planeAccountId);
-      const linked = new Map<string, PlaneWorkspace[]>((await accounts.find({ _id: { $in: held } }, { session, projection: { workspaces: 1 } }).toArray()).map((a) => [a._id, a.workspaces ?? []]));
+      const workspacesByAccount = new Map<string, PlaneWorkspace[]>((await accounts.find({ _id: { $in: held } }, { session, projection: { workspaces: 1 } }).toArray()).map((a) => [a._id, a.workspaces ?? []]));
       const current = await scopesOf(botId, guildId, session);
-      const clean = checkPlaneScopeRules(rules, linked, channelId, current);
+      const clean = checkPlaneScopeRules(rules, workspacesByAccount, channelId, current);
       await scopes.deleteMany({ botId, guildId, channelId }, { session });
       if (clean.length) await scopes.insertMany(clean.map((r) => ({ _id: randomUUID(), tenantId, botId, guildId, channelId, ...r, updatedAt: new Date() })), { session });
       if (channelId) return;

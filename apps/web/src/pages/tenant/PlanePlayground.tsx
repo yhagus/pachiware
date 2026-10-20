@@ -87,7 +87,7 @@ export function PlanePlayground({ account, onClose }: { account: PlaneAccount | 
               <SelectTrigger id="ppg-workspace" className="w-full"><SelectValue placeholder="Choose a Plane workspace" /></SelectTrigger>
               <SelectContent>{account.workspaces.map((w) => <SelectItem key={w.slug} value={w.slug}><span className="font-mono">{w.slug}</span>{!w.enabled && <span className="text-xs text-muted-foreground">switched off</span>}</SelectItem>)}</SelectContent>
             </Select></div>
-          {!workspace ? <p className="text-sm text-muted-foreground">Lists the Plane projects the account's Plane user can see in the chosen workspace, as integrations would.</p>
+          {!workspace ? <p className="text-sm text-muted-foreground">Lists the Plane projects the account's Plane user can see in the chosen Plane workspace, as integrations would.</p>
             : projects === null ? <p role="status" className="text-sm text-muted-foreground">Loading Plane projects</p>
             : "error" in projects ? <p role="alert" className="text-sm text-destructive">Could not list Plane projects: {projects.error}</p>
             : projects.length === 0 ? <p className="text-sm text-muted-foreground">This account's Plane user sees no Plane projects in {workspace}. Add the user to a Plane project there first.</p>

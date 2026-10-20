@@ -247,7 +247,7 @@ adminScenario("an account lists several Plane workspaces, each switched on or of
   const saved = await put([{ planeAccountId: acc.id, workspaceSlug: "acme", projectIds: ["*"] }, { planeAccountId: acc.id, workspaceSlug: "beta", projectIds: [P3] }]);
   assert(saved.status === 200 && saved.json.guild.map((r) => r.workspaceSlug).join() === "acme,beta", "rules per workspace not saved: " + JSON.stringify(saved.json));
   const got = (await call("GET", "/bots/" + bot.id + "/guilds/g1/plane")).json;
-  assert(JSON.stringify(got.accounts[0].workspaces) === JSON.stringify(off.json.planeAccount.workspaces), "the scope page does not get the workspaces: " + JSON.stringify(got.accounts));
+  assert(JSON.stringify(got.accounts[0].workspaces) === JSON.stringify([{ slug: "acme", enabled: false }, { slug: "beta", enabled: true }, { slug: "nope", enabled: false }]), "the scope page does not get the workspaces: " + JSON.stringify(got.accounts));
   assert((await patch({ workspaces: [{ slug: "beta" }] })).status === 200, "removing workspaces failed");
   const after = (await call("GET", "/bots/" + bot.id + "/guilds/g1/plane")).json;
   assert(after.guild.map((r) => r.workspaceSlug).join() === "beta", "a removed workspace kept its rules: " + JSON.stringify(after.guild));

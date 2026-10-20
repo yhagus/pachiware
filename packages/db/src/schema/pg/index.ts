@@ -2,6 +2,7 @@ import { pgTable, text, timestamp, boolean, jsonb, integer, real, index, uniqueI
 import { sql } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 import type { DigestChannel, DailyLogChannel, DocSource } from "../types.js";
+import type { PlaneWorkspace } from "../../repositories/plane/types.js";
 import type { ScheduleKind } from "../../repositories/schedules/types.js";
 
 /**
@@ -83,7 +84,7 @@ export const gitScopes = pgTable("git_scopes", {
 
 export const planeAccounts = pgTable("plane_accounts", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), baseUrl: text("base_url"), workspaces: jsonb("workspaces").$type<{ slug: string; enabled: boolean }[]>().notNull().default([]), apiKeyEncrypted: text("api_key_encrypted").notNull(),
+  name: text("name").notNull(), baseUrl: text("base_url"), workspaces: jsonb("workspaces").$type<PlaneWorkspace[]>().notNull().default([]), apiKeyEncrypted: text("api_key_encrypted").notNull(),
   planeUserId: text("plane_user_id").notNull(), planeUserName: text("plane_user_name").notNull(), planeVersion: text("plane_version").notNull().default("1.3.1"), planeServerVersion: text("plane_server_version"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("plane_accounts_tenant_name_idx").on(t.tenantId, t.name), uniqueIndex("plane_accounts_tenant_id_idx").on(t.tenantId, t.id)]);

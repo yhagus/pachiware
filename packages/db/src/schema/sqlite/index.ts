@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "../../persona.js";
 import { randomUUID } from "crypto";
 import type { DigestChannel, DailyLogChannel, DocSource } from "../types.js";
+import type { PlaneWorkspace } from "../../repositories/plane/types.js";
 import type { ScheduleKind } from "../../repositories/schedules/types.js";
 
 /**
@@ -99,7 +100,7 @@ export const gitScopes = sqliteTable("git_scopes", {
 
 export const planeAccounts = sqliteTable("plane_accounts", {
   id: text("id").primaryKey().$defaultFn(defaultUuid), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), baseUrl: text("base_url"), workspaces: text("workspaces", { mode: "json" }).$type<{ slug: string; enabled: boolean }[]>().notNull().default([]), apiKeyEncrypted: text("api_key_encrypted").notNull(),
+  name: text("name").notNull(), baseUrl: text("base_url"), workspaces: text("workspaces", { mode: "json" }).$type<PlaneWorkspace[]>().notNull().default([]), apiKeyEncrypted: text("api_key_encrypted").notNull(),
   planeUserId: text("plane_user_id").notNull(), planeUserName: text("plane_user_name").notNull(), planeVersion: text("plane_version").notNull().default("1.3.1"), planeServerVersion: text("plane_server_version"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(defaultNow),
 }, (t) => [uniqueIndex("plane_accounts_tenant_name_idx").on(t.tenantId, t.name), uniqueIndex("plane_accounts_tenant_id_idx").on(t.tenantId, t.id)]);

@@ -41,10 +41,10 @@ function workspaceOf(rule: PlaneScopeRuleInput, workspaces: PlaneWorkspace[]): s
  * Checks the rules of one scope against the accounts the bot holds (each with the Plane workspaces it lists) and, for a
  * channel, the guild rules; returns them cleaned. Shared by every engine, so the same rules reject everywhere.
  */
-export function checkPlaneScopeRules(rules: PlaneScopeRuleInput[], linked: Map<string, PlaneWorkspace[]>, channelId: string, current: PlaneScope[]): PlaneScopeRule[] {
+export function checkPlaneScopeRules(rules: PlaneScopeRuleInput[], workspacesByAccount: Map<string, PlaneWorkspace[]>, channelId: string, current: PlaneScope[]): PlaneScopeRule[] {
   const seen = new Set<string>();
   const clean = rules.map((r) => {
-    const workspaces = linked.get(r.planeAccountId);
+    const workspaces = workspacesByAccount.get(r.planeAccountId);
     if (!workspaces) throw new Error("Plane account is not attached to this bot");
     const rule = { planeAccountId: r.planeAccountId, workspaceSlug: workspaceOf(r, workspaces), projectIds: cleanProjectIds(r.projectIds) };
     if (seen.has(keyOf(rule))) throw new Error("Duplicate Plane account and workspace in rules");

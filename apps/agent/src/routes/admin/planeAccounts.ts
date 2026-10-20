@@ -27,7 +27,7 @@ function slugOf(value: unknown): string {
   if (!/^[a-z0-9][a-z0-9_-]{0,47}$/.test(slug)) throw bad("A Plane workspace slug must be as in the Plane workspace's URL (letters, digits, - and _)");
   return slug;
 }
-export const MAX_PLANE_WORKSPACES = 20;
+const MAX_PLANE_WORKSPACES = 20;
 /**
  * The Plane workspaces an account lists: 1 to 20 slugs, none twice, each switched on unless `enabled` is false. Plane cannot list
  * the workspaces a key opens, so the admin types them.
@@ -50,11 +50,12 @@ function nameOf(value: unknown): string {
   if (name.includes("/")) throw bad("name must not contain /, which separates a Plane account from its Plane workspace");
   return name;
 }
+const ONE_OF_VERSIONS = `planeVersion must be one of: ${PLANE_VERSIONS.map((v) => v.id).join(", ")}`;
 /** A Plane version from the list; left out, `fallback`. */
 function versionOf(value: unknown, fallback: PlaneVersion = newestPlaneVersion()): PlaneVersion {
   if (value === undefined || value === null || value === "") return fallback;
   const version = typeof value === "string" ? findPlaneVersion(value.trim()) : null;
-  if (!version) throw bad(`planeVersion must be one of: ${PLANE_VERSIONS.map((v) => v.id).join(", ")}`);
+  if (!version) throw bad(ONE_OF_VERSIONS);
   return version;
 }
 /** A new key, or null when the field is empty or still holds the mask. */
@@ -121,7 +122,7 @@ planeAccountAdminRoutes.patch("/plane-accounts/:accountId", async (c) => {
   const apiKey = newKey(body.apiKey);
   // An account left on a version this server does not know can be edited only by choosing one it knows.
   const version = body.planeVersion !== undefined ? versionOf(body.planeVersion) : findPlaneVersion(current.planeVersion);
-  const unknown = () => bad(`This account is set to Plane version "${current.planeVersion}", which this server does not know; planeVersion must be one of: ${PLANE_VERSIONS.map((v) => v.id).join(", ")}`);
+  const unknown = () => bad(`This account is set to Plane version "${current.planeVersion}", which this server does not know; ${ONE_OF_VERSIONS}`);
   // The saved key must never be sent to a host it was not entered for.
   if (baseUrl !== current.baseUrl && !apiKey) throw bad("Changing the base URL requires entering the API key again");
   // A new key, host or version is checked with every switched-on Plane workspace; otherwise only the workspaces this save
@@ -161,8 +162,9 @@ planeAccountAdminRoutes.post("/plane-accounts/test", async (c) => {
   const body = object(await c.req.json(), "body");
   const saved = body.accountId !== undefined ? await repositories().plane.getAccount(string(body.accountId, "accountId")!) : null;
   if (body.accountId !== undefined && !saved) return c.json({ error: "Plane account not found" }, 404);
-  const listed = Array.isArray(body.workspaces) ? body.workspaces.map((w: unknown) => ({ slug: slugOf(object(w, "workspace").slug), enabled: (w as any).enabled !== false })) : [];
-  const workspacesSkipped = (why: string) => listed.map((w: PlaneWorkspace) => ({ ...w, ...skipped(why) }));
+  // An account being written may have no Plane workspace yet; Test still reports the server, the version and the key.
+  const toCheck = Array.isArray(body.workspaces) && body.workspaces.length ? workspacesOf(body.workspaces) : [];
+  const workspacesSkipped = (why: string) => toCheck.map((w) => ({ ...w, ...skipped(why) }));
   const stop = (url: Check, version: Check, key: Check) => c.json({ success: true, checks: { url, version, key, workspaces: workspacesSkipped("Not checked until the API key passes.") } });
 
   let baseUrl: string | null;
@@ -173,23 +175,23 @@ planeAccountAdminRoutes.post("/plane-accounts/test", async (c) => {
   if (!server.reached) return stop({ status: "failed", message: server.error ?? `${where} could not be reached.` }, skipped("Not checked."), skipped("Not checked."));
   const url: Check = { status: "ok", message: server.release ? `${where} answered and runs ${server.release}.` : `${where} answered without saying which release it runs.` };
 
-  const asked = typeof body.planeVersion === "string" && body.planeVersion.trim() ? findPlaneVersion(body.planeVersion.trim()) : versionForRelease(server.release) ?? newestPlaneVersion();
-  if (!asked) return stop(url, { status: "failed", message: `planeVersion must be one of: ${PLANE_VERSIONS.map((v) => v.id).join(", ")}` }, skipped("Not checked."));
-  const note = versionNote({ baseUrl, planeVersion: asked.id, planeServerVersion: server.release });
-  const version: Check = !server.release ? skipped(`The release is unknown, so it was not compared with ${asked.label}.`)
-    : note ? { status: "warning", message: note } : { status: "ok", message: `${asked.label} covers ${server.release}.` };
+  const planeVersion = typeof body.planeVersion === "string" && body.planeVersion.trim() ? findPlaneVersion(body.planeVersion.trim()) : versionForRelease(server.release) ?? newestPlaneVersion();
+  if (!planeVersion) return stop(url, { status: "failed", message: ONE_OF_VERSIONS }, skipped("Not checked."));
+  const note = versionNote({ baseUrl, planeVersion: planeVersion.id, planeServerVersion: server.release });
+  const version: Check = !server.release ? skipped(`The release is unknown, so it was not compared with ${planeVersion.label}.`)
+    : note ? { status: "warning", message: note } : { status: "ok", message: `${planeVersion.label} covers ${server.release}.` };
 
-  const typed = newKey(body.apiKey);
-  if (!typed && saved && saved.baseUrl !== baseUrl) return stop(url, version, { status: "failed", message: "Enter the API key again: the saved key is never sent to a different host." });
-  const apiKey = typed ?? (saved ? decryptSecret(saved.apiKeyEncrypted) : null);
+  const newApiKey = newKey(body.apiKey);
+  if (!newApiKey && saved && saved.baseUrl !== baseUrl) return stop(url, version, { status: "failed", message: "Enter the API key again: the saved key is never sent to a different host." });
+  const apiKey = newApiKey ?? (saved ? decryptSecret(saved.apiKeyEncrypted) : null);
   if (!apiKey) return stop(url, version, { status: "failed", message: "Enter the API key." });
-  const conn = { baseUrl, apiKey, version: asked };
+  const conn = { baseUrl, apiKey, version: planeVersion };
   let key: Check;
   try { key = { status: "ok", message: `Connected as ${(await verifyPlaneKey(conn)).name}.` }; }
   catch (e) { return stop(url, version, { status: "failed", message: (e as Error).message }); }
 
   const workspaces = [];
-  for (const w of listed as PlaneWorkspace[]) {
+  for (const w of toCheck) {
     try {
       const projects = await checkPlaneWorkspace(conn, w.slug);
       workspaces.push({ ...w, status: "ok" as const, message: `${projects.length} Plane ${projects.length === 1 ? "project" : "projects"} this Plane user can see.`, projectCount: projects.length });

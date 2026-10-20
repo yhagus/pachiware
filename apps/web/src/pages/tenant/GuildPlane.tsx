@@ -15,7 +15,7 @@ type Projects = Record<string, PlaneProject[] | { error: string }>;
 
 const keyOf = (r: { planeAccountId: string; workspaceSlug: string }) => `${r.planeAccountId}/${r.workspaceSlug}`;
 const targetsOf = (accounts: Account[]): Target[] =>
-  accounts.flatMap((account) => account.workspaces.filter((w) => w.enabled).map((w) => ({ key: `${account.id}/${w.slug}`, account, slug: w.slug })));
+  accounts.flatMap((account) => account.workspaces.filter((w) => w.enabled).map((w) => ({ key: keyOf({ planeAccountId: account.id, workspaceSlug: w.slug }), account, slug: w.slug })));
 /** Rules for workspaces switched off in Plane accounts: not shown here, and sent back unchanged so a save keeps them. */
 const hiddenRules = (accounts: Account[], targets: Target[], rules: PlaneRule[]) =>
   rules.filter((r) => !targets.some((t) => t.key === keyOf(r)) && accounts.some((a) => a.id === r.planeAccountId && a.workspaces.some((w) => w.slug === r.workspaceSlug)));
@@ -73,7 +73,7 @@ function Rules({ targets, draft, onChange, projects, limit }: { targets: Target[
                         </label></li>
                       ))}
                     </ul>)}
-                {d.on && !d.all && !d.ids.length && <p className="text-xs text-muted-foreground">Pick at least one Plane project, or this workspace stays off.</p>}
+                {d.on && !d.all && !d.ids.length && <p className="text-xs text-muted-foreground">Pick at least one Plane project, or this Plane workspace stays off.</p>}
               </fieldset>
             )}
           </li>
@@ -157,6 +157,9 @@ export function GuildPlaneAccess({ botId, guild }: { botId: string; guild: Guild
                   <Button disabled={busy || !toRules(onGuild, channel).length} onClick={() => save(toRules(onGuild, channel), channelIds, "Channel access saved")}>{busy ? "Saving" : `Save for ${channelIds.length} ${channelIds.length === 1 ? "channel" : "channels"}`}</Button>
                   {channelIds.some((id) => data.channels[id]) && <Button variant="ghost" disabled={busy} onClick={() => save([], channelIds.filter((id) => data.channels[id]), "Channels follow the server", false)}>Use server rule</Button>}
                 </div>
+                {channelIds.some((id) => hiddenRules(data.accounts, targets, data.channels[id] ?? []).length > 0) && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">{channelIds.length === 1 ? "This channel also has" : "Some of these channels also have"} rules for Plane workspaces switched off in Plane accounts. Saving here keeps them; Use server rule removes them too.</p>
+                )}
               </>
             )}
           </>

@@ -12,7 +12,7 @@ Plane's public API cannot list the workspaces a key opens. This was checked in v
 
 ## Consequences
 
-- To the bot, each usable (account, Plane workspace) pair is one entry. An entry is named by the account alone when that account has one workspace usable in the place, and `account/workspace` when it has several. The full form is always accepted, so a pending Confirm still resolves after another workspace is switched on.
+- To the bot, each usable (account, Plane workspace) pair is one entry. An entry is named by the account alone when that account has one workspace usable in the place, and `account/workspace` when it has several. The full form is always accepted, and the entry a call picks is passed on in that form. A write waiting for Confirm therefore runs in the Plane workspace it was asked for, or is refused if that workspace was switched off in the meantime; it never moves to another.
 - A Plane scope rule names its account and its Plane workspace (`plane_scopes.workspace_slug`), and a channel rule narrows the guild rule of the same workspace.
 - Switching a workspace off keeps its rules: the bot stops seeing it, and switching it back on restores them. A channel whose only rules are for switched-off workspaces gets no Plane, rather than falling back to its guild's rules. Removing a slug deletes its rules on every bot.
 - Saving asks Plane only what the save could change. A new key, base URL or Plane version is checked with every switched-on workspace; otherwise only workspaces newly added or switched on are checked. Switching off a workspace Plane now refuses still saves.

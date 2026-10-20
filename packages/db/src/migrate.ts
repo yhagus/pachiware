@@ -90,7 +90,8 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   // The first entry was "1.3", covering the 1.3 line; it is now exactly Plane 1.3.1, the release its tools were checked against.
   await exec("UPDATE plane_accounts SET plane_version = '1.3.1' WHERE plane_version = '1.3'");
   // A Plane account held one Plane workspace; it now lists several, and each Plane scope names one of them. The scopes take
-  // their account's slug first, since the column goes after; a scope whose account or bot link is gone is dropped.
+  // their account's slug first, since the column goes after. A scope whose account is gone is dropped; on SQLite, whose older
+  // files may lack the foreign keys, so is one whose bot link is gone (PostgreSQL's foreign keys rule that out).
   if (planeCols.some((c) => c.name === "workspace_slug")) {
     if (!planeCols.some((c) => c.name === "workspaces")) await exec(`ALTER TABLE plane_accounts ADD COLUMN workspaces ${pg ? "JSONB" : "TEXT"} NOT NULL DEFAULT '[]'`);
     await exec(pg

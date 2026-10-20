@@ -104,7 +104,7 @@ export function TenantPlaneAccounts() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 flex-1 text-sm text-muted-foreground">A Plane account is one API key on Plane's cloud or your own server, acting as one Plane user in every Plane workspace that user belongs to. List the workspaces integrations may use. Several integrations can share an account. Self-hosted servers must be on Allowed hosts in <Link to="/settings" className="underline underline-offset-2">Settings</Link>.</p>
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground">A Plane account is one API key on Plane's cloud or your own server, acting as one Plane user in every Plane workspace that user belongs to. List the Plane workspaces integrations may use. Several integrations can share an account. Self-hosted servers must be on Allowed hosts in <Link to="/settings" className="underline underline-offset-2">Settings</Link>.</p>
         <Button onClick={() => open("new")}><Plus /> Add Plane account</Button>
       </div>
       {loadError
@@ -170,7 +170,7 @@ export function TenantPlaneAccounts() {
                 <Button type="button" variant="outline" disabled={!slug.trim() || form.workspaces.length >= MAX_WORKSPACES} onClick={addSlug}>Add</Button>
               </div>
               {slugError && <p role="alert" className="text-xs text-destructive">{slugError}</p>}
-              <p id="ps-help" className="text-xs text-muted-foreground">The part after the host in a Plane workspace's address, as in app.plane.so/<span className="font-mono">acme</span>/. The key opens every workspace its Plane user belongs to, but Plane cannot list them, so add each one here. Integrations can use only the ones switched on; at most {MAX_WORKSPACES}.</p>
+              <p id="ps-help" className="text-xs text-muted-foreground">The part after the host in a Plane workspace's address, as in app.plane.so/<span className="font-mono">acme</span>/. The key opens every Plane workspace its Plane user belongs to, but Plane cannot list them, so add each one here. Integrations can use only the ones switched on; at most {MAX_WORKSPACES}.</p>
               {form.workspaces.length > 0 && (
                 <ul className="divide-y rounded-md border">
                   {form.workspaces.map((w) => (
@@ -185,7 +185,7 @@ export function TenantPlaneAccounts() {
                   ))}
                 </ul>
               )}
-              {removed.length > 0 && <p className="text-xs text-amber-700 dark:text-amber-400">Saving removes {removed.map((w) => w.slug).join(", ")} and its Plane access rules in every integration. Switch a workspace off instead to keep them.</p>}</div>
+              {removed.length > 0 && <p className="text-xs text-amber-700 dark:text-amber-400">Saving removes {removed.map((w) => w.slug).join(", ")} and its Plane access rules in every integration. Switch a Plane workspace off instead to keep them.</p>}</div>
             <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" autoComplete="off" required={shown === "new" || hostChanged} placeholder={shown !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />
               <p className="text-xs text-muted-foreground">The bot can do whatever this key's Plane user can. Use a dedicated Plane user, added only to the Plane projects it needs as a Member (Admin only for intake triage or project admin), and give the key an expiry. The key is checked with Plane on save and never shown again.</p></div>
             {probe && <PlaneChecklist checks={probe} workspaces={false} />}

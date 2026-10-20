@@ -81,6 +81,23 @@ discordScenario("a write asked through account/workspace runs in that Plane work
   expect(confirmation!.content).toContain("ENG-1");
 });
 
+discordScenario("a write asked with no account runs in the Plane workspace it was asked in: switched off before Confirm, it is refused rather than moved", async (s) => {
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const account = await s.plane({ name: "main", workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: false }], projects: [P1, P2] });
+  const acme = fakePlane(s, { slug: "acme" });
+  const beta = fakePlane(s, { slug: "beta" });
+  world(acme);
+  world(beta);
+  const { result, confirmation } = await ask(s, "workItemCreate", { project: "ENG", name: "Fix login redirect" });
+  expect(result).toMatchObject({ pending: true });
+  await repositories().plane.updateAccount(account.id, { workspaces: [{ slug: "acme", enabled: false }, { slug: "beta", enabled: true }] });
+  await s.discord.click(confirmation!, "Confirm");
+  expect(confirmation!.content).toContain("couldn't complete");
+  expect(confirmation!.content).toContain("main/acme");
+  expect(acme.writes).toEqual([]);
+  expect(beta.writes).toEqual([]);
+});
+
 discordScenario("a confirmed write is refused when its Plane project left the scope after it was asked for", async (s) => {
   const account = await s.plane({ projects: [P1, P2] });
   const plane = fakePlane(s);
