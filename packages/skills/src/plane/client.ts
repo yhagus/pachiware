@@ -196,14 +196,31 @@ const RELEASE_TIMEOUT_MS = 5_000;
  * `instance`. No key is sent, a redirect is refused, and only the version string is kept: the rest of the answer is dropped.
  */
 export async function planeServerRelease(baseUrl: string | null): Promise<string | null> {
+  return (await readPlaneServer(baseUrl)).release;
+}
+
+/**
+ * The same request as `planeServerRelease`, telling apart a server that answered (with or without a release; Plane's cloud
+ * answers 404) from one that could not be reached, refused by the host checks, or answered with a redirect, which says why.
+ */
+export async function readPlaneServer(baseUrl: string | null): Promise<{ reached: boolean; release: string | null; error?: string }> {
+  let res: Response;
   try {
     assertPlaneUrl(baseUrl);
-    const res = await fetch(`${baseUrl ?? PLANE_CLOUD_URL}/api/instances/`, { headers: { Accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(RELEASE_TIMEOUT_MS) });
-    if (!res.ok) return null;
+    res = await fetch(`${baseUrl ?? PLANE_CLOUD_URL}/api/instances/`, { headers: { Accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(RELEASE_TIMEOUT_MS) });
+  } catch (e) {
+    const host = new URL(baseUrl ?? PLANE_CLOUD_URL).host, message = String((e as Error)?.message ?? e);
+    if (/redirect/i.test(message)) return { reached: false, release: null, error: `Plane at ${host} answered with a redirect. Enter the address Plane's API is served from.` };
+    if ((e as Error)?.name === "TimeoutError") return { reached: false, release: null, error: `Plane at ${host} did not answer within ${RELEASE_TIMEOUT_MS / 1000} seconds.` };
+    if (e instanceof TypeError) return { reached: false, release: null, error: `Could not reach Plane at ${host}: ${message}` };
+    return { reached: false, release: null, error: message };
+  }
+  if (!res.ok) return { reached: true, release: null };
+  try {
     const release = (await res.json())?.instance?.current_version;
-    return typeof release === "string" && parseRelease(release) ? release.trim().slice(0, 40) : null;
+    return { reached: true, release: typeof release === "string" && parseRelease(release) ? release.trim().slice(0, 40) : null };
   } catch {
-    return null;
+    return { reached: true, release: null };
   }
 }
 

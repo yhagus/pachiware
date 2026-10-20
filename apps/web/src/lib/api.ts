@@ -98,6 +98,11 @@ export interface PlaneAccount { id: string; tenantId: string; name: string; base
 export interface PlaneAccountInput { name?: string; baseUrl?: string | null; workspaces?: PlaneWorkspace[]; apiKey?: string; planeVersion?: string; }
 /** A Plane release line the server has tool code for, oldest first. */
 export interface PlaneVersion { id: string; label: string; checkedAgainst: string; auth: "api-key"; }
+/** One step of a Plane account's Test, in the same statuses as a profile's. */
+export interface PlaneCheck { status: CheckStatus; message: string; }
+/** A listed Plane workspace's Test step; `projectCount` is set when Plane opened it. */
+export interface PlaneWorkspaceCheck extends PlaneCheck { slug: string; enabled: boolean; projectCount?: number; }
+export interface PlaneChecks { url: PlaneCheck; version: PlaneCheck; key: PlaneCheck; workspaces: PlaneWorkspaceCheck[]; }
 /** The release a Plane server reports, and the PlaneVersion id covering it (null when none does). */
 export interface PlaneServer { release: string; suggested: string | null; }
 export interface PlaneProject { id: string; name: string; identifier: string; }
@@ -208,6 +213,8 @@ export const api = {
   createPlaneAccount: (tenantId: string, data: PlaneAccountInput) => fetchJSON<{ planeAccount: PlaneAccount }>(`/api/admin/tenants/${tenantId}/plane-accounts`, json("POST", data)),
   updatePlaneAccount: (id: string, data: PlaneAccountInput) => fetchJSON<{ planeAccount: PlaneAccount }>(`/api/admin/plane-accounts/${id}`, json("PATCH", data)),
   deletePlaneAccount: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/plane-accounts/${id}`, json("DELETE")),
+  /** Tries settings without saving them; with `accountId` and no `apiKey`, the saved key on its saved host only. */
+  testPlaneAccount: (data: { baseUrl: string | null; apiKey?: string; accountId?: string; planeVersion?: string; workspaces: PlaneWorkspace[] }) => fetchJSON<{ success: boolean; checks: PlaneChecks }>("/api/admin/plane-accounts/test", json("POST", data)),
   listPlaneProjects: (accountId: string, workspace: string) => fetchJSON<{ projects: PlaneProject[] }>(`/api/admin/plane-accounts/${accountId}/projects?workspace=${encodeURIComponent(workspace)}`),
   deleteProfile: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/profiles/${id}`, json("DELETE")),
   getBot: (id: string) => fetchJSON<{ bot: Bot }>(`/api/admin/bots/${id}`),

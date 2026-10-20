@@ -252,3 +252,41 @@ adminScenario("an account lists several Plane workspaces, each switched on or of
   const after = (await call("GET", "/bots/" + bot.id + "/guilds/g1/plane")).json;
   assert(after.guild.map((r) => r.workspaceSlug).join() === "beta", "a removed workspace kept its rules: " + JSON.stringify(after.guild));
 `);
+
+adminScenario("Test reports the server, the Plane version, the key's Plane user and each Plane workspace, and never sends a saved key to another host", `
+  const a = await tenant("a");
+  await call("PUT", "/infrastructure/allowed-hosts", { hosts: ["plane.corp.example", "plane.other.example", "plane.silent.example"] });
+  releases["plane.corp.example"] = "v1.3.1";
+  releases["plane.other.example"] = "v1.4.0";
+  const test = (b) => call("POST", "/plane-accounts/test", { baseUrl: "https://plane.corp.example", workspaces: [{ slug: "acme" }, { slug: "nope", enabled: false }], ...b });
+
+  const fresh = await test({ apiKey: "good-key" });
+  assert(fresh.status === 200, "test failed: " + JSON.stringify(fresh.json));
+  const c = fresh.json.checks;
+  assert(c.url.status === "ok" && /v1\\.3\\.1/.test(c.url.message), "url: " + JSON.stringify(c.url));
+  assert(c.version.status === "ok" && /Plane 1\\.3\\.1/.test(c.version.message), "version: " + JSON.stringify(c.version));
+  assert(c.key.status === "ok" && /pachibot/.test(c.key.message), "key: " + JSON.stringify(c.key));
+  assert(JSON.stringify(c.workspaces.map((w) => [w.slug, w.enabled, w.status, w.projectCount ?? null])) === JSON.stringify([["acme", true, "ok", 2], ["nope", false, "failed", null]]), "workspaces: " + JSON.stringify(c.workspaces));
+  assert(/"nope"/.test(c.workspaces[1].message), "the refusal does not name the workspace: " + c.workspaces[1].message);
+
+  const mismatch = (await test({ baseUrl: "https://plane.other.example", apiKey: "good-key" })).json.checks;
+  assert(mismatch.version.status === "warning" && /v1\\.4\\.0/.test(mismatch.version.message), "a release outside the version was not a warning: " + JSON.stringify(mismatch.version));
+  const badKey = (await test({ apiKey: "bad-key" })).json.checks;
+  assert(badKey.key.status === "failed" && badKey.workspaces.every((w) => w.status === "skipped"), "a bad key did not stop the workspace checks: " + JSON.stringify(badKey));
+  const silent = (await test({ baseUrl: "https://plane.silent.example", apiKey: "good-key" })).json.checks;
+  assert(silent.url.status === "ok" && silent.version.status === "skipped", "a server without a release: " + JSON.stringify(silent));
+  const unlisted = (await test({ baseUrl: "https://evil.example", apiKey: "good-key" })).json.checks;
+  assert(unlisted.url.status === "failed" && /Allowed hosts/.test(unlisted.url.message) && unlisted.key.status === "skipped", "an unlisted host: " + JSON.stringify(unlisted));
+  assert(!seen.some((s) => s.url.includes("evil.example")), "an unlisted host was called");
+  const noKey = (await test({})).json.checks;
+  assert(noKey.key.status === "failed" && /API key/.test(noKey.key.message), "no key: " + JSON.stringify(noKey.key));
+
+  const acc = (await call("POST", "/tenants/" + a.id + "/plane-accounts", { name: "main", baseUrl: "https://plane.corp.example", workspaces: [{ slug: "acme" }], apiKey: "good-key" })).json.planeAccount;
+  const saved = (await test({ accountId: acc.id })).json.checks;
+  assert(saved.key.status === "ok", "the saved key was not used on its own host: " + JSON.stringify(saved.key));
+  const before = seen.length;
+  const moved = (await test({ accountId: acc.id, baseUrl: "https://plane.other.example" })).json.checks;
+  assert(moved.key.status === "failed" && /again/.test(moved.key.message), "a new host without a key: " + JSON.stringify(moved.key));
+  assert(!seen.slice(before).some((s) => s.key !== null), "the saved key was sent to another host");
+  assert((await call("POST", "/plane-accounts/test", { accountId: "missing", workspaces: [] })).status === 404, "a missing account was tested");
+`);

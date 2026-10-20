@@ -8,7 +8,8 @@ import { api, type CheckStatus, type PlaygroundResult, type Profile, type Profil
 import { profileLabel } from "./TenantProfiles";
 
 const STEPS = [["url", "Base URL"], ["key", "API key"], ["model", "Model"], ["text", "Text reply"], ["image", "Image input"]] as const;
-const STATUS: Record<CheckStatus, { Icon: typeof CircleCheck; tone: string; word: string }> = {
+/** How a check step reads in every Test checklist: its icon, tone, and the word a screen reader hears. */
+export const STATUS: Record<CheckStatus, { Icon: typeof CircleCheck; tone: string; word: string }> = {
   ok: { Icon: CircleCheck, tone: "text-emerald-600 dark:text-emerald-500", word: "passed" },
   warning: { Icon: TriangleAlert, tone: "text-amber-600 dark:text-amber-500", word: "warning" },
   failed: { Icon: CircleX, tone: "text-destructive", word: "failed" },

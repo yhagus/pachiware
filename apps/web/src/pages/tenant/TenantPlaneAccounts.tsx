@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useOutletContext } from "react-router";
-import { Kanban, Pencil, Plus, Trash2, X } from "lucide-react";
+import { FlaskConical, Kanban, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,9 +13,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { api, type PlaneAccount, type PlaneServer, type PlaneVersion, type PlaneWorkspace, type Tenant } from "@/lib/api";
+import { api, type PlaneAccount, type PlaneChecks, type PlaneServer, type PlaneVersion, type PlaneWorkspace, type Tenant } from "@/lib/api";
 import { planeHost } from "@/lib/plane";
 import { useLastShown } from "@/hooks/use-last-shown";
+import { PlaneChecklist, PlanePlayground, WorkspaceResult } from "./PlanePlayground";
 
 const EMPTY = { name: "", baseUrl: "", workspaces: [] as PlaneWorkspace[], apiKey: "", planeVersion: "" };
 // Mirrors slugOf and MAX_PLANE_WORKSPACES in apps/agent/src/routes/admin/planeAccounts.ts.
@@ -31,6 +32,11 @@ export function TenantPlaneAccounts() {
   const [slug, setSlug] = useState("");
   const [slugError, setSlugError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [probe, setProbe] = useState<PlaneChecks | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [trying, setTrying] = useState<PlaneAccount | null>(null);
+  // A Test result describes the settings it ran with, so any edit clears it.
+  useEffect(() => { setProbe(null); }, [form]);
   const [loadError, setLoadError] = useState("");
   const [versions, setVersions] = useState<PlaneVersion[]>([]);
   const load = useCallback(() => api.listPlaneAccounts(tenant.id).then((r) => { setAccounts(r.planeAccounts); setLoadError(""); }).catch((e) => setLoadError(e.message)), [tenant.id]);
@@ -73,6 +79,12 @@ export function TenantPlaneAccounts() {
       setEditing(null); await load();
     } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
+  };
+  const runTest = async () => {
+    setTesting(true);
+    try {
+      setProbe((await api.testPlaneAccount({ baseUrl: form.baseUrl.trim() || null, apiKey: form.apiKey.trim() || undefined, accountId: editing !== "new" ? editing?.id : undefined, planeVersion: chosen?.id, workspaces: form.workspaces })).checks);
+    } catch (e: any) { toast.error(e.message); } finally { setTesting(false); }
   };
   const remove = async (a: PlaneAccount) => {
     try { await api.deletePlaneAccount(a.id); toast.success("Plane account deleted"); await load(); } catch (e: any) { toast.error(e.message); }
@@ -125,6 +137,7 @@ export function TenantPlaneAccounts() {
                   </div>
                   {a.bots.length > 0 && <p className="text-xs text-muted-foreground">To delete this account, first detach it from the integrations above.</p>}
                   <div className="mt-auto flex justify-end border-t pt-3">
+                    <IconButton label="Playground" onClick={() => setTrying(a)}><FlaskConical /></IconButton>
                     <IconButton label="Edit" onClick={() => open(a)}><Pencil /></IconButton>
                     {a.bots.length === 0 && <ConfirmAction trigger={<IconButton label="Delete" className="text-destructive hover:text-destructive"><Trash2 /></IconButton>}
                       title={`Delete ${a.name}?`} description="The stored API key is removed." confirmLabel="Delete" danger onConfirm={() => remove(a)} />}
@@ -133,8 +146,9 @@ export function TenantPlaneAccounts() {
               ))}
             </div>}
 
+      <PlanePlayground account={trying} onClose={() => setTrying(null)} />
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <form onSubmit={save} className="space-y-5">
             <DialogHeader><DialogTitle>{shown === "new" ? "Add Plane account" : "Edit Plane account"}</DialogTitle><DialogDescription className="sr-only">Plane account settings</DialogDescription></DialogHeader>
             <div className="space-y-2"><Label htmlFor="pn">Name</Label><Input id="pn" required placeholder="e.g. Acme Plane" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
@@ -161,7 +175,10 @@ export function TenantPlaneAccounts() {
                 <ul className="divide-y rounded-md border">
                   {form.workspaces.map((w) => (
                     <li key={w.slug} className="flex min-h-11 items-center gap-3 py-1 pr-1 pl-3">
-                      <span className="min-w-0 flex-1 break-all font-mono text-sm">{w.slug}</span>
+                      <div className="min-w-0 flex-1 py-1">
+                        <div className="break-all font-mono text-sm">{w.slug}</div>
+                        {probe?.workspaces.find((r) => r.slug === w.slug) && <WorkspaceResult check={probe.workspaces.find((r) => r.slug === w.slug)!} />}
+                      </div>
                       <Switch checked={w.enabled} onCheckedChange={(v) => setWorkspace(w.slug, v)} aria-label={`Integrations may use ${w.slug}`} />
                       <IconButton type="button" label={`Remove ${w.slug}`} onClick={() => setForm({ ...form, workspaces: form.workspaces.filter((x) => x.slug !== w.slug) })}><X /></IconButton>
                     </li>
@@ -171,7 +188,11 @@ export function TenantPlaneAccounts() {
               {removed.length > 0 && <p className="text-xs text-amber-700 dark:text-amber-400">Saving removes {removed.map((w) => w.slug).join(", ")} and its Plane access rules in every integration. Switch a workspace off instead to keep them.</p>}</div>
             <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" autoComplete="off" required={shown === "new" || hostChanged} placeholder={shown !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />
               <p className="text-xs text-muted-foreground">The bot can do whatever this key's Plane user can. Use a dedicated Plane user, added only to the Plane projects it needs as a Member (Admin only for intake triage or project admin), and give the key an expiry. The key is checked with Plane on save and never shown again.</p></div>
-            <DialogFooter><Button disabled={saving}>{saving ? "Checking with Plane" : "Save"}</Button></DialogFooter>
+            {probe && <PlaneChecklist checks={probe} workspaces={false} />}
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={testing || saving} onClick={runTest}>{testing ? "Testing…" : "Test"}</Button>
+              <Button disabled={saving}>{saving ? "Checking with Plane" : "Save"}</Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

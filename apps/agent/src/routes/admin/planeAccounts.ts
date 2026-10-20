@@ -3,7 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { repositories, encryptSecret, decryptSecret, type PlaneAccount, type PlaneAccountUpdate, type PlaneWorkspace } from "@pachiware/db";
 import { object, string } from "../validation.js";
 import {
-  planeBaseUrl, planeConnOf, verifyPlaneKey, checkPlaneWorkspace, listPlaneProjects, planeServerRelease,
+  planeBaseUrl, planeConnOf, verifyPlaneKey, checkPlaneWorkspace, listPlaneProjects, planeServerRelease, readPlaneServer,
   PLANE_VERSIONS, findPlaneVersion, newestPlaneVersion, versionForRelease, versionNote, type PlaneServerConn, type PlaneVersion,
 } from "@pachiware/skills";
 
@@ -146,6 +146,56 @@ planeAccountAdminRoutes.patch("/plane-accounts/:accountId", async (c) => {
     const row = await repositories().plane.updateAccount(current.id, values);
     return c.json({ success: true, planeAccount: publicAccount(row!) });
   } catch { return c.json({ error: "A Plane account with this name already exists" }, 409); }
+});
+
+type CheckStatus = "ok" | "warning" | "failed" | "skipped";
+type Check = { status: CheckStatus; message: string };
+const skipped = (message: string): Check => ({ status: "skipped", message });
+
+/**
+ * Tries an account's settings, saved or not, without saving: the Plane server, the Plane version against the release it reports,
+ * the key's Plane user, then each listed Plane workspace, switched on or not. A step after one that failed is skipped. With
+ * `accountId` and no key, the saved key is used, but only on the host it was saved for: it is never sent anywhere else.
+ */
+planeAccountAdminRoutes.post("/plane-accounts/test", async (c) => {
+  const body = object(await c.req.json(), "body");
+  const saved = body.accountId !== undefined ? await repositories().plane.getAccount(string(body.accountId, "accountId")!) : null;
+  if (body.accountId !== undefined && !saved) return c.json({ error: "Plane account not found" }, 404);
+  const listed = Array.isArray(body.workspaces) ? body.workspaces.map((w: unknown) => ({ slug: slugOf(object(w, "workspace").slug), enabled: (w as any).enabled !== false })) : [];
+  const workspacesSkipped = (why: string) => listed.map((w: PlaneWorkspace) => ({ ...w, ...skipped(why) }));
+  const stop = (url: Check, version: Check, key: Check) => c.json({ success: true, checks: { url, version, key, workspaces: workspacesSkipped("Not checked until the API key passes.") } });
+
+  let baseUrl: string | null;
+  try { baseUrl = baseUrlOf(body.baseUrl); }
+  catch (e) { return stop({ status: "failed", message: (e as Error).message }, skipped("Not checked."), skipped("Not checked.")); }
+  const where = baseUrl ? `Plane at ${new URL(baseUrl).host}` : "Plane's cloud";
+  const server = await readPlaneServer(baseUrl);
+  if (!server.reached) return stop({ status: "failed", message: server.error ?? `${where} could not be reached.` }, skipped("Not checked."), skipped("Not checked."));
+  const url: Check = { status: "ok", message: server.release ? `${where} answered and runs ${server.release}.` : `${where} answered without saying which release it runs.` };
+
+  const asked = typeof body.planeVersion === "string" && body.planeVersion.trim() ? findPlaneVersion(body.planeVersion.trim()) : versionForRelease(server.release) ?? newestPlaneVersion();
+  if (!asked) return stop(url, { status: "failed", message: `planeVersion must be one of: ${PLANE_VERSIONS.map((v) => v.id).join(", ")}` }, skipped("Not checked."));
+  const note = versionNote({ baseUrl, planeVersion: asked.id, planeServerVersion: server.release });
+  const version: Check = !server.release ? skipped(`The release is unknown, so it was not compared with ${asked.label}.`)
+    : note ? { status: "warning", message: note } : { status: "ok", message: `${asked.label} covers ${server.release}.` };
+
+  const typed = newKey(body.apiKey);
+  if (!typed && saved && saved.baseUrl !== baseUrl) return stop(url, version, { status: "failed", message: "Enter the API key again: the saved key is never sent to a different host." });
+  const apiKey = typed ?? (saved ? decryptSecret(saved.apiKeyEncrypted) : null);
+  if (!apiKey) return stop(url, version, { status: "failed", message: "Enter the API key." });
+  const conn = { baseUrl, apiKey, version: asked };
+  let key: Check;
+  try { key = { status: "ok", message: `Connected as ${(await verifyPlaneKey(conn)).name}.` }; }
+  catch (e) { return stop(url, version, { status: "failed", message: (e as Error).message }); }
+
+  const workspaces = [];
+  for (const w of listed as PlaneWorkspace[]) {
+    try {
+      const projects = await checkPlaneWorkspace(conn, w.slug);
+      workspaces.push({ ...w, status: "ok" as const, message: `${projects.length} Plane ${projects.length === 1 ? "project" : "projects"} this Plane user can see.`, projectCount: projects.length });
+    } catch (e) { workspaces.push({ ...w, status: "failed" as const, message: (e as Error).message }); }
+  }
+  return c.json({ success: true, checks: { url, version, key, workspaces } });
 });
 
 planeAccountAdminRoutes.delete("/plane-accounts/:accountId", async (c) => {
