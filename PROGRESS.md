@@ -1849,3 +1849,81 @@ Asked by the user on 2026-10-20: add Plane 1.4.2, stop the Plane account form fr
 - [x] Plane accounts page (c713365): its intro only says how to make the key in Plane (Profile settings → Personal Access Tokens → Add access token, the same place in v1.3.1 and v1.4.2).
 - Verification: `bun run typecheck` 0; `bun run test` 1381 pass, 0 fail; the web app builds.
 - [x] Committed on `main` and pushed, as the user asked (2026-10-20).
+
+## Phase 53 — An integration's Git and Plane accounts, changed from its own pages
+
+Asked by the user on 2026-10-20: the Git and Plane accounts an integration holds should also be editable from the integration's detail page, each under its own section.
+
+- [x] Git access and Plane access open with a card listing the tenant's accounts of that kind, the attached ones checked, and a Save that sends only that list (`PATCH /bots/:id`, as the integration form does, so an enabled bot restarts as it does there). Unchecking an attached account warns that saving detaches it and removes its server and channel rules. The card shows whether or not the bot is connected; with no accounts in the tenant it links to Git accounts or Plane accounts.
+- [x] One `AccountChecklist` serves the card and the integration form. A server's access reloads after the attached accounts change, and its empty state now points at the card. The form's Git note says "under Git access", where the per-server switches are.
+- Verification: the web app typechecks and builds. Checked in a browser against a separate instance (its own database and key): attaching one Git account and detaching another (warning, toast, the bot's list on the server), attaching a second Plane account, and the integration form showing the same lists.
+- [x] Committed as 4d101f6 on `main` and pushed, as the user asked (2026-10-20).
+
+## Phase 54 — An integration Playground that reads and keeps nothing
+
+Asked by the user on 2026-10-20: a Playground per integration in the console, to check before relying on the bot in Discord that it reads Plane, git and its other integrations correctly, as it would in a real channel. Playground prompts are not logged. Planned in plan mode with the user.
+
+- [x] Traced where a turn writes. The day logs, audit rows and usage rows hold no message text; only the conversation store does (`conversations`, `messages` and the rolling summary), and the loop could not run without it.
+- [x] Loop (`loop/react.ts`):
+  - `ephemeral: { history, cacheKey }` reads history from rows the caller holds, through the same window and fit (`windowOf` in `loop/history.ts`, which `historyWindow` now shares). It stores no conversation, message, summary or bulk approval, and returns the turn's new rows as `recorded`.
+  - `readOnly` closes every tool whose effect is not `read`, so the model never sees one, and a call it names anyway is refused before it runs.
+  - Every turn now returns `offered`, the tools the model got.
+- [x] `discord/playground.ts` runs a turn as a message in the chosen channel would get it, but not through `reply()`, so nothing reaches Discord:
+  - the bot's Profile and persona, and the guild's timezone and language;
+  - Availability, Git access and Plane access for that server and channel;
+  - the operator as speaker (`playground-operator`, no roles, as web chat);
+  - the Discord adapter when the bot is connected, with every call that would change Discord refused.
+- [x] `POST /api/admin/bots/:botId/playground` (`docs/api.md`):
+  - It checks the place ids, the message length (50,000) and every history row the console sends back (at most 200).
+  - A server outside the bot's Server IDs is refused, as is a suspended tenant.
+  - It lifts Bun's idle timeout for the turn.
+- [x] Console, a Playground section on the integration's page:
+  - server and channel pickers from the live server list, or ID fields while the bot is disconnected;
+  - the bot's replies as Markdown, its tool calls with arguments and clipped results under each reply, and the tools offered in that place;
+  - Reset. The conversation lives in the page only.
+- Known limit: what a person may view in other channels is checked for the operator, who is no member, so recall reads only the chosen channel's kept material there.
+- Verification:
+  - Typecheck 0; full suite 1385 pass, 0 fail; the web app builds.
+  - `integration-playground.test.ts`, four scenarios through the Discord harness:
+    - a Plane read with no conversation stored, nothing posted to Discord and no `discord_message` usage;
+    - a git read, with writes neither offered nor run;
+    - history sent back and read, never stored;
+    - the route's refusals.
+  - Checked in a browser against a separate instance with a fake provider and a fake Plane on localhost, the bot disconnected:
+    - a Plane question answered from `planeProjects`, with its call shown;
+    - a task request refused;
+    - Reset;
+    - no conversation or message rows and no task files afterwards, and only the HTTP path in the log.
+- [x] Committed as d9f585a (the agent) and 7515c3b (the page) on `main` and pushed, as the user asked (2026-10-20). The page built in this phase was rebuilt on AI Elements in Phase 55 before it was committed.
+
+## Phase 55 — The console's chat views on AI Elements
+
+Asked by the user on 2026-10-20: use shadcn's AI Elements in the console where it helps, the Playground first: "the richer, the better".
+
+- [x] Components:
+  - From AI Elements' registry: Conversation, Message, Tool, CodeBlock, PromptInput, Suggestion and Shimmer, in `apps/web/src/components/ai-elements/`.
+  - From shadcn's new-york-v4 registry, the `ui/` parts they need that the console lacked: button-group, collapsible, command, hover-card, input-group, scroll-area, spinner and textarea.
+  - They were written from the registry JSON rather than through the CLI, so no existing `ui/` file was overwritten; `input.tsx` keeps its autofill settings.
+  - Dependencies: `ai` (types only), `streamdown` with `@streamdown/code`, `shiki`, `use-stick-to-bottom`, `nanoid`, `motion`, `cmdk`.
+  - Streamdown's math, Mermaid and CJK plugins are left out. `@source` for Streamdown is in `index.css`, and the web tsconfig adds `DOM.Iterable`.
+- [x] The Playground streams. `POST /bots/:botId/playground` with `Accept: text/event-stream` sends `tool` as a call starts, `result` as it answers, then `done` with the whole turn (`failed` if it throws); without that header it answers in JSON as before. Each step now carries its call's `id`.
+- [x] The Playground page:
+  - each tool call is a card that goes from Running to Completed or Error, with its parameters and result highlighted;
+  - replies are rendered by Streamdown (tables, highlighted code with copy and download), with a copy button, the time and the number of calls;
+  - while the bot works, a shimmering line, and the send button becomes Stop. Stopping only stops reading, and the turn is marked as not remembered;
+  - suggestions on an empty chat follow the bot's accounts (Plane, Git);
+  - the conversation stays at the bottom, with a button back to it.
+- [x] The stored-conversation viewer (Servers → a channel) shows the bot's replies as Markdown through Message and MessageResponse; the Profile Playground's reply too.
+- [x] Bundle: the Playground page and the conversation viewer load on demand, and the Profile Playground loads MessageResponse on first use (`ai-elements/lazy-response.tsx`). The main chunk is 199 KB gzipped, against 247 KB before this phase.
+- Verification:
+  - Typecheck 0; full suite 1386 pass, 0 fail; the web app builds.
+  - A fifth Playground scenario reads the stream: a tool event, then its result, then done, and still nothing stored. `s.admin` takes headers and returns a body that is not JSON as `text`.
+  - Checked in a browser against a separate instance with a fake provider and a fake Plane:
+    - a suggestion sent;
+    - the Plane call's card and its parameters and result;
+    - a table and a highlighted code block in the reply;
+    - a refused write shown as Error;
+    - Stop;
+    - the Profile Playground reply.
+  - The conversation viewer needs a connected bot and was not opened.
+- [x] Committed as a2bcdf4 (the components) and 7515c3b (the pages) on `main` and pushed, as the user asked (2026-10-20).
