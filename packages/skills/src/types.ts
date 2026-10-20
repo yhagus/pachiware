@@ -199,6 +199,13 @@ export interface SkillContext {
   /** The place's configured zone and language (the guild's, else the tenant's), for dates and for text the tool writes on its own. */
   timezone?: string;
   language?: "id" | "en";
+  /** The language the asker wrote this turn in, for text they read now (a question back); `language` stays the place's, for what is kept. */
+  askerLanguage?: "id" | "en";
+  /**
+   * Set by the Discord host: the asker's own lines, this turn's and those of the conversation so far, without the lines they reply to.
+   * A schedule's `said` quotes are checked against them, so the model cannot make up the words a time is read from.
+   */
+  askerWords?: () => Promise<string[]>;
   /** One tool-free call to the bot's own model, set by the host; null when the provider failed or the turn's deadline passed (#265). Memory compaction uses it. */
   complete?: Completion;
   /**

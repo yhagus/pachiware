@@ -278,6 +278,8 @@ export class AgentReActLoop {
       userId: input.context.userId,
       timezone: input.context.timezone,
       language: input.context.language,
+      askerLanguage: input.context.answerIn ?? input.context.language,
+      askerWords: input.context.skillContext?.askerWords,
       complete: botCompletion({ tenantId: input.tenantId, botId: input.botId, language: input.context.language }, deadline),
       metadata: input.context.skillContext?.metadata,
       auth: {

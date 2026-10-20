@@ -74,6 +74,28 @@ export function speakerTurn(guildId: string | null, name: string, text: string, 
   return `${refs ? `${name} (${refs})` : name}: ${text}`;
 }
 
+/**
+ * What one person wrote, from stored turn rows (`speakerTurn` lines). In a DM every turn line is theirs; in a guild a line is theirs from
+ * their own speaker line until another speaker's. A `(replying to …)` line quotes someone else, the bot's own question too, so it never is.
+ */
+export function askerLines(rows: { role: string; content: string | null }[], who: { guildId: string | null; userId: string }): string[] {
+  const lines: string[] = [];
+  const own = who.guildId ? new RegExp(`^.*?\\(<@${who.userId.replace(/[^\w]/g, "\\$&")}>(?:, message \\d+)?\\): `) : /^\(message \d+\): /;
+  const other = /^.*?\((?:<@[\w-]+>(?:, message \d+)?|message \d+)\): /;
+  for (const row of rows) {
+    if (row.role !== "user" || !row.content) continue;
+    let theirs = !who.guildId;
+    for (const line of row.content.split("\n")) {
+      if (line.startsWith("(replying to ")) { if (who.guildId) theirs = false; continue; }
+      const mine = own.exec(line);
+      if (mine) { theirs = true; lines.push(line.slice(mine[0].length)); }
+      else if (who.guildId && other.test(line)) theirs = false;
+      else if (theirs && line.trim()) lines.push(line);
+    }
+  }
+  return lines;
+}
+
 /** How much of a replied-to message its line quotes; a longer one is also named by id, so keepAsNote can keep it whole. */
 export const REPLY_QUOTE = 500;
 

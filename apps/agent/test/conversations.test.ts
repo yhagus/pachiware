@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { respondReason, isNoise, speakerTurn, threadName, requestedWord, asksForTasks, type Trigger } from "../src/discord/routing";
+import { respondReason, isNoise, speakerTurn, threadName, requestedWord, asksForTasks, askerLines, type Trigger } from "../src/discord/routing";
 
 const base: Trigger = { authorIsBot: false, guildId: "g1", allowedGuildIds: [], mentioned: false, repliedToBot: false, inOwnThread: false, channelId: "c1", alwaysChannelIds: [], lastMessageFromBot: false, addressesOthers: false };
 const reason = (o: Partial<Trigger>) => respondReason({ ...base, ...o });
@@ -97,4 +97,23 @@ test("a reply to Minutes asks for tasks with a verb of making before task or tug
   for (const asks of ["jadikan task poin 2-3", "bikin tugas dari semua tindak lanjut", "tolong buatkan task butir 4", "jadikan action item notulen tadi tugas ya", "turn items 4 and 5 into tasks", "make item 3 a task", "add these as todos", "create tasks from these", "make items 3 and 4 tasks"]) expect(asksForTasks(asks)).toBe(true);
   for (const not of ["poin 2 itu task Bob, bukan Alice", "the task in item 3 is wrong", "jadikan issue poin 2", "buat ringkasan saja", "multitasking is hard",
     "make sure the task in point 4 goes to Bob", "the log rotation task belongs to Alice, not Bob", "bikin issue untuk tugas poin 3", "catat bahwa tugas poin 3 milik Bob", "put Dewi on task 5 instead"]) expect(asksForTasks(not)).toBe(false);
+});
+
+test("the asker's own lines are read from stored turns: their speaker lines and what follows, never another person's or a replied-to quote", () => {
+  const guildRows = [
+    { role: "user", content: 'Ana (<@u7>, message 41): simpulin tugasku\njam 9 WIB\nBudi (<@u8>): jam 9 pagi aja' },
+    { role: "assistant", content: "Maksudnya jam 09:00 (pagi) atau 21:00 (malam)?" },
+    { role: "user", content: '(replying to you: "Maksudnya jam 09:00 (pagi) atau 21:00 (malam)?")\nAna (<@u7>): malam, tiap hari' },
+    { role: "user", content: '(replying to Ana (<@u7>): "jam 9 WIB")\nBudi (<@u8>): pagi' },
+  ];
+  expect(askerLines(guildRows, { guildId: "g1", userId: "u7" })).toEqual(["simpulin tugasku", "jam 9 WIB", "malam, tiap hari"]);
+  expect(askerLines(guildRows, { guildId: "g1", userId: "u8" })).toEqual(["jam 9 pagi aja", "pagi"]);
+
+  const dmRows = [
+    { role: "user", content: "ingatkan aku jam 3" },
+    { role: "assistant", content: "Pagi atau sore?" },
+    { role: "user", content: '(replying to you: "Pagi atau sore?")\nsore' },
+    { role: "user", content: "(message 99): sore ya, sekali saja" },
+  ];
+  expect(askerLines(dmRows, { guildId: null, userId: "u7" })).toEqual(["ingatkan aku jam 3", "sore", "sore ya, sekali saja"]);
 });

@@ -5,7 +5,7 @@ import { catchUpDailyLogs } from "./dailyLogDays.js";
 import { agentReActLoop } from "../loop/react.js";
 import { rollSummary } from "../loop/summary.js";
 import { continuesConversation, patchConversationMetadata } from "../loop/conversationMetadata.js";
-import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel, replyLine, requestedWord, asksForTasks } from "./routing.js";
+import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel, replyLine, requestedWord, asksForTasks, askerLines } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
@@ -25,6 +25,8 @@ const BURST_MS = 2500;
 const FOLLOW_LOOKBACK = 10;
 // Admin edits often come in a run (several rules saved one after another); one registration covers them.
 const COMMANDS_MS = 2000;
+/** How many of the conversation's latest stored messages the asker's own words are read from. */
+const ASKER_ROWS = 40;
 // `replyTo` is the message a person replied to, when it could be fetched; it gets its own line before theirs.
 /** `follows`: a line that does not address the bot but came right after its reply, in its own thread. */
 type TurnItem = { msg: Message; text: string; direct?: boolean; follows?: boolean; replyTo?: Message | null };
@@ -614,7 +616,12 @@ export class DiscordBotManager {
       const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
       const shots = place && !brief?.outsider ? media.shots : [];
       if (shots.length) await recordBriefImages(runtime.tenantId, place!, shots).catch(() => null);
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined } } });
+      // What a schedule's `said` quotes are checked against: the asker's lines of this turn and of the conversation so far.
+      const askerWords = async () => [
+        ...items.filter((i) => i.msg.author.id === actor.id).map((i) => i.text),
+        ...(conversation ? askerLines(await repositories().conversations.latestMessages(runtime.tenantId, conversation.id, { limit: ASKER_ROWS, chatOnly: true }), { guildId: msg.guildId, userId: actor.id }) : []),
+      ];
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       const briefed = briefTurn(output.toolCallsExecuted);
