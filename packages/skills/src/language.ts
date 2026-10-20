@@ -39,6 +39,7 @@ const partOfDayId = (time: string) => { const h = Number(time.slice(0, 2)); retu
 /** One question for what the words leave open: the clock time first, then the zone, then how often. */
 const whenQuestion = (asks: string[], either: [string, string] | null, q: Record<string, string>, eitherText: (a: string, b: string) => string) =>
   ["am-pm", "time", "zone", "repetition", "days", "date", "week-or-sunday"].filter((a) => asks.includes(a)).map((a) => (a === "am-pm" && either ? eitherText(...either) : q[a])).join(" ");
+const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const list = (items: string[], and: string) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ${and} ${items.at(-1)}`);
 
@@ -213,6 +214,14 @@ const en = {
     date: "Which date each month? For example the 1st or the 25th.", "week-or-sunday": '"Setiap minggu": every Sunday, or once a week on another day (which one)?',
   }, (a, b) => `Do you mean ${a} (${partOfDayEn(a)}) or ${b} (${partOfDayEn(b)})?`),
   whenUnsupported: (words: string) => `I can't keep a schedule like "${words}": it runs once, or every day, on chosen days of the week, or on one date each month, at one time of day.`,
+  // The card posted after a Reminder or Routine is set or changed (scheduleCard.ts)
+  cardTitle: (kind: string, changed: boolean) => `${kind === "routine" ? "🔁 Routine" : "⏰ Reminder"} ${changed ? "changed" : "set"}`,
+  cardWhen: "When", cardNext: "Next", cardZone: "Time zone", cardUntil: "Until", cardNoEnd: "no end date", cardWhere: "Posts in", cardPublic: "public channel", cardNotPublic: "not public",
+  cardDm: "this DM", cardPings: "Pings", cardFrom: "Read from your words", cardTasks: "Your open tasks", cardTasksListed: "listed with it", cardAccess: "Access",
+  cardReadsOnly: "reads only: it looks things up and reports, and changes nothing", cardId: "ID", cardFooter: "Not what you meant? Reply to change or cancel it.",
+  cardOnce: "Once", cardDaily: "Every day", cardWorkDays: "Monday to Friday", cardWeekend: "Saturday and Sunday",
+  cardWeekly: (days: string) => `Every ${days}`, cardMonthly: (day: number) => `Every month on the ${ordinal(day)}${day > 28 ? " (or its last day)" : ""}`,
+  dayNames: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"], dayShort: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], monthShort: MONTHS_EN,
   openTasks: "Open tasks (status | due | assignee | id | title):",
   personalTasks: "Personal tasks",
   sharedTasks: "Shared tasks",
@@ -417,6 +426,13 @@ const id: typeof en = {
     date: "Tanggal berapa setiap bulannya? Misalnya tanggal 1 atau 25.", "week-or-sunday": '"Setiap minggu" maksudnya setiap hari Minggu, atau seminggu sekali di hari lain (hari apa)?',
   }, (a, b) => `Maksudnya jam ${a} (${partOfDayId(a)}) atau ${b} (${partOfDayId(b)})?`),
   whenUnsupported: (words) => `Jadwal seperti "${words}" belum bisa kubuat: jadwal hanya bisa sekali, setiap hari, di hari-hari tertentu tiap minggu, atau di satu tanggal tiap bulan, pada satu jam.`,
+  cardTitle: (kind, changed) => `${kind === "routine" ? "🔁 Rutinitas" : "⏰ Pengingat"} ${changed ? "diubah" : "dipasang"}`,
+  cardWhen: "Jadwal", cardNext: "Berikutnya", cardZone: "Zona waktu", cardUntil: "Sampai", cardNoEnd: "tanpa batas", cardWhere: "Diposting di", cardPublic: "channel publik", cardNotPublic: "tidak publik",
+  cardDm: "DM ini", cardPings: "Ping", cardFrom: "Dibaca dari kata-katamu", cardTasks: "Tugas terbukamu", cardTasksListed: "ikut ditampilkan", cardAccess: "Akses",
+  cardReadsOnly: "hanya membaca: mencari dan melaporkan, tidak mengubah apa pun", cardId: "ID", cardFooter: "Bukan itu maksudmu? Balas untuk mengubah atau membatalkannya.",
+  cardOnce: "Sekali", cardDaily: "Setiap hari", cardWorkDays: "Senin–Jumat", cardWeekend: "Sabtu dan Minggu",
+  cardWeekly: (days) => `Setiap ${days}`, cardMonthly: (day) => `Setiap tanggal ${day}${day > 28 ? " (atau hari terakhir bulan itu)" : ""}`,
+  dayNames: ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"], dayShort: ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"], monthShort: MONTHS_ID,
   openTasks: "Tugas terbuka (status | due | assignee | id | title):",
   personalTasks: "Tugas pribadi",
   sharedTasks: "Tugas bersama",

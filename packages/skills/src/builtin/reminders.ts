@@ -28,7 +28,7 @@ const canModerate = (ctx: SkillContext) => hasPermission(ctx, "ManageMessages");
 const activeReminders = (ctx: SkillContext) => ({ tenantId: ctx.tenantId, kind: "reminder", status: "active" }) as const;
 
 const describe = (row: Schedule) => ({
-  id: row.id, text: row.text, channelId: row.channelId, guildId: row.guildId, owner: { id: row.ownerId, name: row.ownerName },
+  id: row.id, kind: row.kind, text: row.text, channelId: row.channelId, guildId: row.guildId, owner: { id: row.ownerId, name: row.ownerName },
   nextAt: isoInZone(row.timezone, row.nextAt.getTime()), recurrence: row.recurrence, weekdays: row.weekdays, dayOfMonth: row.dayOfMonth, timeOfDay: row.timeOfDay,
   until: row.until ? isoInZone(row.timezone, row.until.getTime()) : null, timezone: row.timezone, mentions: row.mentions, withTasks: row.withTasks,
 });
@@ -47,6 +47,13 @@ function untilInstant(input: unknown, timeZone: string, from: number): number | 
   if (m) return wallToInstant(timeZone, { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]), hour: 23, minute: 59, second: 59 });
   return parseWhen(input, timeZone, from);
 }
+
+/** Whether everyone in the server can view where the schedule posts, for its card; null in a DM or when the channel cannot be read. */
+async function isPublic(ctx: SkillContext): Promise<boolean | null> {
+  if (!ctx.guildId || !ctx.channelId || !ctx.userId || !ctx.discord) return null;
+  return (await ctx.discord.channelView(ctx.channelId, ctx.userId).catch(() => null))?.channel?.public ?? null;
+}
+const CARD_NOTE = "Done. A card with every detail of it is posted under your reply: confirm in one short line, without repeating the details.";
 
 /** What a schedule tool returns when the asker's words leave something open: the one question to put to them, and nothing set. */
 type Asked = { set: false; question: string; note: string };
@@ -155,7 +162,7 @@ export const remindersSkill: SkillModule = {
         tenantId: ctx.tenantId, botId: ctx.botId, kind: "reminder", guildId: ctx.guildId ?? null, channelId: ctx.channelId, ownerId: ctx.userId, ownerName: ctx.userName ?? null, text, withTasks, mentions,
         recurrence: plan.recurrence, weekdays: plan.weekdays, dayOfMonth: plan.dayOfMonth, timeOfDay: plan.timeOfDay, timezone: plan.timezone, until: until === null ? null : new Date(until), nextAt: new Date(plan.nextAt),
       });
-      return { ...describe(row), at: isoInZone(row.timezone, plan.nextAt), said };
+      return { ...describe(row), at: isoInZone(row.timezone, plan.nextAt), said, public: await isPublic(ctx), note: CARD_NOTE };
     },
     listReminders: async (_args, ctx) => {
       if (!ctx.userId) throw new Error("Reminders can only be listed from a Discord channel or DM.");
@@ -192,7 +199,7 @@ export const remindersSkill: SkillModule = {
         ...(text !== undefined ? { text } : {}),
         ...(plan ? { nextAt: new Date(plan.nextAt), attempts: 0, error: null, ...(row.recurrence === "once" ? { timeOfDay: plan.timeOfDay } : {}) } : {}),
       });
-      return { ...describe(changed ?? row), changed: true, ...(heard ? { said: heard.said } : {}) };
+      return { ...describe(changed ?? row), changed: true, ...(heard ? { said: heard.said } : {}), public: await isPublic(ctx), note: CARD_NOTE };
     },
   },
 };

@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
+import { lastReply } from "./support/lastReply";
 
 const task = (f: { id: string; title: string; status?: string; assignedTo?: string | { id: string; name: string } | null; dueAt?: string | null; createdBy: string; createdByName: string }) =>
   `---\nid: "${f.id}"\ntitle: "${f.title}"\nstatus: "${f.status ?? "pending"}"\npriority: "medium"\nassignedTo: ${JSON.stringify(f.assignedTo ?? null)}\ndueAt: ${JSON.stringify(f.dueAt ?? null)}\ncreatedBy: "${f.createdBy}"\ncreatedByName: "${f.createdByName}"\ncreatedAt: "2026-03-01T00:00:00.000Z"\nupdatedAt: "2026-03-01T00:00:00.000Z"\n---\n`;
@@ -21,11 +22,11 @@ discordScenario("a DM Reminder with withTasks appends the owner's open Personal 
 
   s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, (turn) => `set ${turn.toolResults[0].withTasks}`);
   await s.discord.send("remind me once at 07:00 with my tasks", { channel: dm });
-  expect(s.discord.botMessages.at(-1)!.content).toBe("set true");
+  expect(lastReply(s).content).toBe("set true");
 
   s.clock.set("2026-03-07T07:00:00+07:00");
   await s.scheduler.tick();
-  const post = s.discord.botMessages.at(-1)!;
+  const post = lastReply(s);
   expect(post.channelId).toBe(dm.id);
   expect(post.allowedMentions).toEqual({ users: [alice.id] });
   expect(post.content).toBe([
@@ -47,5 +48,5 @@ discordScenario("a Reminder with withTasks and no open task of the owner posts i
   await s.discord.send("remind me once at 07:00 with my tasks", { channel: dm });
   s.clock.set("2026-03-07T07:00:00+07:00");
   await s.scheduler.tick();
-  expect(s.discord.botMessages.at(-1)!.content).toBe(`<@${alice.id}> Pengingat: morning overview`);
+  expect(lastReply(s).content).toBe(`<@${alice.id}> Pengingat: morning overview`);
 });

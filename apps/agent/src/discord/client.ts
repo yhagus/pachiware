@@ -9,7 +9,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { audit, failureOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { audit, failureOf, scheduleCardOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
 import { prepareReply, replyQuietly, splitReply, withNotes, type ReplyPlan } from "./replyStyle.js";
@@ -636,6 +636,11 @@ export class DiscordBotManager {
         for (const { result } of output.toolCallsExecuted) {
           const p = result.success ? pendingOf(result.data) : null;
           if (p) await target.send(confirmMessage(p, actor.id));
+        }
+        // A Reminder or Routine set or changed gets the fixed card with every detail, in the asker's language, so they can check it is what they meant.
+        for (const { call, result } of output.toolCallsExecuted) {
+          const card = result.success ? scheduleCardOf(call.name, result.data, shown ?? configuredLanguage(guild, agent)) : null;
+          if (card) await target.send({ embeds: [card], allowedMentions: { parse: [] } });
         }
         await tellAssigneesWhereTasksAre(runtime, botId, { target, guildId: msg.guildId, projectChannelId, language: configuredLanguage(guild, agent) }, assignmentsOf(output.toolCallsExecuted), actor.id);
       }

@@ -10,10 +10,14 @@
       "n": 1,
       "message": "tolong catat tugas buat Bob siapkan proposal sponsor tenggat Jumat, ingatkan aku Kamis jam 4 sore buat cek proposalnya, dan ingat ya sponsor utama kita Kopi Senja",
       "replies": [
-        "Dicatat: siapkan proposal sponsor untuk Bob, jatuh tempo Jumat 16 Oktober. Pengingat Kamis 15 Oktober jam 16:00 untuk cek proposalnya."
+        "Dicatat: siapkan proposal sponsor untuk Bob, jatuh tempo Jumat 16 Oktober. Pengingat Kamis 15 Oktober jam 16:00 untuk cek proposalnya.",
+        "⏰ Pengingat dipasang\n\n> cek proposal sponsor"
       ],
       "confirm": false,
       "pings": [],
+      "assigned": [
+        "user-bob"
+      ],
       "state": {
         "tasks": [
           {

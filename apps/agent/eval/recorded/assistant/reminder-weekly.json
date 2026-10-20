@@ -10,7 +10,8 @@
       "n": 1,
       "message": "remind me every Monday and Thursday at 09:00 to post the standup",
       "replies": [
-        "Set: every Monday and Thursday at 09:00, first on Thursday 15 October at 09:00."
+        "Set: every Monday and Thursday at 09:00, first on Thursday 15 October at 09:00.",
+        "⏰ Reminder set\n\n> post the standup"
       ],
       "confirm": false,
       "pings": [],

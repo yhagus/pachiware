@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
+import { lastReply } from "./support/lastReply";
 
 const id = (n: number) => `${String(n).padStart(8, "0")}-0000-4000-8000-${String(n).padStart(12, "0")}`;
 interface Seed { n: number; title: string; folder: string; assignedTo?: unknown; createdBy?: string; dueAt?: string; status?: string }
@@ -48,7 +49,7 @@ discordScenario("mine from a DM lists Alice's tasks from every guild she shares 
   const dm = s.discord.channel("dm-alice", { dm: true });
   s.model.script({ tool: "listTasks", args: { scope: "mine" } }, plan);
   await s.discord.send("what's on my plate?", { channel: dm });
-  expect(s.discord.botMessages.at(-1)?.content).toBe("#ops (Beta): Renew the domain\n#launch (Acme): Print the flyers\nPersonal tasks: Call the dentist\n3 of 3");
+  expect(lastReply(s)?.content).toBe("#ops (Beta): Renew the domain\n#launch (Acme): Print the flyers\nPersonal tasks: Call the dentist\n3 of 3");
 });
 
 discordScenario("delegated from a DM covers both shared guilds, and nothing from a guild Alice is not in", async (s) => {
@@ -56,7 +57,7 @@ discordScenario("delegated from a DM covers both shared guilds, and nothing from
   const dm = s.discord.channel("dm-alice", { dm: true });
   s.model.script({ tool: "listTasks", args: { scope: "delegated" } }, plan);
   await s.discord.send("what did I hand out?", { channel: dm });
-  expect(s.discord.botMessages.at(-1)?.content).toBe("#ops (Beta): Rotate the keys\n#launch (Acme): Order the badges\n2 of 2");
+  expect(lastReply(s)?.content).toBe("#ops (Beta): Rotate the keys\n#launch (Acme): Order the badges\n2 of 2");
 });
 
 discordScenario("a DM Reminder with tasks posts Alice's mine list across shared guilds, grouped by channel", async (s) => {
@@ -68,7 +69,7 @@ discordScenario("a DM Reminder with tasks posts Alice's mine list across shared 
 
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
-  const post = s.discord.botMessages.at(-1)!;
+  const post = lastReply(s);
   expect(post.channelId).toBe(dm.id);
   expect(post.content).toBe([
     `<@${alice.id}> Pengingat: morning overview`,
@@ -95,17 +96,17 @@ discordScenario("a channel Reminder with tasks lists the same mine scope as aski
 
   s.model.script({ tool: "listTasks", args: { scope: "mine" } }, plan);
   await s.discord.send(`${s.discord.mention} what's on my plate?`);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("#ops: Sweep the floor\n#launch: Print the flyers\nPersonal tasks: Call the dentist\n3 of 3");
+  expect(lastReply(s)?.content).toBe("#ops: Sweep the floor\n#launch: Print the flyers\nPersonal tasks: Call the dentist\n3 of 3");
 
   s.model.script({ tool: "listTasks", args: { scope: "mine", status: "completed" } }, plan);
   await s.discord.send(`${s.discord.mention} what have I finished?`);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("#launch: Hang the banner\n1 of 1");
+  expect(lastReply(s)?.content).toBe("#launch: Hang the banner\n1 of 1");
 
   s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, "set");
   await s.discord.send(`${s.discord.mention} remind me once at 07:00 with my tasks`);
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
-  const post = s.discord.botMessages.at(-1)!;
+  const post = lastReply(s);
   expect(post.channelId).toBe("channel-1");
   expect(post.content).toBe([
     `<@${alice.id}> Reminder: morning overview`,
@@ -136,11 +137,11 @@ discordScenario("from a channel, mine and delegated include the tenant's and tha
 
   s.model.script({ tool: "listTasks", args: { scope: "mine" } }, plan);
   await s.discord.send(`${s.discord.mention} what's on my plate?`);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("Shared tasks: Renew the licence\n#launch: Print the flyers\nPersonal tasks: Call the dentist\n3 of 3");
+  expect(lastReply(s)?.content).toBe("Shared tasks: Renew the licence\n#launch: Print the flyers\nPersonal tasks: Call the dentist\n3 of 3");
 
   s.model.script({ tool: "listTasks", args: { scope: "delegated" } }, plan);
   await s.discord.send(`${s.discord.mention} what did I hand out?`);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("#launch: Order the badges\nShared tasks: Pay the vendor\n2 of 2");
+  expect(lastReply(s)?.content).toBe("#launch: Order the badges\nShared tasks: Pay the vendor\n2 of 2");
 });
 
 discordScenario("from a DM, mine and its Reminder include the shared tasks of the tenant and of every guild Alice is in, never of a guild she is not in", async (s) => {
@@ -151,13 +152,13 @@ discordScenario("from a DM, mine and its Reminder include the shared tasks of th
 
   s.model.script({ tool: "listTasks", args: { scope: "mine" } }, plan);
   await s.discord.send("what's on my plate?", { channel: dm });
-  expect(s.discord.botMessages.at(-1)?.content).toBe("#ops (Beta): Renew the domain\nShared tasks: Renew the licence, Plan the offsite\n#launch (Acme): Print the flyers\nPersonal tasks: Call the dentist\n5 of 5");
+  expect(lastReply(s)?.content).toBe("#ops (Beta): Renew the domain\nShared tasks: Renew the licence, Plan the offsite\n#launch (Acme): Print the flyers\nPersonal tasks: Call the dentist\n5 of 5");
 
   s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, "set");
   await s.discord.send("remind me once at 07:00 with my tasks", { channel: dm });
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
-  expect(s.discord.botMessages.at(-1)!.content.split("\n").slice(2, 7)).toEqual([
+  expect(lastReply(s).content.split("\n").slice(2, 7)).toEqual([
     "#ops (Beta)",
     "pending | due 2026-10-16 | Alice | 00000004 | Renew the domain",
     "Tugas bersama",
@@ -180,7 +181,7 @@ discordScenario("a Reminder task list cut at Discord's limit ends on a task line
   await s.discord.send(`${s.discord.mention} remind me once at 07:00 with my tasks`);
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
-  const content = s.discord.botMessages.at(-1)!.content, lines = content.split("\n");
+  const content = lastReply(s).content, lines = content.split("\n");
   expect(content.length).toBeLessThanOrEqual(2000);
   expect(lines.slice(1, 3)).toEqual(["Open tasks (status | due | assignee | id | title):", "#launch"]);
   expect(lines.slice(3, -1).every((l) => l.startsWith("pending | "))).toBe(true);
@@ -200,7 +201,7 @@ discordScenario("a Reminder lists at most twenty tasks, like listTasks, and says
   await s.discord.send(`${s.discord.mention} remind me once at 07:00 with my tasks`);
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
-  const lines = s.discord.botMessages.at(-1)!.content.split("\n");
+  const lines = lastReply(s).content.split("\n");
   expect(lines.filter((l) => l.startsWith("pending | ")).map((l) => l.split(" | ")[3])).toEqual(many.slice(0, 20).map((t) => id(t.n).slice(0, 8)));
   expect(lines.at(-1)).toBe("…and 3 more tasks.");
 });

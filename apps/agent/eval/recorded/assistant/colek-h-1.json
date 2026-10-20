@@ -36,7 +36,8 @@
       "n": 2,
       "message": "Kamis 15 Oktober jam 9 pagi, sekali aja",
       "replies": [
-        "Siap, Bob saya colek Kamis 15 Oktober jam 09:00, sehari sebelum tenggat."
+        "Siap, Bob saya colek Kamis 15 Oktober jam 09:00, sehari sebelum tenggat.",
+        "⏰ Pengingat dipasang\n\n> Bob, besok tenggat Kirim desain final ke percetakan"
       ],
       "confirm": false,
       "pings": [],
@@ -114,7 +115,8 @@
       "n": 4,
       "message": "iya, Minggu 18 Oktober jam 9 pagi",
       "replies": [
-        "Siap, colekan untuk Bob pindah ke Minggu 18 Oktober jam 09:00."
+        "Siap, colekan untuk Bob pindah ke Minggu 18 Oktober jam 09:00.",
+        "⏰ Pengingat diubah\n\n> Bob, besok tenggat Kirim desain final ke percetakan"
       ],
       "confirm": false,
       "pings": [],

@@ -1,9 +1,10 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
+import { lastReply } from "./support/lastReply";
 
 const set = (s: any, text: string, at: string, options: { author?: any; channel?: any } = {}) => {
   s.model.script({ tool: "createReminder", args: { text, said: [`once at ${at}`], recurrence: "once", at } }, (turn: any) => turn.toolResults[0].id ?? `error: ${turn.toolResults[0].error}`);
-  return s.discord.send(`${s.discord.mention} remind me once at ${at}: ${text}`, options).then(() => s.discord.botMessages.at(-1)!.content as string);
+  return s.discord.send(`${s.discord.mention} remind me once at ${at}: ${text}`, options).then(() => lastReply(s).content as string);
 };
 
 discordScenario("listReminders shows the asker their own active Reminders, and everyone's to someone with Manage Messages", async (s) => {
@@ -13,7 +14,7 @@ discordScenario("listReminders shows the asker their own active Reminders, and e
   const bobs = await set(s, "water the plants", "2026-03-06T18:00", { author: s.discord.bob });
   const list = (author?: any) => {
     s.model.script({ tool: "listReminders", args: {} }, (turn: any) => JSON.stringify(turn.toolResults[0].reminders.map((r: any) => [r.id, r.text, r.channelId, r.nextAt, r.recurrence, r.owner])));
-    return s.discord.send(`${s.discord.mention} what reminders do I have?`, { author }).then(() => JSON.parse(s.discord.botMessages.at(-1)!.content));
+    return s.discord.send(`${s.discord.mention} what reminders do I have?`, { author }).then(() => JSON.parse(lastReply(s).content));
   };
   expect(await list()).toEqual([
     [invoice, "send the invoice", expect.any(String), "2026-03-06T15:00:00+07:00", "once", { id: s.discord.alice.id, name: "Alice" }],
@@ -29,7 +30,7 @@ discordScenario("cancelReminder is refused for a stranger, allowed for the owner
   const first = await set(s, "send the invoice", "2026-03-06T15:00");
   const cancel = (id: string, author?: any) => {
     s.model.script({ tool: "cancelReminder", args: { id } }, (turn: any) => turn.toolResults[0].error ?? `cancelled ${turn.toolResults[0].id}`);
-    return s.discord.send(`${s.discord.mention} cancel reminder ${id}`, { author }).then(() => s.discord.botMessages.at(-1)!.content);
+    return s.discord.send(`${s.discord.mention} cancel reminder ${id}`, { author }).then(() => lastReply(s).content);
   };
   expect(await cancel(first, s.discord.bob)).toBe("Pengingat itu milik orang lain; hanya pemiliknya atau orang dengan Manage Messages yang bisa membatalkannya.");
   expect(await cancel(first)).toBe(`cancelled ${first}`);
@@ -74,7 +75,7 @@ discordScenario("editReminder snoozes a Reminder to a later time and rewords it;
   const id = await set(s, "send the invoice", "2026-03-06T15:00");
   const change = (words: string, args: Record<string, unknown>, author?: any) => {
     s.model.script({ tool: "editReminder", args: { id, said: [words], ...args } }, (turn: any) => turn.toolResults[0].error ?? `${turn.toolResults[0].nextAt} ${turn.toolResults[0].text}`);
-    return s.discord.send(`${s.discord.mention} change that reminder to ${words}`, { author }).then(() => s.discord.botMessages.at(-1)!.content);
+    return s.discord.send(`${s.discord.mention} change that reminder to ${words}`, { author }).then(() => lastReply(s).content);
   };
   expect(await change("today at 16:30", { at: "16:30" }, s.discord.bob)).toBe("Pengingat itu milik orang lain; hanya pemiliknya yang bisa mengubahnya.");
   expect(await change("today at 16:30", { at: "16:30", text: "send the invoice to Acme" })).toBe("2026-03-06T16:30:00+07:00 send the invoice to Acme");
@@ -83,5 +84,5 @@ discordScenario("editReminder snoozes a Reminder to a later time and rewords it;
 
   s.clock.set("2026-03-06T10:00:30+07:00");
   await s.scheduler.tick();
-  expect(s.discord.botMessages.at(-1)!.content).toContain("send the invoice to Acme");
+  expect(lastReply(s).content).toContain("send the invoice to Acme");
 });

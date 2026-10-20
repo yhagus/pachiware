@@ -10,7 +10,8 @@
       "n": 1,
       "message": "ingatkan aku tiap Senin jam 9 pagi buat kirim laporan mingguan ke klien",
       "replies": [
-        "Siap: tiap Senin jam 09:00, mulai Senin 19 Oktober."
+        "Siap: tiap Senin jam 09:00, mulai Senin 19 Oktober.",
+        "⏰ Pengingat dipasang\n\n> kirim laporan mingguan ke klien"
       ],
       "confirm": false,
       "pings": [],

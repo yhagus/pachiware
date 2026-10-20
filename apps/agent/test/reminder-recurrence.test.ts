@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
+import { lastReply } from "./support/lastReply";
 
 const SCHEDULES = () => import("../../../packages/db/src/index.ts").then((m) => m.repositories().schedules);
 const posts = (s: any) => s.discord.botMessages.filter((m: any) => m.allowedMentions?.users).map((m: any) => m.content);
@@ -8,7 +9,7 @@ discordScenario("a weekly Reminder posts on each chosen weekday at its time and 
   s.clock.set("2026-03-06T14:00:00+07:00"); // Friday
   s.model.script({ tool: "createReminder", args: { text: "standup", said: ["every Monday and Thursday at 09:00"], recurrence: "weekly", weekdays: ["monday", "thursday"], time: "09:00" } }, (turn) => `${turn.toolResults[0].recurrence} next ${turn.toolResults[0].at}`);
   await s.discord.send(`${s.discord.mention} remind me every Monday and Thursday at 09:00: standup`);
-  expect(s.discord.botMessages.at(-1)!.content).toBe("weekly next 2026-03-09T09:00:00+07:00");
+  expect(lastReply(s).content).toBe("weekly next 2026-03-09T09:00:00+07:00");
 
   s.clock.set("2026-03-09T09:00:10+07:00");
   await s.scheduler.tick();
@@ -108,7 +109,7 @@ discordScenario("a monthly Reminder on the 31st lands on the last day of a short
   s.clock.set("2026-01-30T10:00:00+07:00");
   s.model.script({ tool: "createReminder", args: { text: "invoices", said: ["on the 31st of every month at 09:00"], recurrence: "monthly", dayOfMonth: 31, time: "09:00", until: "2026-03-15" } }, (turn) => `${turn.toolResults[0].at} until ${turn.toolResults[0].until}`);
   await s.discord.send(`${s.discord.mention} remind me on the 31st of every month at 09:00 until mid-March: invoices`);
-  expect(s.discord.botMessages.at(-1)!.content).toBe("2026-01-31T09:00:00+07:00 until 2026-03-15T23:59:59+07:00");
+  expect(lastReply(s).content).toBe("2026-01-31T09:00:00+07:00 until 2026-03-15T23:59:59+07:00");
   const schedules = await SCHEDULES();
   const row = async () => { const [r] = await schedules.list(); return [r.status, r.nextAt.toISOString()]; };
 
@@ -122,6 +123,6 @@ discordScenario("a monthly Reminder on the 31st lands on the last day of a short
 
   s.model.script({ tool: "createReminder", args: { text: "never", said: ["every Friday at 09:00"], recurrence: "weekly", weekdays: ["friday"], time: "09:00", until: "2026-03-01" } }, (turn) => turn.toolResults[0].error);
   await s.discord.send(`${s.discord.mention} remind me every Friday at 09:00 until yesterday: never`, { channel: "channel-2" });
-  expect(s.discord.botMessages.at(-1)!.content).toMatch(/end date comes before/);
+  expect(lastReply(s).content).toMatch(/end date comes before/);
   expect((await schedules.list()).length).toBe(1);
 });
