@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import type { SqlConnection } from "../../connection.js";
 import type { Schedule, ScheduleFilter, ScheduleRepository } from "./types.js";
 
@@ -41,7 +41,7 @@ export function createSqlScheduleRepository({ db, tables: t }: SqlConnection): S
       f.id !== undefined ? eq(s.id, f.id) : undefined,
       f.tenantId !== undefined ? eq(s.tenantId, f.tenantId) : undefined,
       f.botId !== undefined ? eq(s.botId, f.botId) : undefined,
-      f.kind !== undefined ? eq(s.kind, f.kind) : undefined,
+      f.kind !== undefined ? (Array.isArray(f.kind) ? inArray(s.kind, f.kind) : eq(s.kind, f.kind)) : undefined,
       f.status !== undefined ? eq(s.status, f.status) : undefined,
       f.guildId !== undefined ? eq(s.guildId, f.guildId) : undefined,
       f.ownerId !== undefined ? eq(s.ownerId, f.ownerId) : undefined,

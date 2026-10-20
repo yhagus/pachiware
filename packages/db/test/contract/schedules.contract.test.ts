@@ -78,6 +78,23 @@ contract("Schedules", (use) => {
     expect(await schedules.count()).toBe(8);
   });
 
+  test("a Routine is a kind of its own, and a list of kinds matches any of them in listing and counting", async () => {
+    const { schedules } = use().repos;
+    const { tenantId, botId } = await setup(use());
+    const add = (text: string, nextAt: string, extra = {}) => schedules.create({ tenantId, botId, guildId: "g1", channelId: "c1", ownerId: "u-alice", text, timezone: "UTC", nextAt: new Date(nextAt), ...extra });
+    await add("reminder", "2026-03-06T09:00:00Z");
+    await add("routine", "2026-03-06T08:00:00Z", { kind: "routine", recurrence: "daily", timeOfDay: "08:00" });
+    await add("digest", "2026-03-06T07:00:00Z", { kind: "digest", ownerId: null });
+    const texts = async (filter: Parameters<typeof schedules.list>[0]) => (await schedules.list(filter)).map((s) => s.text);
+
+    expect(await texts({ tenantId, kind: "routine" })).toEqual(["routine"]);
+    expect(await texts({ tenantId, kind: ["reminder", "routine"] })).toEqual(["routine", "reminder"]);
+    expect(await texts({ tenantId, kind: ["reminder", "routine"], ownerId: "u-alice", status: "active" })).toEqual(["routine", "reminder"]);
+    expect(await texts({ tenantId, kind: [] })).toEqual([]);
+    expect(await schedules.count({ tenantId, kind: ["reminder", "routine"] })).toBe(2);
+    expect(await schedules.count({ tenantId, kind: ["digest"] })).toBe(1);
+  });
+
   test("an update changes only the fields given and returns the schedule; an unknown id gives null", async () => {
     const { schedules } = use().repos;
     const { tenantId, botId } = await setup(use());

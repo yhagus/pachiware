@@ -66,7 +66,7 @@ function matching(f: ScheduleFilter): Filter<ScheduleDoc> {
   if (f.id !== undefined) where._id = f.id;
   if (f.tenantId !== undefined) where.tenantId = f.tenantId;
   if (f.botId !== undefined) where.botId = f.botId;
-  if (f.kind !== undefined) where.kind = f.kind;
+  if (f.kind !== undefined) where.kind = Array.isArray(f.kind) ? { $in: f.kind } : f.kind;
   if (f.status !== undefined) where.status = f.status;
   if (f.guildId !== undefined) where.guildId = f.guildId;
   if (f.ownerId !== undefined) where.ownerId = f.ownerId;

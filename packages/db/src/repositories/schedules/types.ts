@@ -1,11 +1,11 @@
-/** Domain types and the repository interface for schedules: Reminders, the Digest, Daily logs and the documentation mirror. Every engine implements it. */
+/** Domain types and the repository interface for schedules: Reminders, Routines, the Digest, Daily logs and the documentation mirror. Every engine implements it. */
 
-/** `docs-mirror` refreshes the documentation one channel mirrors from repositories. */
-export type ScheduleKind = "reminder" | "digest" | "daily-log" | "docs-mirror";
+/** `routine` runs its `text` as one read-only agent turn of its owner; `docs-mirror` refreshes the documentation one channel mirrors from repositories. */
+export type ScheduleKind = "reminder" | "routine" | "digest" | "daily-log" | "docs-mirror";
 export type ScheduleRecurrence = "once" | "daily" | "weekly" | "monthly";
 export type ScheduleStatus = "active" | "cancelled" | "done";
 
-/** One Reminder, or one channel's Digest, Daily log or documentation mirror, and when it runs next. */
+/** One Reminder or Routine, or one channel's Digest, Daily log or documentation mirror, and when it runs next. */
 export type Schedule = {
   id: string;
   tenantId: string;
@@ -13,7 +13,7 @@ export type Schedule = {
   kind: ScheduleKind;
   guildId: string | null;
   channelId: string;
-  /** The person who set a Reminder; the other kinds have none. */
+  /** The person who set a Reminder or Routine; the other kinds have none. */
   ownerId: string | null;
   ownerName: string | null;
   text: string;
@@ -66,7 +66,8 @@ export type ScheduleFilter = {
   id?: string;
   tenantId?: string;
   botId?: string;
-  kind?: ScheduleKind;
+  /** One kind, or any of a list. */
+  kind?: ScheduleKind | ScheduleKind[];
   status?: ScheduleStatus;
   guildId?: string;
   ownerId?: string;
