@@ -1,0 +1,23 @@
+# A Routine asked for in words that leave its time open: "jam 9" may be 09:00 or 21:00, and nothing says once or repeating. The bot asks
+# both before setting anything, then sets the Routine from the answer, and at 09:00 posts Alice's tasks for the day. Routines, ADR 0019.
+language: id
+area: tasks
+clock: 2026-10-14T01:00:00Z   # Wednesday 14 October 2026, 08:00 Asia/Jakarta
+seed:
+  tasks:
+    - { title: Kirim invoice ke Kopi Senja, status: pending, dueAt: "2026-10-14", assignedTo: Alice }
+    - { title: Revisi desain poster, status: in_progress, dueAt: "2026-10-16", assignedTo: Alice }
+mustCover:
+  - Bot bertanya apakah jam 9 berarti pagi (09:00) atau malam (21:00), dan apakah sekali atau berulang, sebelum memasang apa pun
+  - Setelah dijawab "pagi, tiap hari kerja", rutinitas Senin–Jumat jam 09:00 WIB terpasang
+  - Laporan jam 09:00 menyebut tugas Kirim invoice ke Kopi Senja yang jatuh tempo hari itu
+turns:
+  - ambiguous: '"jam 9" may be 09:00 or 21:00, and nothing says whether it repeats; the bot must ask both and set nothing.'
+    replyContains: ["09:00", "21:00"]
+  - reminders:
+      - { kind: routine, text: tugas, recurrence: weekly, weekdays: [1, 2, 3, 4, 5], timeOfDay: "09:00", nextAt: "2026-10-14T02:00:00.000Z", mentions: [] }
+    replyContains: [Rutinitas]
+then:
+  clock: 2026-10-14T09:00:10+07:00
+  posts:
+    - { contains: Kirim invoice ke Kopi Senja, pings: [user-alice] }

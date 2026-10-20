@@ -18,7 +18,11 @@ const chains = new Map<string, Promise<void>>();
 export function queueRoutine(manager: DiscordBotManager, row: Schedule, late: boolean) {
   const run = (chains.get(row.botId) ?? Promise.resolve())
     .then(() => runRoutine(manager, row, late))
-    .catch((error) => console.error(`[routine] ${row.id} failed: ${error?.message ?? error}`));
+    .catch(async (error) => {
+      const reason = String(error?.message ?? error).slice(0, 200);
+      console.error(`[routine] ${row.id} failed: ${reason}`);
+      await repositories().schedules.update(row.id, { error: `Could not run: ${reason}` }).catch(() => {});
+    });
   chains.set(row.botId, run);
   void run.finally(() => { if (chains.get(row.botId) === run) chains.delete(row.botId); });
   manager.background(run);

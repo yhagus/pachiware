@@ -1,0 +1,20 @@
+# A Routine whose time and repetition the words already fix ("setiap jam 9 pagi WIB"): it is set at once, with no question back, and at
+# 09:00 the bot reads Alice's tasks for the day and posts them with a ping. Routines, ADR 0019.
+language: id
+area: tasks
+clock: 2026-10-14T01:00:00Z   # Wednesday 14 October 2026, 08:00 Asia/Jakarta
+seed:
+  tasks:
+    - { title: Kirim invoice ke Kopi Senja, status: pending, dueAt: "2026-10-14", assignedTo: Alice }
+    - { title: Revisi desain poster, status: in_progress, dueAt: "2026-10-16", assignedTo: Alice }
+mustCover:
+  - Rutinitas setiap hari jam 09:00 WIB untuk menyimpulkan tugas Alice hari itu, dipasang tanpa bertanya balik
+  - Laporan jam 09:00 menyebut tugas Kirim invoice ke Kopi Senja yang jatuh tempo hari itu
+turns:
+  - reminders:
+      - { kind: routine, text: tugas, recurrence: daily, timeOfDay: "09:00", nextAt: "2026-10-14T02:00:00.000Z", mentions: [] }
+    replyContains: [Rutinitas]
+then:
+  clock: 2026-10-14T09:00:10+07:00
+  posts:
+    - { contains: Kirim invoice ke Kopi Senja, pings: [user-alice] }

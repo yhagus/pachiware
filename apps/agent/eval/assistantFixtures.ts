@@ -23,7 +23,8 @@ export interface ExpectedTask {
   /** Phrases its Progress notes contain, each in some note; an empty list means no note at all. */ notes?: string[];
 }
 export interface MemoryFacts { has?: string[]; lacks?: string[] }
-export interface ExpectedReminder { text?: string; recurrence: string; weekdays?: number[]; timeOfDay?: string; nextAt: string; mentions?: string[] }
+/** A Reminder or Routine row; `kind` ("reminder" or "routine") is checked when given. */
+export interface ExpectedReminder { kind?: string; text?: string; recurrence: string; weekdays?: number[]; timeOfDay?: string; nextAt: string; mentions?: string[] }
 export interface TurnFacts {
   /** What the bot must ask about: the request is ambiguous, so nothing may change. */
   ambiguous?: string;
@@ -32,7 +33,7 @@ export interface TurnFacts {
   memory?: { channel?: MemoryFacts; guild?: MemoryFacts };
   /** Every file under the channel's files/ after this turn. */
   files?: string[];
-  /** Every Reminder row after this turn. */
+  /** Every Reminder and Routine row after this turn. */
   reminders?: ExpectedReminder[];
   replyContains?: string[];
   replyLacks?: string[];

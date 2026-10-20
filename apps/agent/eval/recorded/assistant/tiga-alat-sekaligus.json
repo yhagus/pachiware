@@ -37,6 +37,7 @@
         "files": [],
         "reminders": [
           {
+            "kind": "reminder",
             "text": "cek proposal sponsor",
             "recurrence": "once",
             "weekdays": [],

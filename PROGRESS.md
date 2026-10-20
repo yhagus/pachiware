@@ -1927,3 +1927,40 @@ Asked by the user on 2026-10-20: use shadcn's AI Elements in the console where i
     - the Profile Playground reply.
   - The conversation viewer needs a connected bot and was not opened.
 - [x] Committed as a2bcdf4 (the components) and 7515c3b (the pages) on `main` and pushed, as the user asked (2026-10-20).
+
+## Phase 56 — Routines, and a schedule's time read from the asker's own words
+
+Asked by the user on 2026-10-20: "Simpulkan tugasku untuk hari ini setiap jam 9 pagi WIB ya" should set a schedule that carries the instruction out at that time. A request that leaves the time open ("simpulin tugasku jam 9 WIB") must be asked about: morning or evening, every day or certain days. Once it is set, the bot answers with a fixed card of every detail. Decided with the user: a Routine only reads, and the clarity rule and the card cover Reminders too. Built on `feat/routines`; ADR 0019.
+
+- [x] `ScheduleKind` gains `routine`, and `ScheduleFilter.kind` takes a list, on all three engines (bdfa454).
+- [x] `packages/skills/src/whenWords.ts` reads a person's words about time:
+  - the clock time, with "jam 9" left as 09:00 or 21:00;
+  - the repetition (once, daily, weekly on chosen days, monthly on a date), a day, a start ("mulai Senin depan") and a zone (WIB, WITA, WIT);
+  - or what the words leave open, or a repetition no schedule keeps ("tiap 2 jam").
+  `checkWhen` compares the model's arguments with that reading. `whenAsk` is the one fixed question, in both languages, worded so its answer reads back (2a7fb9c).
+- [x] Tools see the asker's own lines (`SkillContext.askerWords`, from this turn and the conversation's latest 40 stored messages, never a replied-to line) and their language (dac9897).
+- [x] `createReminder` and `editReminder` take `said`, the asker's words quoted exactly, checked against their lines. Open words get the question and set nothing; arguments that disagree are refused, naming both (effb0d9).
+- [x] The card: one embed after any Reminder or Routine set or changed, in the asker's language. It shows:
+  - when, in words, and the next three times;
+  - the zone, the end date, and where it posts (public or not);
+  - who is pinged, the words it was read from, and its id;
+  - for a Routine, that it reads only (f0560e6).
+- [x] `createRoutine`. List, cancel and change cover both kinds. A person may keep 10 active Routines and a tenant 100. The console page and API list both kinds with a badge and the last error; GLOSSARY gains Routine (6282f1c).
+- [x] A due Routine runs beside the scheduler pass, one at a time per bot:
+  - it runs as its owner, re-read at run time, as one read-only, ephemeral turn;
+  - its report is posted with a ping;
+  - an owner who can no longer view the channel ends it unrun;
+  - a provider failure tells the owner and keeps the error (9fce701).
+- [x] Persona: the default since #266 is frozen as `PERSONA_LONG_FILES`, and the Reminders section becomes "Reminders and Routines" (22dfa23).
+- [x] Eval:
+  - two new briefs, `rutinitas-jelas` and `rutinitas-tanya-dulu`, with dry runs and recordings; the runner records Routine rows with their `kind`;
+  - `colek-h-1` changes with the rule: "sehari sebelum tenggat" names no time, so the bot asks before it sets the nudge and before it moves it, and the brief gains the answers. `scorecard.yaml` keeps version 3, so a v3 report from before this phase and one from after differ on that brief.
+- Verification: typecheck 0 at every commit. The schedules contract passes on SQLite, PostgreSQL and MongoDB. Full suite 1419 pass, 0 fail on the eval commit. Failures seen earlier under load 36–38 (a recall timeout, two 5 s timeouts) passed alone.
+- [ ] Live run of the two Routine briefs and the four Reminder briefs, judged offline.
+- [ ] Checked by hand in Discord on a separate instance:
+  - "simpulin tugasku jam 9 WIB" gets the question;
+  - after the answer, the card;
+  - a run posts its report;
+  - the console lists both kinds.
+- [ ] Merged into `main` and pushed, when the user asks.
+

@@ -46,13 +46,13 @@ function memoryFailures(level: string, facts: MemoryFacts, lines: string[]): str
 
 function reminderFailures(expected: ExpectedReminder[], reminders: AssistantState["reminders"]): string[] {
   const out: string[] = [];
-  if (reminders.length !== expected.length) out.push(`${reminders.length} Reminder rows exist, expected ${expected.length}.`);
+  if (reminders.length !== expected.length) out.push(`${reminders.length} Reminder or Routine rows exist, expected ${expected.length}.`);
   expected.forEach((e, i) => {
     const row = reminders[i];
     if (!row) return;
-    const name = `Reminder "${row.text}"`;
+    const name = `${row.kind === "routine" ? "Routine" : "Reminder"} "${row.text}"`;
     if (e.text !== undefined && !has(row.text, e.text)) out.push(`${name}: text does not contain "${e.text}".`);
-    for (const key of ["recurrence", "weekdays", "timeOfDay", "nextAt", "mentions"] as const) {
+    for (const key of ["kind", "recurrence", "weekdays", "timeOfDay", "nextAt", "mentions"] as const) {
       if (e[key] !== undefined && !same(row[key], e[key])) out.push(`${name}: ${key} is ${show(row[key])}, expected ${show(e[key])}.`);
     }
   });

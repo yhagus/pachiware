@@ -24,6 +24,7 @@
         "files": [],
         "reminders": [
           {
+            "kind": "reminder",
             "text": "kirim laporan mingguan ke klien",
             "recurrence": "weekly",
             "weekdays": [

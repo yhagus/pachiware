@@ -1,0 +1,103 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "rutinitas-tanya-dulu",
+  "turns": [
+    {
+      "n": 1,
+      "message": "simpulin tugasku jam 9 WIB",
+      "replies": [
+        "Maksudnya jam 09:00 (pagi) atau 21:00 (malam)? Sekali saja, atau berulang: setiap hari, Senin–Jumat, atau hari tertentu?"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Kirim invoice ke Kopi Senja",
+            "status": "pending",
+            "dueAt": "2026-10-14",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Revisi desain poster",
+            "status": "in_progress",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": []
+      }
+    },
+    {
+      "n": 2,
+      "message": "pagi, tiap hari kerja",
+      "replies": [
+        "Siap, rutinitasnya terpasang: Senin–Jumat jam 09:00 WIB.",
+        "🔁 Rutinitas dipasang\n\n> simpulin tugasku"
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [
+          {
+            "title": "Kirim invoice ke Kopi Senja",
+            "status": "pending",
+            "dueAt": "2026-10-14",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          },
+          {
+            "title": "Revisi desain poster",
+            "status": "in_progress",
+            "dueAt": "2026-10-16",
+            "assignedTo": "Alice",
+            "createdByName": "Alice"
+          }
+        ],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [],
+        "reminders": [
+          {
+            "kind": "routine",
+            "text": "simpulin tugasku",
+            "recurrence": "weekly",
+            "weekdays": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "timeOfDay": "09:00",
+            "timezone": "Asia/Jakarta",
+            "nextAt": "2026-10-14T02:00:00.000Z",
+            "status": "active",
+            "mentions": []
+          }
+        ]
+      }
+    }
+  ],
+  "posts": [
+    {
+      "text": "<@user-alice> 🔁 Rutinitas: simpulin tugasku\nTugasmu hari ini:\npending | due 2026-10-14 | Alice | 00000001 | Kirim invoice ke Kopi Senja\nin_progress | due 2026-10-16 | Alice | 00000002 | Revisi desain poster",
+      "pings": [
+        "user-alice"
+      ]
+    }
+  ]
+}

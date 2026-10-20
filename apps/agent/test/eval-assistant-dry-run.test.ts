@@ -107,6 +107,31 @@ discordScenario("dry run: reminder-weekly sets Monday and Thursday 09:00 and the
   expect(output.posts).toEqual([{ text: `<@${s.discord.alice.id}> Reminder: post the standup`, pings: [s.discord.alice.id] }]);
 });
 
+discordScenario("dry run: rutinitas-jelas sets a daily 09:00 Routine without asking, and at 09:00 posts Alice's tasks for the day", async (s) => {
+  s.model.script(
+    { tool: "createRoutine", args: { instruction: "Simpulkan tugasku untuk hari ini", said: ["setiap jam 9 pagi WIB"], recurrence: "daily", time: "09:00" } },
+    "Siap, rutinitasnya terpasang: setiap hari jam 09:00 WIB.",
+    { tool: "listTasks", args: { scope: "mine" } },
+    (turn) => ["Tugasmu hari ini:", ...turn.toolResults[0].groups.flatMap((g: any) => g.tasks.map((t: any) => t.line))].join("\n"),
+  );
+  const output = await dryRun(s, "rutinitas-jelas");
+  expect(output.posts.map((p: any) => p.text.split("\n").slice(0, 2).join("\n"))).toEqual([`<@${s.discord.alice.id}> 🔁 Rutinitas: Simpulkan tugasku untuk hari ini\nTugasmu hari ini:`]);
+});
+
+discordScenario("dry run: rutinitas-tanya-dulu asks morning or evening and how often, sets nothing, then sets the weekday Routine from the answer", async (s) => {
+  const workDays = ["monday", "tuesday", "wednesday", "thursday", "friday"];
+  s.model.script(
+    { tool: "createRoutine", args: { instruction: "simpulin tugasku", said: ["jam 9 WIB"], recurrence: "daily", time: "09:00" } },
+    (turn) => turn.toolResults[0].question,
+    { tool: "createRoutine", args: { instruction: "simpulin tugasku", said: ["jam 9 WIB", "pagi, tiap hari kerja"], recurrence: "weekly", weekdays: workDays, time: "09:00" } },
+    "Siap, rutinitasnya terpasang: Senin–Jumat jam 09:00 WIB.",
+    { tool: "listTasks", args: { scope: "mine" } },
+    (turn) => ["Tugasmu hari ini:", ...turn.toolResults[0].groups.flatMap((g: any) => g.tasks.map((t: any) => t.line))].join("\n"),
+  );
+  const output = await dryRun(s, "rutinitas-tanya-dulu");
+  expect(output.turns[0].replies).toEqual(["Maksudnya jam 09:00 (pagi) atau 21:00 (malam)? Sekali saja, atau berulang: setiap hari, Senin–Jumat, atau hari tertentu?"]);
+});
+
 discordScenario("dry run: assign-ambiguous-name asks which Dewi, files nothing, then files the task for the one named", async (s) => {
   s.model.script(
     { tool: "createTask", args: { title: "Send the brand guide to the printer", assignedTo: "Dewi", dueAt: "2026-10-16" } },

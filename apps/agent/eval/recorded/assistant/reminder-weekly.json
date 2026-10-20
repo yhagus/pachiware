@@ -24,6 +24,7 @@
         "files": [],
         "reminders": [
           {
+            "kind": "reminder",
             "text": "post the standup",
             "recurrence": "weekly",
             "weekdays": [

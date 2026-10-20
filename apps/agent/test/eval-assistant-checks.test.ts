@@ -99,21 +99,22 @@ describe("code checks on one run", () => {
     const f: AssistantFixture = { ...fixture, facts: { ...fixture.facts, turns: [{
       memory: { channel: { has: ["Bob prefers mornings"], lacks: ["password"] }, guild: { has: ["Releases on Thursdays"] } },
       files: ["files/report.md", "files/report.pdf"],
-      reminders: [{ text: "standup", recurrence: "weekly", weekdays: [1, 4], timeOfDay: "09:00", nextAt: "2026-10-15T02:00:00.000Z", mentions: [] }],
+      reminders: [{ kind: "reminder", text: "standup", recurrence: "weekly", weekdays: [1, 4], timeOfDay: "09:00", nextAt: "2026-10-15T02:00:00.000Z", mentions: [] }],
     }, {}] } };
     const good: AssistantState = {
       tasks: [], memory: { channel: ["- 2026-10-14 (Alice): Bob prefers mornings"], guild: ["- 2026-10-14 (Alice): Releases on Thursdays"] }, files: ["files/report.md", "files/report.pdf"],
-      reminders: [{ text: "post the standup", recurrence: "weekly", weekdays: [1, 4], timeOfDay: "09:00", timezone: "Asia/Jakarta", nextAt: "2026-10-15T02:00:00.000Z", status: "active", mentions: [] }],
+      reminders: [{ kind: "reminder", text: "post the standup", recurrence: "weekly", weekdays: [1, 4], timeOfDay: "09:00", timezone: "Asia/Jakarta", nextAt: "2026-10-15T02:00:00.000Z", status: "active", mentions: [] }],
     };
     expect(checks(withTurn(1, { state: good }), f)).toEqual([]);
-    const bad: AssistantState = { ...good, memory: { channel: ["- 2026-10-14 (Alice): the password is hunter2"], guild: [] }, files: ["files/report.pdf"], reminders: [{ ...good.reminders[0]!, weekdays: [1], nextAt: "2026-10-19T02:00:00.000Z" }] };
+    const bad: AssistantState = { ...good, memory: { channel: ["- 2026-10-14 (Alice): the password is hunter2"], guild: [] }, files: ["files/report.pdf"], reminders: [{ ...good.reminders[0]!, kind: "routine", weekdays: [1], nextAt: "2026-10-19T02:00:00.000Z" }] };
     expect(checks(withTurn(1, { state: bad }), f)).toEqual([
       '1 memory: channel Memory has no line containing "Bob prefers mornings".',
       '1 memory: channel Memory has a line containing "password".',
       '1 memory: guild Memory has no line containing "Releases on Thursdays".',
       "1 files: files/ holds files/report.pdf, expected files/report.md, files/report.pdf.",
-      '1 reminders: Reminder "post the standup": weekdays is 1, expected 1, 4.',
-      '1 reminders: Reminder "post the standup": nextAt is 2026-10-19T02:00:00.000Z, expected 2026-10-15T02:00:00.000Z.',
+      '1 reminders: Routine "post the standup": kind is routine, expected reminder.',
+      '1 reminders: Routine "post the standup": weekdays is 1, expected 1, 4.',
+      '1 reminders: Routine "post the standup": nextAt is 2026-10-19T02:00:00.000Z, expected 2026-10-15T02:00:00.000Z.',
     ]);
   });
 
@@ -166,7 +167,7 @@ describe("fixtures and recorded runs", () => {
       "assign-ambiguous-name", "assign-unknown-name", "progress-note", "cancel-with-reason", "task-reference-ambiguous", "plate-across-channels", "bulk-cancel",
       "decision-other-channel", "action-items-across-meetings", "nothing-found", "private-channel-dm", "minutes-as-document",
       "recall-asked-in-indonesian", "recall-asked-in-english", "recall-decision-replaced", "recall-done-other-channel", "recall-done-pull-request",
-      "minutes-from-talk", "member-joins-thread", "daily-log-from-talk"]) expect(names).toContain(name);
+      "minutes-from-talk", "member-joins-thread", "daily-log-from-talk", "rutinitas-jelas", "rutinitas-tanya-dulu"]) expect(names).toContain(name);
     expect(new Set(fixtures.map((f) => f.facts.language))).toEqual(new Set(["en", "id"]));
     for (const f of fixtures) {
       expect(f.facts.mustCover.length).toBeGreaterThan(0);

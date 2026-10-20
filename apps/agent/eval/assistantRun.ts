@@ -19,7 +19,8 @@ export interface TaskState {
   /** "#launch" for a task outside the brief's channel; absent for the brief's channel. */ channel?: string;
   /** Its Progress note lines, oldest first; absent when it has none. */ notes?: string[];
 }
-export interface ReminderState { text: string; recurrence: string; weekdays: number[]; timeOfDay: string | null; timezone: string; nextAt: string; status: string; mentions: string[] }
+/** A Reminder or Routine row; `kind` says which. */
+export interface ReminderState { kind: string; text: string; recurrence: string; weekdays: number[]; timeOfDay: string | null; timezone: string; nextAt: string; status: string; mentions: string[] }
 /** A Minutes or Daily log the bot wrote in the brief's channel: its path below the channel's folder, and its text without the fields at its top. */
 export interface KeptState { path: string; text: string }
 export interface AssistantState {
@@ -183,9 +184,9 @@ async function stateOf(s: Scenario, channels: string[], seeded: Set<string>): Pr
     return { title: t.title, status: t.status, dueAt: t.dueAt, assignedTo: t.assignedTo?.name ?? null, createdByName: t.createdByName, ...(channel && channel !== CHANNEL_ID && { channel: `#${channel}` }), ...(notes.length && { notes }) };
   }).sort((a, b) => a.title.localeCompare(b.title));
   const files = (await s.workspace.list(`${CHANNEL}/files`)).map((p) => p.slice(CHANNEL.length + 1)).filter((p) => !p.split("/").pop()!.startsWith(".")).sort();
-  const rows = await repositories().schedules.list({ kind: "reminder" });
+  const rows = await repositories().schedules.list({ kind: ["reminder", "routine"] });
   const reminders = rows.sort((a, b) => a.nextAt.getTime() - b.nextAt.getTime() || a.text.localeCompare(b.text))
-    .map((r) => ({ text: r.text, recurrence: r.recurrence, weekdays: r.weekdays ?? [], timeOfDay: r.timeOfDay ?? null, timezone: r.timezone, nextAt: r.nextAt.toISOString(), status: r.status, mentions: r.mentions ?? [] }));
+    .map((r) => ({ kind: r.kind, text: r.text, recurrence: r.recurrence, weekdays: r.weekdays ?? [], timeOfDay: r.timeOfDay ?? null, timezone: r.timezone, nextAt: r.nextAt.toISOString(), status: r.status, mentions: r.mentions ?? [] }));
   const kept = await keptOf(s, seeded);
   return { tasks, memory: { channel: await lines(`${CHANNEL}/MEMORY.md`), guild: await lines(`${GUILD_SHARED}/MEMORY.md`) }, files, reminders, ...(kept.length && { kept }) };
 }
