@@ -146,14 +146,17 @@ adminScenario("Plane accounts attach to bots, are tenant-bound, cannot be delete
 adminScenario("a Plane account is set to a Plane version from the list: the newest unless chosen, and a change is checked with Plane again", `
   const a = await tenant("a");
   const versions = await call("GET", "/plane-versions");
-  assert(JSON.stringify(versions.json.planeVersions) === JSON.stringify([{ id: "1.3.1", label: "Plane 1.3.1", checkedAgainst: "v1.3.1", auth: "api-key" }]), "versions wrong: " + JSON.stringify(versions.json));
+  assert(JSON.stringify(versions.json.planeVersions) === JSON.stringify([
+    { id: "1.3.1", label: "Plane 1.3.1", checkedAgainst: "v1.3.1", auth: "api-key" },
+    { id: "1.4.2", label: "Plane 1.4.2", checkedAgainst: "v1.4.2", auth: "api-key" },
+  ]), "versions wrong: " + JSON.stringify(versions.json));
   const post = (b) => call("POST", "/tenants/" + a.id + "/plane-accounts", { name: "main", workspaces: [{ slug: "acme" }], apiKey: "good-key", ...b });
   const unknown = await post({ planeVersion: "0.9" });
-  assert(unknown.status === 400 && unknown.json.error === "planeVersion must be one of: 1.3.1", "an unknown version was accepted: " + JSON.stringify(unknown.json));
+  assert(unknown.status === 400 && unknown.json.error === "planeVersion must be one of: 1.3.1, 1.4.2", "an unknown version was accepted: " + JSON.stringify(unknown.json));
   const created = await post({});
-  assert(created.status === 201 && created.json.planeAccount.planeVersion === "1.3.1", "not on the newest version: " + JSON.stringify(created.json));
+  assert(created.status === 201 && created.json.planeAccount.planeVersion === "1.4.2", "not on the newest version: " + JSON.stringify(created.json));
   const acc = created.json.planeAccount;
-  assert((await call("GET", "/tenants/" + a.id + "/plane-accounts")).json.planeAccounts[0].planeVersion === "1.3.1", "the list leaves the version out");
+  assert((await call("GET", "/tenants/" + a.id + "/plane-accounts")).json.planeAccounts[0].planeVersion === "1.4.2", "the list leaves the version out");
   // An account left on a version this server does not know, as after going back to an older release.
   await repositories().plane.updateAccount(acc.id, { planeVersion: "0.9" });
   const rename = await call("PATCH", "/plane-accounts/" + acc.id, { name: "renamed" });
@@ -185,8 +188,8 @@ adminScenario("the release a Plane server reports suggests its Plane version, is
   assert(onCorp.planeVersion === "1.3.1" && onCorp.planeServerVersion === "1.3.1" && onCorp.versionNote === null, "covered release wrong: " + JSON.stringify(onCorp));
   const onNew = await post({ name: "new", baseUrl: "https://plane.new.example" });
   assert(onNew.status === 201, "a release outside every version blocked the save: " + JSON.stringify(onNew.json));
-  assert(onNew.json.planeAccount.planeServerVersion === "v1.4.0" && onNew.json.planeAccount.planeVersion === "1.3.1", "release not recorded: " + JSON.stringify(onNew.json));
-  assert(onNew.json.planeAccount.versionNote === "Plane at plane.new.example reports v1.4.0; this account is set to Plane 1.3.1 (checked against v1.3.1). Some tools may fail.", "note wrong: " + onNew.json.planeAccount.versionNote);
+  assert(onNew.json.planeAccount.planeServerVersion === "v1.4.0" && onNew.json.planeAccount.planeVersion === "1.4.2", "release not recorded: " + JSON.stringify(onNew.json));
+  assert(onNew.json.planeAccount.versionNote === "Plane at plane.new.example reports v1.4.0; this account is set to Plane 1.4.2 (checked against v1.4.2). Some tools may fail.", "note wrong: " + onNew.json.planeAccount.versionNote);
   const listed = (await call("GET", "/tenants/" + a.id + "/plane-accounts")).json.planeAccounts.find((x) => x.name === "new");
   assert(listed.versionNote === onNew.json.planeAccount.versionNote, "the list leaves the note out");
   const blank = (await post({ name: "blank", baseUrl: "https://plane.blank.example" })).json.planeAccount;
@@ -194,10 +197,11 @@ adminScenario("the release a Plane server reports suggests its Plane version, is
   const cloud = (await post({ name: "cloud" })).json.planeAccount;
   assert(cloud.planeServerVersion === null && cloud.versionNote === null, "a 404 gave a release");
 
-  // After the server is downgraded to 1.3.1, saving the account unchanged reads the release again and the note goes.
-  releases["plane.new.example"] = "v1.3.1";
+  // After the server is upgraded to 1.4.2, saving the account unchanged reads the release again and the note goes.
+  releases["plane.new.example"] = "v1.4.2";
+  assert((await suggest("https://plane.new.example")).server.suggested === "1.4.2", "a 1.4.2 server was not suggested Plane 1.4.2");
   const saved = (await call("PATCH", "/plane-accounts/" + onNew.json.planeAccount.id, {})).json.planeAccount;
-  assert(saved.planeServerVersion === "v1.3.1" && saved.versionNote === null, "the release was not read again: " + JSON.stringify(saved));
+  assert(saved.planeServerVersion === "v1.4.2" && saved.versionNote === null, "the release was not read again: " + JSON.stringify(saved));
 
   const instances = seen.filter((s) => s.url.includes("/api/instances/"));
   assert(instances.length > 0 && instances.every((s) => s.key === null && s.redirect === "error"), "the release was asked with a key or without redirect: error");

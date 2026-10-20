@@ -24,6 +24,11 @@ export const PLANE_VERSIONS: readonly PlaneVersion[] = [
     id: "1.3.1", label: "Plane 1.3.1", releases: { from: "1.3.1", before: "1.3.2" }, checkedAgainst: "v1.3.1",
     auth: "api-key", headers: (key) => ({ "X-Api-Key": key }),
   },
+  // No call the tools make changed from v1.3.1, so it shares their code; it still covers only the release it was checked against.
+  {
+    id: "1.4.2", label: "Plane 1.4.2", releases: { from: "1.4.2", before: "1.4.3" }, checkedAgainst: "v1.4.2",
+    auth: "api-key", headers: (key) => ({ "X-Api-Key": key }),
+  },
 ];
 
 export const findPlaneVersion = (id: string, versions: readonly PlaneVersion[] = PLANE_VERSIONS): PlaneVersion | null =>

@@ -36,8 +36,8 @@ export function planeText(value: unknown, max = 500): string | null {
 /** Text made safe to place inside Plane HTML, such as a name in the origin line. */
 export const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-// Plane keeps comment HTML as sent, without sanitizing it, so raw HTML in the model's Markdown is shown as text and a link
-// keeps only an http(s) or mailto address.
+// Plane v1.3.1 keeps comment HTML as sent, without sanitizing it (v1.4.2 sanitizes it as it does descriptions), so raw HTML in
+// the model's Markdown is shown as text and a link keeps only an http(s) or mailto address.
 const marked = new Marked({
   gfm: true,
   breaks: true,

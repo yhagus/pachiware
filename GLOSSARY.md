@@ -69,7 +69,7 @@ A tenant's API key for one Plane server, Plane's cloud or a self-hosted Plane. I
 _Avoid_: Plane integration, Plane connection, Plane token
 
 **Plane version**:
-The Plane releases a Plane account's server runs, chosen from the ones Pachiware has tool code for. Each Plane version names the releases it covers; the first, Plane 1.3.1, covers that release alone. It decides how the bot signs in to that Plane and which Plane tools the account offers. An admin changes it after upgrading Plane; a new release that changes Plane's API gets a new Plane version, and the older one keeps working.
+The Plane releases a Plane account's server runs, chosen from the ones Pachiware has tool code for. Each Plane version names the releases it covers; Plane 1.3.1 and Plane 1.4.2 each cover that release alone. It decides how the bot signs in to that Plane and which Plane tools the account offers. An admin changes it after upgrading Plane; a new release that changes Plane's API gets a new Plane version, and the older one keeps working.
 _Avoid_: API version (Plane's API path is `/api/v1/` on every release), Plane release (what a server reports, such as v1.3.1; a Plane version covers one or more of them)
 
 **Plane workspace**:

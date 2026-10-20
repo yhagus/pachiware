@@ -1,7 +1,7 @@
 /**
  * The one way the agent talks to Plane's `/api/v1/` REST API. Every Plane tool and admin route goes through `planeRequest`, so
  * the credential headers (from the account's Plane version), the redirect refusal, the host check and the rate-limit wait are
- * never written twice. The behaviour noted below is Plane v1.3.1's.
+ * never written twice. The behaviour noted below is Plane v1.3.1's, and v1.4.2's unless it says otherwise.
  */
 import { assertHostAllowed, isListedHost } from "@pachiware/db";
 import { parseRelease, type PlaneVersion } from "./versions.js";
