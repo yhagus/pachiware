@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useOutletContext } from "react-router";
+import { useOutletContext } from "react-router";
 import { FlaskConical, Kanban, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -104,7 +104,7 @@ export function TenantPlaneAccounts() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 flex-1 text-sm text-muted-foreground">A Plane account is one API key on Plane's cloud or your own server, acting as one Plane user in every Plane workspace that user belongs to. List the Plane workspaces integrations may use. Several integrations can share an account. Self-hosted servers must be on Allowed hosts in <Link to="/settings" className="underline underline-offset-2">Settings</Link>.</p>
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground">To get an API key, sign in to Plane as the user the bot should act as, open Profile settings → Personal Access Tokens, choose Add access token, and copy the token Plane generates.</p>
         <Button onClick={() => open("new")}><Plus /> Add Plane account</Button>
       </div>
       {loadError
@@ -153,24 +153,22 @@ export function TenantPlaneAccounts() {
             <DialogHeader><DialogTitle>{shown === "new" ? "Add Plane account" : "Edit Plane account"}</DialogTitle><DialogDescription className="sr-only">Plane account settings</DialogDescription></DialogHeader>
             <div className="space-y-2"><Label htmlFor="pn">Name</Label><Input id="pn" required placeholder="e.g. Acme Plane" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="space-y-2"><Label htmlFor="pb">Base URL (optional)</Label><Input id="pb" type="url" placeholder="https://plane.example.com" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} onBlur={() => readServer(form.baseUrl.trim(), shown === "new")} />
-              <p className="text-xs text-muted-foreground">Leave blank for Plane's cloud. Set it for a self-hosted Plane, where raising API_KEY_RATE_LIMIT (60 a minute by default) helps a busy bot.{hostChanged && " Changing the base URL requires entering the API key again."}</p></div>
+              {hostChanged && <p className="text-xs text-muted-foreground">Changing the base URL requires entering the API key again.</p>}</div>
             <div className="space-y-2"><Label htmlFor="pv">Plane version</Label>
               <Select value={chosen ? chosen.id : ""} onValueChange={(v) => setForm({ ...form, planeVersion: v })}>
                 <SelectTrigger id="pv" className="w-full"><SelectValue placeholder="Choose a Plane version" /></SelectTrigger>
                 <SelectContent>{versions.map((v) => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}</SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">The Plane release your server runs. It decides which tools the bot can use there, so change it here after you upgrade Plane.{chosen && ` ${chosen.label} was checked against ${chosen.checkedAgainst}.`}</p>
               {server && (server.suggested === chosen?.id
                 ? <p className="text-xs text-muted-foreground">This Plane runs {server.release}.</p>
                 : <p className="text-xs text-amber-700 dark:text-amber-400">This Plane runs {server.release}, {server.suggested ? `which ${versionOf(server.suggested)?.label ?? server.suggested} covers.` : "which no Plane version here covers yet. Some tools may fail."}</p>)}</div>
             <div className="space-y-2"><Label htmlFor="ps">Plane workspaces</Label>
               <div className="flex gap-2">
-                <Input id="ps" autoComplete="off" spellCheck={false} placeholder="acme" aria-describedby="ps-help" aria-invalid={!!slugError} value={slug}
+                <Input id="ps" autoComplete="off" spellCheck={false} placeholder="acme" aria-invalid={!!slugError} value={slug}
                   onChange={(e) => { setSlug(e.target.value); setSlugError(""); }} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSlug(); } }} />
                 <Button type="button" variant="outline" disabled={!slug.trim() || form.workspaces.length >= MAX_WORKSPACES} onClick={addSlug}>Add</Button>
               </div>
               {slugError && <p role="alert" className="text-xs text-destructive">{slugError}</p>}
-              <p id="ps-help" className="text-xs text-muted-foreground">The part after the host in a Plane workspace's address, as in app.plane.so/<span className="font-mono">acme</span>/. The key opens every Plane workspace its Plane user belongs to, but Plane cannot list them, so add each one here. Integrations can use only the ones switched on; at most {MAX_WORKSPACES}.</p>
               {form.workspaces.length > 0 && (
                 <ul className="divide-y rounded-md border">
                   {form.workspaces.map((w) => (
@@ -186,8 +184,7 @@ export function TenantPlaneAccounts() {
                 </ul>
               )}
               {removed.length > 0 && <p className="text-xs text-amber-700 dark:text-amber-400">Saving removes {removed.map((w) => w.slug).join(", ")} and its Plane access rules in every integration. Switch a Plane workspace off instead to keep them.</p>}</div>
-            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" autoComplete="off" required={shown === "new" || hostChanged} placeholder={shown !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />
-              <p className="text-xs text-muted-foreground">The bot can do whatever this key's Plane user can. Use a dedicated Plane user, added only to the Plane projects it needs as a Member (Admin only for intake triage or project admin), and give the key an expiry. The key is checked with Plane on save and never shown again.</p></div>
+            <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" required={shown === "new" || hostChanged} placeholder={shown !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} /></div>
             {probe && <PlaneChecklist checks={probe} workspaces={false} />}
             <DialogFooter>
               <Button type="button" variant="outline" disabled={testing || saving} onClick={runTest}>{testing ? "Testing…" : "Test"}</Button>
