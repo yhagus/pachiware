@@ -86,8 +86,8 @@ export interface Scenario {
   plane(options?: { name?: string; baseUrl?: string | null; workspaceSlug?: string; workspaces?: { slug: string; enabled: boolean }[]; projects?: string[] | null; version?: string }): Promise<{ id: string }>;
   /** Saves guild settings as the console does, Digest schedule rows included. */
   guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: { channelId: string; hour: number }[]; dailyLogChannels?: { channelId: string; backfill: boolean }[]; docSources?: { channelId: string; repo: string; account?: string; paths: string[] }[] }): Promise<void>;
-  /** Calls the admin API with the platform key, as the console does; returns once every post it caused has landed. */
-  admin(method: string, path: string, body?: unknown): Promise<{ status: number; body: any }>;
+  /** Calls the admin API with the platform key, as the console does; returns once every post it caused has landed. `text` is a body that is not JSON, as a stream's events. */
+  admin(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ status: number; body: any; text?: string }>;
   /** The clock the time context, task dates and the scheduler read. `set` pins it (ms, Date, or ISO text); `advance` moves it forward. */
   clock: { set(at: number | string | Date): void; advance(ms: number): void; now(): number };
   /** One scheduler pass at the fake clock's time, as the agent's minute loop would run it; returns once every post has landed. */
@@ -485,10 +485,13 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       return account;
     },
     guildSettings: async (input) => { await saveGuildSettings(tenant.id, bot.id, GUILD.id, input); },
-    admin: async (method, path, body) => {
+    admin: async (method, path, body, headers = {}) => {
       server ??= (await import("../../src/server.ts")).createServer();
-      const response = await server.request(path, { method, headers: { "X-Platform-Key": "scenario", "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
-      const out = { status: response.status, body: await response.json().catch(() => null) };
+      const response = await server.request(path, { method, headers: { "X-Platform-Key": "scenario", "Content-Type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const text = await response.text();
+      let parsed: any = null;
+      try { parsed = JSON.parse(text); } catch {}
+      const out = { status: response.status, body: parsed, ...(parsed === null && text ? { text } : {}) };
       await settle();
       return out;
     },

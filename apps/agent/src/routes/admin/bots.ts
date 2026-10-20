@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import { repositories, type GuildConfigInput, type PlaneScope } from "@pachiware/db";
-import { now } from "@pachiware/skills";
+import { streamSSE } from "hono/streaming";
+import { MAX_WEB_INPUT, failureOf, now } from "@pachiware/skills";
 import { discordBotManager } from "../../discord/client.js";
+import { playgroundTurn } from "../../discord/playground.js";
 import { loadGuildSettings, saveGuildSettings, DailyLogTaken } from "../../loop/prompt.js";
-import { object, string, stringArray, placeSettings, digestChannels, dailyLogChannels, docSources } from "../validation.js";
+import { object, string, stringArray, placeSettings, digestChannels, dailyLogChannels, docSources, idOf, playgroundHistory } from "../validation.js";
 import { DocSourceRefused } from "../../docsMirror.js";
 import { botFields, assertProfile, assertAccounts, botColumns, saveAccounts, botsOut } from "../v1/bots.js";
 import { botAvailabilityRoutes } from "../availability.js";
@@ -145,6 +147,34 @@ botAdminRoutes.post("/bots/:botId/conversations/:id/end", async (c) => {
   const endedAt: string = owned.metadata?.endedAt ?? new Date(now()).toISOString();
   if (!owned.metadata?.endedAt) await patchConversationMetadata(owned.tenantId, owned.id, { endedAt });
   return c.json({ success: true, endedAt });
+});
+// The console's Playground: one turn as the bot would take it in the channel, with read tools only; nothing is posted to Discord or stored.
+botAdminRoutes.post("/bots/:botId/playground", async (c) => {
+  const body = object(await c.req.json(), "body");
+  const guildId = idOf(body.guildId, "guildId"), channelId = idOf(body.channelId, "channelId"), sessionId = idOf(body.sessionId, "sessionId");
+  const message = string(body.message, "message")!;
+  if (message.length > MAX_WEB_INPUT) return c.json({ error: `message must be at most ${MAX_WEB_INPUT} characters` }, 400);
+  const history = playgroundHistory(body.history);
+  const bot = (await repositories().bots.get(c.req.param("botId")!))!;
+  if (bot.guildIds.length && !bot.guildIds.includes(guildId)) return c.json({ error: "This integration ignores that server: it is not among its Server IDs." }, 400);
+  if ((await repositories().tenants.get(bot.tenantId))?.status !== "active") return c.json({ error: "The tenant is suspended, so the bot answers no one." }, 409);
+  // A turn can run for minutes, longer than Bun keeps a quiet connection open.
+  (c.env as { timeout?: (req: Request, seconds: number) => void } | undefined)?.timeout?.(c.req.raw, 0);
+  const turn = { tenantId: bot.tenantId, botId: bot.id, guildId, channelId, message, history, sessionId };
+  if (!c.req.header("accept")?.includes("text/event-stream")) return c.json({ success: true, ...await playgroundTurn(turn) });
+  // Streamed, each tool call shows as it starts and as it answers, then the whole answer comes as `done`.
+  return streamSSE(c, async (stream) => {
+    let sent = Promise.resolve();
+    const send = (event: string, data: unknown) => { sent = sent.then(() => stream.writeSSE({ event, data: JSON.stringify(data) })); return sent; };
+    try {
+      const answer = await playgroundTurn({ ...turn, onProgress: (progress) => { void send(progress.type, progress); } });
+      await send("done", answer);
+    } catch (error) {
+      const failure = failureOf(error);
+      console.error(`[playground] bot ${bot.id} failed: ${failure.error}: ${failure.message}`);
+      await send("failed", { error: "The turn failed before the bot could answer." });
+    }
+  });
 });
 botAdminRoutes.patch("/bots/:botId", async (c) => {
   const fields = botFields(object(await c.req.json(), "body"));

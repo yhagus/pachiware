@@ -53,7 +53,16 @@ export function fitHistory<T extends StoredRow>(rows: T[], budget = HISTORY_TOKE
 export async function historyWindow(tenantId: string, conversationId: string): Promise<{ offset: number; rows: Message[] }> {
   const { conversations } = repositories();
   const start = historyOffset(await conversations.countMessages(tenantId, conversationId));
-  const loaded = await conversations.listMessages(tenantId, conversationId, { offset: start, limit: HISTORY_SIZE + HISTORY_STEP });
+  return fitWindow(start, await conversations.listMessages(tenantId, conversationId, { offset: start, limit: HISTORY_SIZE + HISTORY_STEP }));
+}
+
+/** The same window over rows the caller holds instead of a stored conversation, all of them, oldest first. */
+export function windowOf<T extends StoredRow>(all: T[]): { offset: number; rows: T[] } {
+  const start = historyOffset(all.length);
+  return fitWindow(start, all.slice(start, start + HISTORY_SIZE + HISTORY_STEP));
+}
+
+function fitWindow<T extends StoredRow>(start: number, loaded: T[]): { offset: number; rows: T[] } {
   const rows = fitHistory(dropLeadingOrphans(loaded));
   // fitHistory only removes rows from the front.
   return { offset: start + loaded.length - rows.length, rows };

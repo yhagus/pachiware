@@ -1,5 +1,5 @@
 import { repositories, DEFAULT_REACT_ITERATIONS } from "@pachiware/db";
-import { historyWindow, storedToolResult } from "./history.js";
+import { historyWindow, storedToolResult, windowOf } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
@@ -23,11 +23,23 @@ export interface ReActInput {
   };
   maxIterations?: number;
   onStep?: (step: { type: "thought" | "tool_call" | "tool_result"; payload: any }) => void;
+  /**
+   * The conversation is held by the caller and nothing is stored: no conversation, message, summary or bulk approval. History is read
+   * from `history` (every row so far, oldest first), and the rows a stored conversation would have gained come back as `recorded`.
+   * `cacheKey` stands in for the conversation id the provider's prompt cache is keyed by.
+   */
+  ephemeral?: { history: TurnRow[]; cacheKey: string };
+  /** Only tools that read are offered; a call to any other is refused without running. The console's Playground runs this way. */
+  readOnly?: boolean;
 }
+
+/** A conversation row as the store keeps it. */
+export type TurnRow = { role: string; content: string | null; toolCalls?: ToolCall[] | null; toolCallId?: string | null };
 
 type Executed = { call: ToolCall; result: ToolResult };
 
 export interface ReActOutput {
+  /** Empty for an ephemeral turn. */
   conversationId: string;
   reply: string;
   toolCallsExecuted: Executed[];
@@ -35,7 +47,31 @@ export interface ReActOutput {
   imagesRejected?: boolean;
   /** Where the history window started on this turn; the caller compares it after storing the turn to see whether the window stepped. */
   historyOffset: number;
+  /** The tools offered to the model on this turn. */
+  offered: string[];
+  /** An ephemeral turn's new rows, for the caller to send back with its history next turn. */
+  recorded?: TurnRow[];
 }
+
+/** Where a turn's conversation rows are read from and written to: the conversation store, or rows the caller holds. */
+interface TurnRecord {
+  window(): Promise<{ offset: number; rows: TurnRow[] }>;
+  add(row: TurnRow & { tokensUsed?: number | null }): Promise<void>;
+}
+
+const storedRecord = (tenantId: string, conversationId: string): TurnRecord => ({
+  window: () => historyWindow(tenantId, conversationId),
+  add: async (row) => { await repositories().conversations.addMessage({ tenantId, conversationId, ...row }); },
+});
+
+function heldRecord(history: TurnRow[], recorded: TurnRow[]): TurnRecord {
+  return {
+    window: async () => windowOf(history),
+    add: async ({ tokensUsed: _tokens, ...row }) => { recorded.push(row); },
+  };
+}
+
+const NOT_IN_PLAYGROUND = "Not run: this is the console's read-only Playground, where nothing is changed. Say what you would have done.";
 
 const MAX_TOOL_RESULT = 12000;
 /** A grounded brief round takes several tool steps per point, more than a tenant's usual cap. */
@@ -117,11 +153,11 @@ const CONTINUE = "Your last answer was cut off at the output limit. Continue exa
  * Asks once for the rest of an answer cut at the output limit and joins the two parts; `stillCut` when the rest is cut too or never came.
  * The continuation request is not stored: only the joined answer is.
  */
-async function continueCut(partial: string, sent: ChatMessage[], tools: ToolDefinition[], convId: string, historyEnd: number | undefined, input: ReActInput, ctx: SkillContext, deadline: number) {
+async function continueCut(partial: string, sent: ChatMessage[], tools: ToolDefinition[], cacheKey: string, historyEnd: number | undefined, input: ReActInput, ctx: SkillContext, deadline: number) {
   await audit(ctx, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "text" });
   if (!partial.trim()) return { text: partial, stillCut: true };
   const rest = await llmRouter.complete([...sent, { role: "assistant", content: partial }, { role: "user", content: CONTINUE }], {
-    tenantId: input.tenantId, botId: input.botId, cacheKey: convId, historyEnd, tools, language: input.context.language, deadline,
+    tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, tools, language: input.context.language, deadline,
   });
   if (rest.finishReason === "error") return { text: partial, stillCut: true };
   if (rest.finishReason === "length") await audit(ctx, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "text" });
@@ -147,8 +183,8 @@ export class AgentReActLoop {
     const maxIterations = Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, PLAYBOOK_ITERATIONS) : requestedIterations));
     const toolCallsExecuted: Executed[] = [];
 
-    // 1. Ensure conversation exists in PostgreSQL
-    let convId = input.conversationId;
+    // 1. Ensure the conversation exists, unless the caller holds it
+    let convId = input.ephemeral ? "" : input.conversationId;
     let summary: ConversationSummary | null = null;
     let approvedBulk: BulkItem[] = [];
     const { conversations } = repositories();
@@ -160,7 +196,7 @@ export class AgentReActLoop {
       approvedBulk = bulkApprovalOf(owned.metadata, input.context.userId);
       if ((owned.metadata as { bulkApproval?: unknown } | null)?.bulkApproval) await patchConversationMetadata(input.tenantId, convId, { bulkApproval: undefined }, owned.metadata);
     }
-    if (!convId) {
+    if (!convId && !input.ephemeral) {
       const newConv = await conversations.create({
         tenantId: input.tenantId,
         botId: input.botId || null,
@@ -172,14 +208,17 @@ export class AgentReActLoop {
       convId = newConv.id;
     }
 
-    if (!convId) throw new Error("Conversation creation failed");
+    if (convId === undefined || (!convId && !input.ephemeral)) throw new Error("Conversation creation failed");
+    const recorded: TurnRow[] = [];
+    const record = input.ephemeral ? heldRecord(input.ephemeral.history, recorded) : storedRecord(input.tenantId, convId);
+    const cacheKey = input.ephemeral?.cacheKey ?? convId;
 
     // Guardrail before the loop: refuse rule-rewriting messages, answer the rest however long.
     const verdict = GuardrailService.classify(input.message, input.replyLanguage);
     if (!verdict.decision.allow && isEnforced(verdict.decision.kind)) {
       const auditCtx = { tenantId: input.tenantId, botId: input.botId };
       await audit(auditCtx, verdict.decision.kind === "prompt_injection" ? "prompt_injection_detected" : "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", platform: input.context.platform });
-      return { conversationId: convId, reply: verdict.decision.message, toolCallsExecuted, iterations: 0, historyOffset: 0 };
+      return { conversationId: convId, reply: verdict.decision.message, toolCallsExecuted, iterations: 0, historyOffset: 0, offered: [], ...(input.ephemeral ? { recorded } : {}) };
     }
     else if (!verdict.decision.allow) await audit({ tenantId: input.tenantId, botId: input.botId }, "guardrail_denied", { kind: verdict.decision.kind, source: "user_message", observed: true });
     // A request that only quotes rule-rewriting text runs, with the quoted phrases named as data in this turn's context (#255).
@@ -191,8 +230,8 @@ export class AgentReActLoop {
     const available = await skillRegistry.availableAt(place);
     const systemPrompt = await SystemPromptBuilder.build({ ...input.context, tenantId: input.tenantId, botId: input.botId, off: available.off });
 
-    // 3. Load previous messages from DB (windowed in steps so the prompt prefix stays cacheable)
-    const { offset: windowOffset, rows: existingDbMessages } = await historyWindow(input.tenantId, convId);
+    // 3. Load previous messages (windowed in steps so the prompt prefix stays cacheable)
+    const { offset: windowOffset, rows: existingDbMessages } = await record.window();
 
     const messageHistory: ChatMessage[] = [
       { role: "system", content: systemPrompt },
@@ -216,17 +255,13 @@ export class AgentReActLoop {
     // Per-turn context is a separate trailing message that is never stored, so the stored history re-reads identically next turn and the cached prefix survives.
     messageHistory.push({ role: "user", content: `[Context for this turn, not written by the user]\n${await SystemPromptBuilder.buildDynamic({ ...input.context, tenantId: input.tenantId, botId: input.botId })}${quotedNote}` });
 
-    await conversations.addMessage({
-      tenantId: input.tenantId,
-      conversationId: convId,
-      role: "user",
-      content: input.message,
-    });
+    await record.add({ role: "user", content: input.message });
 
     // 5. Retrieve active tools
     // Availability rules for this place first, then a playbook may close tools in its threads, and a skill may hide tools the place does not support
     // (see SkillModule.hiddenTools); a call to any of them is refused even when the model names it anyway.
     const closed = closedTools(input.context.playbook);
+    if (input.readOnly) for (const t of available.tools) if (skillRegistry.effectOf(t.name) !== "read") closed.set(t.name, NOT_IN_PLAYGROUND);
 
     // 6. Build execution context for tools
     const skillContext: SkillContext = {
@@ -283,7 +318,7 @@ export class AgentReActLoop {
       const response = await llmRouter.complete(messageHistory, {
         tenantId: input.tenantId,
         botId: input.botId,
-        cacheKey: convId,
+        cacheKey,
         historyEnd,
         tools: activeTools,
         language: input.context.language,
@@ -307,7 +342,7 @@ export class AgentReActLoop {
       const cut = response.finishReason === "length";
       const final = !response.toolCalls || response.toolCalls.length === 0;
       let answer = response.content, stillCut = false;
-      if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, convId, historyEnd, input, skillContext, deadline));
+      if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, cacheKey, historyEnd, input, skillContext, deadline));
 
       // The final answer gets its citations rendered and its links checked before it is stored, so later turns read real links.
       const content = final && answer ? await cite(answer, toolCallsExecuted, messageHistory, skillContext) : answer;
@@ -319,9 +354,7 @@ export class AgentReActLoop {
         toolCalls: response.toolCalls.length > 0 ? response.toolCalls : undefined,
       });
 
-      await conversations.addMessage({
-        tenantId: input.tenantId,
-        conversationId: convId,
+      await record.add({
         role: "assistant",
         content,
         toolCalls: response.toolCalls.length > 0 ? response.toolCalls : null,
@@ -341,7 +374,7 @@ export class AgentReActLoop {
       const bulkRefusal = !bulkDecision.allow && isEnforced(bulkDecision.kind) ? bulkDecision.message : null;
       if (!bulkDecision.allow) {
         await audit(skillContext, bulkRefusal ? "confirmation_requested" : "guardrail_denied", { kind: "bulk_task", count: bulkDecision.batch.length, ...(bulkRefusal ? {} : { observed: true }) });
-        if (bulkRefusal && input.context.userId) await patchConversationMetadata(input.tenantId, convId, { bulkApproval: { userId: input.context.userId, items: bulkDecision.batch } });
+        if (bulkRefusal && input.context.userId && convId) await patchConversationMetadata(input.tenantId, convId, { bulkApproval: { userId: input.context.userId, items: bulkDecision.batch } });
       }
 
       // Action Step: Execute each tool call
@@ -373,9 +406,7 @@ export class AgentReActLoop {
           name: toolCall.name,
         });
 
-        await conversations.addMessage({
-          tenantId: input.tenantId,
-          conversationId: convId,
+        await record.add({
           role: "tool",
           content: asUntrusted(`tool:${toolCall.name} (short form)`, redact(storedToolResult(result))),
           toolCallId: toolCall.id,
@@ -387,13 +418,13 @@ export class AgentReActLoop {
       // One more call with the same tools and tool_choice none, so the cached prefix holds and completed work becomes a useful answer
       // instead of an opaque failure. The instruction is not stored; the answer is, so the next turn builds on it.
       const request = [...messageHistory, { role: "user" as const, content: outOfTime ? TIME_SPENT : BUDGET_SPENT }];
-      const options = { tenantId: input.tenantId, botId: input.botId, cacheKey: convId, historyEnd, language: input.context.language, deadline: Date.now() + turnDeadline.summaryMs };
+      const options = { tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, language: input.context.language, deadline: Date.now() + turnDeadline.summaryMs };
       // A server that refuses tool_choice is asked once more without tools by the router, before any fallback Profile.
       const boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
       if (boundary.finishReason === "error") finalReply = failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language);
       else {
         const content = boundary.content ? await cite(boundary.content, toolCallsExecuted, request, skillContext) : "";
-        if (content) await conversations.addMessage({ tenantId: input.tenantId, conversationId: convId, role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
+        if (content) await record.add({ role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
         finalReply = redact(content || textIn(input.context.language).budgetSpent);
       }
       await audit(skillContext, "guardrail_denied", { kind: "limit", source: outOfTime ? "deadline" : "iterations", synthesized: true });
@@ -406,6 +437,8 @@ export class AgentReActLoop {
       iterations,
       imagesRejected,
       historyOffset: windowOffset,
+      offered: activeTools.map((t) => t.name),
+      ...(input.ephemeral ? { recorded } : {}),
     };
   }
 }
