@@ -2,12 +2,13 @@ import type { Context, Hono } from "hono";
 import { repositories, type Schedule } from "@pachiware/db";
 
 const reminderOut = (r: Schedule) => ({
-  id: r.id, ownerId: r.ownerId, ownerName: r.ownerName, guildId: r.guildId, channelId: r.channelId, text: r.text, withTasks: r.withTasks, mentions: r.mentions,
-  recurrence: r.recurrence, weekdays: r.weekdays, dayOfMonth: r.dayOfMonth, timeOfDay: r.timeOfDay, timezone: r.timezone, until: r.until, nextAt: r.nextAt, lastFiredAt: r.lastFiredAt, createdAt: r.createdAt,
+  id: r.id, kind: r.kind, ownerId: r.ownerId, ownerName: r.ownerName, guildId: r.guildId, channelId: r.channelId, text: r.text, withTasks: r.withTasks, mentions: r.mentions,
+  recurrence: r.recurrence, weekdays: r.weekdays, dayOfMonth: r.dayOfMonth, timeOfDay: r.timeOfDay, timezone: r.timezone, until: r.until, nextAt: r.nextAt, lastFiredAt: r.lastFiredAt, error: r.error, createdAt: r.createdAt,
 });
 
 /**
- * GET lists the bot's active Reminders soonest first; DELETE `/:reminderId` marks one cancelled (the row stays for the scheduler's history). Nothing creates one here: Reminders come from chat.
+ * GET lists the bot's active Reminders and Routines soonest first; DELETE `/:reminderId` marks one cancelled (the row stays for the scheduler's history).
+ * Nothing creates one here: both come from chat.
  * The bot must not be deleted and, when `tenantOf` is given, must belong to that tenant; otherwise 404.
  */
 export function botReminderRoutes(app: Hono<any>, botPath: string, param: string, tenantOf?: (c: Context<any>) => string) {
@@ -15,7 +16,7 @@ export function botReminderRoutes(app: Hono<any>, botPath: string, param: string
     const botId = c.req.param(param)!, tenantId = tenantOf?.(c);
     return (await repositories().bots.get(botId, tenantId))?.id ?? null;
   };
-  const active = (botId: string, id?: string) => repositories().schedules.list({ botId, kind: "reminder", status: "active", ...(id ? { id } : {}) });
+  const active = (botId: string, id?: string) => repositories().schedules.list({ botId, kind: ["reminder", "routine"], status: "active", ...(id ? { id } : {}) });
   app.get(`${botPath}/reminders`, async (c) => {
     const botId = await botOf(c);
     if (!botId) return c.json({ error: "Not found" }, 404);

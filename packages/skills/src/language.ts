@@ -206,6 +206,8 @@ const en = {
   todaysTalk: (time: string, speaker: string) => `today's talk ${time}, ${speaker}`,
   reminderLimitOwner: (n: number) => `You already have ${n} active Reminders, the most one person can keep. Cancel one before setting another.`,
   reminderLimitTenant: (n: number) => `Reminders here are at their limit of ${n} active. Cancel one before setting another.`,
+  routineLimitOwner: (n: number) => `You already have ${n} active Routines, the most one person can keep. Cancel one before setting another.`,
+  routineLimitTenant: (n: number) => `Routines here are at their limit of ${n} active. Cancel one before setting another.`,
   reminderLate: (day: number, month: number, time: string) => `-# Posted late: this was due ${day} ${MONTHS_EN[month - 1]}, ${time}.`,
   // When a Reminder or Routine runs: what the asker's words leave open is asked about, never guessed (whenWords.ts)
   whenAsk: (asks: string[], either: [string, string] | null) => whenQuestion(asks, either, {
@@ -419,6 +421,8 @@ const id: typeof en = {
   todaysTalk: (time, speaker) => `obrolan hari ini ${time}, ${speaker}`,
   reminderLimitOwner: (n) => `Kamu sudah punya ${n} pengingat aktif, batas untuk satu orang. Batalkan satu dulu sebelum membuat yang baru.`,
   reminderLimitTenant: (n) => `Pengingat di sini sudah mencapai batas ${n} yang aktif. Batalkan satu dulu sebelum membuat yang baru.`,
+  routineLimitOwner: (n) => `Kamu sudah punya ${n} rutinitas aktif, batas untuk satu orang. Batalkan satu dulu sebelum membuat yang baru.`,
+  routineLimitTenant: (n) => `Rutinitas di sini sudah mencapai batas ${n} yang aktif. Batalkan satu dulu sebelum membuat yang baru.`,
   reminderLate: (day, month, time) => `-# Terlambat: seharusnya diposting ${day} ${MONTHS_ID[month - 1]} ${time}.`,
   whenAsk: (asks, either) => whenQuestion(asks, either, {
     "am-pm": "Pagi atau malam?", time: "Jam berapa? Misalnya 09:00 atau 21:00.", zone: "Zona waktunya WIB, WITA, atau WIT?",

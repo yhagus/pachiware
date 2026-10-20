@@ -188,10 +188,14 @@ export type AvailabilityLevel = { tenantId: string } | { botId: string; guildId?
 const availabilityPath = (l: AvailabilityLevel) => "tenantId" in l
   ? `/api/admin/tenants/${l.tenantId}/availability`
   : `/api/admin/bots/${l.botId}${l.guildId ? `/guilds/${l.guildId}` : ""}${l.guildId && l.channelId ? `/channels/${l.channelId}` : ""}/availability`;
-/** An active Reminder of a bot, set from chat. `weekdays` (0 = Sunday) and `dayOfMonth` belong to weekly and monthly repeats; times are ISO instants, `timeOfDay` is wall time in `timezone`. */
+/**
+ * An active Reminder or Routine of a bot, set from chat: a Reminder posts `text`, a Routine runs it as an instruction and posts what it found.
+ * `weekdays` (0 = Sunday) and `dayOfMonth` belong to weekly and monthly repeats; times are ISO instants, `timeOfDay` is wall time in `timezone`.
+ * `error` says why the last post or run failed.
+ */
 export interface Reminder {
-  id: string; ownerId: string | null; ownerName: string | null; guildId: string | null; channelId: string; text: string; withTasks: boolean; mentions: string[];
-  recurrence: "once" | "daily" | "weekly" | "monthly"; weekdays: number[]; dayOfMonth: number | null; timeOfDay: string | null; timezone: string; until: string | null; nextAt: string; lastFiredAt: string | null; createdAt: string;
+  id: string; kind: "reminder" | "routine"; ownerId: string | null; ownerName: string | null; guildId: string | null; channelId: string; text: string; withTasks: boolean; mentions: string[];
+  recurrence: "once" | "daily" | "weekly" | "monthly"; weekdays: number[]; dayOfMonth: number | null; timeOfDay: string | null; timezone: string; until: string | null; nextAt: string; lastFiredAt: string | null; error: string | null; createdAt: string;
 }
 export interface GitAccountInput { name?: string; provider?: string; baseUrl?: string | null; token?: string; }
 export interface BotInput { profileId?: string | null; gitAccountIds?: string[]; planeAccountIds?: string[]; name?: string; platform?: string; token?: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean; }

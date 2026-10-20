@@ -29,6 +29,7 @@ test("the admin API lists a bot's active Reminders soonest first and cancels one
   const url = "/api/admin/bots/" + bot.id + "/reminders";
   const later = await insert({ text: "weekly sync", recurrence: "weekly", weekdays: [1, 4], timeOfDay: "09:00", nextAt: new Date("2026-03-09T02:00:00Z"), mentions: ["u-bob"], until: new Date("2026-12-31T16:59:59Z") });
   const soon = await insert({});
+  const routine = await insert({ kind: "routine", text: "summarize my tasks", recurrence: "daily", timeOfDay: "09:00", nextAt: new Date("2026-03-07T02:00:00Z"), error: null });
   await insert({ status: "done", text: "already posted" });
   await insert({ status: "cancelled", text: "already cancelled" });
   await insert({ kind: "digest", ownerId: null, ownerName: null, text: "", recurrence: "daily", timeOfDay: "08:00" });
@@ -37,8 +38,9 @@ test("the admin API lists a bot's active Reminders soonest first and cancels one
 
   const listed = await call("GET", url, h);
   assert(listed.status === 200, "list " + listed.status + " " + JSON.stringify(listed.body));
-  assert(JSON.stringify(listed.body.reminders.map((r) => r.id)) === JSON.stringify([soon, later]), "active Reminders of this bot, soonest first: " + JSON.stringify(listed.body.reminders));
-  const [first, second] = listed.body.reminders;
+  assert(JSON.stringify(listed.body.reminders.map((r) => r.id)) === JSON.stringify([soon, routine, later]), "active Reminders and Routines of this bot, soonest first: " + JSON.stringify(listed.body.reminders));
+  assert(JSON.stringify(listed.body.reminders.map((r) => r.kind)) === JSON.stringify(["reminder", "routine", "reminder"]), "each with its kind");
+  const [first, , second] = listed.body.reminders;
   assert(first.ownerId === "u-alice" && first.ownerName === "Alice" && first.guildId === "g1" && first.channelId === "c1" && first.text === "send the invoice" && first.recurrence === "once" && first.timeOfDay === "15:00" && first.timezone === "Asia/Jakarta" && first.nextAt === "2026-03-06T08:00:00.000Z" && first.until === null, "row fields: " + JSON.stringify(first));
   assert(JSON.stringify(second.weekdays) === "[1,4]" && JSON.stringify(second.mentions) === '["u-bob"]' && second.until === "2026-12-31T16:59:59.000Z" && second.withTasks === false, "repeat fields: " + JSON.stringify(second));
   assert(!("status" in first) || first.status === "active", "only active rows are Reminders here");
@@ -47,7 +49,8 @@ test("the admin API lists a bot's active Reminders soonest first and cancels one
   assert(cancelled.status === 200 && cancelled.body.success === true, "cancel " + cancelled.status + " " + JSON.stringify(cancelled.body));
   const row = await repositories().schedules.get(soon);
   assert(row.status === "cancelled", "cancel must mark the row cancelled, not delete it: " + JSON.stringify(row));
-  assert(JSON.stringify((await call("GET", url, h)).body.reminders.map((r) => r.id)) === JSON.stringify([later]), "a cancelled Reminder is still listed");
+  assert(JSON.stringify((await call("GET", url, h)).body.reminders.map((r) => r.id)) === JSON.stringify([routine, later]), "a cancelled Reminder is still listed");
+  assert((await call("DELETE", url + "/" + routine, h)).status === 200 && (await repositories().schedules.get(routine)).status === "cancelled", "a Routine is cancelled the same way");
   assert((await call("DELETE", url + "/" + soon, h)).status === 404, "cancelling twice");
   assert((await call("DELETE", url + "/nope", h)).status === 404, "unknown Reminder");
   const foreign = (await repositories().schedules.list({ botId: other.id }))[0];

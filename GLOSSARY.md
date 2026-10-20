@@ -145,8 +145,12 @@ The day, and optionally the time, by which a task should be done. A task without
 _Avoid_: Deadline (reserved for people's wording in minutes), ETA
 
 **Reminder**:
-A message the bot sends to a channel or a DM at a time a person chose, once or on a repeating schedule. It is created from chat and belongs to the person who asked, who alone can move (snooze) or reword it. A task's due date never creates one.
+A message the bot sends to a channel or a DM at a time a person chose, once or on a repeating schedule. It is created from chat and belongs to the person who asked, who alone can move (snooze) or reword it. A task's due date never creates one. Its time is read from the person's own words; what they leave open (morning or evening, once or repeating) is asked about, never guessed.
 _Avoid_: Alarm, notification, scheduled message
+
+**Routine**:
+An instruction the bot carries out at a time a person chose, once or on a repeating schedule ("simpulkan tugasku setiap jam 9 pagi"), posting what it found where it was asked. It runs as the person who set it, with what they may see at that time, and it only reads: it looks things up and reports, and changes nothing. Like a Reminder, it is created from chat, belongs to that person, and its time is read from their own words.
+_Avoid_: Scheduled prompt, cron job, automation
 
 **Digest**:
 The bot's daily post in a channel an admin opted in, at that channel's chosen hour: the tasks due that day, the tasks already late, and nothing else. A day with nothing to report gets no post.
