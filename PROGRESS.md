@@ -1833,3 +1833,19 @@ Asked by the user on 2026-10-20. The Plane version should be 1.3.1, not 1.3. One
   - Checked in a browser against a separate test instance (its own database, runtime config and a generated key) with a fake Plane on localhost: the workspace list (lowercased slugs, a duplicate refused), Test with a refused workspace, saving with that workspace switched off, the card, and the Playground's checks and projects.
   - Plane access was not opened in the browser: it needs a bot connected to Discord.
 - [x] Merged: `spec/280-plane-workspaces` fast-forwarded into `main` and pushed, as the user asked (2026-10-20). #281–#283 and spec #280 closed with their commits.
+
+## Phase 52 — Plane 1.4.2, and a plainer Plane account form
+
+Asked by the user on 2026-10-20: add Plane 1.4.2, stop the Plane account form from offering saved passwords and emails and from explaining every field, and keep the page's intro to how to make the key.
+
+- [x] Checked in Plane's source, v1.3.1 against v1.4.2, for every call the Plane tools and admin routes make. None changed in a way the tools notice:
+  - New `-lite` list endpoints (projects, cycles, modules, members), unused here.
+  - `order_by` is checked against an allowlist, which has the `updated_at` the work-item list sorts by; `pql` and `filters` are refused on the work-item list, and the tools send neither.
+  - Comment HTML is sanitized with nh3 as descriptions already were; everything `planeHtml` writes, the origin line among it, is on its list.
+  - Reading a project's members or labels needs membership of that project, as work items already did.
+  - Rate limit (60 a minute, the same headers), `X-Api-Key`, the key refusal, `/api/instances/`, the work-item link route, and every Plane message a tool turns into plain words are unchanged.
+- [x] `versions.ts` (feb847f): Plane 1.4.2 (1.4.2 up to 1.4.3, checked against v1.4.2) shares the tools' code and is now the newest, so a new account gets it unless its server reports a release another version covers. Accounts on Plane 1.3.1 stay there until an admin changes them.
+- [x] Plane account form (c713365): the API key field no longer overrides the shared input's `autocomplete="new-password"` with `off`, which browsers ignore on password fields. The fixed help text under each field is gone; the notes that depend on state stay.
+- [x] Plane accounts page (c713365): its intro only says how to make the key in Plane (Profile settings → Personal Access Tokens → Add access token, the same place in v1.3.1 and v1.4.2).
+- Verification: `bun run typecheck` 0; `bun run test` 1381 pass, 0 fail; the web app builds.
+- [x] Committed on `main` and pushed, as the user asked (2026-10-20).
