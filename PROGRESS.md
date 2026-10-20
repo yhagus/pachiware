@@ -1777,3 +1777,58 @@ Asked by the user on 2026-10-20: one menu in the web UI, "Console", that shows a
 - Verification: `bun run typecheck` 0; `bun run test` 1362 pass, 0 fail; the web app builds. `agent-log.test.ts` (14 tests: format, tag, colours, masking in memory and file, UTC day files, a failing write, the memory ring and replay, subscribers, queries over two days with every filter and the limit, an invalid regular expression, pruning, install and restore, `logAt`, the folder) and `logs-api.test.ts` (3 scenarios: admin only, server-side filters, 400s, the download, the stream replaying the line logged while the page loaded and then a live line, the HTTP log's levels and its leaving out the page's own requests). `bun run test:engines` was not run: Docker Desktop was not running; the database layer is unchanged.
   - Checked in a browser against a separate test instance (its own database, log folder and a generated key): history, the live tail, search with highlighting and the address bar, the level filter from a bookmarked address, warnings for 4xx, and the narrow layout without sideways scrolling.
 - [x] Merged: `feat/console-logs` fast-forwarded into `main` and pushed, as the user asked (2026-10-20).
+
+## Phase 51 — Plane accounts: exactly Plane 1.3.1, one key for many Plane workspaces, Test and Playground (spec #280, #281–#283)
+
+Asked by the user on 2026-10-20. The Plane version should be 1.3.1, not 1.3. One API key opens every Plane workspace its user belongs to, so it should not be tied to one workspace slug. A Plane account needs a Test and a Playground like a Profile has. Planned in plan mode with the user; built on `spec/280-plane-workspaces`.
+
+- [x] Checked in Plane's source (v1.3.1, v1.4.2, `preview`): `APIKeyAuthentication` returns `api_token.user` and checks no workspace, so one key reaches every workspace its user belongs to. `/api/v1/` cannot list them: it has only `users/me/` and paths under `workspaces/<slug>/`, and `/api/users/me/workspaces/` takes a browser session only. Decided with the user:
+  - the version is exactly 1.3.1;
+  - an account lists workspace slugs, typed by the admin, each with an on/off switch;
+  - the Playground runs the checklist and lists projects.
+- [x] #281 Exactly Plane 1.3.1 (2c706ee)
+  - `versions.ts`: the first entry is now `{ id: "1.3.1", label: "Plane 1.3.1", releases: { from: "1.3.1", before: "1.3.2" } }`.
+  - Stored `1.3` becomes `1.3.1`: an idempotent `UPDATE` on SQL and step `0231-plane-version-1.3.1` on MongoDB. The column defaults and `FIRST_PLANE_VERSION` follow.
+  - A Plane on 1.3.0 or 1.3.2 now gets the mismatch note. ADR 0016 is amended for this one-time rename.
+- [x] #282 A Plane account holds one key and a list of Plane workspaces (e7513da)
+  - Storage:
+    - `plane_accounts.workspaces` (`[{ slug, enabled }]`) replaces `workspace_slug`, which is dropped after the backfill.
+    - `plane_scopes.workspace_slug` joins the scope's unique key. SQLite rebuilds the table, dropping orphan scopes; PostgreSQL swaps the constraint after looking up its name; MongoDB runs step `0232-plane-workspaces`.
+    - A rule's slug may be left out for an account with one workspace.
+    - Removing a slug deletes its scopes on every bot; switching it off keeps them.
+  - Runtime:
+    - `PlaneAccess` is one usable (account, Plane workspace), named by the account alone, or `account/workspace` when it has several here.
+    - One matcher (`findPlaneAccess`) serves `pickPlaneAccess` and `accountForTool`.
+    - `planeConnOf(account, slug)`. Tool arguments do not change.
+    - A channel whose rules are all for switched-off workspaces gets no Plane rather than its guild's.
+  - Admin API:
+    - `workspaces` on create and patch: 1 to 20 slugs, none twice; names without `/`.
+    - Plane is asked about the key and every switched-on workspace when the key, host or version changes, and otherwise only about workspaces newly switched on.
+    - `/projects?workspace=`; guild Plane rules carry `workspaceSlug`.
+  - Console:
+    - a workspace list with a switch per slug, and the workspaces on the card;
+    - Plane access shows one row per switched-on workspace and sends hidden rules back unchanged;
+    - the attach list shows the switched-on slugs.
+  - Docs: GLOSSARY (Plane account, Plane workspace, Plane scope), ADR 0018, README "Connect Plane", `docs/api.md`.
+- [x] #283 Test and Playground for a Plane account (9859757)
+  - `POST /api/admin/plane-accounts/test` checks the server (`readPlaneServer`), the version against the release, the key's Plane user, then each listed workspace with its project count. A step after a failed one is skipped.
+  - With `accountId` and no key, the saved key is used only on its saved host.
+  - Console:
+    - a Test button beside Save, with each workspace's result in its row;
+    - a Playground on the card that runs the checks and lists a chosen workspace's Plane projects;
+    - the status icons are shared with the profile checklist.
+- [x] Fixed after the phase's code review (2c63cc2):
+  - A write waiting for Confirm, asked with a bare or no account name, could run in another Plane workspace if workspaces were switched before Confirm. `checkedByVersion` now passes the picked entry on as `account/workspace` (`pinnedPlaneAccess`), so the write runs where it was asked or is refused.
+  - Plane access warns that Use server rule also removes a channel's rules for switched-off workspaces.
+  - Glossary wording in console text, and a scope test compared against a literal.
+- Verification on 2c63cc2:
+  - `bun run typecheck` 0; `bun run test` 1380 pass, 0 fail; the web app builds.
+  - `bun run test:engines` 472 pass, 1 fail. The failure is the MongoDB fresh-install check in `database-engine.test.ts`, which also fails on `main` (be2a753): since Phase 50 the agent writes `data/logs` there. Filed as #284.
+  - New tests:
+    - migration from the old shape on SQLite (with an orphan scope), PostgreSQL (`plane-workspaces-postgres.test.ts`) and MongoDB, each run twice;
+    - contract suites for the workspace list and per-workspace rules;
+    - `plane-scope.test.ts`;
+    - Discord scenarios with one key on two workspaces, the switched-off channel, and a pending Confirm both pinned and refused;
+    - the admin Test scenario, which asserts that no `X-Api-Key` reaches a new host.
+  - Checked in a browser against a separate test instance (its own database, runtime config and a generated key) with a fake Plane on localhost: the workspace list (lowercased slugs, a duplicate refused), Test with a refused workspace, saving with that workspace switched off, the card, and the Playground's checks and projects.
+  - Plane access was not opened in the browser: it needs a bot connected to Discord.
