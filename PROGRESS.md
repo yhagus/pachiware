@@ -1832,3 +1832,4 @@ Asked by the user on 2026-10-20. The Plane version should be 1.3.1, not 1.3. One
     - the admin Test scenario, which asserts that no `X-Api-Key` reaches a new host.
   - Checked in a browser against a separate test instance (its own database, runtime config and a generated key) with a fake Plane on localhost: the workspace list (lowercased slugs, a duplicate refused), Test with a refused workspace, saving with that workspace switched off, the card, and the Playground's checks and projects.
   - Plane access was not opened in the browser: it needs a bot connected to Discord.
+- [x] Merged: `spec/280-plane-workspaces` fast-forwarded into `main` and pushed, as the user asked (2026-10-20). #281–#283 and spec #280 closed with their commits.
