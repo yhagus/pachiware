@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ChevronRight, Hash, SlidersHorizontal, ToggleRight, Megaphone, MessagesSquare, Mic, Volume2, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -9,7 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, type Guild, type GuildChannel } from "@/lib/api";
 import { CopyId } from "@/components/CopyId";
 import { GuildInstructions } from "./GuildInstructions";
-import { ChannelConversations } from "./ChannelConversations";
+// Loaded with the page, not the console: its Markdown renderer is heavy.
+const ChannelConversations = lazy(() => import("./ChannelConversations").then((m) => ({ default: m.ChannelConversations })));
 import { useIntegration } from "./IntegrationDetail";
 
 const ICONS: Record<GuildChannel["type"], LucideIcon> = { text: Hash, voice: Volume2, announcement: Megaphone, stage: Mic, forum: MessagesSquare };
@@ -73,7 +74,7 @@ export function IntegrationServers() {
         </Card>
       ))}
       <GuildInstructions botId={bot.id} guild={editing} onClose={() => setEditing(null)} />
-      <ChannelConversations botId={bot.id} channel={channel} onClose={() => setChannel(null)} />
+      <Suspense fallback={null}><ChannelConversations botId={bot.id} channel={channel} onClose={() => setChannel(null)} /></Suspense>
     </div>
   );
 }

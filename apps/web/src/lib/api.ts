@@ -108,6 +108,44 @@ export interface PlaneServer { release: string; suggested: string | null; }
 export interface PlaneProject { id: string; name: string; identifier: string; }
 export interface Conversation { id: string; channelId: string | null; userId: string | null; createdAt: string; lastMessageAt: string | null; messageCount: number; endedAt: string | null; }
 export interface ChatMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; }
+/** A row of a Playground conversation as the server gave it back; the console sends every row so far with the next turn. */
+export interface PlaygroundRow { role: string; content: string | null; toolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[] | null; toolCallId?: string | null; }
+/** One tool call of a Playground turn: its arguments and its result, clipped. */
+export interface PlaygroundStep { id: string; tool: string; args: unknown; ok: boolean; result: string; }
+export interface PlaygroundTurn { messages: string[]; reaction: string | null; steps: PlaygroundStep[]; history: PlaygroundRow[]; offered: string[]; ms: number; }
+/** What a streamed Playground turn shows while it runs: a tool call as it starts, then its step once it answers. */
+export type PlaygroundProgress = { type: "tool"; id: string; tool: string; args: unknown } | ({ type: "result" } & PlaygroundStep);
+
+/**
+ * One Playground turn, streamed: `onProgress` gets each tool call as it starts and as it answers, and the whole turn is returned.
+ * The key goes in a header, so the stream is read with fetch rather than EventSource. Aborting stops the reading; the turn runs on.
+ */
+async function tryBot(id: string, data: { guildId: string; channelId: string; sessionId: string; message: string; history: PlaygroundRow[] }, onProgress: (p: PlaygroundProgress) => void, signal?: AbortSignal): Promise<PlaygroundTurn> {
+  const response = await fetch(`${BASE_URL}/api/admin/bots/${id}/playground`, {
+    method: "POST", body: JSON.stringify(data), signal,
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream", "X-Platform-Key": getPlatformKey() },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || body.message || `HTTP ${response.status}`);
+  }
+  const reader = response.body!.getReader(), decoder = new TextDecoder();
+  let buffer = "";
+  for (let read = await reader.read(); !read.done; read = await reader.read()) {
+    buffer += decoder.decode(read.value, { stream: true });
+    for (let at = buffer.indexOf("\n\n"); at >= 0; at = buffer.indexOf("\n\n")) {
+      const block = buffer.slice(0, at);
+      buffer = buffer.slice(at + 2);
+      const event = /^event: (.+)$/m.exec(block)?.[1], raw = /^data: (.*)$/m.exec(block)?.[1];
+      if (!event || raw === undefined) continue;
+      const payload = JSON.parse(raw);
+      if (event === "done") return payload;
+      if (event === "failed") throw new Error(payload.error);
+      onProgress(payload);
+    }
+  }
+  throw new Error("The connection closed before the bot answered.");
+}
 export interface Profile { id: string; tenantId: string; name: string; provider: "openai" | "anthropic" | "custom"; model: string; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; fallbackProfileId: string | null; createdAt: string; }
 export type ApiFormat = "chat_completions" | "responses" | "messages";
 export interface ProfileInput { name?: string; provider?: string; model?: string; baseUrl?: string | null; apiKey?: string | null; acceptsImages?: boolean; apiFormat?: ApiFormat; fallbackProfileId?: string | null; }
@@ -232,6 +270,8 @@ export const api = {
   listBotConversations: (id: string, channelId: string) => fetchJSON<{ conversations: Conversation[] }>(`/api/admin/bots/${id}/conversations?channelId=${encodeURIComponent(channelId)}`),
   getBotConversationMessages: (id: string, conversationId: string) => fetchJSON<{ messages: ChatMessage[] }>(`/api/admin/bots/${id}/conversations/${conversationId}/messages`),
   endBotConversation: (id: string, conversationId: string) => fetchJSON<{ endedAt: string }>(`/api/admin/bots/${id}/conversations/${conversationId}/end`, json("POST")),
+  /** One Playground turn: read tools only, nothing posted to Discord, nothing stored; `history` is every row earlier turns gave back. */
+  tryBot,
   updateBot: (id: string, data: BotInput) => fetchJSON<{ bot: Bot }>(`/api/admin/bots/${id}`, json("PATCH", data)),
   restartBot: (id: string) => fetchJSON<{ success: boolean; message?: string; error?: string }>(`/api/admin/bots/${id}/restart`, json("POST")),
   deleteBot: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/bots/${id}`, json("DELETE")),

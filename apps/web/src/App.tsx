@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/AppShell";
+import { Skeleton } from "@/components/ui/skeleton";
 import { KeyGate } from "@/components/KeyGate";
 import { SetupWizard } from "@/components/SetupWizard";
 import { Overview } from "@/pages/Overview";
@@ -19,6 +20,8 @@ import { TenantProfiles } from "@/pages/tenant/TenantProfiles";
 import { TenantGitAccounts } from "@/pages/tenant/TenantGitAccounts";
 import { TenantPlaneAccounts } from "@/pages/tenant/TenantPlaneAccounts";
 import { IntegrationPlaneAccess } from "@/pages/tenant/IntegrationPlaneAccess";
+// Its own chunk: AI Elements' Markdown, highlighting and animation load when the Playground is opened.
+const IntegrationPlayground = lazy(() => import("@/pages/tenant/IntegrationPlayground").then((m) => ({ default: m.IntegrationPlayground })));
 import { GitRepos, GitRepoDetail } from "@/pages/tenant/GitBrowse";
 import { ApiKeys } from "@/pages/ApiKeys";
 import { Settings } from "@/pages/Settings";
@@ -68,6 +71,7 @@ export default function App() {
               <Route path="plane-access" element={<IntegrationPlaneAccess />} />
               <Route path="availability" element={<IntegrationAvailability />} />
               <Route path="reminders" element={<IntegrationReminders />} />
+              <Route path="playground" element={<Suspense fallback={<Skeleton className="h-96" />}><IntegrationPlayground /></Suspense>} />
             </Route>
           </Route>
           <Route path="api-keys" element={<ApiKeys />} />

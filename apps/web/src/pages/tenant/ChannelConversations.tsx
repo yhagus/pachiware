@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CopyId } from "@/components/CopyId";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { api, type ChatMessage, type Conversation, type GuildChannel } from "@/lib/api";
 import { useLastShown } from "@/hooks/use-last-shown";
 
@@ -69,10 +70,12 @@ export function ChannelConversations({ botId, channel, onClose }: { botId: strin
               )}
               {!messages ? <Skeleton className="h-24" /> : messages.length === 0 ? <p className="text-sm text-muted-foreground">No messages.</p>
                 : messages.map((m) => (
-                  <div key={m.id} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
-                    <div className={`max-w-[85%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>{body(m)}</div>
-                    <span className="mt-1 text-xs text-muted-foreground">{speaker(m)} · {time(m.createdAt)}</span>
-                  </div>
+                  <Message key={m.id} from={m.role}>
+                    <MessageContent className={m.role === "user" ? "whitespace-pre-wrap break-words" : undefined}>
+                      {m.role === "user" ? body(m) : <MessageResponse>{m.content}</MessageResponse>}
+                    </MessageContent>
+                    <span className={`text-xs text-muted-foreground ${m.role === "user" ? "self-end" : ""}`}>{speaker(m)} · {time(m.createdAt)}</span>
+                  </Message>
                 ))}
             </>
           ) : !list ? <Skeleton className="h-16" />

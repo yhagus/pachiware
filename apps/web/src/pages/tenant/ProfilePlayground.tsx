@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { MessageResponse } from "@/components/ai-elements/lazy-response";
 import { api, type CheckStatus, type PlaygroundResult, type Profile, type ProfileChecks } from "@/lib/api";
 import { profileLabel } from "./TenantProfiles";
 
@@ -97,7 +98,7 @@ export function ProfilePlayground({ profile, onClose }: { profile: Profile | nul
 
         {result && (result.success
           ? <div role="status" className="space-y-1.5">
-              <div className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 px-3 py-2 text-sm">{result.reply || <span className="text-muted-foreground">The model sent an empty reply.</span>}</div>
+              <div className="max-h-80 overflow-y-auto break-words rounded-md border bg-muted/40 px-3 py-2 text-sm">{result.reply ? <MessageResponse>{result.reply}</MessageResponse> : <span className="text-muted-foreground">The model sent an empty reply.</span>}</div>
               <p className="text-xs text-muted-foreground">{meta(result)}</p>
             </div>
           : <p role="alert" className="text-sm text-destructive">Failed after {result.ms} ms ({result.error}).</p>)}
