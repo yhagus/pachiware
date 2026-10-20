@@ -18,6 +18,7 @@ import { api, type Bot, type GitAccount, type PlaneAccount, type Profile, type T
 import { PLATFORMS, emptyValues, platformOf, toInput, valuesOf, type Platform } from "@/lib/platforms";
 import { label } from "@/lib/utils";
 import { useLastShown } from "@/hooks/use-last-shown";
+import { AccountChecklist, gitOption, planeOption } from "./AttachedAccounts";
 
 const PAGE_SIZE = 12;
 const statusVariant = (s: string) => (s === "connected" ? "secondary" : s === "error" ? "destructive" : "outline");
@@ -192,30 +193,14 @@ export function TenantBots() {
                 </Select></div>
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">Git accounts</legend>
-                {gitAccounts.length === 0 ? <p className="text-sm text-muted-foreground">No git accounts yet. Connect one under Git accounts.</p> : (
-                  <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
-                    {gitAccounts.map((a) => (
-                      <li key={a.id}><label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
-                        <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={gitAccountIds.includes(a.id)}
-                          onChange={(e) => setGitAccountIds(e.target.checked ? [...gitAccountIds, a.id] : gitAccountIds.filter((x) => x !== a.id))} />{a.name} · {a.username}
-                      </label></li>
-                    ))}
-                  </ul>
-                )}
-                <p className="text-xs text-muted-foreground">Attached accounts are off everywhere until you enable them per server under Servers. Removing one also removes its server and channel settings.</p>
+                {gitAccounts.length === 0 ? <p className="text-sm text-muted-foreground">No git accounts yet. Connect one under Git accounts.</p>
+                  : <AccountChecklist options={gitAccounts.map(gitOption)} value={gitAccountIds} onChange={setGitAccountIds} />}
+                <p className="text-xs text-muted-foreground">Attached accounts are off everywhere until you enable them per server under Git access. Removing one also removes its server and channel settings.</p>
               </fieldset>
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">Plane accounts</legend>
-                {planeAccounts.length === 0 ? <p className="text-sm text-muted-foreground">No Plane accounts yet. Add one under Plane accounts.</p> : (
-                  <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
-                    {planeAccounts.map((a) => (
-                      <li key={a.id}><label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
-                        <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={planeAccountIds.includes(a.id)}
-                          onChange={(e) => setPlaneAccountIds(e.target.checked ? [...planeAccountIds, a.id] : planeAccountIds.filter((x) => x !== a.id))} />{a.name} · {a.workspaces.filter((w) => w.enabled).map((w) => w.slug).join(", ") || "every Plane workspace off"}
-                      </label></li>
-                    ))}
-                  </ul>
-                )}
+                {planeAccounts.length === 0 ? <p className="text-sm text-muted-foreground">No Plane accounts yet. Add one under Plane accounts.</p>
+                  : <AccountChecklist options={planeAccounts.map(planeOption)} value={planeAccountIds} onChange={setPlaneAccountIds} />}
                 <p className="text-xs text-muted-foreground">Plane stays off in every server until you pick Plane projects for it under Plane access. Removing an account also removes its server and channel settings.</p>
               </fieldset>
               <div className="flex items-center gap-2"><Switch id="ie" checked={enabled} onCheckedChange={setEnabled} /><Label htmlFor="ie">Enabled</Label></div>

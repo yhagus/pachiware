@@ -125,7 +125,7 @@ export function GuildPlaneAccess({ botId, guild }: { botId: string; guild: Guild
 
   if (error) return <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4 text-sm"><p>Could not load Plane access: {error}</p><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>;
   if (!data) return <div role="status"><p className="sr-only">Loading Plane access</p><Skeleton className="h-24" /></div>;
-  if (!data.accounts.length) return <p className="text-sm text-muted-foreground">No Plane accounts are attached to this integration. Attach some in the integration's settings first.</p>;
+  if (!data.accounts.length) return <p className="text-sm text-muted-foreground">No Plane accounts are attached to this integration. Attach one above first.</p>;
   if (!targets.length) return <p className="text-sm text-muted-foreground">Every Plane workspace of the attached Plane accounts is switched off. Switch one on in the tenant's Plane accounts first.</p>;
   return (
     <div className="space-y-5">
