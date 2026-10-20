@@ -33,6 +33,12 @@ export const configuredLanguage = (...levels: ({ language?: string | null } | nu
 
 const MONTHS_EN = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
 const MONTHS_ID = "Jan Feb Mar Apr Mei Jun Jul Agu Sep Okt Nov Des".split(" ");
+/** The part of the day a clock time "HH:MM" falls in, as a question about morning or evening names it; each is a word the answer is read by. */
+const partOfDayEn = (time: string) => { const h = Number(time.slice(0, 2)); return h === 0 ? "midnight" : h < 4 ? "night" : h < 12 ? "morning" : h === 12 ? "noon" : h < 18 ? "afternoon" : "evening"; };
+const partOfDayId = (time: string) => { const h = Number(time.slice(0, 2)); return h === 0 ? "tengah malam" : h < 4 ? "dini hari" : h < 11 ? "pagi" : h < 15 ? "siang" : h < 18 ? "sore" : "malam"; };
+/** One question for what the words leave open: the clock time first, then the zone, then how often. */
+const whenQuestion = (asks: string[], either: [string, string] | null, q: Record<string, string>, eitherText: (a: string, b: string) => string) =>
+  ["am-pm", "time", "zone", "repetition", "days", "date", "week-or-sunday"].filter((a) => asks.includes(a)).map((a) => (a === "am-pm" && either ? eitherText(...either) : q[a])).join(" ");
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const list = (items: string[], and: string) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ${and} ${items.at(-1)}`);
 
@@ -200,6 +206,13 @@ const en = {
   reminderLimitOwner: (n: number) => `You already have ${n} active Reminders, the most one person can keep. Cancel one before setting another.`,
   reminderLimitTenant: (n: number) => `Reminders here are at their limit of ${n} active. Cancel one before setting another.`,
   reminderLate: (day: number, month: number, time: string) => `-# Posted late: this was due ${day} ${MONTHS_EN[month - 1]}, ${time}.`,
+  // When a Reminder or Routine runs: what the asker's words leave open is asked about, never guessed (whenWords.ts)
+  whenAsk: (asks: string[], either: [string, string] | null) => whenQuestion(asks, either, {
+    "am-pm": "Morning or evening?", time: "What time? For example 09:00 or 21:00.", zone: "Which time zone: WIB, WITA or WIT?",
+    repetition: "Just once, or repeating: every day, Monday to Friday, or on certain days?", days: "Which days? For example Monday and Thursday, or Monday to Friday.",
+    date: "Which date each month? For example the 1st or the 25th.", "week-or-sunday": '"Setiap minggu": every Sunday, or once a week on another day (which one)?',
+  }, (a, b) => `Do you mean ${a} (${partOfDayEn(a)}) or ${b} (${partOfDayEn(b)})?`),
+  whenUnsupported: (words: string) => `I can't keep a schedule like "${words}": it runs once, or every day, on chosen days of the week, or on one date each month, at one time of day.`,
   openTasks: "Open tasks (status | due | assignee | id | title):",
   personalTasks: "Personal tasks",
   sharedTasks: "Shared tasks",
@@ -398,6 +411,12 @@ const id: typeof en = {
   reminderLimitOwner: (n) => `Kamu sudah punya ${n} pengingat aktif, batas untuk satu orang. Batalkan satu dulu sebelum membuat yang baru.`,
   reminderLimitTenant: (n) => `Pengingat di sini sudah mencapai batas ${n} yang aktif. Batalkan satu dulu sebelum membuat yang baru.`,
   reminderLate: (day, month, time) => `-# Terlambat: seharusnya diposting ${day} ${MONTHS_ID[month - 1]} ${time}.`,
+  whenAsk: (asks, either) => whenQuestion(asks, either, {
+    "am-pm": "Pagi atau malam?", time: "Jam berapa? Misalnya 09:00 atau 21:00.", zone: "Zona waktunya WIB, WITA, atau WIT?",
+    repetition: "Sekali saja, atau berulang: setiap hari, Senin–Jumat, atau hari tertentu?", days: "Hari apa saja? Misalnya Senin dan Kamis, atau Senin–Jumat.",
+    date: "Tanggal berapa setiap bulannya? Misalnya tanggal 1 atau 25.", "week-or-sunday": '"Setiap minggu" maksudnya setiap hari Minggu, atau seminggu sekali di hari lain (hari apa)?',
+  }, (a, b) => `Maksudnya jam ${a} (${partOfDayId(a)}) atau ${b} (${partOfDayId(b)})?`),
+  whenUnsupported: (words) => `Jadwal seperti "${words}" belum bisa kubuat: jadwal hanya bisa sekali, setiap hari, di hari-hari tertentu tiap minggu, atau di satu tanggal tiap bulan, pada satu jam.`,
   openTasks: "Tugas terbuka (status | due | assignee | id | title):",
   personalTasks: "Tugas pribadi",
   sharedTasks: "Tugas bersama",

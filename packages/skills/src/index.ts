@@ -42,6 +42,7 @@ export * from "./language.js";
 export * from "./permissions.js";
 export * from "./clock.js";
 export * from "./schedule.js";
+export * from "./whenWords.js";
 export * from "./builtin/reminders.js";
 export * from "./plane/client.js";
 export * from "./plane/scope.js";

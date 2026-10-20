@@ -52,5 +52,5 @@ const MONTHS = [
   ["jan", "januari", "january"], ["feb", "peb", "februari", "pebruari", "february"], ["mar", "maret", "march"], ["apr", "april"], ["mei", "may"], ["jun", "juni", "june"],
   ["jul", "juli", "july"], ["agu", "ags", "agustus", "aug", "august"], ["sep", "sept", "september"], ["okt", "oktober", "oct", "october"], ["nov", "nop", "november", "nopember"], ["des", "desember", "dec", "december"],
 ];
-const MONTH_WORDS = MONTHS.flat().sort((a, b) => b.length - a.length).join("|");
+export const MONTH_WORDS = MONTHS.flat().sort((a, b) => b.length - a.length).join("|");
 const monthOf = (word: string) => MONTHS.findIndex((forms) => forms.includes(word)) + 1;
