@@ -20,7 +20,7 @@ export const PLANE_GROUPS = ["Browse", "Work items", "Cycles", "Modules", "Intak
 const READ: Effect = "read";
 
 export const planeTools: ToolDefinition[] = [
-  { name: "planeAccounts", description: "Lists the Plane accounts you may use in this channel, the Plane user and Plane version of each, and the Plane projects open here (id, identifier and name). Call it first when unsure which account or Plane project to use.",
+  { name: "planeAccounts", description: "Lists the Plane accounts you may use in this channel, one entry per Plane workspace, with the Plane user and Plane version of each and the Plane projects open here (id, identifier and name). Pass an entry's name as \"account\". Call it first when unsure which account or Plane project to use.",
     parameters: { type: "object", properties: {} } },
   ...browseTools,
   ...workItemTools,
@@ -62,11 +62,11 @@ export const planeHandlers: Record<string, ToolHandler> = checkedByVersion({
     if (!list.length) throw new Error(PLANE_NOT_ENABLED);
     return {
       accounts: await Promise.all(list.map(async (access) => {
-        const { name, planeUserName, planeVersion } = access.account;
-        const head = { name, planeUser: planeUserName, planeVersion: findPlaneVersion(planeVersion)?.label ?? `unknown ("${planeVersion}")` };
+        const { planeUserName, planeVersion } = access.account;
+        const head = { name: access.name, workspace: access.workspace, planeUser: planeUserName, planeVersion: findPlaneVersion(planeVersion)?.label ?? `unknown ("${planeVersion}")` };
         try {
           const open = allowedPlaneProjectIds(access);
-          const projects = (await listPlaneProjects(planeConnOf(access.account))).filter((p) => !open || open.includes(p.id.toLowerCase()));
+          const projects = (await listPlaneProjects(planeConnOf(access.account, access.workspace))).filter((p) => !open || open.includes(p.id.toLowerCase()));
           return { ...head, projects: projects.map(({ id, identifier, name }) => ({ id, identifier, name })) };
         } catch (e) {
           return { ...head, error: (e as Error).message };

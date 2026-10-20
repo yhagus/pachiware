@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import type { SqlConnection } from "../../connection.js";
-import type { PlaneAccount, PlaneRepository, PlaneScope } from "./types.js";
+import type { PlaneAccount, PlaneRepository, PlaneScope, PlaneWorkspace } from "./types.js";
 import { checkPlaneScopeRules, narrowPlaneChannelRule, FIRST_PLANE_VERSION } from "./rules.js";
 import { createSqlSkillRepository } from "../skills/sql.js";
 import { sqlTransaction } from "../sql-transaction.js";
@@ -14,7 +14,7 @@ export function createSqlPlaneRepository(connection: SqlConnection): PlaneReposi
     async createAccount(input) {
       const now = new Date();
       const [row] = await db.insert(t.planeAccounts).values({
-        id: randomUUID(), tenantId: input.tenantId, name: input.name, baseUrl: input.baseUrl ?? null, workspaceSlug: input.workspaceSlug,
+        id: randomUUID(), tenantId: input.tenantId, name: input.name, baseUrl: input.baseUrl ?? null, workspaces: input.workspaces,
         apiKeyEncrypted: input.apiKeyEncrypted, planeUserId: input.planeUserId, planeUserName: input.planeUserName, planeVersion: input.planeVersion, planeServerVersion: input.planeServerVersion ?? null, createdAt: now, updatedAt: now,
       }).returning();
       return toAccount(row);
@@ -28,8 +28,16 @@ export function createSqlPlaneRepository(connection: SqlConnection): PlaneReposi
     },
     async updateAccount(id, input) {
       const values = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
-      const [row] = await db.update(t.planeAccounts).set({ ...values, updatedAt: new Date() }).where(eq(t.planeAccounts.id, id)).returning();
-      return row ? toAccount(row) : null;
+      return sqlTransaction(connection, function* (tx) {
+        const [row] = yield tx.update(t.planeAccounts).set({ ...values, updatedAt: new Date() }).where(eq(t.planeAccounts.id, id)).returning();
+        if (!row) return null;
+        // A Plane workspace left off the list takes its scopes with it, on every bot; one switched off keeps them.
+        if (input.workspaces) {
+          const slugs = input.workspaces.map((w) => w.slug);
+          yield tx.delete(t.planeScopes).where(and(eq(t.planeScopes.planeAccountId, id), ...(slugs.length ? [notInArray(t.planeScopes.workspaceSlug, slugs)] : [])));
+        }
+        return toAccount(row);
+      });
     },
     async deleteAccount(id) {
       // A deleted bot keeps its links, so they and their scopes go explicitly, in one transaction with the account.
@@ -91,7 +99,8 @@ export function createSqlPlaneRepository(connection: SqlConnection): PlaneReposi
     listScopes: (botId, guildId) => scopesOf(botId, guildId),
     async replaceScopes(tenantId, botId, guildId, channelId, rules) {
       await sqlTransaction(connection, function* (tx) {
-        const linked = new Set<string>((yield tx.select({ id: t.botPlaneAccounts.planeAccountId }).from(t.botPlaneAccounts).where(eq(t.botPlaneAccounts.botId, botId))).map((r: any) => r.id));
+        const linked = new Map<string, PlaneWorkspace[]>((yield tx.select({ id: t.planeAccounts.id, workspaces: t.planeAccounts.workspaces }).from(t.botPlaneAccounts)
+          .innerJoin(t.planeAccounts, eq(t.planeAccounts.id, t.botPlaneAccounts.planeAccountId)).where(eq(t.botPlaneAccounts.botId, botId))).map((r: any) => [r.id, r.workspaces ?? []]));
         const current: PlaneScope[] = (yield tx.select().from(t.planeScopes).where(and(eq(t.planeScopes.botId, botId), eq(t.planeScopes.guildId, guildId)))).map(toScope);
         const clean = checkPlaneScopeRules(rules, linked, channelId, current);
         yield tx.delete(t.planeScopes).where(and(eq(t.planeScopes.botId, botId), eq(t.planeScopes.guildId, guildId), eq(t.planeScopes.channelId, channelId)));
@@ -108,17 +117,17 @@ export function createSqlPlaneRepository(connection: SqlConnection): PlaneReposi
 
   async function scopesOf(botId: string, guildId: string): Promise<PlaneScope[]> {
     return (await db.select().from(t.planeScopes).where(and(eq(t.planeScopes.botId, botId), eq(t.planeScopes.guildId, guildId)))
-      .orderBy(asc(t.planeScopes.channelId), asc(t.planeScopes.planeAccountId))).map(toScope);
+      .orderBy(asc(t.planeScopes.channelId), asc(t.planeScopes.planeAccountId), asc(t.planeScopes.workspaceSlug))).map(toScope);
   }
 }
 
 function toScope(row: any): PlaneScope {
-  return { id: row.id, tenantId: row.tenantId, botId: row.botId, guildId: row.guildId, channelId: row.channelId, planeAccountId: row.planeAccountId, projectIds: row.projectIds ?? [], updatedAt: row.updatedAt };
+  return { id: row.id, tenantId: row.tenantId, botId: row.botId, guildId: row.guildId, channelId: row.channelId, planeAccountId: row.planeAccountId, workspaceSlug: row.workspaceSlug, projectIds: row.projectIds ?? [], updatedAt: row.updatedAt };
 }
 
 function toAccount(row: any): PlaneAccount {
   return {
-    id: row.id, tenantId: row.tenantId, name: row.name, baseUrl: row.baseUrl ?? null, workspaceSlug: row.workspaceSlug, apiKeyEncrypted: row.apiKeyEncrypted,
+    id: row.id, tenantId: row.tenantId, name: row.name, baseUrl: row.baseUrl ?? null, workspaces: row.workspaces ?? [], apiKeyEncrypted: row.apiKeyEncrypted,
     planeUserId: row.planeUserId, planeUserName: row.planeUserName, planeVersion: row.planeVersion ?? FIRST_PLANE_VERSION, planeServerVersion: row.planeServerVersion ?? null, createdAt: row.createdAt, updatedAt: row.updatedAt,
   };
 }

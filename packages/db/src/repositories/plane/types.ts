@@ -1,14 +1,21 @@
 /** Domain types and the repository interface for Plane accounts, their links to bots, and Plane scopes. Every engine implements it. */
 import type { BotRef } from "../git/types.js";
 
-/** A tenant's credentials for one Plane workspace. The API key is stored encrypted; the repository never sees it in clear. */
+/** A Plane workspace a Plane account lists, by the slug in its URL. Only one switched on can be used by integrations. */
+export type PlaneWorkspace = { slug: string; enabled: boolean };
+
+/**
+ * A tenant's credentials for one Plane server as one Plane user, whose API key opens every Plane workspace that user belongs to.
+ * The account lists the ones integrations may use. The API key is stored encrypted; the repository never sees it in clear.
+ */
 export type PlaneAccount = {
   id: string;
   tenantId: string;
   name: string;
   /** A self-hosted Plane, or null for Plane's cloud. */
   baseUrl: string | null;
-  workspaceSlug: string;
+  /** In the order the admin listed them; Plane cannot list a key's workspaces, so the admin types their slugs. */
+  workspaces: PlaneWorkspace[];
   apiKeyEncrypted: string;
   /** The Plane user the key acts as, recorded when the account was last checked against Plane. */
   planeUserId: string;
@@ -25,7 +32,7 @@ export type NewPlaneAccount = {
   tenantId: string;
   name: string;
   baseUrl?: string | null;
-  workspaceSlug: string;
+  workspaces: PlaneWorkspace[];
   apiKeyEncrypted: string;
   planeUserId: string;
   planeUserName: string;
@@ -33,10 +40,13 @@ export type NewPlaneAccount = {
   planeServerVersion?: string | null;
 };
 
-export type PlaneAccountUpdate = Partial<Pick<PlaneAccount, "name" | "baseUrl" | "workspaceSlug" | "apiKeyEncrypted" | "planeUserId" | "planeUserName" | "planeVersion" | "planeServerVersion">>;
+export type PlaneAccountUpdate = Partial<Pick<PlaneAccount, "name" | "baseUrl" | "workspaces" | "apiKeyEncrypted" | "planeUserId" | "planeUserName" | "planeVersion" | "planeServerVersion">>;
 
-/** Which Plane projects one account may reach in one scope: Plane project ids, or ["*"] for all of them (ALL_PLANE_PROJECTS). */
-export type PlaneScopeRule = { planeAccountId: string; projectIds: string[] };
+/** Which Plane projects one Plane workspace of an account may reach in one scope: Plane project ids, or ["*"] for all of them (ALL_PLANE_PROJECTS). */
+export type PlaneScopeRule = { planeAccountId: string; workspaceSlug: string; projectIds: string[] };
+
+/** A rule as given: `workspaceSlug` may be left out when the account lists exactly one Plane workspace. */
+export type PlaneScopeRuleInput = Omit<PlaneScopeRule, "workspaceSlug"> & { workspaceSlug?: string };
 
 export type PlaneScope = PlaneScopeRule & {
   id: string;
@@ -54,7 +64,10 @@ export interface PlaneRepository {
   getAccount(id: string): Promise<PlaneAccount | null>;
   /** A tenant's accounts, newest first, at most 200. */
   listAccounts(tenantId: string): Promise<PlaneAccount[]>;
-  /** Changes only the fields given; null when there is no such account. A name already taken in the tenant rejects. */
+  /**
+   * Changes only the fields given; null when there is no such account. A name already taken in the tenant rejects. A new
+   * `workspaces` list removes, on every bot, the Plane scopes of the slugs it leaves out; switching a slug off keeps them.
+   */
   updateAccount(id: string, input: PlaneAccountUpdate): Promise<PlaneAccount | null>;
   /** Removes the account with its bot links and Plane scopes. False when there was no such account. */
   deleteAccount(id: string): Promise<boolean>;
@@ -76,8 +89,9 @@ export interface PlaneRepository {
   /** The Plane scopes of a bot in one guild: its guild rules (channelId "") and every channel rule. */
   listScopes(botId: string, guildId: string): Promise<PlaneScope[]>;
   /**
-   * Replaces the rules of one scope (channelId "" is the guild level); each names a different account the bot holds.
-   * A channel rule may only narrow its account's guild rule, and replacing guild rules narrows or removes the channel rules beneath.
+   * Replaces the rules of one scope (channelId "" is the guild level); each names a different Plane workspace, listed (on or off)
+   * by an account the bot holds. A channel rule may only narrow the guild rule of its account and workspace, and replacing guild
+   * rules narrows or removes the channel rules beneath.
    */
-  replaceScopes(tenantId: string, botId: string, guildId: string, channelId: string, rules: PlaneScopeRule[]): Promise<void>;
+  replaceScopes(tenantId: string, botId: string, guildId: string, channelId: string, rules: PlaneScopeRuleInput[]): Promise<void>;
 }

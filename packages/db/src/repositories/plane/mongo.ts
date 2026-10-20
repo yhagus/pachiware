@@ -4,7 +4,7 @@ import { ensureCollection, inTransaction, type MongoConnection, type MongoMigrat
 import { createMongoSkillRepository } from "../skills/mongo.js";
 import { checkPlaneScopeRules, narrowPlaneChannelRule, FIRST_PLANE_VERSION } from "./rules.js";
 import type { BotRef } from "../git/types.js";
-import type { PlaneAccount, PlaneRepository, PlaneScope } from "./types.js";
+import type { PlaneAccount, PlaneRepository, PlaneScope, PlaneWorkspace } from "./types.js";
 
 type AccountDoc = Omit<PlaneAccount, "id"> & { _id: string };
 type LinkDoc = { _id: string; tenantId: string; botId: string; planeAccountId: string; createdAt: Date };
@@ -35,6 +35,24 @@ export const planeMigrations: MongoMigration[] = [
       await db.collection("plane_accounts").updateMany({ planeVersion: "1.3" }, { $set: { planeVersion: "1.3.1" } });
     },
   },
+  {
+    // A Plane account held one Plane workspace; it now lists several, and each Plane scope names one of them. Steps are not
+    // transactional, so each part checks what is already done: a retry after a crash finishes the rest.
+    id: "0232-plane-workspaces",
+    async up(db) {
+      const accounts = db.collection<{ _id: string; workspaceSlug?: string; workspaces?: PlaneWorkspace[] }>("plane_accounts");
+      const scopes = db.collection<{ _id: string; planeAccountId: string; workspaceSlug?: string }>("plane_scopes");
+      for (const account of await accounts.find({ workspaceSlug: { $exists: true } }).toArray()) {
+        await scopes.updateMany({ planeAccountId: account._id, workspaceSlug: { $exists: false } }, { $set: { workspaceSlug: account.workspaceSlug! } });
+        await accounts.updateOne({ _id: account._id }, { $set: { workspaces: account.workspaces ?? [{ slug: account.workspaceSlug!, enabled: true }] }, $unset: { workspaceSlug: "" } });
+      }
+      // A scope whose account is gone has no slug to take.
+      await scopes.deleteMany({ workspaceSlug: { $exists: false } });
+      const indexes = new Set((await scopes.listIndexes().toArray()).map((i) => i.name));
+      if (indexes.has("plane_scopes_unique")) await scopes.dropIndex("plane_scopes_unique");
+      await scopes.createIndex({ botId: 1, guildId: 1, channelId: 1, planeAccountId: 1, workspaceSlug: 1 }, { unique: true, name: "plane_scopes_workspace_unique" });
+    },
+  },
 ];
 
 /** Plane accounts, their bot links and Plane scopes on MongoDB. */
@@ -52,13 +70,13 @@ export function createMongoPlaneRepository(connection: MongoConnection): PlaneRe
     return await accounts.countDocuments({ _id: { $in: want }, tenantId }, { session }) === want.length;
   };
   const scopesOf = async (botId: string, guildId: string, session?: ClientSession) =>
-    (await scopes.find({ botId, guildId }, { session }).sort({ channelId: 1, planeAccountId: 1 }).toArray()).map(toScope);
+    (await scopes.find({ botId, guildId }, { session }).sort({ channelId: 1, planeAccountId: 1, workspaceSlug: 1 }).toArray()).map(toScope);
 
   return {
     async createAccount(input) {
       const now = new Date();
       const doc: AccountDoc = {
-        _id: randomUUID(), tenantId: input.tenantId, name: input.name, baseUrl: input.baseUrl ?? null, workspaceSlug: input.workspaceSlug,
+        _id: randomUUID(), tenantId: input.tenantId, name: input.name, baseUrl: input.baseUrl ?? null, workspaces: input.workspaces,
         apiKeyEncrypted: input.apiKeyEncrypted, planeUserId: input.planeUserId, planeUserName: input.planeUserName, planeVersion: input.planeVersion, planeServerVersion: input.planeServerVersion ?? null, createdAt: now, updatedAt: now,
       };
       await accounts.insertOne(doc);
@@ -71,11 +89,14 @@ export function createMongoPlaneRepository(connection: MongoConnection): PlaneRe
     async listAccounts(tenantId) {
       return (await accounts.find({ tenantId }).sort({ createdAt: -1, _id: -1 }).limit(200).toArray()).map(toAccount);
     },
-    async updateAccount(id, input) {
+    updateAccount: (id, input) => inTransaction(connection, async (session) => {
       const values = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
-      const doc = await accounts.findOneAndUpdate({ _id: id }, { $set: { ...values, updatedAt: new Date() } }, { returnDocument: "after" });
-      return doc ? toAccount(doc) : null;
-    },
+      const doc = await accounts.findOneAndUpdate({ _id: id }, { $set: { ...values, updatedAt: new Date() } }, { returnDocument: "after", session });
+      if (!doc) return null;
+      // A Plane workspace left off the list takes its scopes with it, on every bot; one switched off keeps them.
+      if (input.workspaces) await scopes.deleteMany({ planeAccountId: id, workspaceSlug: { $nin: input.workspaces.map((w) => w.slug) } }, { session });
+      return toAccount(doc);
+    }),
     deleteAccount: (id) => inTransaction(connection, async (session) => {
       // Its links and their scopes go with it, as SQL deletes them; a deleted bot keeps its links until then.
       await scopes.deleteMany({ planeAccountId: id }, { session });
@@ -128,7 +149,8 @@ export function createMongoPlaneRepository(connection: MongoConnection): PlaneRe
 
     listScopes: (botId, guildId) => scopesOf(botId, guildId),
     replaceScopes: (tenantId, botId, guildId, channelId, rules) => inTransaction(connection, async (session) => {
-      const linked = new Set((await links.find({ botId }, { session, projection: { planeAccountId: 1 } }).toArray()).map((l) => l.planeAccountId));
+      const held = (await links.find({ botId }, { session, projection: { planeAccountId: 1 } }).toArray()).map((l) => l.planeAccountId);
+      const linked = new Map<string, PlaneWorkspace[]>((await accounts.find({ _id: { $in: held } }, { session, projection: { workspaces: 1 } }).toArray()).map((a) => [a._id, a.workspaces ?? []]));
       const current = await scopesOf(botId, guildId, session);
       const clean = checkPlaneScopeRules(rules, linked, channelId, current);
       await scopes.deleteMany({ botId, guildId, channelId }, { session });
@@ -145,11 +167,11 @@ export function createMongoPlaneRepository(connection: MongoConnection): PlaneRe
 
 function toAccount({ _id, ...doc }: AccountDoc): PlaneAccount {
   return {
-    id: _id, tenantId: doc.tenantId, name: doc.name, baseUrl: doc.baseUrl ?? null, workspaceSlug: doc.workspaceSlug, apiKeyEncrypted: doc.apiKeyEncrypted,
+    id: _id, tenantId: doc.tenantId, name: doc.name, baseUrl: doc.baseUrl ?? null, workspaces: doc.workspaces ?? [], apiKeyEncrypted: doc.apiKeyEncrypted,
     planeUserId: doc.planeUserId, planeUserName: doc.planeUserName, planeVersion: doc.planeVersion ?? FIRST_PLANE_VERSION, planeServerVersion: doc.planeServerVersion ?? null, createdAt: doc.createdAt, updatedAt: doc.updatedAt,
   };
 }
 
 function toScope({ _id, ...doc }: ScopeDoc): PlaneScope {
-  return { id: _id, tenantId: doc.tenantId, botId: doc.botId, guildId: doc.guildId, channelId: doc.channelId, planeAccountId: doc.planeAccountId, projectIds: doc.projectIds ?? [], updatedAt: doc.updatedAt };
+  return { id: _id, tenantId: doc.tenantId, botId: doc.botId, guildId: doc.guildId, channelId: doc.channelId, planeAccountId: doc.planeAccountId, workspaceSlug: doc.workspaceSlug, projectIds: doc.projectIds ?? [], updatedAt: doc.updatedAt };
 }

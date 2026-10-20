@@ -64,6 +64,23 @@ discordScenario("workItemCreate changes nothing before Confirm, runs only on the
   expect(confirmation!.content).not.toContain("plane-key");
 });
 
+discordScenario("a write asked through account/workspace runs in that Plane workspace, even after another workspace of the account is switched on", async (s) => {
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const account = await s.plane({ name: "main", workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: false }], projects: [P1, P2] });
+  const acme = fakePlane(s, { slug: "acme" });
+  const beta = fakePlane(s, { slug: "beta" });
+  world(acme);
+  world(beta);
+  const { result, confirmation } = await ask(s, "workItemCreate", { account: "main/acme", project: "ENG", name: "Fix login redirect" });
+  expect(result).toMatchObject({ pending: true });
+  expect(result.summary).toContain("[Plane account main]");
+  await repositories().plane.updateAccount(account.id, { workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: true }] });
+  await s.discord.click(confirmation!, "Confirm");
+  expect(acme.writes.map((r) => `${r.method} ${r.path}`)).toEqual([`POST projects/${P1}/work-items/`]);
+  expect(beta.writes).toEqual([]);
+  expect(confirmation!.content).toContain("ENG-1");
+});
+
 discordScenario("a confirmed write is refused when its Plane project left the scope after it was asked for", async (s) => {
   const account = await s.plane({ projects: [P1, P2] });
   const plane = fakePlane(s);

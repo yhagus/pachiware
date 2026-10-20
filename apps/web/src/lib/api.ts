@@ -83,17 +83,19 @@ export interface DocSource { channelId: string; repo: string; account?: string; 
 export interface GuildConfig { systemPrompt: string; useThreads: boolean; alwaysChannelIds: string[]; timezone: string | null; language: Language | null; digestChannels: DigestChannel[]; dailyLogChannels: DailyLogChannel[]; docSources: DocSource[]; }
 export interface GitRule { gitAccountId: string; repoPatterns: string[]; }
 export interface GuildGit { accounts: { id: string; name: string; provider: "github" | "gitlab"; username: string }[]; server: GitRule[]; channels: Record<string, GitRule[]>; }
-/** A Plane scope rule: Plane project ids, or ["*"] for every Plane project of the account. */
-export interface PlaneRule { planeAccountId: string; projectIds: string[]; }
-export interface GuildPlane { accounts: { id: string; name: string; baseUrl: string | null; workspaceSlug: string; planeUserName: string }[]; guild: PlaneRule[]; channels: Record<string, PlaneRule[]>; }
+/** A Plane scope rule for one Plane workspace of an account: Plane project ids, or ["*"] for every Plane project in it. */
+export interface PlaneRule { planeAccountId: string; workspaceSlug: string; projectIds: string[]; }
+/** A Plane workspace an account lists by slug; integrations may use it only while it is switched on. */
+export interface PlaneWorkspace { slug: string; enabled: boolean; }
+export interface GuildPlane { accounts: { id: string; name: string; baseUrl: string | null; workspaces: PlaneWorkspace[]; planeUserName: string }[]; guild: PlaneRule[]; channels: Record<string, PlaneRule[]>; }
 export const ALL_PLANE_PROJECTS = "*";
 /**
  * The key is never returned: `hasApiKey` says one is saved. `planeUserName` is the Plane user the key acts as; `planeVersion` a
  * PlaneVersion id. `planeServerVersion` is the release the Plane server reported at the last save, and `versionNote` a warning
  * when it is outside `planeVersion`.
  */
-export interface PlaneAccount { id: string; tenantId: string; name: string; baseUrl: string | null; workspaceSlug: string; planeUserId: string; planeUserName: string; planeVersion: string; planeServerVersion: string | null; versionNote: string | null; hasApiKey: boolean; bots: { id: string; name: string }[]; createdAt: string; }
-export interface PlaneAccountInput { name?: string; baseUrl?: string | null; workspaceSlug?: string; apiKey?: string; planeVersion?: string; }
+export interface PlaneAccount { id: string; tenantId: string; name: string; baseUrl: string | null; workspaces: PlaneWorkspace[]; planeUserId: string; planeUserName: string; planeVersion: string; planeServerVersion: string | null; versionNote: string | null; hasApiKey: boolean; bots: { id: string; name: string }[]; createdAt: string; }
+export interface PlaneAccountInput { name?: string; baseUrl?: string | null; workspaces?: PlaneWorkspace[]; apiKey?: string; planeVersion?: string; }
 /** A Plane release line the server has tool code for, oldest first. */
 export interface PlaneVersion { id: string; label: string; checkedAgainst: string; auth: "api-key"; }
 /** The release a Plane server reports, and the PlaneVersion id covering it (null when none does). */
@@ -206,7 +208,7 @@ export const api = {
   createPlaneAccount: (tenantId: string, data: PlaneAccountInput) => fetchJSON<{ planeAccount: PlaneAccount }>(`/api/admin/tenants/${tenantId}/plane-accounts`, json("POST", data)),
   updatePlaneAccount: (id: string, data: PlaneAccountInput) => fetchJSON<{ planeAccount: PlaneAccount }>(`/api/admin/plane-accounts/${id}`, json("PATCH", data)),
   deletePlaneAccount: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/plane-accounts/${id}`, json("DELETE")),
-  listPlaneProjects: (accountId: string) => fetchJSON<{ projects: PlaneProject[] }>(`/api/admin/plane-accounts/${accountId}/projects`),
+  listPlaneProjects: (accountId: string, workspace: string) => fetchJSON<{ projects: PlaneProject[] }>(`/api/admin/plane-accounts/${accountId}/projects?workspace=${encodeURIComponent(workspace)}`),
   deleteProfile: (id: string) => fetchJSON<{ success: boolean }>(`/api/admin/profiles/${id}`, json("DELETE")),
   getBot: (id: string) => fetchJSON<{ bot: Bot }>(`/api/admin/bots/${id}`),
   getBotGuilds: (id: string) => fetchJSON<{ connected: boolean; guilds: Guild[] }>(`/api/admin/bots/${id}/guilds`),

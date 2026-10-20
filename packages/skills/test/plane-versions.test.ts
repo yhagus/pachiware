@@ -20,6 +20,8 @@ const policy: Record<string, PlaneToolPolicy> = {
 
 const access = (name: string, planeVersion: string, projectIds = ["*"]): PlaneAccess => ({
   account: { id: name.toLowerCase(), name, planeVersion } as PlaneAccount,
+  workspace: "acme",
+  name,
   sets: [projectIds],
 });
 const hidden = (...list: PlaneAccess[]) => hiddenPlaneToolsFor(list, policy, VERSIONS);

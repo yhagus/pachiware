@@ -104,6 +104,25 @@ afterAll(async () => {
     expect(await plane.getAccount("p2")).toMatchObject({ planeVersion: "9.9" });
   });
 
+  test("a Plane account's one Plane workspace becomes its list, each scope takes it, and an orphan scope goes", async () => {
+    const connection = connect();
+    await migrateMongo(connection, MONGO_MIGRATIONS.filter((step) => !step.id.includes("plane-workspaces")));
+    const { tenants, plane } = createRepositories(connection);
+    const tenant = await tenants.create({ name: "Acme", slug: "acme" });
+    const now = new Date();
+    const docs = (name: string) => connection.db.collection<{ _id: string; [field: string]: unknown }>(name);
+    await docs("plane_accounts").insertOne({ _id: "p1", tenantId: tenant.id, name: "main", baseUrl: null, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", planeVersion: "1.3.1", createdAt: now, updatedAt: now });
+    const scope = (_id: string, channelId: string, planeAccountId: string) => ({ _id, tenantId: tenant.id, botId: "b1", guildId: "g1", channelId, planeAccountId, projectIds: ["*"], updatedAt: now });
+    await docs("plane_scopes").insertMany([scope("s1", "", "p1"), scope("s2", "c1", "p1"), scope("s3", "", "gone")]);
+    await migrateMongo(connection);
+    await migrateMongo(connection);
+    expect((await plane.getAccount("p1"))?.workspaces).toEqual([{ slug: "acme", enabled: true }]);
+    expect(await docs("plane_accounts").findOne({ _id: "p1", workspaceSlug: { $exists: true } })).toBeNull();
+    expect((await plane.listScopes("b1", "g1")).map((r) => [r.id, r.channelId, r.workspaceSlug])).toEqual([["s1", "", "acme"], ["s2", "c1", "acme"]]);
+    await docs("plane_scopes").insertOne({ ...scope("s4", "", "p1"), workspaceSlug: "beta" });
+    await expect(docs("plane_scopes").insertOne({ ...scope("s5", "", "p1"), workspaceSlug: "beta" })).rejects.toThrow();
+  });
+
   test("migrating twice at once leaves a working database", async () => {
     await Promise.all([migrateMongo(connect()), migrateMongo(connect())]);
     const { tenants } = createRepositories(connect());

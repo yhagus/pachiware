@@ -5,7 +5,7 @@
  */
 import type { Effect, SkillContext, ToolDefinition, ToolHandler, ToolPolicy } from "../types.js";
 import { planeRequest, inWorkspace } from "./client.js";
-import { PLANE_NOT_ENABLED, loadPlaneAccess, pickPlaneAccess, allPlaneProjectsAllowed, planeConnOf, type PlaneAccess } from "./scope.js";
+import { PLANE_NOT_ENABLED, loadPlaneAccess, pickPlaneAccess, findPlaneAccess, allPlaneProjectsAllowed, type PlaneAccess } from "./scope.js";
 import { planeTargetOf, ACCOUNT_ARG, type PlaneTarget } from "./projectRef.js";
 import { planeWrite, inPlainWords, DANGER, DANGER_NOTE } from "./write.js";
 import { PLANE_VERSIONS, findPlaneVersion, versionHasTool, onPlaneVersion, CHOOSE_PLANE_VERSION, type PlaneVersion } from "./versions.js";
@@ -46,7 +46,8 @@ const known = (access: PlaneAccess, versions: Versions) => !!findPlaneVersion(ac
 export function hiddenPlaneReasonFor(list: PlaneAccess[], tool: string, policy: Policies, versions: Versions = PLANE_VERSIONS): string {
   if (!list.length) return PLANE_NOT_ENABLED;
   if (list.some((a) => hasTool(a, tool, policy, versions))) return WHOLE_WORKSPACE;
-  const each = list.map((a) => `"${a.account.name}" ${onPlaneVersion(a.account, versions)}`).join("; ");
+  // A Plane version belongs to the account, so each account is named once however many of its workspaces are usable.
+  const each = [...new Map(list.map((a) => [a.account.id, a.account])).values()].map((account) => `"${account.name}" ${onPlaneVersion(account, versions)}`).join("; ");
   return `No Plane account usable here has ${tool} on its Plane version: ${each}.${list.every((a) => known(a, versions)) ? "" : ` ${CHOOSE_PLANE_VERSION}`}`;
 }
 
@@ -58,16 +59,16 @@ export const hiddenPlaneReason = async (ctx: SkillContext, tool: string, policy:
  * Null leaves the arguments as they are.
  */
 export function accountForTool(list: PlaneAccess[], tool: string, named: unknown, policy: Policies, versions: Versions = PLANE_VERSIONS): string | null {
-  const name = typeof named === "string" ? named.trim().toLowerCase() : "";
+  const name = typeof named === "string" ? named.trim() : "";
   if (!name) {
     const able = list.filter((a) => offersTool(a, tool, policy, versions));
-    return list.length > 1 && able.length === 1 ? able[0]!.account.name : null;
+    return list.length > 1 && able.length === 1 ? able[0]!.name : null;
   }
-  const hit = list.find((a) => a.account.name.toLowerCase() === name);
+  const hit = findPlaneAccess(list, name);
   if (!hit || hasTool(hit, tool, policy, versions)) return null;
-  const others = list.filter((a) => hasTool(a, tool, policy, versions)).map((a) => a.account.name);
+  const others = list.filter((a) => hasTool(a, tool, policy, versions)).map((a) => a.name);
   const next = others.length ? ` Use one of: ${others.join(", ")}.` : known(hit, versions) ? "" : ` ${CHOOSE_PLANE_VERSION}`;
-  throw new Error(`${tool} is not available on Plane account "${hit.account.name}": it ${onPlaneVersion(hit.account, versions)}.${next}`);
+  throw new Error(`${tool} is not available on Plane account "${hit.name}": it ${onPlaneVersion(hit.account, versions)}.${next}`);
 }
 
 /** Wraps each Plane tool's handler so `accountForTool` runs first, on the model's call and again on the confirmed run. */
@@ -132,7 +133,7 @@ const invitationsOf = (t: PlaneTarget) => inPlainWords(t, planeRequest<any[]>(t.
 
 export const workspaceHandlers: Record<string, ToolHandler> = {
   workspaceMembers: async (args, ctx) => {
-    const conn = planeConnOf((await pickWorkspaceAccess(ctx, args.account)).account);
+    const { conn } = planeTargetOf(await pickWorkspaceAccess(ctx, args.account));
     // Plane answers with a plain array, removed members included: v1.3.1 has no active flag on it.
     const members = await planeRequest<any[]>(conn, inWorkspace(conn, "members/"));
     return {
@@ -140,7 +141,7 @@ export const workspaceHandlers: Record<string, ToolHandler> = {
     };
   },
   workspaceInvitations: async (args, ctx) => {
-    const conn = planeConnOf((await pickWorkspaceAccess(ctx, args.account)).account);
+    const { conn } = planeTargetOf(await pickWorkspaceAccess(ctx, args.account));
     const invitations = await planeRequest<any[]>(conn, inWorkspace(conn, "invitations/"));
     return {
       invitations: (invitations ?? []).map((i) => ({ id: i.id, email: i.email, role: roleName(i.role), invitedAt: i.created_at ?? null, accepted: !!i.accepted, respondedAt: i.responded_at ?? null })),

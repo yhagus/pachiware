@@ -80,9 +80,10 @@ export interface Scenario {
   /**
    * Attaches a Plane account to the bot, which switches the plane skill on, and opens these Plane project ids ("*" for all) in the guild;
    * `projects: null` leaves the guild without a rule. Its key is "plane-key", its Plane user "u-bot", Plane's cloud its host unless `baseUrl` says,
-   * and Plane 1.3.1 its Plane version unless `version` says.
+   * and Plane 1.3.1 its Plane version unless `version` says. It lists the one Plane workspace `workspaceSlug` ("acme"), or `workspaces`, and
+   * `projects` opens each listed one, switched on or not.
    */
-  plane(options?: { name?: string; baseUrl?: string | null; workspaceSlug?: string; projects?: string[] | null; version?: string }): Promise<{ id: string }>;
+  plane(options?: { name?: string; baseUrl?: string | null; workspaceSlug?: string; workspaces?: { slug: string; enabled: boolean }[]; projects?: string[] | null; version?: string }): Promise<{ id: string }>;
   /** Saves guild settings as the console does, Digest schedule rows included. */
   guildSettings(input: { systemPrompt?: string | null; useThreads?: boolean; alwaysChannelIds?: string[]; timezone?: string | null; language?: "id" | "en" | null; digestChannels?: { channelId: string; hour: number }[]; dailyLogChannels?: { channelId: string; backfill: boolean }[]; docSources?: { channelId: string; repo: string; account?: string; paths: string[] }[] }): Promise<void>;
   /** Calls the admin API with the platform key, as the console does; returns once every post it caused has landed. */
@@ -473,13 +474,13 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       await git.replaceScopes(tenant.id, bot.id, GUILD.id, "", [{ gitAccountId: account.id, repoPatterns: repos }]);
       return account;
     },
-    plane: async ({ name = "plane", baseUrl = null, workspaceSlug = "acme", projects = ["*"], version = "1.3.1" } = {}) => {
+    plane: async ({ name = "plane", baseUrl = null, workspaceSlug = "acme", workspaces = [{ slug: workspaceSlug, enabled: true }], projects = ["*"], version = "1.3.1" } = {}) => {
       const { plane } = repositories();
-      const account = await plane.createAccount({ tenantId: tenant.id, name, baseUrl, workspaceSlug, apiKeyEncrypted: encryptSecret("plane-key"), planeUserId: "u-bot", planeUserName: "pachibot (bot@acme.test)", planeVersion: version });
+      const account = await plane.createAccount({ tenantId: tenant.id, name, baseUrl, workspaces, apiKeyEncrypted: encryptSecret("plane-key"), planeUserId: "u-bot", planeUserName: "pachibot (bot@acme.test)", planeVersion: version });
       await plane.setBotAccounts(tenant.id, bot.id, [...(await plane.botAccountIds([bot.id]))[bot.id] ?? [], account.id]);
       if (projects) {
-        const others = (await plane.listScopes(bot.id, GUILD.id)).filter((r) => r.channelId === "").map(({ planeAccountId, projectIds }) => ({ planeAccountId, projectIds }));
-        await plane.replaceScopes(tenant.id, bot.id, GUILD.id, "", [...others, { planeAccountId: account.id, projectIds: projects }]);
+        const others = (await plane.listScopes(bot.id, GUILD.id)).filter((r) => r.channelId === "").map(({ planeAccountId, workspaceSlug, projectIds }) => ({ planeAccountId, workspaceSlug, projectIds }));
+        await plane.replaceScopes(tenant.id, bot.id, GUILD.id, "", [...others, ...workspaces.map((w) => ({ planeAccountId: account.id, workspaceSlug: w.slug, projectIds: projects }))]);
       }
       return account;
     },

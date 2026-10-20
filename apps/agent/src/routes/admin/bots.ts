@@ -96,8 +96,9 @@ async function putScope(c: any, channelId: string) {
 }
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/git", (c) => putScope(c, ""));
 botAdminRoutes.put("/bots/:botId/guilds/:guildId/channels/:channelId/git", (c) => putScope(c, c.req.param("channelId")!));
-// Plane access per guild (channelId "") and per channel: which attached Plane accounts are on, and which Plane project ids ("*" for all).
-const planeRulesOut = (rows: PlaneScope[], channelId: string) => rows.filter((r) => r.channelId === channelId).map((r) => ({ planeAccountId: r.planeAccountId, projectIds: r.projectIds }));
+// Plane access per guild (channelId "") and per channel: which Plane workspaces of the attached Plane accounts are on, and which
+// Plane project ids of each ("*" for all). Rules for a switched-off workspace are kept and returned, so a save can send them back.
+const planeRulesOut = (rows: PlaneScope[], channelId: string) => rows.filter((r) => r.channelId === channelId).map((r) => ({ planeAccountId: r.planeAccountId, workspaceSlug: r.workspaceSlug, projectIds: r.projectIds }));
 async function planeScopeOut(botId: string, guildId: string) {
   const rows = await repositories().plane.listScopes(botId, guildId);
   const channels: Record<string, ReturnType<typeof planeRulesOut>> = {};
@@ -106,14 +107,15 @@ async function planeScopeOut(botId: string, guildId: string) {
 }
 botAdminRoutes.get("/bots/:botId/guilds/:guildId/plane", async (c) => {
   const botId = c.req.param("botId")!;
-  const accounts = (await repositories().plane.listBotAccounts(botId)).map(({ id, name, baseUrl, workspaceSlug, planeUserName }) => ({ id, name, baseUrl, workspaceSlug, planeUserName }));
+  const accounts = (await repositories().plane.listBotAccounts(botId)).map(({ id, name, baseUrl, workspaces, planeUserName }) => ({ id, name, baseUrl, workspaces, planeUserName }));
   return c.json({ success: true, accounts, ...await planeScopeOut(botId, c.req.param("guildId")!) });
 });
 async function putPlaneScope(c: any, channelId: string) {
   const bot = (await repositories().bots.get(c.req.param("botId")!))!;
   const body = object(await c.req.json(), "body");
   if (!Array.isArray(body.rules)) return c.json({ error: "rules must be an array" }, 400);
-  const rules = body.rules.map((r: any) => { const o = object(r, "rule"); return { planeAccountId: string(o.planeAccountId, "planeAccountId")!, projectIds: stringArray(o.projectIds, "projectIds") }; });
+  // workspaceSlug may be left out for an account that lists one Plane workspace.
+  const rules = body.rules.map((r: any) => { const o = object(r, "rule"); return { planeAccountId: string(o.planeAccountId, "planeAccountId")!, workspaceSlug: string(o.workspaceSlug, "workspaceSlug", true), projectIds: stringArray(o.projectIds, "projectIds") }; });
   try { await repositories().plane.replaceScopes(bot.tenantId, bot.id, c.req.param("guildId")!, channelId, rules); }
   catch (e) { return c.json({ error: (e as Error).message }, 400); }
   const out = await planeScopeOut(bot.id, c.req.param("guildId")!);

@@ -27,4 +27,4 @@ export type { Skill, SkillDefinition, TenantSkill, TenantSkillListing, SkillRepo
 export type { RuleLevel, RuleTargetKind, RuleValue, RuleScope, RuleTarget, AvailabilityRuleRecord, AvailabilityRuleRepository } from "./repositories/index.js";
 export type { Conversation, NewConversation, ConversationListing, Message, NewMessage, ConversationRepository } from "./repositories/index.js";
 export type { GitRepository, GitAccount, NewGitAccount, GitAccountUpdate, BotRef, GitScope, GitScopeRule, GitOAuthApp, NewGitOAuthApp } from "./repositories/index.js";
-export type { PlaneRepository, PlaneAccount, NewPlaneAccount, PlaneAccountUpdate, PlaneScope, PlaneScopeRule } from "./repositories/index.js";
+export type { PlaneRepository, PlaneAccount, NewPlaneAccount, PlaneAccountUpdate, PlaneScope, PlaneScopeRule, PlaneScopeRuleInput, PlaneWorkspace } from "./repositories/index.js";

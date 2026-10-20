@@ -9,14 +9,14 @@ const P3 = "33333333-3333-4333-8333-333333333333";
 contract("Plane accounts and Plane scopes", (use) => {
   const tenant = (slug: string) => use().repos.tenants.create({ name: slug, slug });
   const account = (tenantId: string, name: string, extra: Record<string, any> = {}) =>
-    use().repos.plane.createAccount({ tenantId, name, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", planeVersion: "1.3.1", ...extra });
+    use().repos.plane.createAccount({ tenantId, name, workspaces: [{ slug: "acme", enabled: true }], apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", planeVersion: "1.3.1", ...extra });
   const newBot = async (tenantId: string, name = "Bot") => (await use().repos.bots.create({ tenantId, name, token: "x" })).id;
 
   test("a new Plane account can be read back, on Plane's cloud unless a base URL is given", async () => {
     const { plane } = use().repos;
     const t = await tenant("acme");
     const cloud = await account(t.id, "cloud");
-    expect(cloud).toMatchObject({ tenantId: t.id, name: "cloud", baseUrl: null, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot" });
+    expect(cloud).toMatchObject({ tenantId: t.id, name: "cloud", baseUrl: null, workspaces: [{ slug: "acme", enabled: true }], apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot" });
     expect(cloud.id).toMatch(UUID);
     expect(cloud.createdAt).toBeInstanceOf(Date);
     expect(await plane.getAccount(cloud.id)).toEqual(cloud);
@@ -32,8 +32,20 @@ contract("Plane accounts and Plane scopes", (use) => {
     expect(created.planeVersion).toBe("1.4");
     expect((await plane.getAccount(created.id))?.planeVersion).toBe("1.4");
     expect((await plane.listAccounts(t.id))[0]?.planeVersion).toBe("1.4");
-    expect(await plane.updateAccount(created.id, { planeVersion: "1.3.1" })).toMatchObject({ planeVersion: "1.3.1", name: "main", workspaceSlug: "acme", apiKeyEncrypted: "enc" });
+    expect(await plane.updateAccount(created.id, { planeVersion: "1.3.1" })).toMatchObject({ planeVersion: "1.3.1", name: "main", workspaces: [{ slug: "acme", enabled: true }], apiKeyEncrypted: "enc" });
     expect(await plane.updateAccount(created.id, { name: "renamed" })).toMatchObject({ planeVersion: "1.3.1", name: "renamed" });
+  });
+
+  test("an account keeps its Plane workspaces in order with their switches, and an update replaces the list", async () => {
+    const { plane } = use().repos;
+    const t = await tenant("acme");
+    const workspaces = [{ slug: "acme", enabled: true }, { slug: "beta", enabled: false }, { slug: "gamma", enabled: true }];
+    const created = await account(t.id, "main", { workspaces });
+    expect(created.workspaces).toEqual(workspaces);
+    expect((await plane.getAccount(created.id))?.workspaces).toEqual(workspaces);
+    expect((await plane.listAccounts(t.id))[0]?.workspaces).toEqual(workspaces);
+    expect((await plane.updateAccount(created.id, { workspaces: [{ slug: "beta", enabled: true }] }))?.workspaces).toEqual([{ slug: "beta", enabled: true }]);
+    expect((await plane.updateAccount(created.id, { name: "renamed" }))?.workspaces).toEqual([{ slug: "beta", enabled: true }]);
   });
 
   test("an account records the release its Plane server reported, or none, and an update replaces it", async () => {
@@ -88,10 +100,10 @@ contract("Plane accounts and Plane scopes", (use) => {
     const taken = await account(t.id, "taken");
     const created = await account(t.id, "main", { baseUrl: "https://plane.corp.example" });
     const updated = await plane.updateAccount(created.id, { apiKeyEncrypted: "enc2", planeUserId: "u-2", planeUserName: "Other" });
-    expect(updated).toMatchObject({ id: created.id, name: "main", baseUrl: "https://plane.corp.example", workspaceSlug: "acme", apiKeyEncrypted: "enc2", planeUserId: "u-2", planeUserName: "Other" });
+    expect(updated).toMatchObject({ id: created.id, name: "main", baseUrl: "https://plane.corp.example", workspaces: [{ slug: "acme", enabled: true }], apiKeyEncrypted: "enc2", planeUserId: "u-2", planeUserName: "Other" });
     expect(updated!.updatedAt.getTime()).toBeGreaterThanOrEqual(created.updatedAt.getTime());
     expect(await plane.getAccount(created.id)).toEqual(updated);
-    expect(await plane.updateAccount(created.id, { baseUrl: null, workspaceSlug: "beta" })).toMatchObject({ baseUrl: null, workspaceSlug: "beta" });
+    expect(await plane.updateAccount(created.id, { baseUrl: null, workspaces: [{ slug: "beta", enabled: false }] })).toMatchObject({ baseUrl: null, workspaces: [{ slug: "beta", enabled: false }] });
     await expect(plane.updateAccount(created.id, { name: taken.name })).rejects.toThrow();
     expect(await plane.updateAccount("missing", { name: "x" })).toBeNull();
   });
@@ -171,7 +183,7 @@ contract("Plane accounts and Plane scopes", (use) => {
     const stranger = await account(t.id, "stranger");
     const replace = (rules: { planeAccountId: string; projectIds: string[] }[]) => plane.replaceScopes(t.id, bot, "guild", "", rules);
     await expect(replace([{ planeAccountId: stranger.id, projectIds: ["*"] }])).rejects.toThrow("Plane account is not attached to this bot");
-    await expect(replace([{ planeAccountId: main.id, projectIds: ["*"] }, { planeAccountId: main.id, projectIds: [P1] }])).rejects.toThrow("Duplicate Plane account in rules");
+    await expect(replace([{ planeAccountId: main.id, projectIds: ["*"] }, { planeAccountId: main.id, projectIds: [P1] }])).rejects.toThrow("Duplicate Plane account and workspace in rules");
     await expect(replace([{ planeAccountId: main.id, projectIds: [" "] }])).rejects.toThrow("projectIds must not be empty");
     await expect(replace([{ planeAccountId: main.id, projectIds: ["ENG"] }])).rejects.toThrow("Invalid Plane project id");
     expect(await plane.listScopes(bot, "guild")).toEqual([]);
@@ -200,6 +212,70 @@ contract("Plane accounts and Plane scopes", (use) => {
     expect(await rulesOf(bot, "chan2")).toEqual([]);
     await plane.replaceScopes(t.id, bot, "guild", "", [{ planeAccountId: main.id, projectIds: [P3] }]);
     expect(await rulesOf(bot, "chan")).toEqual([]);
+  });
+
+  const twoWorkspaces = async () => {
+    const t = await tenant("two");
+    const main = await account(t.id, "main", { workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: true }] });
+    const bot = await newBot(t.id);
+    await use().repos.plane.setBotAccounts(t.id, bot, [main.id]);
+    return { t, main, bot };
+  };
+  const slugRulesOf = async (botId: string, channelId: string) =>
+    (await use().repos.plane.listScopes(botId, "guild")).filter((s) => s.channelId === channelId).map((s) => [s.workspaceSlug, s.projectIds]).sort();
+
+  test("a rule names one Plane workspace of its account: the only one when left out, and never one the account does not list", async () => {
+    const { plane } = use().repos;
+    const { t, main: one, bot } = await linkedBot();
+    await plane.replaceScopes(t.id, bot, "guild", "", [{ planeAccountId: one.id, projectIds: ["*"] }]);
+    expect((await plane.listScopes(bot, "guild"))[0]).toMatchObject({ planeAccountId: one.id, workspaceSlug: "acme", projectIds: ["*"] });
+
+    const { t: t2, main, bot: bot2 } = await twoWorkspaces();
+    const replace = (rules: { planeAccountId: string; workspaceSlug?: string; projectIds: string[] }[]) => plane.replaceScopes(t2.id, bot2, "guild", "", rules);
+    await expect(replace([{ planeAccountId: main.id, projectIds: ["*"] }])).rejects.toThrow("workspaceSlug is required: the Plane account has several Plane workspaces");
+    await expect(replace([{ planeAccountId: main.id, workspaceSlug: "other", projectIds: ["*"] }])).rejects.toThrow("Plane workspace is not listed on this Plane account");
+    await expect(replace([{ planeAccountId: main.id, workspaceSlug: "acme", projectIds: ["*"] }, { planeAccountId: main.id, workspaceSlug: "ACME", projectIds: [P1] }])).rejects.toThrow("Duplicate Plane account and workspace in rules");
+    await replace([{ planeAccountId: main.id, workspaceSlug: "acme", projectIds: [P1] }, { planeAccountId: main.id, workspaceSlug: " Beta ", projectIds: ["*"] }]);
+    expect(await slugRulesOf(bot2, "")).toEqual([["acme", [P1]], ["beta", ["*"]]]);
+  });
+
+  test("a rule may name a Plane workspace that is switched off, so saving a scope keeps the rules the console hides", async () => {
+    const { plane } = use().repos;
+    const { t, main, bot } = await twoWorkspaces();
+    await plane.updateAccount(main.id, { workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: false }] });
+    await plane.replaceScopes(t.id, bot, "guild", "", [{ planeAccountId: main.id, workspaceSlug: "beta", projectIds: ["*"] }]);
+    expect(await slugRulesOf(bot, "")).toEqual([["beta", ["*"]]]);
+  });
+
+  test("a channel rule narrows the guild rule of its own Plane workspace only", async () => {
+    const { plane } = use().repos;
+    const { t, main, bot } = await twoWorkspaces();
+    await plane.replaceScopes(t.id, bot, "guild", "", [{ planeAccountId: main.id, workspaceSlug: "acme", projectIds: [P1] }, { planeAccountId: main.id, workspaceSlug: "beta", projectIds: ["*"] }]);
+    await expect(plane.replaceScopes(t.id, bot, "guild", "chan", [{ planeAccountId: main.id, workspaceSlug: "acme", projectIds: [P2] }])).rejects.toThrow("Channel rule reaches a Plane project the guild rule does not allow");
+    await plane.replaceScopes(t.id, bot, "guild", "chan", [{ planeAccountId: main.id, workspaceSlug: "beta", projectIds: [P2] }]);
+    expect(await slugRulesOf(bot, "chan")).toEqual([["beta", [P2]]]);
+    await plane.replaceScopes(t.id, bot, "guild", "", [{ planeAccountId: main.id, workspaceSlug: "acme", projectIds: [P1] }]);
+    expect(await slugRulesOf(bot, "chan")).toEqual([]);
+    await expect(plane.replaceScopes(t.id, bot, "guild", "chan", [{ planeAccountId: main.id, workspaceSlug: "beta", projectIds: [P2] }])).rejects.toThrow("Channel rule needs the Plane account enabled in the guild first");
+  });
+
+  test("removing a Plane workspace from an account deletes its scopes on every bot; switching it off keeps them", async () => {
+    const { plane } = use().repos;
+    const { t, main, bot } = await twoWorkspaces();
+    const other = await newBot(t.id, "Other");
+    await plane.setBotAccounts(t.id, other, [main.id]);
+    for (const b of [bot, other]) {
+      await plane.replaceScopes(t.id, b, "guild", "", [{ planeAccountId: main.id, workspaceSlug: "acme", projectIds: ["*"] }, { planeAccountId: main.id, workspaceSlug: "beta", projectIds: ["*"] }]);
+      await plane.replaceScopes(t.id, b, "guild", "chan", [{ planeAccountId: main.id, workspaceSlug: "beta", projectIds: [P1] }]);
+    }
+    await plane.updateAccount(main.id, { workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: false }] });
+    expect(await slugRulesOf(bot, "")).toEqual([["acme", ["*"]], ["beta", ["*"]]]);
+    expect(await slugRulesOf(bot, "chan")).toEqual([["beta", [P1]]]);
+    await plane.updateAccount(main.id, { workspaces: [{ slug: "acme", enabled: true }] });
+    for (const b of [bot, other]) {
+      expect(await slugRulesOf(b, "")).toEqual([["acme", ["*"]]]);
+      expect(await slugRulesOf(b, "chan")).toEqual([]);
+    }
   });
 
   test("detaching an account from a bot removes its Plane scopes on that bot", async () => {

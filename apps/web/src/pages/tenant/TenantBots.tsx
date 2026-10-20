@@ -211,7 +211,7 @@ export function TenantBots() {
                     {planeAccounts.map((a) => (
                       <li key={a.id}><label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
                         <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={planeAccountIds.includes(a.id)}
-                          onChange={(e) => setPlaneAccountIds(e.target.checked ? [...planeAccountIds, a.id] : planeAccountIds.filter((x) => x !== a.id))} />{a.name} · {a.workspaceSlug}
+                          onChange={(e) => setPlaneAccountIds(e.target.checked ? [...planeAccountIds, a.id] : planeAccountIds.filter((x) => x !== a.id))} />{a.name} · {a.workspaces.filter((w) => w.enabled).map((w) => w.slug).join(", ") || "every Plane workspace off"}
                       </label></li>
                     ))}
                   </ul>

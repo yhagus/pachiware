@@ -27,9 +27,9 @@ function definitions(pg: boolean): Record<string, string> {
     guild_configs: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, guild_id TEXT NOT NULL, system_prompt TEXT, use_threads ${bool} NOT NULL DEFAULT ${yes}, always_channel_ids ${json} NOT NULL DEFAULT '[]', timezone TEXT, language TEXT, digest_channels ${json} NOT NULL DEFAULT '[]', daily_log_channels ${json} NOT NULL DEFAULT '[]', doc_sources ${json} NOT NULL DEFAULT '[]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id)`,
     bot_git_accounts: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, git_account_id TEXT NOT NULL, created_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,git_account_id), FOREIGN KEY(tenant_id,git_account_id) REFERENCES git_accounts(tenant_id,id)`,
     git_scopes: `id ${id}, ${tenant}, bot_id TEXT NOT NULL, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL DEFAULT '', git_account_id TEXT NOT NULL, repo_patterns ${json} NOT NULL DEFAULT '["*"]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id,channel_id,git_account_id), FOREIGN KEY(bot_id,git_account_id) REFERENCES bot_git_accounts(bot_id,git_account_id) ON DELETE CASCADE`,
-    plane_accounts: `id ${id}, ${tenant}, name TEXT NOT NULL, base_url TEXT, workspace_slug TEXT NOT NULL, api_key_encrypted TEXT NOT NULL, plane_user_id TEXT NOT NULL, plane_user_name TEXT NOT NULL, plane_version TEXT NOT NULL DEFAULT '1.3.1', plane_server_version TEXT, ${dates}, UNIQUE(tenant_id,name), UNIQUE(tenant_id,id)`,
+    plane_accounts: `id ${id}, ${tenant}, name TEXT NOT NULL, base_url TEXT, workspaces ${json} NOT NULL DEFAULT '[]', api_key_encrypted TEXT NOT NULL, plane_user_id TEXT NOT NULL, plane_user_name TEXT NOT NULL, plane_version TEXT NOT NULL DEFAULT '1.3.1', plane_server_version TEXT, ${dates}, UNIQUE(tenant_id,name), UNIQUE(tenant_id,id)`,
     bot_plane_accounts: `id ${id}, ${tenant}, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, plane_account_id TEXT NOT NULL, created_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,plane_account_id), FOREIGN KEY(tenant_id,plane_account_id) REFERENCES plane_accounts(tenant_id,id)`,
-    plane_scopes: `id ${id}, ${tenant}, bot_id TEXT NOT NULL, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL DEFAULT '', plane_account_id TEXT NOT NULL, project_ids ${json} NOT NULL DEFAULT '[]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id,channel_id,plane_account_id), FOREIGN KEY(bot_id,plane_account_id) REFERENCES bot_plane_accounts(bot_id,plane_account_id) ON DELETE CASCADE`,
+    plane_scopes: `id ${id}, ${tenant}, bot_id TEXT NOT NULL, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL DEFAULT '', plane_account_id TEXT NOT NULL, workspace_slug TEXT NOT NULL, project_ids ${json} NOT NULL DEFAULT '[]', updated_at ${time} NOT NULL DEFAULT ${now}, UNIQUE(bot_id,guild_id,channel_id,plane_account_id,workspace_slug), FOREIGN KEY(bot_id,plane_account_id) REFERENCES bot_plane_accounts(bot_id,plane_account_id) ON DELETE CASCADE`,
     availability_rules: `id ${id}, ${tenant}, level TEXT NOT NULL, bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE, guild_id TEXT NOT NULL DEFAULT '', channel_id TEXT NOT NULL DEFAULT '', target_kind TEXT NOT NULL, target_name TEXT NOT NULL, value TEXT NOT NULL, updated_at ${time} NOT NULL DEFAULT ${now}`,
     agents_config: `tenant_id TEXT PRIMARY KEY NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL DEFAULT 'Pachiware Agent', system_prompt TEXT NOT NULL DEFAULT '${DEFAULT_SYSTEM_PROMPT.replace(/'/g, "''")}', default_provider TEXT NOT NULL DEFAULT 'openai', default_model TEXT NOT NULL DEFAULT 'gpt-4o', temperature REAL NOT NULL DEFAULT 0.2, max_tokens INTEGER NOT NULL DEFAULT 4096, openai_api_key_encrypted TEXT, openai_base_url TEXT, openai_model TEXT, anthropic_api_key_encrypted TEXT, anthropic_base_url TEXT, anthropic_model TEXT, custom_api_key_encrypted TEXT, custom_base_url TEXT, custom_model TEXT, timezone TEXT NOT NULL DEFAULT 'Asia/Jakarta', language TEXT NOT NULL DEFAULT 'id', settings ${json} NOT NULL DEFAULT '{}', updated_at ${time} NOT NULL DEFAULT ${now}`,
     skills: `id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, default_enabled ${bool} NOT NULL DEFAULT ${yes}, tool_definitions ${json} NOT NULL DEFAULT '[]', handler_type TEXT NOT NULL DEFAULT 'builtin', config ${json} NOT NULL DEFAULT '{}', ${dates}`,
@@ -89,6 +89,34 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   if (!planeCols.some((c) => c.name === "plane_server_version")) await exec("ALTER TABLE plane_accounts ADD COLUMN plane_server_version TEXT");
   // The first entry was "1.3", covering the 1.3 line; it is now exactly Plane 1.3.1, the release its tools were checked against.
   await exec("UPDATE plane_accounts SET plane_version = '1.3.1' WHERE plane_version = '1.3'");
+  // A Plane account held one Plane workspace; it now lists several, and each Plane scope names one of them. The scopes take
+  // their account's slug first, since the column goes after; a scope whose account or bot link is gone is dropped.
+  if (planeCols.some((c) => c.name === "workspace_slug")) {
+    if (!planeCols.some((c) => c.name === "workspaces")) await exec(`ALTER TABLE plane_accounts ADD COLUMN workspaces ${pg ? "JSONB" : "TEXT"} NOT NULL DEFAULT '[]'`);
+    await exec(pg
+      ? "UPDATE plane_accounts SET workspaces = jsonb_build_array(jsonb_build_object('slug', workspace_slug, 'enabled', true))"
+      : "UPDATE plane_accounts SET workspaces = json_array(json_object('slug', workspace_slug, 'enabled', json('true')))");
+    const scopeCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='plane_scopes'" : "PRAGMA table_info(plane_scopes)");
+    if (!scopeCols.some((c) => c.name === "workspace_slug")) {
+      if (pg) {
+        await exec("ALTER TABLE plane_scopes ADD COLUMN workspace_slug TEXT");
+        await exec("UPDATE plane_scopes s SET workspace_slug = a.workspace_slug FROM plane_accounts a WHERE a.id = s.plane_account_id");
+        await exec("DELETE FROM plane_scopes WHERE workspace_slug IS NULL");
+        await exec("ALTER TABLE plane_scopes ALTER COLUMN workspace_slug SET NOT NULL");
+        for (const { name } of await exec("SELECT conname AS name FROM pg_constraint WHERE conrelid = 'plane_scopes'::regclass AND contype = 'u'")) await exec(`ALTER TABLE plane_scopes DROP CONSTRAINT "${name}"`);
+        await exec("ALTER TABLE plane_scopes ADD UNIQUE (bot_id, guild_id, channel_id, plane_account_id, workspace_slug)");
+      } else {
+        // SQLite cannot change a table's UNIQUE in place, so the table is rebuilt.
+        await exec(`CREATE TABLE plane_scopes_new (${ddl.plane_scopes})`);
+        await exec(`INSERT INTO plane_scopes_new (id, tenant_id, bot_id, guild_id, channel_id, plane_account_id, workspace_slug, project_ids, updated_at)
+          SELECT s.id, s.tenant_id, s.bot_id, s.guild_id, s.channel_id, s.plane_account_id, a.workspace_slug, s.project_ids, s.updated_at FROM plane_scopes s
+          INNER JOIN plane_accounts a ON a.id = s.plane_account_id INNER JOIN bot_plane_accounts b ON b.bot_id = s.bot_id AND b.plane_account_id = s.plane_account_id`);
+        await exec("DROP TABLE plane_scopes");
+        await exec("ALTER TABLE plane_scopes_new RENAME TO plane_scopes");
+      }
+    }
+    await exec("ALTER TABLE plane_accounts DROP COLUMN workspace_slug");
+  }
   const profileCols = await exec(pg ? "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='profiles'" : "PRAGMA table_info(profiles)");
   if (!profileCols.some((c) => c.name === "accepts_images")) await exec(`ALTER TABLE profiles ADD COLUMN accepts_images ${pg ? "BOOLEAN NOT NULL DEFAULT false" : "INTEGER NOT NULL DEFAULT 0"}`);
   if (!profileCols.some((c) => c.name === "api_format")) await exec("ALTER TABLE profiles ADD COLUMN api_format TEXT NOT NULL DEFAULT 'chat_completions'");

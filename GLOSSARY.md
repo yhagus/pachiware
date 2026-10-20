@@ -65,7 +65,7 @@ The platform-wide list of self-hosted servers that git accounts and Plane accoun
 _Avoid_: Whitelist, Allowed git hosts (its older, git-only name)
 
 **Plane account**:
-A tenant's credentials for one Plane workspace, on Plane's cloud or a self-hosted Plane. A bot may have many Plane accounts, and several bots may share the same one. Everything done through it is done as the one Plane user it belongs to.
+A tenant's API key for one Plane server, Plane's cloud or a self-hosted Plane. It acts as one Plane user in every Plane workspace that user belongs to. Plane cannot list those workspaces, so the account lists the ones an admin typed in, each switched on or off; integrations can use only those switched on. A bot may have many Plane accounts, and several bots may share the same one. Everything done through it is done as that one Plane user.
 _Avoid_: Plane integration, Plane connection, Plane token
 
 **Plane version**:
@@ -73,7 +73,7 @@ The Plane releases a Plane account's server runs, chosen from the ones Pachiware
 _Avoid_: API version (Plane's API path is `/api/v1/` on every release), Plane release (what a server reports, such as v1.3.1; a Plane version covers one or more of them)
 
 **Plane workspace**:
-The organization in Plane that a Plane account opens, holding its Plane projects and members. Always named with "Plane" in front.
+An organization in Plane, named by the slug in its address and holding its Plane projects and members. A Plane account lists the ones the bot may reach. To the bot, each switched-on Plane workspace is one entry, named by its account alone, or `account/workspace` when that account has several usable in the place. Always named with "Plane" in front.
 _Avoid_: Workspace (reserved for the tenant's own tree of files), organization
 
 **Plane project**:
@@ -85,7 +85,7 @@ A unit of work tracked in a Plane project, with its own state, any number of ass
 _Avoid_: Issue (reserved for git platforms), ticket, Task, Plane task
 
 **Plane scope**:
-The rule that says which of a bot's Plane accounts, and which Plane projects of each (or all of them), are usable in one guild, or in one channel of it. No rule means no Plane access. A channel rule can only narrow its guild's rule; a thread follows its parent channel.
+The rule that says which Plane workspaces of a bot's Plane accounts, and which Plane projects of each (or all of them), are usable in one guild, or in one channel of it. No rule means no Plane access. A channel rule can only narrow its guild's rule for the same Plane workspace; a thread follows its parent channel. Switching a Plane workspace off keeps its rules, and a channel whose rules are all for switched-off workspaces gets no Plane rather than its guild's.
 _Avoid_: Plane permissions, project ACL
 
 **Skill**:
@@ -198,7 +198,7 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A **Bot** has zero or one **Profile**, many **Git accounts**, and many **Plane accounts**; all must belong to the bot's **Tenant**.
 - A **Brief** becomes one or more **Issue drafts** through **Clarifying rounds** held in one thread; only its author decides.
 - A **Git scope** narrows a **Bot**'s **Git accounts** per **Guild** and per channel; it can never add an account the bot does not have.
-- A **Plane account** opens exactly one **Plane workspace** and is set to exactly one **Plane version**. A Plane tool is offered in a place only when a usable **Plane account**'s **Plane version** has it. A **Plane scope** narrows a **Bot**'s **Plane accounts**, and their **Plane projects**, per **Guild** and per channel; it can never add an account the bot does not have.
+- A **Plane account** lists one or more **Plane workspaces**, each switched on or off, and is set to exactly one **Plane version**. A Plane tool is offered in a place only when a usable **Plane account**'s **Plane version** has it. A **Plane scope** narrows a **Bot**'s **Plane accounts**, their switched-on **Plane workspaces** and their **Plane projects**, per **Guild** and per channel; it can never add an account the bot does not have.
 - A **Work item** belongs to one **Plane project**. **Work items** and **Tasks** are never synced or converted into each other; the **Digest** and **Reminders** read only **Tasks**.
 - A **Playbook** requires some **Skills** and may load other **Playbooks**; it cannot start while a required skill or a loaded playbook is off.
 - A **Playbook thread** belongs to one **Playbook** and one **Bot**; only that bot answers in it.

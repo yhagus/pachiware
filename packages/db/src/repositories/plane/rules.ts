@@ -1,4 +1,4 @@
-import type { PlaneScope, PlaneScopeRule } from "./types.js";
+import type { PlaneScope, PlaneScopeRule, PlaneScopeRuleInput, PlaneWorkspace } from "./types.js";
 
 /** In a rule's projectIds, every Plane project of the account. It stands alone. */
 export const ALL_PLANE_PROJECTS = "*";
@@ -23,22 +23,38 @@ function within(guild: string[], channel: string[]): string[] {
   return channel.filter((id) => guild.includes(id));
 }
 
+/** A rule's account and Plane workspace as one key. */
+const keyOf = (r: { planeAccountId: string; workspaceSlug: string }) => `${r.planeAccountId}/${r.workspaceSlug}`;
+
+/** The Plane workspace a rule names: one the account lists, switched on or not; left out, the account's only one. */
+function workspaceOf(rule: PlaneScopeRuleInput, workspaces: PlaneWorkspace[]): string {
+  const given = typeof rule.workspaceSlug === "string" ? rule.workspaceSlug.trim().toLowerCase() : "";
+  if (!given) {
+    if (workspaces.length === 1) return workspaces[0]!.slug;
+    throw new Error("workspaceSlug is required: the Plane account has several Plane workspaces");
+  }
+  if (!workspaces.some((w) => w.slug === given)) throw new Error("Plane workspace is not listed on this Plane account");
+  return given;
+}
+
 /**
- * Checks the rules of one scope against the accounts the bot holds and, for a channel, the guild rules; returns them cleaned.
- * Shared by every engine, so the same rules reject everywhere.
+ * Checks the rules of one scope against the accounts the bot holds (each with the Plane workspaces it lists) and, for a
+ * channel, the guild rules; returns them cleaned. Shared by every engine, so the same rules reject everywhere.
  */
-export function checkPlaneScopeRules(rules: PlaneScopeRule[], linked: Set<string>, channelId: string, current: PlaneScope[]): PlaneScopeRule[] {
+export function checkPlaneScopeRules(rules: PlaneScopeRuleInput[], linked: Map<string, PlaneWorkspace[]>, channelId: string, current: PlaneScope[]): PlaneScopeRule[] {
   const seen = new Set<string>();
   const clean = rules.map((r) => {
-    if (!linked.has(r.planeAccountId)) throw new Error("Plane account is not attached to this bot");
-    if (seen.has(r.planeAccountId)) throw new Error("Duplicate Plane account in rules");
-    seen.add(r.planeAccountId);
-    return { planeAccountId: r.planeAccountId, projectIds: cleanProjectIds(r.projectIds) };
+    const workspaces = linked.get(r.planeAccountId);
+    if (!workspaces) throw new Error("Plane account is not attached to this bot");
+    const rule = { planeAccountId: r.planeAccountId, workspaceSlug: workspaceOf(r, workspaces), projectIds: cleanProjectIds(r.projectIds) };
+    if (seen.has(keyOf(rule))) throw new Error("Duplicate Plane account and workspace in rules");
+    seen.add(keyOf(rule));
+    return rule;
   });
   if (channelId) {
-    const guild = new Map(current.filter((r) => r.channelId === "").map((r) => [r.planeAccountId, r.projectIds]));
+    const guild = new Map(current.filter((r) => r.channelId === "").map((r) => [keyOf(r), r.projectIds]));
     for (const r of clean) {
-      const parent = guild.get(r.planeAccountId);
+      const parent = guild.get(keyOf(r));
       if (!parent) throw new Error("Channel rule needs the Plane account enabled in the guild first");
       if (within(parent, r.projectIds).length !== r.projectIds.length) throw new Error("Channel rule reaches a Plane project the guild rule does not allow");
     }
@@ -48,7 +64,7 @@ export function checkPlaneScopeRules(rules: PlaneScopeRule[], linked: Set<string
 
 /** After the guild rules change, what a channel rule becomes: its project ids that still fit, or null when it must go. */
 export function narrowPlaneChannelRule(guild: PlaneScopeRule[], channel: PlaneScope): string[] | null {
-  const parent = guild.find((r) => r.planeAccountId === channel.planeAccountId)?.projectIds;
+  const parent = guild.find((r) => keyOf(r) === keyOf(channel))?.projectIds;
   if (!parent) return null;
   const narrowed = within(parent, channel.projectIds);
   return narrowed.length ? narrowed : null;

@@ -28,7 +28,7 @@ export function planeWrite<T>(tool: string, prepare: (args: Obj, ctx: SkillConte
   return (args, ctx) => confirmWrite(ctx, { tool, args: args ?? {}, ...options }, async () => {
     const { target, summary, run, refusals = [], role } = await prepare(args ?? {}, ctx);
     const prefix = options.access === "trusted" ? DANGER_PREFIX : "";
-    return { summary: `${prefix}${summary} [Plane account ${target.access.account.name}]`, run: () => inPlainWords(target, run(), refusals, role) };
+    return { summary: `${prefix}${summary} [Plane account ${target.access.name}]`, run: () => inPlainWords(target, run(), refusals, role) };
   });
 }
 

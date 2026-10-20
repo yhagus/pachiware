@@ -54,6 +54,19 @@ const legacyFixture = `
   database.close();
 `;
 
+/**
+ * Puts the Plane tables back in their shape before Plane accounts listed several Plane workspaces (one `workspace_slug`, and
+ * scopes without one), for a script that ran the migrations once; the bot links keep the current shape, which did not change.
+ */
+const LEGACY_PLANE_TABLES = `
+  queryClient.exec("DROP TABLE plane_scopes");
+  queryClient.exec("DROP TABLE bot_plane_accounts");
+  queryClient.exec("DROP TABLE plane_accounts");
+  queryClient.exec("CREATE TABLE plane_accounts (id TEXT PRIMARY KEY NOT NULL, tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, name TEXT NOT NULL, base_url TEXT, workspace_slug TEXT NOT NULL, api_key_encrypted TEXT NOT NULL, plane_user_id TEXT NOT NULL, plane_user_name TEXT NOT NULL, plane_version TEXT NOT NULL DEFAULT '1.3', plane_server_version TEXT, created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000), updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000), UNIQUE(tenant_id,name), UNIQUE(tenant_id,id))");
+  queryClient.exec("CREATE TABLE bot_plane_accounts (id TEXT PRIMARY KEY NOT NULL, tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE, plane_account_id TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000), UNIQUE(bot_id,plane_account_id), FOREIGN KEY(tenant_id,plane_account_id) REFERENCES plane_accounts(tenant_id,id))");
+  queryClient.exec("CREATE TABLE plane_scopes (id TEXT PRIMARY KEY NOT NULL, tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, bot_id TEXT NOT NULL, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL DEFAULT '', plane_account_id TEXT NOT NULL, project_ids TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000), UNIQUE(bot_id,guild_id,channel_id,plane_account_id), FOREIGN KEY(bot_id,plane_account_id) REFERENCES bot_plane_accounts(bot_id,plane_account_id) ON DELETE CASCADE)");
+`;
+
 describe("SQLite tenancy migration", () => {
   test("is idempotent on a fresh database and does not create a tenant without legacy credentials", () => {
     const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-fresh-"));
@@ -301,6 +314,7 @@ describe("SQLite tenancy migration", () => {
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
         import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
         await runMigrations();
+        ${LEGACY_PLANE_TABLES}
         queryClient.exec("ALTER TABLE plane_accounts DROP COLUMN plane_version");
         queryClient.exec("ALTER TABLE plane_accounts DROP COLUMN plane_server_version");
         queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
@@ -324,6 +338,7 @@ describe("SQLite tenancy migration", () => {
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
         import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
         await runMigrations();
+        ${LEGACY_PLANE_TABLES}
         queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
         queryClient.exec("INSERT INTO plane_accounts (id,tenant_id,name,workspace_slug,api_key_encrypted,plane_user_id,plane_user_name,plane_version) VALUES ('p1','t1','main','acme','enc','u-1','Pachi Bot','1.3')");
         queryClient.exec("INSERT INTO plane_accounts (id,tenant_id,name,workspace_slug,api_key_encrypted,plane_user_id,plane_user_name,plane_version) VALUES ('p2','t1','lab','acme','enc','u-1','Pachi Bot','9.9')");
@@ -333,6 +348,45 @@ describe("SQLite tenancy migration", () => {
       `);
       expect(result.exitCode, stderr(result)).toBe(0);
       expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual([{ id: "p1", version: "1.3.1" }, { id: "p2", version: "9.9" }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("gives each Plane account its one Plane workspace as a list, and each of its scopes that workspace; an orphan scope goes", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-plane-workspaces-"));
+    const database = join(directory, "plane-workspaces.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
+        await runMigrations();
+        ${LEGACY_PLANE_TABLES}
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
+        queryClient.exec("INSERT INTO bots (id,tenant_id,token_encrypted) VALUES ('b1','t1','enc')");
+        queryClient.exec("INSERT INTO plane_accounts (id,tenant_id,name,workspace_slug,api_key_encrypted,plane_user_id,plane_user_name) VALUES ('p1','t1','main','acme','enc','u-1','Pachi Bot')");
+        queryClient.exec("INSERT INTO bot_plane_accounts (id,tenant_id,bot_id,plane_account_id) VALUES ('l1','t1','b1','p1')");
+        queryClient.exec("INSERT INTO plane_scopes (id,tenant_id,bot_id,guild_id,channel_id,plane_account_id,project_ids) VALUES ('s1','t1','b1','g1','','p1','[\\"*\\"]')");
+        queryClient.exec("INSERT INTO plane_scopes (id,tenant_id,bot_id,guild_id,channel_id,plane_account_id,project_ids) VALUES ('s2','t1','b1','g1','c1','p1','[\\"11111111-1111-4111-8111-111111111111\\"]')");
+        // A scope left behind by an account deleted while foreign keys were off.
+        queryClient.exec("PRAGMA foreign_keys = OFF");
+        queryClient.exec("INSERT INTO plane_scopes (id,tenant_id,bot_id,guild_id,channel_id,plane_account_id,project_ids) VALUES ('s3','t1','b1','g1','','gone','[\\"*\\"]')");
+        queryClient.exec("PRAGMA foreign_keys = ON");
+        await runMigrations();
+        await runMigrations();
+        const columns = queryClient.query("PRAGMA table_info(plane_accounts)").all().map((c) => c.name);
+        const accounts = queryClient.query("SELECT id, workspaces FROM plane_accounts").all();
+        const scopes = queryClient.query("SELECT id, channel_id AS channel, workspace_slug AS slug FROM plane_scopes ORDER BY id").all();
+        queryClient.exec("INSERT INTO plane_scopes (id,tenant_id,bot_id,guild_id,channel_id,plane_account_id,workspace_slug,project_ids) VALUES ('s4','t1','b1','g1','','p1','beta','[]')");
+        console.log(JSON.stringify({ slugColumn: columns.includes("workspace_slug"), accounts, scopes, fk: queryClient.query("PRAGMA foreign_key_check").all() }));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual({
+        slugColumn: false,
+        accounts: [{ id: "p1", workspaces: '[{"slug":"acme","enabled":true}]' }],
+        scopes: [{ id: "s1", channel: "", slug: "acme" }, { id: "s2", channel: "c1", slug: "acme" }],
+        fk: [],
+      });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

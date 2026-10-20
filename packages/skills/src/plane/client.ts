@@ -15,6 +15,8 @@ const TIMEOUT_MS = 15_000;
 
 /** What a request needs: never shown to the model, which names an account instead. */
 export type PlaneConn = { baseUrl: string | null; workspaceSlug: string; apiKey: string; version: PlaneVersion };
+/** A connection to a Plane server as the key's user, before a Plane workspace is chosen: enough for `users/me/`. */
+export type PlaneServerConn = Omit<PlaneConn, "workspaceSlug">;
 
 /** Plane refused a request, or could not be reached; `status` is 0 when no answer came. The message is safe to show. */
 export class PlaneError extends Error {
@@ -78,7 +80,7 @@ export type PlaneRequest = { method?: string; query?: Query; body?: unknown };
  * (null for an empty answer). A redirect is refused, since the key header would follow it to another host. On 429 it waits
  * once when the reset is near.
  */
-export async function planeRequest<T = any>(conn: PlaneConn, path: string, req: PlaneRequest = {}): Promise<T> {
+export async function planeRequest<T = any>(conn: PlaneServerConn, path: string, req: PlaneRequest = {}): Promise<T> {
   assertPlaneUrl(conn.baseUrl);
   const url = new URL(`${conn.baseUrl ?? PLANE_CLOUD_URL}/api/v1/${path.replace(/^\/+/, "")}`);
   for (const [k, v] of Object.entries(req.query ?? {})) if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
@@ -98,7 +100,7 @@ export async function planeRequest<T = any>(conn: PlaneConn, path: string, req: 
   try { return JSON.parse(text) as T; } catch { throw new PlaneError("Plane answered with something other than JSON; check the base URL", res.status); }
 }
 
-async function sendOnce(conn: PlaneConn, url: URL, req: PlaneRequest): Promise<Response> {
+async function sendOnce(conn: PlaneServerConn, url: URL, req: PlaneRequest): Promise<Response> {
   const headers: Record<string, string> = { ...conn.version.headers(conn.apiKey), Accept: "application/json" };
   if (req.body !== undefined) headers["Content-Type"] = "application/json";
   try {
@@ -215,10 +217,10 @@ export async function listPlaneProjects(conn: PlaneConn): Promise<PlaneProject[]
 }
 
 /**
- * Checks an account before it is saved: the key against `users/me/`, then the workspace slug against its projects.
- * Returns the Plane user the key acts as, labelled with its display name and email, so a personal key is noticed.
+ * Checks a key against `users/me/`, before any Plane workspace: a key acts as its Plane user in every workspace that user
+ * belongs to. Returns that user, labelled with its display name and email, so a personal key is noticed.
  */
-export async function verifyPlaneAccount(conn: PlaneConn): Promise<{ user: PlaneUser; projects: PlaneProject[] }> {
+export async function verifyPlaneKey(conn: PlaneServerConn): Promise<PlaneUser> {
   let me: any;
   try { me = await planeRequest(conn, "users/me/"); }
   catch (e) {
@@ -226,13 +228,16 @@ export async function verifyPlaneAccount(conn: PlaneConn): Promise<{ user: Plane
     throw e;
   }
   if (!me?.id) throw new Error("Plane did not say which user the API key belongs to; check the base URL");
-  let projects: PlaneProject[];
-  try { projects = await listPlaneProjects(conn); }
+  const display = me.display_name || [me.first_name, me.last_name].filter(Boolean).join(" ") || "Plane user";
+  return { id: String(me.id), name: me.email ? `${display} (${me.email})` : display };
+}
+
+/** The Plane projects of one Plane workspace, which proves the key's user can open it; a slug Plane refuses says why. */
+export async function checkPlaneWorkspace(conn: PlaneServerConn, workspaceSlug: string): Promise<PlaneProject[]> {
+  try { return await listPlaneProjects({ ...conn, workspaceSlug }); }
   catch (e) {
     // A wrong slug, or a user who is not a member of the Plane workspace, is a 403; the key itself passed users/me/.
-    if (e instanceof PlaneError && (e.status === 403 || e.status === 404)) throw new Error(`Plane refused the Plane workspace "${conn.workspaceSlug}". Check the slug in the Plane workspace's URL, and that the key's user is a member of it.`);
+    if (e instanceof PlaneError && (e.status === 403 || e.status === 404)) throw new Error(`Plane refused the Plane workspace "${workspaceSlug}". Check the slug in the Plane workspace's URL, and that the key's user is a member of it.`);
     throw e;
   }
-  const display = me.display_name || [me.first_name, me.last_name].filter(Boolean).join(" ") || "Plane user";
-  return { user: { id: String(me.id), name: me.email ? `${display} (${me.email})` : display }, projects };
 }

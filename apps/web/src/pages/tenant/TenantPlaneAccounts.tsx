@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useOutletContext } from "react-router";
-import { Kanban, Pencil, Plus, Trash2 } from "lucide-react";
+import { Kanban, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,11 +12,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type PlaneAccount, type PlaneServer, type PlaneVersion, type Tenant } from "@/lib/api";
+import { Switch } from "@/components/ui/switch";
+import { api, type PlaneAccount, type PlaneServer, type PlaneVersion, type PlaneWorkspace, type Tenant } from "@/lib/api";
 import { planeHost } from "@/lib/plane";
 import { useLastShown } from "@/hooks/use-last-shown";
 
-const EMPTY = { name: "", baseUrl: "", workspaceSlug: "", apiKey: "", planeVersion: "" };
+const EMPTY = { name: "", baseUrl: "", workspaces: [] as PlaneWorkspace[], apiKey: "", planeVersion: "" };
+// Mirrors slugOf and MAX_PLANE_WORKSPACES in apps/agent/src/routes/admin/planeAccounts.ts.
+const SLUG = /^[a-z0-9][a-z0-9_-]{0,47}$/;
+const MAX_WORKSPACES = 20;
 
 export function TenantPlaneAccounts() {
   const tenant = useOutletContext<Tenant>();
@@ -24,6 +28,8 @@ export function TenantPlaneAccounts() {
   const [editing, setEditing] = useState<PlaneAccount | "new" | null>(null);
   const shown = useLastShown(editing);
   const [form, setForm] = useState(EMPTY);
+  const [slug, setSlug] = useState("");
+  const [slugError, setSlugError] = useState("");
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [versions, setVersions] = useState<PlaneVersion[]>([]);
@@ -50,13 +56,15 @@ export function TenantPlaneAccounts() {
   };
 
   const open = (a: PlaneAccount | "new") => {
-    setForm(a === "new" ? { ...EMPTY, planeVersion: versions.at(-1)?.id ?? "" } : { name: a.name, baseUrl: a.baseUrl ?? "", workspaceSlug: a.workspaceSlug, apiKey: "", planeVersion: a.planeVersion });
+    setForm(a === "new" ? { ...EMPTY, planeVersion: versions.at(-1)?.id ?? "" } : { name: a.name, baseUrl: a.baseUrl ?? "", workspaces: a.workspaces, apiKey: "", planeVersion: a.planeVersion });
+    setSlug(""); setSlugError("");
     setEditing(a);
     readServer(a === "new" ? "" : a.baseUrl ?? "", a === "new");
   };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    const body = { name: form.name.trim(), baseUrl: form.baseUrl.trim() || null, workspaceSlug: form.workspaceSlug.trim(), ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}), ...(chosen ? { planeVersion: chosen.id } : {}) };
+    if (!form.workspaces.length) { setSlugError("Add at least one Plane workspace."); return; }
+    const body = { name: form.name.trim(), baseUrl: form.baseUrl.trim() || null, workspaces: form.workspaces, ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}), ...(chosen ? { planeVersion: chosen.id } : {}) };
     setSaving(true);
     try {
       const r = editing === "new" ? await api.createPlaneAccount(tenant.id, body) : await api.updatePlaneAccount((editing as PlaneAccount).id, body);
@@ -70,11 +78,21 @@ export function TenantPlaneAccounts() {
     try { await api.deletePlaneAccount(a.id); toast.success("Plane account deleted"); await load(); } catch (e: any) { toast.error(e.message); }
   };
   const hostChanged = shown !== "new" && !!shown && (form.baseUrl.trim() || null) !== shown.baseUrl;
+  const addSlug = () => {
+    const s = slug.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+    if (!SLUG.test(s)) return setSlugError("A slug has letters, digits, - and _, as in the Plane workspace's address.");
+    if (form.workspaces.some((w) => w.slug === s)) return setSlugError(`${s} is already listed.`);
+    setForm({ ...form, workspaces: [...form.workspaces, { slug: s, enabled: true }] });
+    setSlug(""); setSlugError("");
+  };
+  const setWorkspace = (s: string, enabled: boolean) => setForm({ ...form, workspaces: form.workspaces.map((w) => (w.slug === s ? { ...w, enabled } : w)) });
+  // Removing a saved workspace deletes its Plane access rules, which switching it off would keep.
+  const removed = shown && shown !== "new" ? shown.workspaces.filter((w) => !form.workspaces.some((x) => x.slug === w.slug)) : [];
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 flex-1 text-sm text-muted-foreground">A Plane account opens one Plane workspace, on Plane's cloud or your own server, as one Plane user. Several integrations can share it. Self-hosted servers must be on Allowed hosts in <Link to="/settings" className="underline underline-offset-2">Settings</Link>.</p>
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground">A Plane account is one API key on Plane's cloud or your own server, acting as one Plane user in every Plane workspace that user belongs to. List the workspaces integrations may use. Several integrations can share an account. Self-hosted servers must be on Allowed hosts in <Link to="/settings" className="underline underline-offset-2">Settings</Link>.</p>
         <Button onClick={() => open("new")}><Plus /> Add Plane account</Button>
       </div>
       {loadError
@@ -94,8 +112,11 @@ export function TenantPlaneAccounts() {
                 <Card key={a.id} className="py-5"><CardContent className="flex h-full flex-col gap-3">
                   <div className="flex items-start gap-3">
                     <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted"><Kanban className="size-5" /></div>
-                    <div className="min-w-0 flex-1"><div className="truncate font-medium">{a.name}</div><div className="truncate text-xs text-muted-foreground">{planeHost(a.baseUrl)} · {a.workspaceSlug}</div></div>
+                    <div className="min-w-0 flex-1"><div className="truncate font-medium">{a.name}</div><div className="truncate text-xs text-muted-foreground">{planeHost(a.baseUrl)}</div></div>
                   </div>
+                  <ul aria-label="Plane workspaces" className="flex flex-wrap gap-1.5">
+                    {a.workspaces.map((w) => <li key={w.slug}><Badge variant={w.enabled ? "secondary" : "outline"} className="font-mono">{w.slug}{!w.enabled && <span className="font-sans text-muted-foreground">· off</span>}</Badge></li>)}
+                  </ul>
                   <p className="break-words text-xs">Connected as <span className="font-medium">{a.planeUserName}</span></p>
                   <div>{versionBadge(a.planeVersion)}</div>
                   {a.versionNote && <p className="break-words text-xs text-amber-700 dark:text-amber-400">{a.versionNote}</p>}
@@ -128,8 +149,26 @@ export function TenantPlaneAccounts() {
               {server && (server.suggested === chosen?.id
                 ? <p className="text-xs text-muted-foreground">This Plane runs {server.release}.</p>
                 : <p className="text-xs text-amber-700 dark:text-amber-400">This Plane runs {server.release}, {server.suggested ? `which ${versionOf(server.suggested)?.label ?? server.suggested} covers.` : "which no Plane version here covers yet. Some tools may fail."}</p>)}</div>
-            <div className="space-y-2"><Label htmlFor="ps">Workspace slug</Label><Input id="ps" required autoComplete="off" spellCheck={false} placeholder="acme" value={form.workspaceSlug} onChange={(e) => setForm({ ...form, workspaceSlug: e.target.value })} />
-              <p className="text-xs text-muted-foreground">The part after the host in your Plane workspace's address, as in app.plane.so/<span className="font-mono">acme</span>/.</p></div>
+            <div className="space-y-2"><Label htmlFor="ps">Plane workspaces</Label>
+              <div className="flex gap-2">
+                <Input id="ps" autoComplete="off" spellCheck={false} placeholder="acme" aria-describedby="ps-help" aria-invalid={!!slugError} value={slug}
+                  onChange={(e) => { setSlug(e.target.value); setSlugError(""); }} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSlug(); } }} />
+                <Button type="button" variant="outline" disabled={!slug.trim() || form.workspaces.length >= MAX_WORKSPACES} onClick={addSlug}>Add</Button>
+              </div>
+              {slugError && <p role="alert" className="text-xs text-destructive">{slugError}</p>}
+              <p id="ps-help" className="text-xs text-muted-foreground">The part after the host in a Plane workspace's address, as in app.plane.so/<span className="font-mono">acme</span>/. The key opens every workspace its Plane user belongs to, but Plane cannot list them, so add each one here. Integrations can use only the ones switched on; at most {MAX_WORKSPACES}.</p>
+              {form.workspaces.length > 0 && (
+                <ul className="divide-y rounded-md border">
+                  {form.workspaces.map((w) => (
+                    <li key={w.slug} className="flex min-h-11 items-center gap-3 py-1 pr-1 pl-3">
+                      <span className="min-w-0 flex-1 break-all font-mono text-sm">{w.slug}</span>
+                      <Switch checked={w.enabled} onCheckedChange={(v) => setWorkspace(w.slug, v)} aria-label={`Integrations may use ${w.slug}`} />
+                      <IconButton type="button" label={`Remove ${w.slug}`} onClick={() => setForm({ ...form, workspaces: form.workspaces.filter((x) => x.slug !== w.slug) })}><X /></IconButton>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {removed.length > 0 && <p className="text-xs text-amber-700 dark:text-amber-400">Saving removes {removed.map((w) => w.slug).join(", ")} and its Plane access rules in every integration. Switch a workspace off instead to keep them.</p>}</div>
             <div className="space-y-2"><Label htmlFor="pk">API key</Label><Input id="pk" type="password" autoComplete="off" required={shown === "new" || hostChanged} placeholder={shown !== "new" && !hostChanged ? "Leave blank to keep current" : ""} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />
               <p className="text-xs text-muted-foreground">The bot can do whatever this key's Plane user can. Use a dedicated Plane user, added only to the Plane projects it needs as a Member (Admin only for intake triage or project admin), and give the key an expiry. The key is checked with Plane on save and never shown again.</p></div>
             <DialogFooter><Button disabled={saving}>{saving ? "Checking with Plane" : "Save"}</Button></DialogFooter>

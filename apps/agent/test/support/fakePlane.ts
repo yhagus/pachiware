@@ -515,7 +515,8 @@ export function fakePlane(s: Scenario, { host = "api.plane.so", slug = "acme", u
     return json(405, { detail: `Method "${method}" not allowed.` });
   }
 
-  s.http.on(new RegExp(`^[A-Z]+ https://${host.replace(/\./g, "\\.")}/api/v1/`), respond);
+  // One Plane workspace per fake, so two fakes on one host answer for their own slugs.
+  s.http.on(new RegExp(`^[A-Z]+ https://${host.replace(/\./g, "\\.")}/api/v1/workspaces/${slug}/`), respond);
   // The presigned upload, at either scheme so a test sees which one was used. Its body is recorded as the form's keys in order and the file.
   const upload = new URL(uploadUrl);
   s.http.on(new RegExp(`^POST https?://${upload.host.replace(/\./g, "\\.")}${upload.pathname}$`), async (req) => {

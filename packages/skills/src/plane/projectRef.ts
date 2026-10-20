@@ -10,7 +10,7 @@ import { loadPlaneAccess, pickPlaneAccess, planeProjectAllowed, planeConnOf, typ
 /** A Plane project as Plane lists or answers it; `cycle_view`, `module_view` and `intake_view` say which features are on. */
 export type PlaneProjectDetail = { id: string; name: string; identifier: string; cycle_view?: boolean; module_view?: boolean; intake_view?: boolean; [k: string]: any };
 
-/** The account a tool acts through here, its connection, and the Plane workspace's projects, listed at most once per call. */
+/** The account and Plane workspace a tool acts through here, its connection, and that workspace's projects, listed at most once per call. */
 export interface PlaneTarget {
   access: PlaneAccess;
   conn: PlaneConn;
@@ -21,7 +21,7 @@ export interface PlaneTarget {
 }
 export type PlaneProjectTarget = PlaneTarget & { project: PlaneProjectDetail };
 
-export const ACCOUNT_ARG: ToolPropertySchema = { type: "string", description: "Plane account name; needed only when several are usable here (see planeAccounts)." };
+export const ACCOUNT_ARG: ToolPropertySchema = { type: "string", description: "Plane account as planeAccounts names it (account/workspace when one account has several Plane workspaces here); needed only when several are usable here." };
 
 /** The `account` and `project` arguments every tool on one Plane project takes. */
 export const PROJECT_ARGS: Record<string, ToolPropertySchema> = {
@@ -39,7 +39,7 @@ export async function planeTarget(ctx: SkillContext, args: { account?: unknown }
 
 /** The target of an account already chosen, e.g. by `pickWorkspaceAccess` for a workspace-level tool. */
 export function planeTargetOf(access: PlaneAccess): PlaneTarget {
-  const conn = planeConnOf(access.account);
+  const conn = planeConnOf(access.account, access.workspace);
   let listed: Promise<PlaneProjectDetail[]> | null = null;
   const projects = () => (listed ??= planeList<PlaneProjectDetail>(conn, inWorkspace(conn, "projects/"), { perPage: 1000, maxPages: 3 }).then((r) => r.items));
   return {

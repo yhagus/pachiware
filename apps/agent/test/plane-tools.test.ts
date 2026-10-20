@@ -27,7 +27,7 @@ discordScenario("planeAccounts lists the Plane user and the Plane projects this 
   ask();
   const msg = await s.discord.send(`${s.discord.mention} which Plane projects can you reach?`);
   expect(msg.thread).toBeDefined();
-  expect(results[0]).toEqual({ accounts: [{ name: "plane", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3.1", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] }] });
+  expect(results[0]).toEqual({ accounts: [{ name: "plane", workspace: "acme", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3.1", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] }] });
 
   ask();
   s.discord.channel("channel-2");
@@ -95,6 +95,42 @@ discordScenario("Allowed hosts is checked again on every call, so a host taken o
   saveAllowedHosts([]);
 });
 
+discordScenario("one key on two Plane workspaces: the bot sees each switched-on one, by account/workspace when there are two, and never asks Plane about one switched off", async (s) => {
+  const P1 = "11111111-1111-4111-8111-111111111111", P3 = "33333333-3333-4333-8333-333333333333";
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const acc = await s.plane({ name: "main", workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: false }] });
+  const listed = (results: any[]) => ({ next_cursor: "100:1:0", next_page_results: false, results });
+  s.http.on("GET api.plane.so/api/v1/workspaces/acme/projects/", () => listed([{ id: P1, name: "Engineering", identifier: "ENG" }]));
+  s.http.on("GET api.plane.so/api/v1/workspaces/beta/projects/", () => listed([{ id: P3, name: "Beta", identifier: "BET" }]));
+  const results: any[] = [];
+  s.model.script({ tool: "planeAccounts" }, (turn) => { results.push(turn.toolResults.at(-1)); return "done"; });
+  await s.discord.send(`${s.discord.mention} which Plane accounts can you use?`);
+  expect(results[0]).toEqual({ accounts: [{ name: "main", workspace: "acme", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3.1", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] }] });
+  expect(s.http.requests.some((r) => r.url.includes("/workspaces/beta/"))).toBe(false);
+
+  await repositories().plane.updateAccount(acc.id, { workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: true }] });
+  s.model.script(
+    { tool: "planeProjects", args: { account: "main" } },
+    (turn) => { results.push(turn.toolResults.at(-1)); return { tool: "planeProjects", args: { account: "Main/Beta" } }; },
+    (turn) => { results.push(turn.toolResults.at(-1)); return "done"; },
+  );
+  await s.discord.send(`${s.discord.mention} which Plane projects can you reach?`);
+  expect(results[1].error).toBe('Plane account "main" has several Plane workspaces here; pass "account" with one of: main/acme, main/beta');
+  expect(results[2].projects.map((p: any) => p.identifier)).toEqual(["BET"]);
+});
+
+discordScenario("a channel whose Plane rule is only for a switched-off Plane workspace gets no Plane: switching it off does not open the server's others there", async (s) => {
+  const { repositories } = await import("../../../packages/db/src/index.ts");
+  const acc = await s.plane({ name: "main", workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: true }] });
+  await repositories().plane.replaceScopes(s.tenant.id, s.bot.id, "guild-1", "channel-1", [{ planeAccountId: acc.id, workspaceSlug: "beta", projectIds: ["*"] }]);
+  await repositories().plane.updateAccount(acc.id, { workspaces: [{ slug: "acme", enabled: true }, { slug: "beta", enabled: false }] });
+  let result: any;
+  s.model.script({ tool: "planeAccounts" }, (turn) => { result = turn.toolResults[0]; return "done"; });
+  await s.discord.send(`${s.discord.mention} which Plane accounts can you use?`);
+  expect(JSON.stringify(result)).toContain("Plane is not enabled here");
+  expect(s.http.requests).toEqual([]);
+});
+
 discordScenario("an account on a Plane version this server does not know is refused alone; the bot's other Plane account keeps working", async (s) => {
   const P1 = "11111111-1111-4111-8111-111111111111";
   await s.plane({ name: "work" });
@@ -115,8 +151,8 @@ discordScenario("an account on a Plane version this server does not know is refu
   expect(results[1].projects.map((p: any) => p.identifier)).toEqual(["ENG"]);
   // Both accounts are made in the same instant, so their order is not fixed.
   expect([...results[2].accounts].sort((a: any, b: any) => a.name.localeCompare(b.name))).toEqual([
-    { name: "old", planeUser: "pachibot (bot@acme.test)", planeVersion: 'unknown ("0.9")', error: 'Plane account "old" is set to Plane version "0.9", which this server does not know. An admin can choose a supported version in the console.' },
-    { name: "work", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3.1", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] },
+    { name: "old", workspace: "legacy", planeUser: "pachibot (bot@acme.test)", planeVersion: 'unknown ("0.9")', error: 'Plane account "old" is set to Plane version "0.9", which this server does not know. An admin can choose a supported version in the console.' },
+    { name: "work", workspace: "acme", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3.1", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] },
   ]);
   expect(s.http.requests.some((r) => r.url.includes("/workspaces/legacy/"))).toBe(false);
 });

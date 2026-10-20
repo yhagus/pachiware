@@ -83,7 +83,7 @@ export const gitScopes = pgTable("git_scopes", {
 
 export const planeAccounts = pgTable("plane_accounts", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), baseUrl: text("base_url"), workspaceSlug: text("workspace_slug").notNull(), apiKeyEncrypted: text("api_key_encrypted").notNull(),
+  name: text("name").notNull(), baseUrl: text("base_url"), workspaces: jsonb("workspaces").$type<{ slug: string; enabled: boolean }[]>().notNull().default([]), apiKeyEncrypted: text("api_key_encrypted").notNull(),
   planeUserId: text("plane_user_id").notNull(), planeUserName: text("plane_user_name").notNull(), planeVersion: text("plane_version").notNull().default("1.3.1"), planeServerVersion: text("plane_server_version"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [uniqueIndex("plane_accounts_tenant_name_idx").on(t.tenantId, t.name), uniqueIndex("plane_accounts_tenant_id_idx").on(t.tenantId, t.id)]);
@@ -96,10 +96,10 @@ export const botPlaneAccounts = pgTable("bot_plane_accounts", {
 
 export const planeScopes = pgTable("plane_scopes", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  botId: text("bot_id").notNull(), guildId: text("guild_id").notNull(), channelId: text("channel_id").notNull().default(""), planeAccountId: text("plane_account_id").notNull(),
+  botId: text("bot_id").notNull(), guildId: text("guild_id").notNull(), channelId: text("channel_id").notNull().default(""), planeAccountId: text("plane_account_id").notNull(), workspaceSlug: text("workspace_slug").notNull(),
   projectIds: jsonb("project_ids").$type<string[]>().notNull().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (t) => [uniqueIndex("plane_scopes_idx").on(t.botId, t.guildId, t.channelId, t.planeAccountId), foreignKey({ columns: [t.botId, t.planeAccountId], foreignColumns: [botPlaneAccounts.botId, botPlaneAccounts.planeAccountId] }).onDelete("cascade")]);
+}, (t) => [uniqueIndex("plane_scopes_idx").on(t.botId, t.guildId, t.channelId, t.planeAccountId, t.workspaceSlug), foreignKey({ columns: [t.botId, t.planeAccountId], foreignColumns: [botPlaneAccounts.botId, botPlaneAccounts.planeAccountId] }).onDelete("cascade")]);
 
 /** Availability rules: tenant (no bot), bot, (bot, guild), or channel level; target kind playbook, skill, tool or effect; value off, opt_in or on. No row means inherit. */
 export const availabilityRules = pgTable("availability_rules", {
