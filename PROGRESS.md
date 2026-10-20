@@ -1962,5 +1962,5 @@ Asked by the user on 2026-10-20: "Simpulkan tugasku untuk hari ini setiap jam 9 
   - after the answer, the card;
   - a run posts its report;
   - the console lists both kinds.
-- [ ] Merged into `main` and pushed, when the user asks.
+- [x] Merged: `feat/routines` fast-forwarded into `main` and pushed, as the user asked (2026-10-20).
 
