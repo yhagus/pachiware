@@ -6,7 +6,7 @@ const posts = (s: any) => s.discord.botMessages.filter((m: any) => m.allowedMent
 
 discordScenario("a weekly Reminder posts on each chosen weekday at its time and advances to the next chosen one", async (s) => {
   s.clock.set("2026-03-06T14:00:00+07:00"); // Friday
-  s.model.script({ tool: "createReminder", args: { text: "standup", recurrence: "weekly", weekdays: ["monday", "thursday"], time: "09:00" } }, (turn) => `${turn.toolResults[0].recurrence} next ${turn.toolResults[0].at}`);
+  s.model.script({ tool: "createReminder", args: { text: "standup", said: ["every Monday and Thursday at 09:00"], recurrence: "weekly", weekdays: ["monday", "thursday"], time: "09:00" } }, (turn) => `${turn.toolResults[0].recurrence} next ${turn.toolResults[0].at}`);
   await s.discord.send(`${s.discord.mention} remind me every Monday and Thursday at 09:00: standup`);
   expect(s.discord.botMessages.at(-1)!.content).toBe("weekly next 2026-03-09T09:00:00+07:00");
 
@@ -29,12 +29,12 @@ discordScenario("a weekly Reminder posts on each chosen weekday at its time and 
 
 discordScenario("a tick more than six hours late skips a once Reminder and advances a repeating one; one two hours late posts with a late note", async (s) => {
   s.clock.set("2026-03-06T08:00:00+07:00");
-  s.model.script({ tool: "createReminder", args: { text: "once one", at: "09:00" } }, "ok");
-  await s.discord.send(`${s.discord.mention} remind me at 09:00: once one`);
-  s.model.script({ tool: "createReminder", args: { text: "daily one", recurrence: "daily", time: "09:00" } }, "ok");
+  s.model.script({ tool: "createReminder", args: { text: "once one", said: ["once at 09:00"], recurrence: "once", at: "09:00" } }, "ok");
+  await s.discord.send(`${s.discord.mention} remind me once at 09:00: once one`);
+  s.model.script({ tool: "createReminder", args: { text: "daily one", said: ["every day at 09:00"], recurrence: "daily", time: "09:00" } }, "ok");
   await s.discord.send(`${s.discord.mention} remind me every day at 09:00: daily one`, { channel: "channel-2" });
-  s.model.script({ tool: "createReminder", args: { text: "later one", at: "14:00" } }, "ok");
-  await s.discord.send(`${s.discord.mention} remind me at 14:00: later one`, { channel: "channel-3" });
+  s.model.script({ tool: "createReminder", args: { text: "later one", said: ["once at 14:00"], recurrence: "once", at: "14:00" } }, "ok");
+  await s.discord.send(`${s.discord.mention} remind me once at 14:00: later one`, { channel: "channel-3" });
 
   s.clock.set("2026-03-06T16:00:00+07:00");
   await s.scheduler.tick();
@@ -55,8 +55,8 @@ discordScenario("a tick more than six hours late skips a once Reminder and advan
 
 discordScenario("a post Discord refuses keeps its time and is retried 1, 6 and 36 minutes past it; after the fourth failure a one-off Reminder is done with an error note", async (s) => {
   s.clock.set("2026-03-06T08:00:00+07:00");
-  s.model.script({ tool: "createReminder", args: { text: "fragile", at: "09:00" } }, "ok");
-  const ask = await s.discord.send(`${s.discord.mention} remind me at 09:00: fragile`, { channel: "channel-2" });
+  s.model.script({ tool: "createReminder", args: { text: "fragile", said: ["once at 09:00"], recurrence: "once", at: "09:00" } }, "ok");
+  const ask = await s.discord.send(`${s.discord.mention} remind me once at 09:00: fragile`, { channel: "channel-2" });
   const channel: any = s.discord.channel(ask.thread!.id);
   const send = channel.send;
   channel.send = async () => { throw new Error("Missing Access"); };
@@ -86,7 +86,7 @@ discordScenario("a post Discord refuses keeps its time and is retried 1, 6 and 3
 
 discordScenario("a weekly Reminder whose channel refuses posts is retried, then moves to next week with the error kept, and posts there", async (s) => {
   s.clock.set("2026-03-06T14:00:00+07:00"); // Friday
-  s.model.script({ tool: "createReminder", args: { text: "standup", recurrence: "weekly", weekdays: ["monday"], time: "09:00" } }, "ok");
+  s.model.script({ tool: "createReminder", args: { text: "standup", said: ["every Monday at 09:00"], recurrence: "weekly", weekdays: ["monday"], time: "09:00" } }, "ok");
   const ask = await s.discord.send(`${s.discord.mention} remind me every Monday at 09:00: standup`, { channel: "channel-2" });
   const channel: any = s.discord.channel(ask.thread!.id);
   const send = channel.send;
@@ -106,7 +106,7 @@ discordScenario("a weekly Reminder whose channel refuses posts is retried, then 
 
 discordScenario("a monthly Reminder on the 31st lands on the last day of a shorter month, and ends after its until date", async (s) => {
   s.clock.set("2026-01-30T10:00:00+07:00");
-  s.model.script({ tool: "createReminder", args: { text: "invoices", recurrence: "monthly", dayOfMonth: 31, time: "09:00", until: "2026-03-15" } }, (turn) => `${turn.toolResults[0].at} until ${turn.toolResults[0].until}`);
+  s.model.script({ tool: "createReminder", args: { text: "invoices", said: ["on the 31st of every month at 09:00"], recurrence: "monthly", dayOfMonth: 31, time: "09:00", until: "2026-03-15" } }, (turn) => `${turn.toolResults[0].at} until ${turn.toolResults[0].until}`);
   await s.discord.send(`${s.discord.mention} remind me on the 31st of every month at 09:00 until mid-March: invoices`);
   expect(s.discord.botMessages.at(-1)!.content).toBe("2026-01-31T09:00:00+07:00 until 2026-03-15T23:59:59+07:00");
   const schedules = await SCHEDULES();
@@ -120,7 +120,7 @@ discordScenario("a monthly Reminder on the 31st lands on the last day of a short
   expect(posts(s).length).toBe(2);
   expect(await row()).toEqual(["done", "2026-02-28T02:00:00.000Z"]);
 
-  s.model.script({ tool: "createReminder", args: { text: "never", recurrence: "weekly", weekdays: ["friday"], time: "09:00", until: "2026-03-01" } }, (turn) => turn.toolResults[0].error);
+  s.model.script({ tool: "createReminder", args: { text: "never", said: ["every Friday at 09:00"], recurrence: "weekly", weekdays: ["friday"], time: "09:00", until: "2026-03-01" } }, (turn) => turn.toolResults[0].error);
   await s.discord.send(`${s.discord.mention} remind me every Friday at 09:00 until yesterday: never`, { channel: "channel-2" });
   expect(s.discord.botMessages.at(-1)!.content).toMatch(/end date comes before/);
   expect((await schedules.list()).length).toBe(1);

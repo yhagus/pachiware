@@ -19,8 +19,8 @@ discordScenario("a DM Reminder with withTasks appends the owner's open Personal 
   const idOf = (slug: string) => /-([0-9a-f]{8})\.md$/.exec(files.find((p) => p.includes(`/${slug}-`))!)![1];
   const rent = idOf("pay-the-rent"), dentist = idOf("call-the-dentist");
 
-  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, (turn) => `set ${turn.toolResults[0].withTasks}`);
-  await s.discord.send("remind me at 07:00 with my tasks", { channel: dm });
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, (turn) => `set ${turn.toolResults[0].withTasks}`);
+  await s.discord.send("remind me once at 07:00 with my tasks", { channel: dm });
   expect(s.discord.botMessages.at(-1)!.content).toBe("set true");
 
   s.clock.set("2026-03-07T07:00:00+07:00");
@@ -43,8 +43,8 @@ discordScenario("a Reminder with withTasks and no open task of the owner posts i
   const dm = s.discord.channel("dm-alice", { dm: true }), alice = s.discord.alice, bob = s.discord.bob;
   await s.workspace.write(`dms/${bob.id}/tasks/bobs-aaaaaaaa.md`, task({ id: "aaaaaaaa-0000-4000-8000-000000000001", title: "Bob's errand", createdBy: bob.id, createdByName: bob.name }));
   await s.workspace.write("guilds/guild-1/channels/channel-1/tasks/channel-cccccccc.md", task({ id: "cccccccc-0000-4000-8000-000000000003", title: "Bob's channel work", assignedTo: { id: bob.id, name: "Bob" }, createdBy: alice.id, createdByName: alice.name }));
-  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
-  await s.discord.send("remind me at 07:00 with my tasks", { channel: dm });
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, "set");
+  await s.discord.send("remind me once at 07:00 with my tasks", { channel: dm });
   s.clock.set("2026-03-07T07:00:00+07:00");
   await s.scheduler.tick();
   expect(s.discord.botMessages.at(-1)!.content).toBe(`<@${alice.id}> Pengingat: morning overview`);

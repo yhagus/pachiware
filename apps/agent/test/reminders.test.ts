@@ -3,8 +3,8 @@ import { discordScenario } from "./support/discordScenario";
 
 discordScenario("a one-shot Reminder posts where it was asked when its time comes, pinging the owner, and only then", async (s) => {
   s.clock.set("2026-03-06T14:00:00+07:00");
-  s.model.script({ tool: "createReminder", args: { text: "send the invoice", at: "2026-03-06T15:00" } }, (turn) => `Set for ${turn.toolResults[0].at}`);
-  const ask = await s.discord.send(`${s.discord.mention} remind me at 15:00 to send the invoice`);
+  s.model.script({ tool: "createReminder", args: { text: "send the invoice", said: ["today at 15:00"], recurrence: "once", at: "2026-03-06T15:00" } }, (turn) => `Set for ${turn.toolResults[0].at}`);
+  const ask = await s.discord.send(`${s.discord.mention} remind me today at 15:00 to send the invoice`);
   expect(s.discord.botMessages.at(-1)?.content).toBe("Set for 2026-03-06T15:00:00+07:00");
   const before = s.discord.botMessages.length;
 
@@ -29,8 +29,8 @@ discordScenario("a one-shot Reminder posts where it was asked when its time come
 
 discordScenario("the people named when the Reminder was made are pinged with the owner, and the once row is done afterwards", async (s) => {
   s.clock.set("2026-03-06T14:00:00+07:00");
-  s.model.script({ tool: "createReminder", args: { text: "standup moved to 16:00", at: "15:00", mentions: [`<@${s.discord.bob.id}>`, s.discord.alice.id] } }, (turn) => `ok ${turn.toolResults[0].id}`);
-  await s.discord.send(`${s.discord.mention} remind me and Bob at 15:00 that standup moved to 16:00`);
+  s.model.script({ tool: "createReminder", args: { text: "standup moved to 16:00", said: ["today at 15:00"], recurrence: "once", at: "15:00", mentions: [`<@${s.discord.bob.id}>`, s.discord.alice.id] } }, (turn) => `ok ${turn.toolResults[0].id}`);
+  await s.discord.send(`${s.discord.mention} remind me and Bob today at 15:00 that standup moved to 16:00`);
   s.clock.set("2026-03-06T15:00:30+07:00");
   await s.scheduler.tick();
   const post = s.discord.botMessages.at(-1)!;
@@ -44,12 +44,12 @@ discordScenario("the people named when the Reminder was made are pinged with the
 discordScenario("a time without an offset is read in the guild's zone, and in a DM in the tenant's", async (s) => {
   s.clock.set("2026-03-06T00:00:00Z");
   await s.guildSettings({ timezone: "Asia/Tokyo" });
-  s.model.script({ tool: "createReminder", args: { text: "guild one", at: "2026-03-06T15:00" } }, (turn) => turn.toolResults[0].at);
-  const ask = await s.discord.send(`${s.discord.mention} remind me at 15:00: guild one`);
+  s.model.script({ tool: "createReminder", args: { text: "guild one", said: ["today at 15:00"], recurrence: "once", at: "2026-03-06T15:00" } }, (turn) => turn.toolResults[0].at);
+  const ask = await s.discord.send(`${s.discord.mention} remind me today at 15:00: guild one`);
   expect(s.discord.botMessages.at(-1)!.content).toBe("2026-03-06T15:00:00+09:00");
   const dm = s.discord.channel("dm-alice", { dm: true });
-  s.model.script({ tool: "createReminder", args: { text: "dm one", at: "2026-03-06T15:00" } }, (turn) => turn.toolResults[0].at);
-  await s.discord.send("remind me at 15:00: dm one", { channel: dm });
+  s.model.script({ tool: "createReminder", args: { text: "dm one", said: ["today at 15:00"], recurrence: "once", at: "2026-03-06T15:00" } }, (turn) => turn.toolResults[0].at);
+  await s.discord.send("remind me today at 15:00: dm one", { channel: dm });
   expect(s.discord.botMessages.at(-1)!.content).toBe("2026-03-06T15:00:00+07:00");
   const posted = () => s.discord.botMessages.filter((m) => m.allowedMentions?.users).map((m) => [m.channelId, m.content]);
 
@@ -63,10 +63,10 @@ discordScenario("a time without an offset is read in the guild's zone, and in a 
 
 discordScenario("a time that has passed or cannot be read is refused and nothing is scheduled", async (s) => {
   s.clock.set("2026-03-06T14:00:00+07:00");
-  s.model.script({ tool: "createReminder", args: { text: "too late", at: "2026-03-06T13:00" } }, (turn) => `1: ${turn.toolResults[0].error}`);
-  await s.discord.send(`${s.discord.mention} remind me at 13:00`);
+  s.model.script({ tool: "createReminder", args: { text: "too late", said: ["today at 13:00"], recurrence: "once", at: "2026-03-06T13:00" } }, (turn) => `1: ${turn.toolResults[0].error}`);
+  await s.discord.send(`${s.discord.mention} remind me today at 13:00`);
   expect(s.discord.botMessages.at(-1)!.content).toMatch(/^1: .*already passed/);
-  s.model.script({ tool: "createReminder", args: { text: "when?", at: "soonish" } }, (turn) => `2: ${turn.toolResults[0].error}`);
+  s.model.script({ tool: "createReminder", args: { text: "when?", said: ["soonish"], recurrence: "once", at: "soonish" } }, (turn) => `2: ${turn.toolResults[0].error}`);
   await s.discord.send(`${s.discord.mention} remind me soonish`, { channel: "channel-2" });
   expect(s.discord.botMessages.at(-1)!.content).toMatch(/^2: at must be a date and time/);
   const { repositories } = await import("../../../packages/db/src/index.ts");
@@ -77,7 +77,7 @@ discordScenario("a Reminder at a day or a time that does not exist is refused, a
   s.clock.set("2026-02-10T14:00:00+07:00");
   const { repositories } = await import("@pachiware/db");
   for (const at of ["2026-02-30T09:00", "25:00", "2026-02-12T09:75"]) {
-    s.model.script({ tool: "createReminder", args: { text: "pay rent", at } }, (turn) => turn.toolResults[0].error);
+    s.model.script({ tool: "createReminder", args: { text: "pay rent", said: [`at ${at}`], recurrence: "once", at } }, (turn) => turn.toolResults[0].error);
     await s.discord.send(`${s.discord.mention} remind me at ${at} to pay rent`);
     expect(s.discord.botMessages.at(-1)?.content).toBe('at must be a date and time such as "2026-03-06T15:00"');
   }

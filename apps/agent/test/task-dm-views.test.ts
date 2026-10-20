@@ -63,8 +63,8 @@ discordScenario("a DM Reminder with tasks posts Alice's mine list across shared 
   s.clock.set("2026-10-14T20:00:00+07:00");
   await threeGuilds(s);
   const dm = s.discord.channel("dm-alice", { dm: true });
-  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
-  await s.discord.send("remind me at 07:00 with my tasks", { channel: dm });
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, "set");
+  await s.discord.send("remind me once at 07:00 with my tasks", { channel: dm });
 
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
@@ -101,8 +101,8 @@ discordScenario("a channel Reminder with tasks lists the same mine scope as aski
   await s.discord.send(`${s.discord.mention} what have I finished?`);
   expect(s.discord.botMessages.at(-1)?.content).toBe("#launch: Hang the banner\n1 of 1");
 
-  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
-  await s.discord.send(`${s.discord.mention} remind me at 07:00 with my tasks`);
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, "set");
+  await s.discord.send(`${s.discord.mention} remind me once at 07:00 with my tasks`);
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
   const post = s.discord.botMessages.at(-1)!;
@@ -153,8 +153,8 @@ discordScenario("from a DM, mine and its Reminder include the shared tasks of th
   await s.discord.send("what's on my plate?", { channel: dm });
   expect(s.discord.botMessages.at(-1)?.content).toBe("#ops (Beta): Renew the domain\nShared tasks: Renew the licence, Plan the offsite\n#launch (Acme): Print the flyers\nPersonal tasks: Call the dentist\n5 of 5");
 
-  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
-  await s.discord.send("remind me at 07:00 with my tasks", { channel: dm });
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, "set");
+  await s.discord.send("remind me once at 07:00 with my tasks", { channel: dm });
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
   expect(s.discord.botMessages.at(-1)!.content.split("\n").slice(2, 7)).toEqual([
@@ -176,8 +176,8 @@ discordScenario("a Reminder task list cut at Discord's limit ends on a task line
   for (let n = 1; n <= 7; n++) long.push({ n, title: `Launch chore ${n} `.padEnd(200, "x"), folder: "guilds/guild-1/channels/channel-1", assignedTo: alice, dueAt: `2026-10-1${n}` });
   await seed(s, [...long, { n: 8, title: "Rotate the keys ".padEnd(200, "x"), folder: "guilds/guild-1/channels/channel-2", assignedTo: alice, dueAt: "2026-10-25" }]);
 
-  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
-  await s.discord.send(`${s.discord.mention} remind me at 07:00 with my tasks`);
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, "set");
+  await s.discord.send(`${s.discord.mention} remind me once at 07:00 with my tasks`);
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
   const content = s.discord.botMessages.at(-1)!.content, lines = content.split("\n");
@@ -196,8 +196,8 @@ discordScenario("a Reminder lists at most twenty tasks, like listTasks, and says
   for (let n = 1; n <= 23; n++) many.push({ n, title: `Chore ${n}`, folder: "guilds/guild-1/channels/channel-1", assignedTo: alice, dueAt: `2026-11-${String(n).padStart(2, "0")}` });
   await seed(s, many);
 
-  s.model.script({ tool: "createReminder", args: { text: "morning overview", at: "07:00", withTasks: true } }, "set");
-  await s.discord.send(`${s.discord.mention} remind me at 07:00 with my tasks`);
+  s.model.script({ tool: "createReminder", args: { text: "morning overview", said: ["once at 07:00"], recurrence: "once", at: "07:00", withTasks: true } }, "set");
+  await s.discord.send(`${s.discord.mention} remind me once at 07:00 with my tasks`);
   s.clock.set("2026-10-15T07:00:00+07:00");
   await s.scheduler.tick();
   const lines = s.discord.botMessages.at(-1)!.content.split("\n");

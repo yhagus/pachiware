@@ -100,7 +100,7 @@ discordScenario("dry run: file-search files the PDF with its text and finds the 
 
 discordScenario("dry run: reminder-weekly sets Monday and Thursday 09:00 and the tick posts the first one with a ping", async (s) => {
   s.model.script(
-    { tool: "createReminder", args: { text: "post the standup", recurrence: "weekly", weekdays: ["monday", "thursday"], time: "09:00" } },
+    { tool: "createReminder", args: { text: "post the standup", said: ["every Monday and Thursday at 09:00"], recurrence: "weekly", weekdays: ["monday", "thursday"], time: "09:00" } },
     "Set: every Monday and Thursday at 09:00, first on Thursday 15 October at 09:00.",
   );
   const output = await dryRun(s, "reminder-weekly");

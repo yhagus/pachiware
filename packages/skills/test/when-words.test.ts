@@ -54,7 +54,7 @@ test("repetitions: daily, weekly on the days named, ranges and exceptions, month
   for (const [words, repeat] of cases) expect([words, read(words).repeat, read(words).unclear]).toEqual([words, repeat, []]);
 });
 
-test("once: a day word, a date, this or next weekday, a span from now, or 'sekali'", () => {
+test("once: a day word, a date, a weekday without 'setiap', a span from now, or 'sekali'", () => {
   expect(pick(read("besok jam 9 pagi"))).toEqual({ time: "09:00", either: null, repeat: { recurrence: "once" }, day: "2026-10-15", unclear: [] });
   expect(read("hari ini jam 3 sore").day).toBe("2026-10-14");
   expect(read("nanti malam jam 9").day).toBe("2026-10-14");
@@ -62,9 +62,11 @@ test("once: a day word, a date, this or next weekday, a span from now, or 'sekal
   expect(read("tanggal 25 Oktober jam 10 pagi").day).toBe("2026-10-25");
   expect(read("tanggal 20 jam 10 pagi").day).toBe("2026-10-20");
   expect(read("20/10 jam 9 pagi").day).toBe("2026-10-20");
+  expect(read("once at 2026-10-16T15:00")).toMatchObject({ time: "15:00", day: "2026-10-16" });
   expect(read("Jumat ini jam 10 pagi").day).toBe("2026-10-16");
   expect(read("Jumat depan jam 10 pagi").day).toBe("2026-10-23");
   expect(read("Jumat sekali saja jam 10 pagi").day).toBe("2026-10-16");
+  expect(pick(read("Kamis jam 4 sore"))).toEqual({ time: "16:00", either: null, repeat: { recurrence: "once" }, day: "2026-10-15", unclear: [] });
   expect(pick(read("sekali jam 15:00"))).toEqual({ time: "15:00", either: null, repeat: { recurrence: "once" }, day: null, unclear: [] });
   expect(read("tomorrow at 9 pm")).toMatchObject({ time: "21:00", day: "2026-10-15" });
   for (const [words, minutes] of [["30 menit lagi", 30], ["2 jam lagi", 120], ["in 2 hours", 120], ["dalam 30 menit", 30], ["1 jam 30 menit lagi", 90], ["sejam lagi", 60], ["setengah jam lagi", 30]] as const) {
@@ -75,7 +77,6 @@ test("once: a day word, a date, this or next weekday, a span from now, or 'sekal
 test("what the words leave open is asked: once or repeating, which days, which date, 'setiap minggu', morning or evening, the zone", () => {
   expect(read("simpulin tugasku jam 9 WIB").unclear.sort()).toEqual(["am-pm", "repetition"]);
   expect(read("remind me at 15:00").unclear).toEqual(["repetition"]);
-  expect(read("Jumat jam 10 pagi").unclear).toEqual(["repetition"]);
   expect(read("seminggu sekali jam 9 pagi").unclear).toEqual(["days"]);
   expect(read("tiap bulan jam 9 pagi").unclear).toEqual(["date"]);
   expect(read("monthly at 9am").unclear).toEqual(["date"]);

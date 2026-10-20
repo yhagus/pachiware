@@ -1,5 +1,6 @@
 # A nudge for Bob the day before his task is due, which follows the due date when it moves. The next spec builds this as a Nudge;
-# today the agent can only set and move a Reminder by hand. Spec #226, ticket #239.
+# today the agent can only set and move a Reminder by hand. Spec #226, ticket #239. Since Routines, a Reminder's time comes from the
+# asker's own words: "sehari sebelum tenggat" names no time, so the bot asks before it sets one, and asks before it moves one.
 language: id
 area: tasks
 clock: 2026-10-14T02:00:00Z   # Wednesday 14 October 2026, 09:00 Asia/Jakarta
@@ -7,12 +8,20 @@ seed:
   tasks:
     - { title: Kirim desain final ke percetakan, status: pending, dueAt: "2026-10-16", assignedTo: Bob }
 mustCover:
-  - Bob dicolek sehari sebelum tenggat tugas Kirim desain final ke percetakan
-  - Setelah tenggatnya mundur ke Senin 19 Oktober 2026, Bob dicolek Minggu 18 Oktober 2026
+  - Bot menanyakan jam colekan dan belum memasang apa pun
+  - Bob dicolek Kamis 15 Oktober 2026 jam 09:00, sehari sebelum tenggat tugas Kirim desain final ke percetakan
+  - Setelah tenggatnya mundur ke Senin 19 Oktober 2026, colekan dipindah ke Minggu 18 Oktober 2026 jam 09:00 setelah ditanyakan
 turns:
-  - replyContains: [Bob]
+  - ambiguous: '"sehari sebelum tenggat" names no time of day; the bot must ask when to nudge Bob and set nothing.'
+    replyContains: [Jam berapa]
+  - reminders:
+      - { text: desain final, recurrence: once, nextAt: "2026-10-15T02:00:00.000Z", mentions: [user-bob] }
+    replyContains: [Bob]
   - tasks:
       - { title: desain final, dueAt: "2026-10-19", assignedTo: Bob }
+    replyContains: ["18 Oktober"]
+  - reminders:
+      - { text: desain final, recurrence: once, nextAt: "2026-10-18T02:00:00.000Z", mentions: [user-bob] }
     replyContains: ["18 Oktober"]
 then:
   clock: 2026-10-18T09:00:10+07:00

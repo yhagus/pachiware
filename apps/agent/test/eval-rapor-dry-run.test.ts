@@ -143,23 +143,28 @@ discordScenario("dry run: telat-per-orang lists the late tasks under each person
 
 discordScenario("dry run: pengingat-berulang sets a weekly Monday 09:00 Reminder, and the tick posts the first one with a ping", async (s) => {
   s.model.script(
-    { tool: "createReminder", args: { text: "kirim laporan mingguan ke klien", recurrence: "weekly", weekdays: ["monday"], time: "09:00" } },
+    { tool: "createReminder", args: { text: "kirim laporan mingguan ke klien", said: ["tiap Senin jam 9 pagi"], recurrence: "weekly", weekdays: ["monday"], time: "09:00" } },
     "Siap: tiap Senin jam 09:00, mulai Senin 19 Oktober.",
   );
   const output = await dryRun(s, "pengingat-berulang");
   expect(output.posts).toEqual([{ text: `<@${s.discord.alice.id}> Pengingat: kirim laporan mingguan ke klien`, pings: [s.discord.alice.id] }]);
 });
 
-discordScenario("dry run: colek-h-1 sets a Reminder pinging Bob the day before, then moves it with the due date", async (s) => {
+discordScenario("dry run: colek-h-1 asks when to nudge Bob, sets it when told, then asks again before moving it with the due date", async (s) => {
   const text = "Bob, besok tenggat Kirim desain final ke percetakan";
   s.model.script(
-    { tool: "createReminder", args: { text, at: "2026-10-15T09:00", mentions: ["<@user-bob>"] } },
+    { tool: "createReminder", args: { text, said: ["sehari sebelum tenggat"], recurrence: "once", at: "2026-10-15T09:00", mentions: ["<@user-bob>"] } },
+    (turn) => turn.toolResults[0].question,
+    { tool: "createReminder", args: { text, said: ["Kamis 15 Oktober jam 9 pagi, sekali aja"], recurrence: "once", at: "2026-10-15T09:00", mentions: ["<@user-bob>"] } },
     "Siap, Bob saya colek Kamis 15 Oktober jam 09:00, sehari sebelum tenggat.",
-    (turn) => [{ tool: "setTaskDueDate", args: { taskId: taskId(turn, "Kirim desain final ke percetakan"), dueAt: "2026-10-19" } }, { tool: "listReminders", args: {} }],
-    (turn) => [{ tool: "cancelReminder", args: { id: turn.toolResults[1].reminders[0].id } }, { tool: "createReminder", args: { text, at: "2026-10-18T09:00", mentions: ["<@user-bob>"] } }],
-    "Tenggat jadi Senin 19 Oktober; colekan untuk Bob pindah ke Minggu 18 Oktober jam 09:00.",
+    (turn) => ({ tool: "setTaskDueDate", args: { taskId: taskId(turn, "Kirim desain final ke percetakan"), dueAt: "2026-10-19" } }),
+    "Tenggat jadi Senin 19 Oktober. Colekan untuk Bob saya pindah ke Minggu 18 Oktober jam 09:00, betul?",
+    { tool: "listReminders", args: {} },
+    (turn) => ({ tool: "editReminder", args: { id: turn.toolResults[0].reminders[0].id, said: ["Minggu 18 Oktober jam 9 pagi"], at: "2026-10-18T09:00" } }),
+    "Siap, colekan untuk Bob pindah ke Minggu 18 Oktober jam 09:00.",
   );
   const output = await dryRun(s, "colek-h-1");
+  expect(output.turns[0].replies).toEqual(["Jam berapa? Misalnya 09:00 atau 21:00. Sekali saja, atau berulang: setiap hari, Senin–Jumat, atau hari tertentu?"]);
   expect(output.posts.map((p: any) => p.text)).toEqual([`<@${s.discord.alice.id}> <@user-bob> Pengingat: ${text}`]);
 });
 
@@ -200,7 +205,7 @@ discordScenario("dry run: tiga-alat-sekaligus files the Task, sets the Reminder 
   s.model.script(
     [
       { tool: "createTask", args: { title: "Siapkan proposal sponsor", assignedTo: "Bob", dueAt: "2026-10-16" } },
-      { tool: "createReminder", args: { text: "cek proposal sponsor", at: "2026-10-15T16:00" } },
+      { tool: "createReminder", args: { text: "cek proposal sponsor", said: ["Kamis jam 4 sore"], recurrence: "once", at: "2026-10-15T16:00" } },
       { tool: "remember", args: { level: "channel", text: "Sponsor utama kita Kopi Senja" } },
     ],
     "Dicatat: siapkan proposal sponsor untuk Bob, jatuh tempo Jumat 16 Oktober. Pengingat Kamis 15 Oktober jam 16:00 untuk cek proposalnya.",

@@ -91,9 +91,9 @@ const TODAY_WORDS = /\b(?:hari ini|today|tonight|nanti|malam ini|pagi ini|siang 
 const ONCE_WORDS = /\b(?:sekali saja|sekali aja|hanya sekali|cuma sekali|sekali|just once|once|one time|1 kali)\b/;
 const DATE_WORDS = new RegExp(String.raw`\b(?:besok|tomorrow|lusa|day after tomorrow|akhir bulan|end of (?:the )?month|\d+ (?:hari|days?) lagi|in \d+ days?)\b|\b\d{4}-\d{2}-\d{2}\b|(?<![\d.:])\d{1,2}[/-]\d{1,2}(?![\d.:])|\b\d{1,2} (?:${MONTH_WORDS})\b|\b(?:${MONTH_WORDS}) \d{1,2}\b`);
 
-/** Lower case, without mentions, apostrophes and repeated spaces, number words as digits, and greetings ("selamat pagi") gone. */
+/** Lower case, without mentions, apostrophes and repeated spaces, an ISO date apart from its time, number words as digits, and greetings ("selamat pagi") gone. */
 function plainWords(text: string) {
-  return text.toLowerCase().normalize("NFKC").replace(/<[@#][!&]?\d+>/g, " ").replace(/[’'`]/g, "").replace(/[–—]/g, "-")
+  return text.toLowerCase().normalize("NFKC").replace(/<[@#][!&]?\d+>/g, " ").replace(/[’'`]/g, "").replace(/[–—]/g, "-").replace(/(\d{4}-\d{2}-\d{2})t(?=\d)/g, "$1 ")
     .replace(/\b(?:selamat|good)\s+(?:pagi|siang|sore|malam|morning|afternoon|evening|night)\b/g, " ")
     .replace(new RegExp(`\\b(${UNIT_WORDS}) puluh(?: (${UNIT_WORDS}))?\\b`, "g"), (_, a: string, b?: string) => String(10 * UNITS[a]! + (b ? UNITS[b]! : 0)))
     .replace(new RegExp(`\\b(${UNIT_WORDS}) belas\\b`, "g"), (_, a: string) => String(10 + UNITS[a]!))
@@ -244,8 +244,9 @@ export function whenFromWords(said: string, from: number, timeZone: string, opts
     else if (date) { reading.repeat = { recurrence: "once" }; reading.day = nextDate(today, Number(date[1])); if (!reading.day) unclear.add("date"); }
     else if (thisOrNext && /\b(?:ini|this)\b/.test(thisOrNext[0])) { reading.repeat = { recurrence: "once" }; reading.day = thisWeek(today, dayNumber(new RegExp(`\\b(${DAY})\\b`).exec(thisOrNext[0])![1]!)); }
     else if (thisOrNext || DATE_WORDS.test(t)) { reading.repeat = { recurrence: "once" }; reading.day = dueFromWords(t, today); if (!reading.day) unclear.add("date"); }
-    // A weekday alone ("Jumat jam 10") may be this Friday or every Friday; with "sekali" it is the coming one.
-    else if (ONCE_WORDS.test(t)) { reading.repeat = { recurrence: "once" }; if (named.size) reading.day = dueFromWords(namedWords[0]!, today); }
+    // A weekday without "setiap" ("Kamis jam 4 sore") names one day: the coming one, as a due date reads it.
+    else if (named.size) { reading.repeat = { recurrence: "once" }; reading.day = dueFromWords(namedWords[0]!, today); }
+    else if (ONCE_WORDS.test(t)) reading.repeat = { recurrence: "once" };
     else unclear.add("repetition");
   }
   if (reading.repeat?.recurrence === "once" && !reading.day && reading.start) reading.day = reading.start;
