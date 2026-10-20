@@ -9,7 +9,7 @@ const P3 = "33333333-3333-4333-8333-333333333333";
 contract("Plane accounts and Plane scopes", (use) => {
   const tenant = (slug: string) => use().repos.tenants.create({ name: slug, slug });
   const account = (tenantId: string, name: string, extra: Record<string, any> = {}) =>
-    use().repos.plane.createAccount({ tenantId, name, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", planeVersion: "1.3", ...extra });
+    use().repos.plane.createAccount({ tenantId, name, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", planeVersion: "1.3.1", ...extra });
   const newBot = async (tenantId: string, name = "Bot") => (await use().repos.bots.create({ tenantId, name, token: "x" })).id;
 
   test("a new Plane account can be read back, on Plane's cloud unless a base URL is given", async () => {
@@ -32,8 +32,8 @@ contract("Plane accounts and Plane scopes", (use) => {
     expect(created.planeVersion).toBe("1.4");
     expect((await plane.getAccount(created.id))?.planeVersion).toBe("1.4");
     expect((await plane.listAccounts(t.id))[0]?.planeVersion).toBe("1.4");
-    expect(await plane.updateAccount(created.id, { planeVersion: "1.3" })).toMatchObject({ planeVersion: "1.3", name: "main", workspaceSlug: "acme", apiKeyEncrypted: "enc" });
-    expect(await plane.updateAccount(created.id, { name: "renamed" })).toMatchObject({ planeVersion: "1.3", name: "renamed" });
+    expect(await plane.updateAccount(created.id, { planeVersion: "1.3.1" })).toMatchObject({ planeVersion: "1.3.1", name: "main", workspaceSlug: "acme", apiKeyEncrypted: "enc" });
+    expect(await plane.updateAccount(created.id, { name: "renamed" })).toMatchObject({ planeVersion: "1.3.1", name: "renamed" });
   });
 
   test("an account records the release its Plane server reported, or none, and an update replaces it", async () => {
@@ -42,7 +42,7 @@ contract("Plane accounts and Plane scopes", (use) => {
     expect((await account(t.id, "unread")).planeServerVersion).toBeNull();
     const created = await account(t.id, "main", { planeServerVersion: "v1.3.1" });
     expect((await plane.getAccount(created.id))?.planeServerVersion).toBe("v1.3.1");
-    expect(await plane.updateAccount(created.id, { planeServerVersion: "v1.4.0" })).toMatchObject({ planeServerVersion: "v1.4.0", planeVersion: "1.3" });
+    expect(await plane.updateAccount(created.id, { planeServerVersion: "v1.4.0" })).toMatchObject({ planeServerVersion: "v1.4.0", planeVersion: "1.3.1" });
     expect(await plane.updateAccount(created.id, { planeServerVersion: null })).toMatchObject({ planeServerVersion: null });
   });
 

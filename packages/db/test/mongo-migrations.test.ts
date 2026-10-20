@@ -78,7 +78,7 @@ afterAll(async () => {
     expect(custom).toBe("custom persona");
   });
 
-  test("a Plane account stored before Plane versions reads as Plane 1.3, with no server release", async () => {
+  test("a Plane account stored before Plane versions reads as Plane 1.3.1, with no server release", async () => {
     const connection = connect();
     await migrateMongo(connection);
     const { tenants, plane } = createRepositories(connection);
@@ -87,7 +87,21 @@ afterAll(async () => {
     await connection.db.collection<{ _id: string; [field: string]: unknown }>("plane_accounts").insertOne({
       _id: "p1", tenantId: tenant.id, name: "main", baseUrl: null, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", createdAt: now, updatedAt: now,
     });
-    expect(await plane.getAccount("p1")).toMatchObject({ planeVersion: "1.3", planeServerVersion: null });
+    expect(await plane.getAccount("p1")).toMatchObject({ planeVersion: "1.3.1", planeServerVersion: null });
+  });
+
+  test("a Plane account stored as Plane 1.3 moves to Plane 1.3.1; another version is left alone", async () => {
+    const connection = connect();
+    await migrateMongo(connection, MONGO_MIGRATIONS.filter((step) => !step.id.includes("plane-version-1.3.1")));
+    const { tenants, plane } = createRepositories(connection);
+    const tenant = await tenants.create({ name: "Acme", slug: "acme" });
+    const now = new Date();
+    const row = (_id: string, name: string, planeVersion: string) => ({ _id, tenantId: tenant.id, name, baseUrl: null, workspaceSlug: "acme", apiKeyEncrypted: "enc", planeUserId: "u-1", planeUserName: "Pachi Bot", planeVersion, createdAt: now, updatedAt: now });
+    await connection.db.collection<{ _id: string; [field: string]: unknown }>("plane_accounts").insertMany([row("p1", "main", "1.3"), row("p2", "lab", "9.9")]);
+    await migrateMongo(connection);
+    await migrateMongo(connection);
+    expect(await plane.getAccount("p1")).toMatchObject({ planeVersion: "1.3.1" });
+    expect(await plane.getAccount("p2")).toMatchObject({ planeVersion: "9.9" });
   });
 
   test("migrating twice at once leaves a working database", async () => {

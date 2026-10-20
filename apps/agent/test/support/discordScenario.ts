@@ -80,7 +80,7 @@ export interface Scenario {
   /**
    * Attaches a Plane account to the bot, which switches the plane skill on, and opens these Plane project ids ("*" for all) in the guild;
    * `projects: null` leaves the guild without a rule. Its key is "plane-key", its Plane user "u-bot", Plane's cloud its host unless `baseUrl` says,
-   * and Plane 1.3 its Plane version unless `version` says.
+   * and Plane 1.3.1 its Plane version unless `version` says.
    */
   plane(options?: { name?: string; baseUrl?: string | null; workspaceSlug?: string; projects?: string[] | null; version?: string }): Promise<{ id: string }>;
   /** Saves guild settings as the console does, Digest schedule rows included. */
@@ -473,7 +473,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       await git.replaceScopes(tenant.id, bot.id, GUILD.id, "", [{ gitAccountId: account.id, repoPatterns: repos }]);
       return account;
     },
-    plane: async ({ name = "plane", baseUrl = null, workspaceSlug = "acme", projects = ["*"], version = "1.3" } = {}) => {
+    plane: async ({ name = "plane", baseUrl = null, workspaceSlug = "acme", projects = ["*"], version = "1.3.1" } = {}) => {
       const { plane } = repositories();
       const account = await plane.createAccount({ tenantId: tenant.id, name, baseUrl, workspaceSlug, apiKeyEncrypted: encryptSecret("plane-key"), planeUserId: "u-bot", planeUserName: "pachibot (bot@acme.test)", planeVersion: version });
       await plane.setBotAccounts(tenant.id, bot.id, [...(await plane.botAccountIds([bot.id]))[bot.id] ?? [], account.id]);

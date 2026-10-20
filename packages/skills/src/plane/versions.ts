@@ -21,7 +21,7 @@ export interface PlaneVersion {
 /** Oldest first; the last entry is the newest. */
 export const PLANE_VERSIONS: readonly PlaneVersion[] = [
   {
-    id: "1.3", label: "Plane 1.3", releases: { from: "1.3.0", before: "1.4.0" }, checkedAgainst: "v1.3.1",
+    id: "1.3.1", label: "Plane 1.3.1", releases: { from: "1.3.1", before: "1.3.2" }, checkedAgainst: "v1.3.1",
     auth: "api-key", headers: (key) => ({ "X-Api-Key": key }),
   },
 ];
@@ -37,7 +37,7 @@ export const versionHasTool = (version: PlaneVersion | null, policy?: { versions
 
 type Named = { name: string; planeVersion: string };
 
-/** An account's Plane version in words, after its name: "is on Plane 1.3", or that this server does not know the one it stores. */
+/** An account's Plane version in words, after its name: "is on Plane 1.3.1", or that this server does not know the one it stores. */
 export function onPlaneVersion(account: Named, versions: readonly PlaneVersion[] = PLANE_VERSIONS): string {
   const version = findPlaneVersion(account.planeVersion, versions);
   return version ? `is on ${version.label}` : `is set to Plane version "${account.planeVersion}", which this server does not know`;

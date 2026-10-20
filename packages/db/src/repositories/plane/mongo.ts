@@ -28,6 +28,13 @@ export const planeMigrations: MongoMigration[] = [
       await scopes.createIndex({ planeAccountId: 1 }, { name: "plane_scopes_account_idx" });
     },
   },
+  {
+    // The first Plane version was "1.3", covering the 1.3 line; it is now exactly Plane 1.3.1, the release its tools were checked against.
+    id: "0231-plane-version-1.3.1",
+    async up(db) {
+      await db.collection("plane_accounts").updateMany({ planeVersion: "1.3" }, { $set: { planeVersion: "1.3.1" } });
+    },
+  },
 ];
 
 /** Plane accounts, their bot links and Plane scopes on MongoDB. */

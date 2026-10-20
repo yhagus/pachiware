@@ -27,7 +27,7 @@ discordScenario("planeAccounts lists the Plane user and the Plane projects this 
   ask();
   const msg = await s.discord.send(`${s.discord.mention} which Plane projects can you reach?`);
   expect(msg.thread).toBeDefined();
-  expect(results[0]).toEqual({ accounts: [{ name: "plane", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] }] });
+  expect(results[0]).toEqual({ accounts: [{ name: "plane", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3.1", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] }] });
 
   ask();
   s.discord.channel("channel-2");
@@ -116,7 +116,7 @@ discordScenario("an account on a Plane version this server does not know is refu
   // Both accounts are made in the same instant, so their order is not fixed.
   expect([...results[2].accounts].sort((a: any, b: any) => a.name.localeCompare(b.name))).toEqual([
     { name: "old", planeUser: "pachibot (bot@acme.test)", planeVersion: 'unknown ("0.9")', error: 'Plane account "old" is set to Plane version "0.9", which this server does not know. An admin can choose a supported version in the console.' },
-    { name: "work", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] },
+    { name: "work", planeUser: "pachibot (bot@acme.test)", planeVersion: "Plane 1.3.1", projects: [{ id: P1, identifier: "ENG", name: "Engineering" }] },
   ]);
   expect(s.http.requests.some((r) => r.url.includes("/workspaces/legacy/"))).toBe(false);
 });

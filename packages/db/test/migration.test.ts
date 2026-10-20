@@ -293,7 +293,7 @@ describe("SQLite tenancy migration", () => {
     }
   });
 
-  test("puts every existing Plane account on Plane 1.3, with no server release read yet", () => {
+  test("puts every existing Plane account on Plane 1.3.1, with no server release read yet", () => {
     const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-plane-version-"));
     const database = join(directory, "plane-version.db");
     try {
@@ -310,7 +310,29 @@ describe("SQLite tenancy migration", () => {
         console.log(JSON.stringify(queryClient.query("SELECT id, name, plane_version AS version, plane_server_version AS release FROM plane_accounts").all()));
       `);
       expect(result.exitCode, stderr(result)).toBe(0);
-      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual([{ id: "p1", name: "main", version: "1.3", release: null }]);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual([{ id: "p1", name: "main", version: "1.3.1", release: null }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("moves accounts stored as Plane 1.3 to Plane 1.3.1, the one release that entry was checked against", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-plane-1-3-1-"));
+    const database = join(directory, "plane-1-3-1.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
+        await runMigrations();
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
+        queryClient.exec("INSERT INTO plane_accounts (id,tenant_id,name,workspace_slug,api_key_encrypted,plane_user_id,plane_user_name,plane_version) VALUES ('p1','t1','main','acme','enc','u-1','Pachi Bot','1.3')");
+        queryClient.exec("INSERT INTO plane_accounts (id,tenant_id,name,workspace_slug,api_key_encrypted,plane_user_id,plane_user_name,plane_version) VALUES ('p2','t1','lab','acme','enc','u-1','Pachi Bot','9.9')");
+        await runMigrations();
+        await runMigrations();
+        console.log(JSON.stringify(queryClient.query("SELECT id, plane_version AS version FROM plane_accounts ORDER BY id").all()));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual([{ id: "p1", version: "1.3.1" }, { id: "p2", version: "9.9" }]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

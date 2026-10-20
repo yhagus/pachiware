@@ -14,3 +14,7 @@ Plane changes its REST API between releases. It deprecated every `/api/v1/.../is
 - A version decides which Plane tools exist (`versions` in a tool's policy; none listed means every version) and how a request is sent (`PlaneConn.version`). Where releases differ, the module that owns a call branches on `conn.version.id`, as the git skill branches on provider.
 - An entry that has shipped keeps its meaning. Supporting a new release means adding an entry, and accounts still on the older one keep working.
 - An account on a version the server does not know, or without the tool asked for, refuses in plain words before any Confirm; the bot's other Plane accounts keep working.
+
+## Amendment, 2026-10-20: the first entry is exactly Plane 1.3.1
+
+The first entry shipped as "Plane 1.3", covering releases 1.3.0 up to 1.4.0, although its tools were checked against v1.3.1 alone. At the user's request it was renamed once to `1.3.1`, covering that release only (1.3.1 up to 1.3.2), and every stored `1.3` was migrated on every engine. A Plane on 1.3.0 or 1.3.2 now gets the mismatch note instead of passing silently. This was the only time a shipped entry changed its meaning. From here on, an entry that has shipped keeps its meaning.

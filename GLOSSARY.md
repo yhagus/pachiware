@@ -69,8 +69,8 @@ A tenant's credentials for one Plane workspace, on Plane's cloud or a self-hoste
 _Avoid_: Plane integration, Plane connection, Plane token
 
 **Plane version**:
-The Plane release line a Plane account's server runs, chosen from the ones Pachiware has tool code for. It decides how the bot signs in to that Plane and which Plane tools the account offers. An admin changes it after upgrading Plane; a new release that changes Plane's API gets a new Plane version, and the older one keeps working.
-_Avoid_: API version (Plane's API path is `/api/v1/` on every release), Plane release (one exact build, such as v1.3.1)
+The Plane releases a Plane account's server runs, chosen from the ones Pachiware has tool code for. Each Plane version names the releases it covers; the first, Plane 1.3.1, covers that release alone. It decides how the bot signs in to that Plane and which Plane tools the account offers. An admin changes it after upgrading Plane; a new release that changes Plane's API gets a new Plane version, and the older one keeps working.
+_Avoid_: API version (Plane's API path is `/api/v1/` on every release), Plane release (what a server reports, such as v1.3.1; a Plane version covers one or more of them)
 
 **Plane workspace**:
 The organization in Plane that a Plane account opens, holding its Plane projects and members. Always named with "Plane" in front.
