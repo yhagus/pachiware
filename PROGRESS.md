@@ -1985,3 +1985,4 @@ Asked by the user on 2026-10-21: the Profile form starts with the provider, pick
 - Verification: typecheck 0 at every commit. Full suite 1418 pass, 0 fail on 47b8858. `bun run test:engines` 471 pass, 1 fail, on the default ports. The failure is `database-engine.test.ts` "a fresh install on a MongoDB replica set…", which finds log files in the installation folder; it fails the same way on `main` (cab4186). The new contract, PostgreSQL and MongoDB upgrade tests pass. The form was checked by hand on a separate instance (3100/3101) against a stub models server: tiles, BYOK fields, fetch and pick, three models, drag and arrow-key moves, save, edit, BYOK to OpenAI.
 - [ ] A live DeepSeek request (Test or Playground) with a real key.
 - [ ] The form at phone width.
+- [x] Merged: `feat/profile-models` fast-forwarded into `main` and pushed, as the user asked (2026-10-21).
