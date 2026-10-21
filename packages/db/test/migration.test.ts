@@ -182,7 +182,7 @@ describe("SQLite tenancy migration", () => {
     }
   });
 
-  test("adds the fallback to existing profiles, empty, and clears it when the fallback is deleted", () => {
+  test("upgrades profiles to fallback models: the fallback profile goes, and an OpenAI or Anthropic base URL becomes BYOK unless it is the provider's own", () => {
     const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-fallback-"));
     const database = join(directory, "fallback.db");
     try {
@@ -190,20 +190,34 @@ describe("SQLite tenancy migration", () => {
         import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
         import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
         await runMigrations();
-        queryClient.exec("ALTER TABLE profiles DROP COLUMN fallback_profile_id");
+        queryClient.exec("ALTER TABLE profiles DROP COLUMN fallback_models");
+        queryClient.exec("ALTER TABLE profiles ADD COLUMN fallback_profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL");
         queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
-        queryClient.exec("INSERT INTO profiles (id,tenant_id,name,provider,model) VALUES ('p1','t1','Old','openai','gpt-x'),('p2','t1','Backup','openai','gpt-y')");
+        queryClient.exec(\`INSERT INTO profiles (id,tenant_id,name,provider,model,base_url,api_format,fallback_profile_id) VALUES
+          ('p1','t1','Backup','openai','gpt-y',NULL,'chat_completions',NULL),
+          ('p2','t1','Main','openai','gpt-x','https://api.openai.com/v1/','chat_completions','p1'),
+          ('p3','t1','Blank','anthropic','claude-x','','chat_completions',NULL),
+          ('p4','t1','Proxy','openai','gpt-p','https://proxy.example/v1','chat_completions',NULL),
+          ('p5','t1','Claude proxy','anthropic','claude-p','https://claude.example/v1','chat_completions',NULL),
+          ('p6','t1','Own','custom','m','https://llm.example/v1','responses',NULL)\`);
         await runMigrations();
         await runMigrations();
-        const before = queryClient.query("SELECT id, fallback_profile_id AS fallback FROM profiles ORDER BY id").all();
-        queryClient.exec("UPDATE profiles SET fallback_profile_id = 'p2' WHERE id = 'p1'");
-        queryClient.exec("DELETE FROM profiles WHERE id = 'p2'");
-        console.log(JSON.stringify({ before, after: queryClient.query("SELECT id, fallback_profile_id AS fallback FROM profiles").all() }));
+        console.log(JSON.stringify({
+          columns: queryClient.query("PRAGMA table_info(profiles)").all().map((c) => c.name).filter((n) => n.startsWith("fallback")),
+          rows: queryClient.query("SELECT id, provider, base_url AS baseUrl, api_format AS format, fallback_models AS models FROM profiles ORDER BY id").all(),
+        }));
       `);
       expect(result.exitCode, stderr(result)).toBe(0);
       expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual({
-        before: [{ id: "p1", fallback: null }, { id: "p2", fallback: null }],
-        after: [{ id: "p1", fallback: null }],
+        columns: ["fallback_models"],
+        rows: [
+          { id: "p1", provider: "openai", baseUrl: null, format: "chat_completions", models: "[]" },
+          { id: "p2", provider: "openai", baseUrl: null, format: "chat_completions", models: "[]" },
+          { id: "p3", provider: "anthropic", baseUrl: null, format: "chat_completions", models: "[]" },
+          { id: "p4", provider: "custom", baseUrl: "https://proxy.example/v1", format: "chat_completions", models: "[]" },
+          { id: "p5", provider: "custom", baseUrl: "https://claude.example/v1", format: "messages", models: "[]" },
+          { id: "p6", provider: "custom", baseUrl: "https://llm.example/v1", format: "responses", models: "[]" },
+        ],
       });
     } finally {
       rmSync(directory, { recursive: true, force: true });

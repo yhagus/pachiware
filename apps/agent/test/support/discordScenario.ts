@@ -42,7 +42,7 @@ export type ErrorStep = { error: string };
 export type CutStep = { cut: string | ToolCallStep | ToolCallStep[] };
 /** A function step may be async, to change state while the model call is in flight. */
 export type ModelStep = string | ToolCallStep | ToolCallStep[] | ErrorStep | CutStep | ((turn: ModelTurn) => ModelStep | Promise<ModelStep>);
-export type HttpRequest = { method: string; url: string; body: any };
+export type HttpRequest = { method: string; url: string; body: any; headers: Record<string, string> };
 
 export type Payload = { content?: string; embeds?: any[]; components?: any[]; files?: any[] };
 /** `name` is the display name; `username` defaults to it. */
@@ -416,7 +416,9 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     const url = String(input instanceof Request ? input.url : input), method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     let body: any = init?.body ?? null;
     if (typeof body === "string") try { body = JSON.parse(body); } catch {}
-    const req = { method, url, body };
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)).forEach((value, key) => { headers[key] = value; });
+    const req = { method, url, body, headers };
     requests.push(req);
     const line = `${method} ${url}`;
     const route = routes.findLast((r) => typeof r.match === "string" ? matchesRoute(r.match, method, url) : r.match.test(line));

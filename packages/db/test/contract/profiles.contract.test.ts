@@ -8,7 +8,7 @@ contract("Profiles", (use) => {
     const { tenants, profiles } = use().repos;
     const tenant = await tenants.create({ name: "Acme", slug: "acme" });
     const created = await profiles.create(tenant.id, { name: "Fast", provider: "openai", model: "gpt-mini" });
-    expect(created).toMatchObject({ tenantId: tenant.id, name: "Fast", provider: "openai", model: "gpt-mini", baseUrl: null, apiKeyEncrypted: null, acceptsImages: false, apiFormat: "chat_completions", fallbackProfileId: null });
+    expect(created).toMatchObject({ tenantId: tenant.id, name: "Fast", provider: "openai", model: "gpt-mini", baseUrl: null, apiKeyEncrypted: null, acceptsImages: false, apiFormat: "chat_completions", fallbackModels: [] });
     expect(created.id).toMatch(UUID);
     expect(created.createdAt).toBeInstanceOf(Date);
     expect(await profiles.get(created.id)).toEqual(created);
@@ -57,46 +57,18 @@ contract("Profiles", (use) => {
     expect(await profiles.getForBot(acme.id, bot)).toBeNull();
   });
 
-  test("a profile names a fallback of its tenant, which can be cleared and is read back", async () => {
+  test("a profile keeps its fallback models in the order given; an update replaces the list, and other updates keep it", async () => {
     const { tenants, profiles } = use().repos;
     const tenant = await tenants.create({ name: "Acme", slug: "acme" });
-    const backup = await profiles.create(tenant.id, { name: "Backup", provider: "openai", model: "b" });
-    expect(backup.fallbackProfileId).toBeNull();
-    const main = await profiles.create(tenant.id, { name: "Main", provider: "anthropic", model: "a", fallbackProfileId: backup.id });
-    expect(main.fallbackProfileId).toBe(backup.id);
-    expect((await profiles.get(main.id))!.fallbackProfileId).toBe(backup.id);
+    const main = await profiles.create(tenant.id, { name: "Main", provider: "openai", model: "gpt-main", fallbackModels: ["gpt-z", "gpt-a"] });
+    expect(main.fallbackModels).toEqual(["gpt-z", "gpt-a"]);
+    expect((await profiles.get(main.id))!.fallbackModels).toEqual(["gpt-z", "gpt-a"]);
 
-    expect((await profiles.update(main.id, { model: "a2" }))!.fallbackProfileId).toBe(backup.id);
-    expect((await profiles.update(main.id, { fallbackProfileId: null }))!.fallbackProfileId).toBeNull();
-    expect((await profiles.update(main.id, { fallbackProfileId: backup.id }))!.fallbackProfileId).toBe(backup.id);
-    expect((await profiles.getForTenant(tenant.id, main.id))!.fallbackProfileId).toBe(backup.id);
-  });
-
-  test("a fallback of another tenant, the profile itself, or a chain that loops is refused", async () => {
-    const { tenants, profiles } = use().repos;
-    const [acme, other] = [await tenants.create({ name: "Acme", slug: "acme" }), await tenants.create({ name: "Other", slug: "other" })];
-    const foreign = await profiles.create(other.id, { name: "Foreign", provider: "openai", model: "f" });
-    await expect(profiles.create(acme.id, { name: "A", provider: "openai", model: "a", fallbackProfileId: foreign.id })).rejects.toThrow("Fallback profile not found");
-    expect(await profiles.listForTenant(acme.id)).toEqual([]);
-
-    const a = await profiles.create(acme.id, { name: "A", provider: "openai", model: "a" });
-    await expect(profiles.update(a.id, { fallbackProfileId: foreign.id })).rejects.toThrow("Fallback profile not found");
-    await expect(profiles.update(a.id, { fallbackProfileId: a.id })).rejects.toThrow("A profile cannot fall back to itself");
-
-    const b = await profiles.create(acme.id, { name: "B", provider: "openai", model: "b", fallbackProfileId: a.id });
-    await expect(profiles.update(a.id, { fallbackProfileId: b.id })).rejects.toThrow("Fallback chain would loop");
-    const c = await profiles.create(acme.id, { name: "C", provider: "openai", model: "c", fallbackProfileId: b.id });
-    await expect(profiles.update(a.id, { fallbackProfileId: c.id, model: "changed" })).rejects.toThrow("Fallback chain would loop");
-    expect(await profiles.get(a.id)).toMatchObject({ model: "a", fallbackProfileId: null });
-  });
-
-  test("deleting a profile clears it as anyone's fallback", async () => {
-    const { tenants, profiles } = use().repos;
-    const tenant = await tenants.create({ name: "Acme", slug: "acme" });
-    const b = await profiles.create(tenant.id, { name: "B", provider: "openai", model: "b" });
-    const a = await profiles.create(tenant.id, { name: "A", provider: "openai", model: "a", fallbackProfileId: b.id });
-    expect(await profiles.remove(b.id)).toBe(true);
-    expect((await profiles.get(a.id))!.fallbackProfileId).toBeNull();
+    expect((await profiles.update(main.id, { model: "gpt-main-2" }))!.fallbackModels).toEqual(["gpt-z", "gpt-a"]);
+    expect((await profiles.update(main.id, { fallbackModels: ["gpt-a", "gpt-z"] }))!.fallbackModels).toEqual(["gpt-a", "gpt-z"]);
+    expect((await profiles.getForTenant(tenant.id, main.id))!.fallbackModels).toEqual(["gpt-a", "gpt-z"]);
+    expect((await profiles.update(main.id, { fallbackModels: [] }))!.fallbackModels).toEqual([]);
+    expect((await profiles.listForTenant(tenant.id)).map((p) => [p.model, p.fallbackModels])).toEqual([["gpt-main-2", []]]);
   });
 
   test("purging a tenant removes its profiles", async () => {

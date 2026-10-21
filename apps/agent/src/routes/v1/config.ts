@@ -4,7 +4,7 @@ import type { TenantEnv } from "../../middleware/tenant.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 import { syncTenantSchedules } from "../../scheduler.js";
 import { LLMRouter } from "../../llm/router.js";
-import { isProvider } from "../../llm/providers.js";
+import { isDefaultProvider } from "../../llm/providers.js";
 import { maskConfig, object, placeSettings } from "../validation.js";
 
 export const configRoutes = new Hono<TenantEnv>();
@@ -22,7 +22,7 @@ configRoutes.put("/", async (c) => {
     values[field] = body[field];
   }
   if (body.defaultProvider !== undefined) {
-    if (!isProvider(body.defaultProvider)) return c.json({ error: "Invalid provider" }, 400);
+    if (!isDefaultProvider(body.defaultProvider)) return c.json({ error: "Invalid provider" }, 400);
     values.defaultProvider = body.defaultProvider;
   }
   if (body.temperature !== undefined) {
@@ -49,7 +49,7 @@ configRoutes.put("/", async (c) => {
 configRoutes.post("/test/llm", async (c) => {
   const body = object(await c.req.json(), "body");
   const { provider } = body;
-  if (!isProvider(provider)) return c.json({ error: "Invalid provider" }, 400);
+  if (!isDefaultProvider(provider)) return c.json({ error: "Invalid provider" }, 400);
   const row: Record<string, any> | null = await repositories().agentConfig.get(c.get("tenantId"));
   const field = `${provider}ApiKeyEncrypted`;
   let key = body.apiKey;

@@ -6,7 +6,7 @@ import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, textIn, configuredLanguage, audit } from "@pachiware/skills";
 import type { ChatMessage, ContentPart, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
-import { providerBaseUrl, providerHeaders, formatHeaders, apiFormatOf, isProvider, PROVIDERS, DEFAULT_MODELS, ANTHROPIC_TEST_MODEL } from "./providers.js";
+import { providerBaseUrl, providerHeaders, formatHeaders, apiFormatOf, isProvider, DEFAULT_BASE_URLS, DEFAULT_PROVIDERS, DEFAULT_MODELS, MAX_PROFILE_MODELS, ANTHROPIC_TEST_MODEL } from "./providers.js";
 
 const textOf = (content: ChatMessage["content"]) => typeof content === "string" || content === null ? content || "" : content.filter((p) => p.type === "text").map((p) => p.text).join("\n");
 const hasImages = (messages: ChatMessage[]) => messages.some((m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image"));
@@ -23,8 +23,6 @@ export const anthropicBlocks = (content: ChatMessage["content"]): any[] => !Arra
 const anthropicModelOf = (config: any): string => config?.anthropicModel || (config?.defaultProvider === "anthropic" && config?.defaultModel) || DEFAULT_MODELS.anthropic!;
 // Low enough that actions are repeatable; a tenant's own value wins.
 export const DEFAULT_TEMPERATURE = 0.2;
-// The most Profiles one request may reach: the bot's own and two fallbacks after it.
-const MAX_CHAIN = 3;
 const CACHED = { cache_control: { type: "ephemeral" } };
 const markLast = (blocks: any[]) => blocks.map((b, i) => (i === blocks.length - 1 ? { ...b, ...CACHED } : b));
 // A message's later blocks (the current turn merged into it) come after the mark, so it still ends the cached history.
@@ -55,7 +53,7 @@ export class LLMRouter {
       }
       if (!cached) throw new Error("Tenant agent configuration not found");
       const decrypted = { ...cached };
-      for (const provider of PROVIDERS) decrypted[`${provider}ApiKey`] = cached[`${provider}ApiKeyEncrypted`] ? decryptSecret(cached[`${provider}ApiKeyEncrypted`]) : null;
+      for (const provider of DEFAULT_PROVIDERS) decrypted[`${provider}ApiKey`] = cached[`${provider}ApiKeyEncrypted`] ? decryptSecret(cached[`${provider}ApiKeyEncrypted`]) : null;
       return decrypted;
     } catch {
       throw new Error("Unable to load tenant LLM configuration");
@@ -98,22 +96,16 @@ export class LLMRouter {
     const profile = options.provider ? null : await this.getBotProfile(options.tenantId, options.botId);
     const started = performance.now();
     let answered = await this.answerWith(profile, tenantConfig, messages, options);
-    let answeredBy = profile;
-    // A failed Profile hands the same request to its fallback, and that one to its own, up to MAX_CHAIN Profiles in all.
-    const tried = new Set(profile ? [profile.id] : []);
-    while (answered.response.finishReason === "error" && answeredBy?.fallbackProfileId && tried.size < MAX_CHAIN && !(options.deadline !== undefined && Date.now() >= options.deadline)) {
-      const next = await repositories().profiles.getForTenant(options.tenantId, answeredBy.fallbackProfileId);
-      if (!next || tried.has(next.id)) break;
-      tried.add(next.id);
-      const blind = !next.acceptsImages && hasImages(messages);
-      answered = await this.answerWith(next, tenantConfig, blind ? withoutImages(messages) : messages, options);
-      if (blind && answered.response.finishReason !== "error") answered.response = { ...answered.response, imagesRejected: true };
-      answeredBy = next;
+    // A failed model hands the same request to the Profile's next model, in the Profile's order.
+    const models = profile ? [profile.model, ...profile.fallbackModels].slice(0, MAX_PROFILE_MODELS) : [];
+    let tried = 1;
+    while (answered.response.finishReason === "error" && tried < models.length && !(options.deadline !== undefined && Date.now() >= options.deadline)) {
+      answered = await this.answerWith({ ...profile!, model: models[tried++] }, tenantConfig, messages, options);
     }
     const { response, provider, model } = answered;
     if (response.finishReason !== "error") {
-      if (profile && answeredBy && answeredBy.id !== profile.id) await audit(options, "profile_fallback", { from: profile.id, to: answeredBy.id, profiles: tried.size });
-      await repositories().usage.record({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0, latencyMs: Math.round(performance.now() - started), ...(answeredBy ? { profileId: answeredBy.id } : {}) } });
+      if (profile && tried > 1) await audit(options, "model_fallback", { profileId: profile.id, from: profile.model, to: models[tried - 1], models: tried });
+      await repositories().usage.record({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0, latencyMs: Math.round(performance.now() - started), ...(profile ? { profileId: profile.id } : {}) } });
     }
     return response;
   }
@@ -136,6 +128,8 @@ export class LLMRouter {
           if (format === "messages") return this.callAnthropic(list, opts, { ...dbConfig, anthropicApiKey: dbConfig.customApiKey, anthropicBaseUrl: dbConfig.customBaseUrl, anthropicModel: dbConfig.customModel }, "custom");
           if (format === "responses") return this.callResponses(list, opts, dbConfig);
           return this.callCustomOpenAI(list, opts, dbConfig);
+        // DeepSeek speaks Chat Completions at its own address, as a BYOK profile would.
+        case "deepseek": return this.callCustomOpenAI(list, opts, { ...dbConfig, customApiKey: dbConfig.deepseekApiKey, customBaseUrl: DEFAULT_BASE_URLS.deepseek, customModel: dbConfig.deepseekModel });
         case "openai": return this.callOpenAI(list, opts, dbConfig);
         default: throw new Error("Unsupported tenant LLM provider");
       }

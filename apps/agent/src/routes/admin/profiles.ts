@@ -1,13 +1,15 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { repositories, encryptSecret, decryptSecret, FallbackRefused, type NewProfile, type ProfileUpdate } from "@pachiware/db";
+import { repositories, encryptSecret, decryptSecret, type NewProfile, type Profile, type ProfileUpdate } from "@pachiware/db";
 import { object, string } from "../validation.js";
 import { checkProfile, modelIds, sendToProfile } from "../../llm/probe.js";
-import { apiFormatOf, formatHeaders, isApiFormat, isProvider, providerBaseUrl, API_FORMAT_ERROR, PROVIDER_ERROR } from "../../llm/providers.js";
+import { apiFormatOf, formatHeaders, isApiFormat, isProvider, providerBaseUrl, API_FORMAT_ERROR, MAX_PROFILE_MODELS, PROVIDER_ERROR } from "../../llm/providers.js";
 
 export const profileAdminRoutes = new Hono();
 
 const publicProfile = ({ apiKeyEncrypted, ...p }: any) => ({ ...p, hasApiKey: Boolean(apiKeyEncrypted) });
+const BASE_URL_ERROR = "Only a BYOK profile takes a baseUrl";
+const MODELS_ERROR = "fallbackModels must be a list of model names";
 function fields(body: Record<string, any>, creating: boolean): ProfileUpdate {
   const out: Record<string, any> = {};
   if (creating || body.name !== undefined) out.name = string(body.name, "name");
@@ -28,20 +30,30 @@ function fields(body: Record<string, any>, creating: boolean): ProfileUpdate {
     if (typeof body.acceptsImages !== "boolean") throw new HTTPException(400, { message: "acceptsImages must be true or false" });
     out.acceptsImages = body.acceptsImages;
   }
-  if (body.fallbackProfileId !== undefined) {
-    if (body.fallbackProfileId !== null && body.fallbackProfileId !== "" && typeof body.fallbackProfileId !== "string") throw new HTTPException(400, { message: "fallbackProfileId must be a profile id or null" });
-    out.fallbackProfileId = body.fallbackProfileId || null;
+  if (body.fallbackModels !== undefined) {
+    if (!Array.isArray(body.fallbackModels) || body.fallbackModels.some((m: unknown) => typeof m !== "string" || !m.trim())) throw new HTTPException(400, { message: MODELS_ERROR });
+    out.fallbackModels = body.fallbackModels.map((m: string) => m.trim());
   }
   if (body.apiKey !== undefined && !String(body.apiKey).includes("••••")) out.apiKeyEncrypted = body.apiKey ? encryptSecret(string(body.apiKey, "apiKey")!) : null;
   return out;
 }
 
-/** A refused fallback is the caller's mistake, so it answers 400 with the repository's message. */
-async function refusingFallback<T>(write: () => Promise<T>): Promise<T> {
-  try { return await write(); } catch (err: any) {
-    if (err instanceof FallbackRefused) throw new HTTPException(400, { message: err.message });
-    throw err;
+/**
+ * Checks the profile a write leaves behind, given the stored one on update. Only BYOK names an address and needs one;
+ * a profile moved off BYOK drops it. Each model appears once, at most MAX_PROFILE_MODELS in all.
+ */
+function settle(values: ProfileUpdate, current?: Profile): ProfileUpdate {
+  const provider = values.provider ?? current?.provider;
+  const baseUrl = values.baseUrl !== undefined ? values.baseUrl : current?.baseUrl;
+  if (provider === "custom" && !baseUrl) throw new HTTPException(400, { message: "A custom provider needs a baseUrl" });
+  if (provider !== "custom" && baseUrl) {
+    if (values.baseUrl) throw new HTTPException(400, { message: BASE_URL_ERROR });
+    values.baseUrl = null;
   }
+  const models = [values.model ?? current!.model, ...(values.fallbackModels ?? current?.fallbackModels ?? [])];
+  if (new Set(models).size !== models.length) throw new HTTPException(400, { message: "Each model may appear once" });
+  if (models.length > MAX_PROFILE_MODELS) throw new HTTPException(400, { message: `A profile holds at most ${MAX_PROFILE_MODELS} models` });
+  return values;
 }
 
 profileAdminRoutes.get("/tenants/:id/profiles", async (c) => {
@@ -50,21 +62,19 @@ profileAdminRoutes.get("/tenants/:id/profiles", async (c) => {
 });
 profileAdminRoutes.post("/tenants/:id/profiles", async (c) => {
   if (!await repositories().tenants.get(c.req.param("id"))) return c.json({ error: "Tenant not found" }, 404);
-  const values = fields(object(await c.req.json(), "body"), true);
-  if (values.provider === "custom" && !values.baseUrl) throw new HTTPException(400, { message: "A custom provider needs a baseUrl" });
-  const row = await refusingFallback(() => repositories().profiles.create(c.req.param("id"), values as NewProfile));
+  const values = settle(fields(object(await c.req.json(), "body"), true));
+  const row = await repositories().profiles.create(c.req.param("id"), values as NewProfile);
   return c.json({ success: true, profile: publicProfile(row) }, 201);
 });
 profileAdminRoutes.patch("/profiles/:profileId", async (c) => {
   const id = c.req.param("profileId");
   const current = await repositories().profiles.get(id);
   if (!current) return c.json({ error: "Profile not found" }, 404);
-  const values = fields(object(await c.req.json(), "body"), false);
-  if ((values.provider ?? current.provider) === "custom" && !(values.baseUrl !== undefined ? values.baseUrl : current.baseUrl)) throw new HTTPException(400, { message: "A custom provider needs a baseUrl" });
-  const row = await refusingFallback(() => repositories().profiles.update(id, values));
+  const values = settle(fields(object(await c.req.json(), "body"), false), current);
+  const row = await repositories().profiles.update(id, values);
   return c.json({ success: true, profile: publicProfile(row) });
 });
-// Integrations using the profile fall back to the tenant default, and profiles that fell back to it have no fallback.
+// Integrations using the profile fall back to the tenant default.
 profileAdminRoutes.delete("/profiles/:profileId", async (c) => {
   return await repositories().profiles.remove(c.req.param("profileId")!) ? c.json({ success: true }) : c.json({ error: "Profile not found" }, 404);
 });
@@ -72,6 +82,7 @@ profileAdminRoutes.delete("/profiles/:profileId", async (c) => {
 async function connection(body: Record<string, any>) {
   const provider = string(body.provider, "provider")!;
   if (!isProvider(provider)) throw new HTTPException(400, { message: PROVIDER_ERROR });
+  if (provider !== "custom" && typeof body.baseUrl === "string" && body.baseUrl.trim()) throw new HTTPException(400, { message: BASE_URL_ERROR });
   const baseUrl = providerBaseUrl(provider, typeof body.baseUrl === "string" ? body.baseUrl : null);
   if (!/^https?:\/\//i.test(baseUrl)) throw new HTTPException(400, { message: "A base URL is required" });
   if (body.apiFormat !== undefined && !isApiFormat(body.apiFormat)) throw new HTTPException(400, { message: API_FORMAT_ERROR });

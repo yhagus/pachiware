@@ -1,16 +1,22 @@
 // Providers, their endpoints and auth headers, free of database imports so the eval's judge can use them in any process.
 // apps/web/src/pages/tenant/TenantProfiles.tsx mirrors this list for the console.
-export const PROVIDERS = ["openai", "anthropic", "custom"] as const;
+/** A Profile's providers. Only BYOK (`custom`) names its own address and API format; the others are fixed. */
+export const PROVIDERS = ["openai", "anthropic", "deepseek", "custom"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 export const isProvider = (v: unknown): v is Provider => PROVIDERS.includes(v as Provider);
 export const PROVIDER_ERROR = `provider must be ${PROVIDERS.slice(0, -1).join(", ")}, or ${PROVIDERS.at(-1)}`;
+/** The providers a tenant default may name: it keeps a key and address for each, and none for DeepSeek. */
+export const DEFAULT_PROVIDERS = ["openai", "anthropic", "custom"] as const;
+export const isDefaultProvider = (v: unknown): v is (typeof DEFAULT_PROVIDERS)[number] => DEFAULT_PROVIDERS.includes(v as any);
 
-export const DEFAULT_BASE_URLS: Partial<Record<Provider, string>> = { openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1" };
-export const DEFAULT_MODELS: Partial<Record<Provider, string>> = { openai: "gpt-4o", anthropic: "claude-sonnet-5-5" };
+export const DEFAULT_BASE_URLS: Partial<Record<Provider, string>> = { openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1", deepseek: "https://api.deepseek.com" };
+export const DEFAULT_MODELS: Partial<Record<Provider, string>> = { openai: "gpt-4o", anthropic: "claude-sonnet-5-5", deepseek: "deepseek-flash" };
+/** The most models one Profile holds: the one it answers with and two fallbacks, each asked when the one before fails. */
+export const MAX_PROFILE_MODELS = 3;
 /** The cheapest current Claude model, for the one-token credentials check. */
 export const ANTHROPIC_TEST_MODEL = "claude-haiku-5-5";
 
-/** The request shape a BYOK profile speaks. An OpenAI profile always uses Chat Completions and an Anthropic one Messages. */
+/** The request shape a BYOK profile speaks. An OpenAI or DeepSeek profile always uses Chat Completions and an Anthropic one Messages. */
 export const API_FORMATS = ["chat_completions", "responses", "messages"] as const;
 export type ApiFormat = (typeof API_FORMATS)[number];
 export const isApiFormat = (v: unknown): v is ApiFormat => API_FORMATS.includes(v as ApiFormat);

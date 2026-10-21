@@ -123,6 +123,31 @@ afterAll(async () => {
     await expect(docs("plane_scopes").insertOne({ ...scope("s5", "", "p1"), workspaceSlug: "beta" })).rejects.toThrow();
   });
 
+  test("a profile loses its fallback profile, and an OpenAI or Anthropic base URL becomes BYOK unless it is the provider's own", async () => {
+    const connection = connect();
+    await migrateMongo(connection, MONGO_MIGRATIONS.filter((step) => !step.id.includes("profile-fallback-models")));
+    const { tenants, profiles } = createRepositories(connection);
+    const tenant = await tenants.create({ name: "Acme", slug: "acme" });
+    const now = new Date();
+    const row = (_id: string, provider: string, baseUrl: string | null, fallbackProfileId: string | null = null) =>
+      ({ _id, tenantId: tenant.id, name: _id, provider, model: "m", baseUrl, apiKeyEncrypted: null, acceptsImages: false, apiFormat: "chat_completions", fallbackProfileId, createdAt: now, updatedAt: now });
+    await connection.db.collection<{ _id: string; [field: string]: unknown }>("profiles").insertMany([
+      row("p1", "openai", null), row("p2", "openai", "https://api.openai.com/v1/", "p1"), row("p3", "anthropic", ""),
+      row("p4", "openai", "https://proxy.example/v1"), row("p5", "anthropic", "https://claude.example/v1"),
+    ]);
+    await migrateMongo(connection);
+    await migrateMongo(connection);
+    const rows = await Promise.all(["p1", "p2", "p3", "p4", "p5"].map((id) => profiles.get(id)));
+    expect(rows.map((p) => [p!.id, p!.provider, p!.baseUrl, p!.apiFormat, p!.fallbackModels])).toEqual([
+      ["p1", "openai", null, "chat_completions", []],
+      ["p2", "openai", null, "chat_completions", []],
+      ["p3", "anthropic", null, "chat_completions", []],
+      ["p4", "custom", "https://proxy.example/v1", "chat_completions", []],
+      ["p5", "custom", "https://claude.example/v1", "messages", []],
+    ]);
+    expect(await connection.db.collection("profiles").countDocuments({ fallbackProfileId: { $exists: true } })).toBe(0);
+  });
+
   test("migrating twice at once leaves a working database", async () => {
     await Promise.all([migrateMongo(connect()), migrateMongo(connect())]);
     const { tenants } = createRepositories(connect());
