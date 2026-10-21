@@ -4,11 +4,15 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-type Props = Omit<ComponentProps<typeof Input>, "value" | "onChange" | "list"> & { options: string[]; value: string; onValueChange: (value: string) => void };
+type Props = Omit<ComponentProps<typeof Input>, "value" | "onChange" | "list"> & {
+  options: string[]; value: string; onValueChange: (value: string) => void;
+  /** Takes a picked option instead of `onValueChange`, for a field that adds what is picked to a list. */
+  onPick?: (option: string) => void;
+};
 
 // A text field that suggests values from a list, drawn like the app's Select instead of the browser's datalist.
 // Any typed value stays valid; className goes on the wrapper, so it sizes the field inside a flex row.
-export function ComboboxInput({ options, value, onValueChange, className, onKeyDown, ...props }: Props) {
+export function ComboboxInput({ options, value, onValueChange, onPick, className, onKeyDown, ...props }: Props) {
   const listId = useId();
   const anchor = useRef<HTMLDivElement>(null);
   // State, not a ref: the list mounts a render after it opens, and the scroll below has to run then.
@@ -19,7 +23,7 @@ export function ComboboxInput({ options, value, onValueChange, className, onKeyD
   const [active, setActive] = useState(-1);
   const query = value.trim().toLowerCase();
   const shown = filtering && query ? options.filter((o) => o.toLowerCase().includes(query)) : options;
-  const expanded = open && shown.length > 0;
+  const expanded = open && shown.length > 0 && !props.disabled;
   const optionId = (i: number) => `${listId}-${i}`;
 
   // Keeps the active option in view by scrolling the list alone; scrollIntoView would scroll the page under it too.
@@ -35,17 +39,21 @@ export function ComboboxInput({ options, value, onValueChange, className, onKeyD
   }, [box, active, listId]);
 
   const show = () => { setFiltering(false); setActive(options.indexOf(value)); setOpen(true); };
-  const pick = (option: string) => { onValueChange(option); setOpen(false); };
+  const pick = (option: string) => { (onPick ?? onValueChange)(option); setOpen(false); };
+  // The caller's onKeyDown runs after, and finds the event's default prevented when the list took the key.
   const keyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    onKeyDown?.(e);
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      if (!expanded) return show();
-      const step = e.key === "ArrowDown" ? 1 : -1;
-      setActive((i) => (i < 0 ? (step > 0 ? 0 : shown.length - 1) : (i + step + shown.length) % shown.length));
-    } else if (e.key === "Enter" && expanded && active >= 0) {
-      e.preventDefault(); pick(shown[active]);
+      if (!expanded) show();
+      else {
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setActive((i) => (i < 0 ? (step > 0 ? 0 : shown.length - 1) : (i + step + shown.length) % shown.length));
+      }
+    } else if (e.key === "Enter") {
+      if (expanded && active >= 0) { e.preventDefault(); pick(shown[active]); }
+      setOpen(false);
     }
+    onKeyDown?.(e);
   };
 
   return (

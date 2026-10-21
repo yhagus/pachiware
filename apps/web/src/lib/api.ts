@@ -146,9 +146,10 @@ async function tryBot(id: string, data: { guildId: string; channelId: string; se
   }
   throw new Error("The connection closed before the bot answered.");
 }
-export interface Profile { id: string; tenantId: string; name: string; provider: "openai" | "anthropic" | "custom"; model: string; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; fallbackProfileId: string | null; createdAt: string; }
+export type ProfileProvider = "openai" | "anthropic" | "deepseek" | "custom";
+export interface Profile { id: string; tenantId: string; name: string; provider: ProfileProvider; model: string; fallbackModels: string[]; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; createdAt: string; }
 export type ApiFormat = "chat_completions" | "responses" | "messages";
-export interface ProfileInput { name?: string; provider?: string; model?: string; baseUrl?: string | null; apiKey?: string | null; acceptsImages?: boolean; apiFormat?: ApiFormat; fallbackProfileId?: string | null; }
+export interface ProfileInput { name?: string; provider?: ProfileProvider; model?: string; fallbackModels?: string[]; baseUrl?: string | null; apiKey?: string | null; acceptsImages?: boolean; apiFormat?: ApiFormat; }
 export type CheckStatus = "ok" | "warning" | "failed" | "skipped";
 export interface ProfileCheck { status: CheckStatus; message: string; reply?: string; }
 export interface ProfileChecks { url: ProfileCheck; key: ProfileCheck; model: ProfileCheck; text: ProfileCheck; image: ProfileCheck; }
