@@ -25,8 +25,8 @@ A chat identity a tenant connects so the agent can listen and reply on a platfor
 _Avoid_: Agent (the agent is the reasoning loop behind every bot, not the identity)
 
 **Profile**:
-A named choice of provider, model, and key that a bot answers with. A BYOK profile (provider `custom`) also names the API format its server speaks: Chat Completions, Responses, or Messages. A bot without one uses the tenant default. It declares which kinds of input its model accepts: text always, images only when the model can see them. A Profile may name a fallback Profile of the same tenant, which answers when it fails; fallbacks may chain, and one request reaches at most three Profiles.
-_Avoid_: Model config, preset
+A named choice of provider, models, and key that a bot answers with. The provider is OpenAI, Anthropic, DeepSeek, or BYOK: a server of the tenant's choosing, which alone names its address and the API format it speaks (Chat Completions, Responses, or Messages). It lists at most three models of that provider in order: the first answers, and each later one, a fallback model, answers when the one before fails. A bot without one uses the tenant default. It declares whether its models see images (Vision); text they always take.
+_Avoid_: Model config, preset, fallback Profile
 
 **Git account**:
 A tenant's credentials for one account on GitHub, GitLab, or a self-hosted GitLab. A bot may have many git accounts, and several bots may share the same one.

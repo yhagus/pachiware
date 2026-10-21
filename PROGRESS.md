@@ -1964,3 +1964,24 @@ Asked by the user on 2026-10-20: "Simpulkan tugasku untuk hari ini setiap jam 9 
   - the console lists both kinds.
 - [x] Merged: `feat/routines` fast-forwarded into `main` and pushed, as the user asked (2026-10-20).
 
+
+## Phase 57 — A Profile's own fallback models, DeepSeek, and a richer Profile form
+
+Asked by the user on 2026-10-21: the Profile form starts with the provider, picked from tiles with each provider's mark: OpenAI, Anthropic, DeepSeek (new) and BYOK. OpenAI and Anthropic need no base URL or API format. "Accepts images" becomes a "Vision" checkbox without the help text, and the hint under the model field goes. The fallback Profile goes for now. In its place a Profile lists its models in an order you can change: the first answers, and the next answers when one fails, all of the same provider. Built on `feat/profile-models`; ADR 0020.
+
+- [x] The Model and Time zone fields list their suggestions in a styled combobox, not the browser's datalist (df4e34e).
+- [x] Fallback models, DeepSeek, and a base URL only for BYOK (47b8858):
+  - a Profile keeps `fallbackModels`, at most three models with `model`, each once, on all three engines; the router asks them in order, and the audit row is `model_fallback`;
+  - DeepSeek speaks Chat Completions at `https://api.deepseek.com`; a tenant default still names only OpenAI, Anthropic or BYOK;
+  - the admin API refuses a base URL for any provider but BYOK, and a Profile moved off BYOK loses its own;
+  - the upgrade drops `fallback_profile_id`, and turns an OpenAI or Anthropic Profile that named another server into BYOK in the format it spoke.
+- [x] The form (905ddff):
+  - provider tiles first;
+  - Base URL and API format for BYOK only;
+  - one ordered Models list, dragged by a handle or moved with the arrow keys, Primary then Fallback;
+  - the Vision checkbox;
+  - cards with the provider's mark and the model order.
+- [x] GLOSSARY's Profile, ADR 0020, `docs/api.md` and `docs/agents/database-engines.md` follow.
+- Verification: typecheck 0 at every commit. Full suite 1418 pass, 0 fail on 47b8858. `bun run test:engines` 471 pass, 1 fail, on the default ports. The failure is `database-engine.test.ts` "a fresh install on a MongoDB replica set…", which finds log files in the installation folder; it fails the same way on `main` (cab4186). The new contract, PostgreSQL and MongoDB upgrade tests pass. The form was checked by hand on a separate instance (3100/3101) against a stub models server: tiles, BYOK fields, fetch and pick, three models, drag and arrow-key moves, save, edit, BYOK to OpenAI.
+- [ ] A live DeepSeek request (Test or Playground) with a real key.
+- [ ] The form at phone width.
