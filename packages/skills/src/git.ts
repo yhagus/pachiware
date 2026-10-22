@@ -446,10 +446,12 @@ export async function browseBranches(c: GitConn, repo: string, page: number) {
   return pageOf(rows, rows.map((b) => ({ name: b.name, protected: !!b.protected, default: gh ? b.name === base : !!b.default })));
 }
 
-export async function browseCommits(c: GitConn, repo: string, page: number, branch?: string) {
+/** `since` and `until` (ISO 8601) keep the commits made in that window; both providers filter by the commit's date. */
+export async function browseCommits(c: GitConn, repo: string, page: number, branch?: string, window: { since?: string; until?: string } = {}) {
   const ref = repoRef(c, repo), gh = c.provider === "github";
   const sha = branch ? `&${gh ? "sha" : "ref_name"}=${encodeURIComponent(branch)}` : "";
-  const rows: any[] = (await call(c, `${ref}/${gh ? "commits" : "repository/commits"}?${paged(page)}${sha}`)) ?? [];
+  const within = (["since", "until"] as const).map((k) => (window[k] ? `&${k}=${encodeURIComponent(window[k]!)}` : "")).join("");
+  const rows: any[] = (await call(c, `${ref}/${gh ? "commits" : "repository/commits"}?${paged(page)}${sha}${within}`)) ?? [];
   return pageOf(rows, rows.map((r) => ({
     sha: (r.sha ?? r.id).slice(0, 10), message: String(gh ? r.commit.message : r.title).split("\n")[0],
     author: gh ? r.commit.author?.name ?? null : r.author_name ?? null, date: gh ? r.commit.author?.date ?? null : r.created_at ?? null, url: r.html_url ?? r.web_url,
@@ -542,14 +544,46 @@ export async function getCommit(c: GitConn, repo: string, sha: string) {
     filesTruncated: files.length > 50,
   };
 }
-export async function compareRefs(c: GitConn, repo: string, from: string, to: string) {
+/** A file changed between two refs: where it is in `to`, where it was in `from` when it moved, and its patch when the provider gives one. */
+type ComparedFile = { path: string; oldPath?: string; status: string; patch?: string };
+async function compared(c: GitConn, repo: string, from: string, to: string) {
   const gh = c.provider === "github", ref = repoRef(c, repo), [a, b] = [from, to].map(encodeURIComponent);
   const r = must(await call(c, gh ? `${ref}/compare/${a}...${b}` : `${ref}/repository/compare?from=${a}&to=${b}`), `${from}...${to}`);
-  const commits: any[] = r.commits ?? [], files: any[] = gh ? r.files ?? [] : (r.diffs ?? []);
+  const files: ComparedFile[] = ((gh ? r.files : r.diffs) ?? []).map((f: any): ComparedFile => gh
+    ? { path: f.filename, ...(f.previous_filename ? { oldPath: f.previous_filename } : {}), status: f.status, patch: f.patch }
+    : { path: f.new_path, ...(f.old_path && f.old_path !== f.new_path ? { oldPath: f.old_path } : {}), status: f.new_file ? "added" : f.deleted_file ? "removed" : f.renamed_file ? "renamed" : "modified", patch: f.diff });
+  return { r, files };
+}
+const FILES_PAGE = 50, GITHUB_COMPARE_FILES = 300, PATCH_LIMIT = 10_000;
+/** Commits and changed files going from `from` to `to`; the files FILES_PAGE a page, the commits (at most 30) on the first. */
+export async function compareRefs(c: GitConn, repo: string, from: string, to: string, page = 1) {
+  const gh = c.provider === "github", p = Math.floor(page) > 0 ? Math.floor(page) : 1, { r, files } = await compared(c, repo, from, to);
+  const commits: any[] = r.commits ?? [];
   return {
     ahead: gh ? r.ahead_by : commits.length, behind: gh ? r.behind_by : null,
-    commits: commits.slice(0, 30).map((m) => ({ sha: (m.sha ?? m.id).slice(0, 10), message: String(gh ? m.commit.message : m.title).split("\n")[0] })),
-    files: files.slice(0, 50).map((f) => gh ? { path: f.filename, status: f.status } : { path: f.new_path, status: f.new_file ? "added" : f.deleted_file ? "removed" : "modified" }),
+    ...(p === 1 ? { commits: commits.slice(0, 30).map((m) => ({ sha: (m.sha ?? m.id).slice(0, 10), message: String(gh ? m.commit.message : m.title).split("\n")[0] })) } : {}),
+    files: files.slice((p - 1) * FILES_PAGE, p * FILES_PAGE).map(({ patch: _, ...f }) => f),
+    totalFiles: files.length,
+    ...(files.length > p * FILES_PAGE ? { nextPage: p + 1 } : {}),
+    ...(gh && files.length >= GITHUB_COMPARE_FILES ? { filesCapped: `GitHub lists at most ${GITHUB_COMPARE_FILES} changed files in a comparison; files past them are not listed.` } : {}),
+  };
+}
+/** One file's patch between two refs, the file named by its path at either ref; when the provider gives none, why. */
+export async function fileDiff(c: GitConn, repo: string, from: string, to: string, path: string) {
+  const p = cleanPath(path), found = (await compared(c, repo, from, to)).files.find((f) => f.path === p || f.oldPath === p);
+  if (!found) return { path: p, note: `${p} did not change between ${from} and ${to}.` };
+  const { patch, ...file } = found;
+  if (!patch) return { ...file, note: "The provider gives no patch for this file (binary, or too large). Read it at each ref with repoReadFile." };
+  return patch.length > PATCH_LIMIT ? { ...file, patch: patch.slice(0, PATCH_LIMIT), note: `The patch is cut at ${PATCH_LIMIT.toLocaleString("en")} characters. Read the file at each ref with repoReadFile for the rest.` } : { ...file, patch };
+}
+const TREE_PAGE = 200;
+/** The file paths of the tree at `ref` (a branch, tag or commit), sorted, TREE_PAGE a page; `path` keeps those under one folder. */
+export async function browseTree(c: GitConn, repo: string, ref: string, path: string | undefined, page: number) {
+  const p = Math.floor(page) > 0 ? Math.floor(page) : 1, folder = path?.trim() ? cleanPath(path).replace(/\/+$/, "") : undefined;
+  const tree = await repoTree(c, repo, ref, folder), files = tree.files.map((f) => f.path).sort();
+  return {
+    ref, ...(folder ? { path: folder } : {}), files: files.slice((p - 1) * TREE_PAGE, p * TREE_PAGE), page: p, ...(files.length > p * TREE_PAGE ? { nextPage: p + 1 } : {}), totalFiles: files.length,
+    ...(tree.truncated ? { truncated: "Only part of this tree was listed; list a folder with path to see all of it." } : {}),
   };
 }
 export async function getIssue(c: GitConn, repo: string, number: number) {
@@ -666,16 +700,19 @@ export async function headCommit(c: GitConn, repo: string): Promise<{ branch: st
   const r = must(await call(c, `${repoRef(c, repo)}/${gh ? "branches" : "repository/branches"}/${encodeURIComponent(branch)}`), `branch ${branch}`);
   return { branch, commit: gh ? r.commit.sha : r.commit.id };
 }
-/** Every file of the tree at `ref` (a commit sha or branch), folders and submodules left out; `truncated` when the listing was cut (by GitHub, or at MAX_TREE_PAGES on GitLab). */
-export async function repoTree(c: GitConn, repo: string, ref: string): Promise<{ files: TreeFile[]; truncated: boolean }> {
-  const path = repoRef(c, repo);
+/**
+ * Every file of the tree at `ref` (a commit sha or branch), folders and submodules left out, or only those under `folder`;
+ * `truncated` when the listing was cut (by GitHub, or at MAX_TREE_PAGES on GitLab).
+ */
+export async function repoTree(c: GitConn, repo: string, ref: string, folder?: string): Promise<{ files: TreeFile[]; truncated: boolean }> {
+  const path = repoRef(c, repo), under = (p: string) => !folder || p.startsWith(`${folder}/`);
   if (c.provider === "github") {
     const r = must(await call(c, `${path}/git/trees/${encodeURIComponent(ref)}?recursive=1`), `tree ${ref}`);
-    return { files: (r.tree as any[]).filter((e) => e.type === "blob").map((e) => ({ path: e.path, sha: e.sha, size: e.size })), truncated: !!r.truncated };
+    return { files: (r.tree as any[]).filter((e) => e.type === "blob" && under(e.path)).map((e) => ({ path: e.path, sha: e.sha, size: e.size })), truncated: !!r.truncated };
   }
   const files: TreeFile[] = [];
   for (let page = 1; page <= MAX_TREE_PAGES; page++) {
-    const rows: any[] = (await call(c, `${path}/repository/tree?ref=${encodeURIComponent(ref)}&recursive=true&per_page=100&page=${page}`)) ?? [];
+    const rows: any[] = (await call(c, `${path}/repository/tree?ref=${encodeURIComponent(ref)}&recursive=true${folder ? `&path=${encodeURIComponent(folder)}` : ""}&per_page=100&page=${page}`)) ?? [];
     files.push(...rows.filter((e) => e.type === "blob").map((e) => ({ path: e.path, sha: e.id })));
     if (rows.length < 100) return { files, truncated: false };
   }

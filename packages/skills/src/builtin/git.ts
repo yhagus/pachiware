@@ -1,5 +1,5 @@
 import type { SkillModule, SkillContext, ToolDefinition } from "../types.js";
-import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, browseCommits, getMergeRequest, readFile, writeFile, openPullRequest, commentOn, createIssue, linkIssues, subIssue, mergeMergeRequest, closeItem, browsePipelines, pipelineJobs, jobLog, retryPipeline, createBranch, browseTags, browseReleases, getCommit, compareRefs, getIssue, itemComments, searchCode, searchWork, rankWork, type WorkHit, updateMergeRequest, reopenItem, reviewMergeRequest, requestReviewers, mergeRequestDiff, repoChecks, rebaseMergeRequest, updateIssue, assignItem, listLabels, setLabels, lockItem, editComment, deleteComment, createRepo, updateRepoSettings, renameRepo, archiveRepo, deleteRepo, forkRepo, transferRepo, deleteBranch, protectBranch, getBranchProtection, createTag, deleteTag, createRelease, deleteRelease, deleteFile, moveFile, commitFiles, commitToDefaultBranch, runPipeline, cancelPipeline, listArtifacts, downloadArtifact, schedules, variables, secrets, runners, member, invitations, deployKeys, webhooks, securityAlerts, orgList, orgMembers, orgTeams, createGroup, manageTeam, wiki, snippets, packages, notifications, stats, type GitState, type GitConn, type ItemKind } from "../git.js";
+import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, browseCommits, browseTree, fileDiff, getMergeRequest, readFile, writeFile, openPullRequest, commentOn, createIssue, linkIssues, subIssue, mergeMergeRequest, closeItem, browsePipelines, pipelineJobs, jobLog, retryPipeline, createBranch, browseTags, browseReleases, getCommit, compareRefs, getIssue, itemComments, searchCode, searchWork, rankWork, type WorkHit, updateMergeRequest, reopenItem, reviewMergeRequest, requestReviewers, mergeRequestDiff, repoChecks, rebaseMergeRequest, updateIssue, assignItem, listLabels, setLabels, lockItem, editComment, deleteComment, createRepo, updateRepoSettings, renameRepo, archiveRepo, deleteRepo, forkRepo, transferRepo, deleteBranch, protectBranch, getBranchProtection, createTag, deleteTag, createRelease, deleteRelease, deleteFile, moveFile, commitFiles, commitToDefaultBranch, runPipeline, cancelPipeline, listArtifacts, downloadArtifact, schedules, variables, secrets, runners, member, invitations, deployKeys, webhooks, securityAlerts, orgList, orgMembers, orgTeams, createGroup, manageTeam, wiki, snippets, packages, notifications, stats, type GitState, type GitConn, type ItemKind } from "../git.js";
 import { GIT_NOT_ENABLED, loadGitAccess, pickAccess, connectionOf, repoAllowed, type GitAccess } from "../gitScope.js";
 import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, state, num, str, kindOf, clip, confirmable, guard, labelsP, labelsOf } from "./gitShared.js";
 import { briefGroundingTools, briefGroundingHandlers } from "./briefGrounding.js";
@@ -24,8 +24,8 @@ export const gitTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { account: acct, repo: repoP, state: stateP, labels: labelsP, page: pageP }, required: ["repo"] } },
   { name: "repoBranches", description: "Lists branches of a repository.",
     parameters: { type: "object", properties: { account: acct, repo: repoP, page: pageP }, required: ["repo"] } },
-  { name: "repoCommits", description: "Lists recent commits of a repository, newest first.",
-    parameters: { type: "object", properties: { account: acct, repo: repoP, branch: { type: "string", description: "Default: the default branch" }, page: pageP }, required: ["repo"] } },
+  { name: "repoCommits", description: "Lists recent commits of a repository, newest first. since and until keep the commits made in that window.",
+    parameters: { type: "object", properties: { account: acct, repo: repoP, branch: { type: "string", description: "Default: the default branch" }, since: { type: "string", description: "ISO 8601 date-time with its offset, e.g. 2026-10-01T00:00:00+07:00" }, until: { type: "string", description: "ISO 8601 date-time with its offset" }, page: pageP }, required: ["repo"] } },
   { name: "repoMembers", description: "Lists members or collaborators of a repository.",
     parameters: { type: "object", properties: { account: acct, repo: repoP, page: pageP }, required: ["repo"] } },
   { name: "repoReadFile", description: "Reads a file (or lists a directory) in a repository.",
@@ -90,8 +90,12 @@ export const gitTools: ToolDefinition[] = [
     parameters: { type: "object", properties: { account: acct, repo: repoP, page: pageP }, required: ["repo"] } },
   { name: "repoCommit", description: "Shows one commit: full message and changed files.",
     parameters: { type: "object", properties: { account: acct, repo: repoP, sha: { type: "string", description: "Commit sha, branch or tag" } }, required: ["repo", "sha"] } },
-  { name: "repoCompare", description: "Compares two refs (branches, tags or commits): commits and changed files going from `from` to `to`.",
-    parameters: { type: "object", properties: { account: acct, repo: repoP, from: { type: "string" }, to: { type: "string" } }, required: ["repo", "from", "to"] } },
+  { name: "repoCompare", description: "Compares two refs (branches, tags or commits): commits and changed files going from `from` to `to`. The changed files come 50 a page, with totalFiles and nextPage; the commits (at most 30) come on the first page.",
+    parameters: { type: "object", properties: { account: acct, repo: repoP, from: { type: "string" }, to: { type: "string" }, page: pageP }, required: ["repo", "from", "to"] } },
+  { name: "repoFileDiff", description: "Shows one file's patch between two refs, going from `from` to `to`, with its old path when it moved; name the file by its path at either ref. A patch over 10,000 characters is cut: then read the file at each ref with repoReadFile.",
+    parameters: { type: "object", properties: { account: acct, repo: repoP, from: { type: "string" }, to: { type: "string" }, path: { type: "string", description: "File path" } }, required: ["repo", "from", "to", "path"] } },
+  { name: "repoTree", description: "Lists every file path at a ref (branch, tag or commit), at any depth, sorted, 200 a page with totalFiles and nextPage; path keeps the files under one folder. repoReadFile lists only one folder level.",
+    parameters: { type: "object", properties: { account: acct, repo: repoP, ref: { type: "string", description: "Branch, tag or commit" }, path: { type: "string", description: "Folder, e.g. src/routes" }, page: pageP }, required: ["repo", "ref"] } },
   { name: "repoIssue", description: "Shows one issue: description, labels and assignees. Use repoComments for the discussion.",
     parameters: { type: "object", properties: { account: acct, repo: repoP, number: { type: "number" } }, required: ["repo", "number"] } },
   { name: "repoComments", description: "Lists comments on an issue or pull/merge request, oldest first.",
@@ -167,7 +171,10 @@ export const gitRepositorySkill: SkillModule = {
     repoMergeRequest: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return getMergeRequest(conn, repo, Number(a.number)); },
     repoIssues: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseIssues(conn, repo, page(a.page), state(a.state), labelsOf(a.labels)); },
     repoBranches: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseBranches(conn, repo, page(a.page)); },
-    repoCommits: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseCommits(conn, repo, page(a.page), typeof a.branch === "string" ? a.branch : undefined); },
+    repoCommits: async (a, ctx) => {
+      const { conn, repo } = await useRepo(a, ctx), when = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+      return browseCommits(conn, repo, page(a.page), typeof a.branch === "string" ? a.branch : undefined, { since: when(a.since), until: when(a.until) });
+    },
     repoMembers: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseMembers(conn, repo, page(a.page)); },
     repoReadFile: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return readFile(conn, repo, str(a.path, "path"), a.ref); },
     repoPipelines: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browsePipelines(conn, repo, page(a.page), typeof a.branch === "string" ? a.branch : undefined); },
@@ -176,7 +183,9 @@ export const gitRepositorySkill: SkillModule = {
     repoTags: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseTags(conn, repo, page(a.page)); },
     repoReleases: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseReleases(conn, repo, page(a.page)); },
     repoCommit: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return getCommit(conn, repo, str(a.sha, "sha")); },
-    repoCompare: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return compareRefs(conn, repo, str(a.from, "from"), str(a.to, "to")); },
+    repoCompare: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return compareRefs(conn, repo, str(a.from, "from"), str(a.to, "to"), page(a.page)); },
+    repoFileDiff: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return fileDiff(conn, repo, str(a.from, "from"), str(a.to, "to"), str(a.path, "path")); },
+    repoTree: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseTree(conn, repo, str(a.ref, "ref"), typeof a.path === "string" ? a.path : undefined, page(a.page)); },
     repoIssue: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return getIssue(conn, repo, num(a.number)); },
     repoComments: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return itemComments(conn, repo, num(a.number), kindOf(a.kind), page(a.page)); },
     repoSearchWork: async (a, ctx) => {
