@@ -54,7 +54,7 @@ discordScenario("/wait-what explains the bot's last message here, a mention expl
   expect(s.model.calls[0]!.at(-2)!.content).toBe("Pachiware: We shard by tenant hash with consistent hashing.\nAlice (<@user-alice>): what is a hash here?");
   expect(slash.responses).toEqual([
     { kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) },
-    { kind: "editReply", payload: expect.objectContaining({ content: "Answering here with the wait-what playbook." }) },
+    { kind: "editReply", payload: expect.objectContaining({ content: "Working on it here with the wait-what playbook." }) },
   ]);
   expect(s.discord.botMessages.at(-1)).toMatchObject({ channelId: "channel-1", content: "Plainer: each tenant's data lives on one server.", reference: { messageId: answer!.id } });
 
@@ -67,7 +67,7 @@ discordScenario("/wait-what explains the bot's last message here, a mention expl
   const menu = await s.discord.contextMenu("Explain this", target!);
   expect(s.model.calls[2]![0]!.content).toContain("### Playbook: wait-what");
   expect(s.model.calls[2]!.at(-2)!.content).toBe("Bob (<@user-bob>): The cache is write-through");
-  expect(menu.responses.at(-1)).toEqual({ kind: "editReply", payload: expect.objectContaining({ content: "Answering here with the wait-what playbook." }) });
+  expect(menu.responses.at(-1)).toEqual({ kind: "editReply", payload: expect.objectContaining({ content: "Working on it here with the wait-what playbook." }) });
   expect(s.discord.botMessages.at(-1)).toMatchObject({ channelId: "channel-1", content: "Plainer from the menu.", reference: { messageId: target!.id } });
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/threads").catch(() => [])).toEqual([]);
 });

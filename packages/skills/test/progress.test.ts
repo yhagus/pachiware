@@ -15,7 +15,7 @@ test("steps of one kind in a row read as one line: the subject for one, how many
   expect(stepLine("read", ["a", "b", "c", "d", "e"], "id")).toBe("Membaca 5 file");
   expect(stepLine("read", ["a", "a"], "en")).toBe("Reading a");
   expect(stepLine("search", ["HttpClientPaginationDTO"], "id")).toBe("Mencari pemakaian HttpClientPaginationDTO");
-  expect(stepLine("repository", ["emonev/api-consolidator"], "en")).toBe("Looking at the repository emonev/api-consolidator");
+  expect(stepLine("repository", ["emonev/api-consolidator"], "en")).toBe("Opening the repository emonev/api-consolidator");
   expect(stepLine("record", ["PATCH /a", "POST /b"], "en")).toBe("Recording 2 endpoints");
 });
 

@@ -18,7 +18,7 @@ discordScenario("an Indonesian brief gets its round headings, footer, screenshot
   expect(round).toContain("➡️ Tautkan di draf tanpa deskripsi.");
   expect(round).toContain("**Poin 1** · login loops on Safari");
   expect(round).toContain(`Hanya <@${s.discord.alice.id}> yang memutuskan di sini. Balas "ya"`);
-  expect(round.trim().endsWith("Saya tidak bisa melihat gambar dengan profil ini.")).toBe(true);
+  expect(round.trim().endsWith("Untuk saat ini saya belum bisa melihat gambar.")).toBe(true);
 });
 
 discordScenario("a non-author in an Indonesian brief is told in Indonesian that the author decides", async (s) => {
@@ -68,8 +68,8 @@ discordScenario("an Indonesian chat reply cut to three messages gets the Indones
   s.model.script(Array.from({ length: 8 }, (_, i) => `Bagian ${i + 1}. ${"Kalimat yang membuat jawabannya panjang. ".repeat(30)}`).join("\n\n"));
   await s.discord.send(`${s.discord.mention} tolong jelaskan kenapa login di halaman ini gagal`, { attachments: [shot] });
   const sent = s.discord.botMessages.map((m) => m.content).join("\n");
-  expect(sent).toContain("-# Dipotong agar muat dalam 3 pesan.");
-  expect(sent.endsWith("Saya tidak bisa melihat gambar dengan profil ini.")).toBe(true);
+  expect(sent).toContain("-# Saya ringkas supaya tidak terlalu panjang.");
+  expect(sent.endsWith("Untuk saat ini saya belum bisa melihat gambar.")).toBe(true);
 });
 
 discordScenario("an addressed Indonesian message the model stays silent on still gets an Indonesian answer", async (s) => {

@@ -1,6 +1,6 @@
 import { repositories, DEFAULT_REACT_ITERATIONS } from "@pachiware/db";
 import { historyWindow, storedToolResult, windowOf } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, stepOf, stepLine, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
@@ -89,11 +89,16 @@ export const LONG_OUTPUT_TOKENS = 16_384;
 /** How many times one turn tells the model its response was cut before anything of it arrived, before it ends the turn with a summary. */
 const CUT_RETRIES = 2;
 
-/** A change as the person reads it, in the turn's language: what was done and the thing it touched. */
-function changeLine({ call, result }: Executed, t: Strings) {
+/**
+ * A change as the person reads it, in the turn's language: what was done and the thing it touched. A tool with no label of its own reads as
+ * its progress phrase, or as a change, never by its name (#345).
+ */
+function changeLine({ call, result }: Executed, t: Strings, language?: Language) {
   const data = result.data ?? {}, args = call.arguments ?? {};
+  const step = t.taskChange[call.name] ? null : stepOf(call.name, args);
+  if (step) return stepLine(step.kind, [step.subject], language);
   const subject = [data.task?.title, data.title, data.name, data.path, args.title, args.name, args.path, args.taskId].find((v) => typeof v === "string" && v.trim());
-  const label = t.taskChange[call.name] ?? call.name;
+  const label = t.taskChange[call.name] ?? t.madeChange;
   return subject ? `${label} "${subject.trim().slice(0, 80)}"` : label;
 }
 
@@ -192,8 +197,8 @@ const outputFloor = (input: ReActInput) => (input.context.playbook?.long ? { min
 function failureReply(failure: string, executed: Executed[], language?: Language) {
   const t = textIn(language), said = failure || t.providerFailed;
   const change = ({ call }: Executed) => skillRegistry.effectOf(call.name) !== "read";
-  const done = executed.filter((e) => e.result.success && e.result.data?.success !== false && !e.result.data?.pending && change(e)).map((e) => changeLine(e, t));
-  const uncertain = executed.filter((e) => timedOut.has(e.result) && change(e)).map((e) => changeLine(e, t));
+  const done = executed.filter((e) => e.result.success && e.result.data?.success !== false && !e.result.data?.pending && change(e)).map((e) => changeLine(e, t, language));
+  const uncertain = executed.filter((e) => timedOut.has(e.result) && change(e)).map((e) => changeLine(e, t, language));
   return redact([done.length ? t.doneBeforeFailure(done) : "", uncertain.length ? t.uncertainBeforeFailure(uncertain) : "", said].filter(Boolean).join("\n\n"));
 }
 

@@ -54,7 +54,7 @@ discordScenario("the models are asked in the Profile's order, and when every one
   s.http.on("POST llm.test/v1/chat/completions", down);
   await s.discord.send(`${s.discord.mention} and now?`);
   expect(modelsAsked(s, "llm.test").slice(9)).toEqual(["c", "c", "c", "c", "a", "a", "a", "a", "b", "b", "b", "b"]);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("I couldn't reach the model provider just now. Try again in a moment.");
+  expect(s.discord.botMessages.at(-1)?.content).toBe("I can't reach the AI service right now. Try again in a moment.");
 });
 
 discordScenario("a model that refuses tool_choice on the budget's last call answers that call without tools, before the next model is asked", async (s) => {

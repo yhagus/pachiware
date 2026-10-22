@@ -36,7 +36,7 @@ discordScenario("a 12 MB file and a file of another type stay placeholders with 
   expect(turnOf(s)).toBe(`Alice (<@user-alice>): keep these [file: archive.pdf (message ${ask.id}): not filed: over 10 MB] [file: setup.exe (message ${ask.id}): not filed: not a PDF, DOCX, XLSX, HTML, CSV, MD or TXT] [image: screenshot.png, 300×200]`);
   expect(s.http.requests).toEqual([]);
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual([]);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("Noted.\nI can't see images with this profile.");
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Noted.\nI can't see images at the moment.");
 });
 
 discordScenario("in an always-on channel a file sent without addressing the bot keeps a placeholder with the message id", async (s) => {

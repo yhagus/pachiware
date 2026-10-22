@@ -90,7 +90,7 @@ discordScenario("a write that timed out before a provider failure is listed as u
   s.model.script({ tool: "createTask", args: { title: "Book the venue" } }, { tool: "slowSave", args: { text: "venue" } }, { error: "I couldn't reach the model provider just now." });
   await s.discord.send(`${s.discord.mention} add a task and save the venue`);
   expect(s.discord.botMessages.at(-1)!.content).toBe(
-    'Done before the failure:\n- Created task "Book the venue"\n\nNo answer in time, so these may or may not have happened:\n- slowSave\n\nI couldn\'t reach the model provider just now.',
+    'Done before it stopped:\n- Created task "Book the venue"\n\nThese got no answer in time, so they may or may not have happened:\n- Made a change\n\nI couldn\'t reach the model provider just now.',
   );
 });
 

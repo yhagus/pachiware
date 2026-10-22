@@ -139,7 +139,7 @@ discordScenario("a run: in-place playbook answers where it was started, from a s
   for (const run of [slash, menu]) {
     expect(run.responses).toEqual([
       { kind: "deferReply", payload: expect.objectContaining({ ephemeral: true }) },
-      { kind: "editReply", payload: expect.objectContaining({ content: "Answering here with the plainer playbook." }) },
+      { kind: "editReply", payload: expect.objectContaining({ content: "Working on it here with the plainer playbook." }) },
     ]);
   }
   expect(target!.thread).toBeUndefined();

@@ -35,9 +35,9 @@ discordScenario("a turn still working after the wait posts one progress message 
   const [progress, answer] = s.discord.botMessages;
   expect(answer!.content).toBe("Two notes: standup moved to 9, and the retro is on Friday.");
   // Each step as a person would say it, merged by kind, never a tool's name; then one line on how long it took.
-  expect(states(progress)).toContain("🧠 Working…\n-# ✓ Looking through what is kept here\n-# ✓ Reading 2 files");
+  expect(states(progress)).toContain("🧠 Working…\n-# ✓ Going through what is kept here\n-# ✓ Reading 2 files");
   expect(states(progress).join("\n")).not.toMatch(/listFiles|readFile/);
-  expect(progress!.content).toMatch(/^-# 🧠 Worked for \d+ s$/);
+  expect(progress!.content).toMatch(/^-# 🧠 Done in \d+ s$/);
 });
 
 discordScenario("a turn that answers before the wait posts no progress message", async (s) => {
@@ -56,5 +56,5 @@ discordScenario("the progress message speaks the asker's language", async (s) =>
   await s.discord.send(`${s.discord.mention} tolong cek catatan standup kita isinya apa ya?`);
   const [progress] = s.discord.botMessages;
   expect(states(progress)).toContain("🧠 Sedang mengerjakan…\n-# ✓ Membaca standup");
-  expect(progress!.content).toMatch(/^-# 🧠 Dikerjakan selama \d+ detik$/);
+  expect(progress!.content).toMatch(/^-# 🧠 Selesai dalam \d+ detik$/);
 });

@@ -32,7 +32,7 @@ discordScenario("a continuation cut off too goes out with a note in the place's 
   s.model.script({ cut: "Rilis 2.4 mundur ke" }, { cut: " 14 Oktober karena" });
   await s.discord.send(`${s.discord.mention} kapan rilis 2.4?`);
 
-  expect(s.discord.botMessages.at(-1)!.content).toBe("Rilis 2.4 mundur ke 14 Oktober karena\n\n-# Jawaban ini terpotong di batas panjang keluaran model. Minta saya melanjutkan kalau perlu sisanya.");
+  expect(s.discord.botMessages.at(-1)!.content).toBe("Rilis 2.4 mundur ke 14 Oktober karena\n\n-# Jawabannya terpotong karena terlalu panjang. Minta lanjutannya kalau perlu.");
   expect(s.model.calls).toHaveLength(2);
   expect(await cuts(s)).toEqual([
     expect.objectContaining({ kind: "limit", reason: "output_cut", part: "text" }),

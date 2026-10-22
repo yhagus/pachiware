@@ -11,7 +11,7 @@ discordScenario("a turn that throws still gets the failure text, and leaves one 
   await s.guildSettings({ useThreads: false });
   s.model.script(() => { throw new TypeError(`socket hang up while sending ${SECRET}`); });
   await s.discord.send(`${s.discord.mention} what is due this week?`);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("Unable to process this request. Check your tenant configuration.");
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Sorry, I couldn't process this. Try again in a moment; if it keeps failing, ask an admin to check the bot's settings.");
   const failed = await rows(s, "turn_failed");
   expect(failed).toEqual([expect.objectContaining({ channelId: "channel-1", error: "TypeError", message: "socket hang up while sending [redacted]" })]);
   expect(JSON.stringify(failed)).not.toContain("due this week");

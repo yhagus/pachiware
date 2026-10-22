@@ -59,7 +59,7 @@ describe("Router hardening", () => {
       calls.length = 0; waits.length = 0; reply = () => json({ error: { message: "overloaded" } }, 503);
       const down = await ask();
       assert(down.finishReason === "error" && down.httpStatus === 503, "503 not reported: " + JSON.stringify(down));
-      assert(down.content === "Penyedia modelnya tidak bisa saya hubungi saat ini. Coba lagi sebentar lagi.", "fallback not in the tenant's language: " + down.content);
+      assert(down.content === "Saya sedang tidak bisa terhubung ke layanan AI. Coba lagi sebentar lagi.", "fallback not in the tenant's language: " + down.content);
       assert(calls.length === 4 && waits.length === 3, "expected four requests and three waits: " + calls.length + " / " + JSON.stringify(waits));
       assert(waits.every((ms, i) => ms >= 500 * 2 ** i && ms <= 1500 * 2 ** i), "backoff not exponential with jitter: " + JSON.stringify(waits));
       assert((await repositories().usage.list()).filter((r) => r.type === "llm_tokens").length === 1, "a failed call must not record usage");

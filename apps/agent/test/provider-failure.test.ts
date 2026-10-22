@@ -8,7 +8,7 @@ discordScenario("a provider failure after a created task tells what was done, an
   s.model.script({ tool: "createTask", args: { title: "Book the venue" } }, { error: "I couldn't reach the model provider just now." });
   await s.discord.send(`${s.discord.mention} add a task to book the venue`);
 
-  expect(s.discord.botMessages.at(-1)?.content).toBe('Done before the failure:\n- Created task "Book the venue"\n\nI couldn\'t reach the model provider just now.');
+  expect(s.discord.botMessages.at(-1)?.content).toBe('Done before it stopped:\n- Created task "Book the venue"\n\nI couldn\'t reach the model provider just now.');
   expect((await s.workspace.list("guilds/guild-1/channels/channel-1/tasks")).filter((p) => p.endsWith(".md") && !p.endsWith("/README.md"))).toHaveLength(1);
 
   s.model.script("Yes, the venue task is there.");
@@ -44,5 +44,5 @@ discordScenario("a provider failure on the call after the action budget runs out
   // The last call keeps the tools, so the cached prefix holds; tool_choice none forbids calling them (#219).
   expect(s.model.tools.at(-1)).toContain("listTasks");
   expect(s.model.tools.at(-1)).toEqual(s.model.tools[0]!);
-  expect(s.discord.botMessages.at(-1)?.content).toBe('Sudah selesai sebelum gagal:\n- Membuat tugas "Pesan gedung"\n\nPenyedia modelnya tidak bisa saya hubungi saat ini.');
+  expect(s.discord.botMessages.at(-1)?.content).toBe('Yang sudah sempat selesai:\n- Membuat tugas "Pesan gedung"\n\nPenyedia modelnya tidak bisa saya hubungi saat ini.');
 });

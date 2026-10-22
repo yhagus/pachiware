@@ -8,7 +8,7 @@ discordScenario("an image-only mention to a text-only profile is answered with w
   await s.discord.send(s.discord.mention, { attachments: [shot] });
   expect(s.model.calls).toEqual([]);
   expect(s.http.requests).toEqual([]);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("I can't see images with this profile. Describe the image in words and I'll work from that.");
+  expect(s.discord.botMessages.at(-1)?.content).toBe("I can't see images at the moment. Describe the image in words and I'll work from that.");
 });
 
 discordScenario("an image-capable OpenAI profile gets the screenshot as a data URL, and the next turn only a placeholder", async (s) => {
@@ -85,7 +85,7 @@ discordScenario("a text-only profile answers the text, sends no image, and says 
   expect(s.http.requests).toEqual([]);
   expect(s.model.calls[0]!.some((m) => Array.isArray(m.content))).toBe(false);
   expect(s.model.calls[0]!.map((m) => m.content)).toContain("Alice (<@user-alice>): the login page errors, see screenshot [image: screenshot.png, 300×200]");
-  expect(s.discord.botMessages.at(-1)?.content).toBe("Restart the api pod.\nI can't see images with this profile.");
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Restart the api pod.\nI can't see images at the moment.");
 });
 
 discordScenario("a provider that rejects the image is retried without it and the reply says so", async (s) => {
@@ -96,7 +96,7 @@ discordScenario("a provider that rejects the image is retried without it and the
     : openAIReply("Check the auth service logs."));
   await s.discord.send(`${s.discord.mention} why does login fail?`, { attachments: [shot] });
   expect(s.http.requests.filter((r) => r.url.endsWith("/chat/completions"))).toHaveLength(2);
-  expect(s.discord.botMessages.at(-1)?.content).toBe("Check the auth service logs.\nThis profile rejected the image; an admin can turn image input off for it.");
+  expect(s.discord.botMessages.at(-1)?.content).toBe("Check the auth service logs.\nI couldn't read the image with the model I'm using now; an admin can stop sending it images.");
 });
 
 discordScenario("a reply cut to three messages still ends with the image notes", async (s) => {
@@ -104,8 +104,8 @@ discordScenario("a reply cut to three messages still ends with the image notes",
   s.model.script(Array.from({ length: 8 }, (_, i) => `Paragraph ${i + 1}. ${"Words that make the answer long. ".repeat(30)}`).join("\n\n"));
   await s.discord.send(`${s.discord.mention} explain the whole login flow`, { attachments: [shot] });
   const sent = s.discord.botMessages.map((m) => m.content);
-  expect(sent.join("\n")).toContain("-# Cut to stay within 3 messages.");
-  expect(sent.at(-1)!.endsWith("I can't see images with this profile.")).toBe(true);
+  expect(sent.join("\n")).toContain("-# Shortened to keep it brief.");
+  expect(sent.at(-1)!.endsWith("I can't see images at the moment.")).toBe(true);
   for (const m of sent) expect(m.length).toBeLessThanOrEqual(2000);
 });
 
@@ -117,5 +117,5 @@ discordScenario("in a brief thread the image notes go out with the round that re
   await s.discord.send("Q1: no, see the screenshot", { channel: thread, attachments: [shot] });
   const sent = s.discord.botMessages.filter((m) => m.channelId === thread.id).at(-1)!.content;
   expect(sent).toContain("**Round 2**");
-  expect(sent.endsWith("I can't see images with this profile.")).toBe(true);
+  expect(sent.endsWith("I can't see images at the moment.")).toBe(true);
 });

@@ -32,9 +32,9 @@ discordScenario("a provider failure is reported in the configured language, the 
   await useProfile(s, { provider: "openai", model: "gpt-x", acceptsImages: false });
   s.http.on("POST api.openai.com/v1/chat/completions", () => new Response("down", { status: 503 }));
   await s.discord.send(`${s.discord.mention} what is on the list for today?`);
-  expect(s.discord.botMessages.at(-1)!.content).toBe("Penyedia modelnya tidak bisa saya hubungi saat ini. Coba lagi sebentar lagi.");
+  expect(s.discord.botMessages.at(-1)!.content).toBe("Saya sedang tidak bisa terhubung ke layanan AI. Coba lagi sebentar lagi.");
 
   await s.guildSettings({ language: "en" });
   await s.discord.send(`${s.discord.mention} apa saja yang ada di daftar hari ini?`);
-  expect(s.discord.botMessages.at(-1)!.content).toBe("I couldn't reach the model provider just now. Try again in a moment.");
+  expect(s.discord.botMessages.at(-1)!.content).toBe("I can't reach the AI service right now. Try again in a moment.");
 });
