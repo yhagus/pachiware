@@ -51,7 +51,7 @@ export const markDone = (key: string) => { done.set(key, Date.now() + COOLDOWN_M
 
 export const policyOf = (skill: SkillModule, tool: string) => {
   const p = skill.toolPolicy?.[tool], effect = p?.effect ?? skill.effect ?? "read";
-  return { effect, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? effect !== "read", metered: p?.metered ?? false, requiredPermissions: p?.requiredPermissions, confirmsInternally: p?.confirmsInternally ?? skill.confirmsInternally ?? false, repeatable: p?.repeatable ?? false };
+  return { effect, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? effect !== "read", metered: p?.metered ?? false, requiredPermissions: p?.requiredPermissions, confirmsInternally: p?.confirmsInternally ?? skill.confirmsInternally ?? false, repeatable: p?.repeatable ?? false, maxArgs: p?.maxArgs ?? MAX_ARGS };
 };
 
 // Phrases that try to rewrite the rules or pull out hidden material. Matching text is flagged, never obeyed.
@@ -140,13 +140,12 @@ export const GuardrailService = {
 
   /** Runs inside SkillRegistry.executeTool, after the tool is known to be active for the tenant. Refusals are in the place's language, for the model to relay. */
   checkTool(skill: SkillModule, tool: string, args: unknown, ctx: SkillContext): GuardrailDecision {
-    const t = textIn(ctx.language);
-    if (JSON.stringify(args ?? {}).length > MAX_ARGS) return deny("limit", t.guardArgsTooLarge);
+    const t = textIn(ctx.language), policy = policyOf(skill, tool);
+    if (JSON.stringify(args ?? {}).length > policy.maxArgs) return deny("limit", t.guardArgsTooLarge);
     const a = ctx.auth;
     if (a && (a.tenantId !== ctx.tenantId || a.botId !== ctx.botId || a.userId !== ctx.userId || a.guildId !== ctx.guildId || a.channelId !== ctx.channelId)) return this.denyUnauthorized(t.guardAuthMismatch);
     const present: Record<SkillScope, unknown> = { tenant: ctx.tenantId, guild: ctx.guildId, channel: ctx.channelId, user: ctx.userId };
     for (const s of skill.allowedScopes ?? []) if (!present[s]) return this.denyOutOfScope(t.guardOutOfScope(s));
-    const policy = policyOf(skill, tool);
     const needs = policy.requiredPermissions ?? skill.requiredPermissions;
     if (policy.effect !== "read" && needs?.length && !hasPermission(ctx, ...needs)) return this.denyUnauthorized(t.guardPermission(needs.join(", ")));
     const who = ctx.userId ?? "anon";

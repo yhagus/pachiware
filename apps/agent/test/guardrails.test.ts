@@ -69,6 +69,9 @@ test("every guardrail refusal speaks English and Indonesian", async () => {
     g.resetGuardrailState();
     const out: Record<string, unknown> = {};
     out.args = refusal(G.checkTool(write, "save", { text: "x".repeat(9000) }, ctx(language)));
+    // A tool whose policy allows more takes it, up to its own cap (#342).
+    const roomy = { ...write, toolPolicy: { save: { effect: "write", requiresConfirmation: false, repeatable: true, maxArgs: 40_000 } } };
+    out.roomy = [refusal(G.checkTool(roomy, "save", { text: "x".repeat(30_000) }, ctx(language))), refusal(G.checkTool(roomy, "save", { text: "x".repeat(41_000) }, ctx(language)))];
     out.auth = refusal(G.checkTool(write, "save", {}, ctx(language, { auth: { ...base, guildId: "other", roleIds: [], permissions: [] } })));
     out.scope = refusal(G.checkTool({ ...write, allowedScopes: ["guild"] }, "save", {}, ctx(language, { guildId: undefined, auth: undefined })));
     out.permission = refusal(G.checkTool({ ...write, requiredPermissions: ["ManageChannels"] }, "save", {}, ctx(language)));
@@ -82,6 +85,7 @@ test("every guardrail refusal speaks English and Indonesian", async () => {
   };
   expect(each("en")).toEqual({
     args: ["limit", "Tool arguments are too large."],
+    roomy: [null, ["limit", "Tool arguments are too large."]],
     auth: ["unauthorized", "Authorization context does not match this request."],
     scope: ["out_of_scope", "This action only works inside a Discord server channel (missing guild)."],
     permission: ["unauthorized", "You need one of these Discord permissions to ask for this: ManageChannels."],
@@ -91,6 +95,7 @@ test("every guardrail refusal speaks English and Indonesian", async () => {
   });
   expect(each("id")).toEqual({
     args: ["limit", "Argumen tool terlalu besar."],
+    roomy: [null, ["limit", "Argumen tool terlalu besar."]],
     auth: ["unauthorized", "Konteks otorisasi tidak cocok dengan permintaan ini."],
     scope: ["out_of_scope", "Aksi ini hanya bisa dilakukan di channel server Discord (tidak ada guild)."],
     permission: ["unauthorized", "Untuk meminta ini kamu perlu salah satu izin Discord berikut: ManageChannels."],

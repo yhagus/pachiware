@@ -1,7 +1,6 @@
 import type { SkillModule, ToolPolicy } from "../types.js";
 import { acct, repoP, useRepo } from "./gitShared.js";
 import { finishChangelog, putComponents, putNotes, putOperation, startChangelog } from "../openapi/changelog.js";
-import { MAX_ARGS } from "../guardrails.js";
 import { listPreviews, publishPreview } from "../openapi/previews.js";
 import { readablePath } from "./workspace.js";
 
@@ -11,8 +10,10 @@ export const CONTRACT_DIFF_PLAYBOOK = "contract-diff";
 const draftP = { type: "string", description: "The draft path startChangelog returned" };
 // They write only the bot's own changelog files, and a long playbook calls them many times: no Confirm, outside the per-person rate.
 // A second start resumes and a second put replaces, so a repeated call is no accident to guard against.
-const drafting: ToolPolicy = { effect: "write", requiresConfirmation: false, playbook: CONTRACT_DIFF_PLAYBOOK, metered: true, repeatable: true };
-const SIZE = ` Keep each call under ${MAX_ARGS.toLocaleString("en")} characters: put large or shared schemas in putChangelogComponents and $ref them.`;
+// One call carries one whole operation with its examples, which a tool's usual 8,000 characters cannot hold (#342).
+const DRAFT_ARGS = 40_000;
+const drafting: ToolPolicy = { effect: "write", requiresConfirmation: false, playbook: CONTRACT_DIFF_PLAYBOOK, metered: true, repeatable: true, maxArgs: DRAFT_ARGS };
+const SIZE = ` Keep each call under ${DRAFT_ARGS.toLocaleString("en")} characters: put large or shared schemas in putChangelogComponents and $ref them.`;
 
 export const openapiSkill: SkillModule = {
   id: "openapi",
