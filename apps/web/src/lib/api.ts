@@ -200,6 +200,14 @@ export interface Reminder {
   id: string; kind: "reminder" | "routine"; ownerId: string | null; ownerName: string | null; guildId: string | null; channelId: string; text: string; withTasks: boolean; mentions: string[];
   recurrence: "once" | "daily" | "weekly" | "monthly"; weekdays: number[]; dayOfMonth: number | null; timeOfDay: string | null; timezone: string; until: string | null; nextAt: string; lastFiredAt: string | null; error: string | null; createdAt: string;
 }
+/**
+ * An API preview: an OpenAPI document a bot published from chat, as it was then, at a public `url` anyone with the link can open until
+ * it is revoked here. `guildId` is null for one published in a DM; `channelId` is the channel it was asked in (a thread's parent).
+ */
+export interface ApiPreview {
+  id: string; url: string; botId: string; botName: string | null; guildId: string | null; channelId: string; sourcePath: string; title: string; version: string | null;
+  createdById: string | null; createdByName: string | null; createdAt: string;
+}
 export interface GitAccountInput { name?: string; provider?: string; baseUrl?: string | null; token?: string; }
 export interface BotInput { profileId?: string | null; gitAccountIds?: string[]; planeAccountIds?: string[]; name?: string; platform?: string; token?: string; clientId?: string; guildIds?: string[]; isEnabled?: boolean; }
 
@@ -274,6 +282,8 @@ export const api = {
   getGuildPlane: (id: string, guildId: string) => fetchJSON<GuildPlane>(`/api/admin/bots/${id}/guilds/${guildId}/plane`),
   saveGuildPlane: (id: string, guildId: string, rules: PlaneRule[], channelId = "") =>
     fetchJSON<{ guild: PlaneRule[]; rules: PlaneRule[] }>(`/api/admin/bots/${id}/guilds/${guildId}${channelId ? `/channels/${channelId}` : ""}/plane`, json("PUT", { rules })),
+  listApiPreviews: (tenantId: string, botId?: string) => fetchJSON<{ previews: ApiPreview[] }>(`/api/admin/tenants/${tenantId}/api-previews${botId ? `?botId=${encodeURIComponent(botId)}` : ""}`),
+  revokeApiPreview: (tenantId: string, previewId: string) => fetchJSON<{ success: true }>(`/api/admin/tenants/${tenantId}/api-previews/${previewId}`, json("DELETE")),
   listReminders: (id: string) => fetchJSON<{ reminders: Reminder[] }>(`/api/admin/bots/${id}/reminders`),
   cancelReminder: (id: string, reminderId: string) => fetchJSON<{ reminder: Reminder }>(`/api/admin/bots/${id}/reminders/${reminderId}`, json("DELETE")),
   listBotConversations: (id: string, channelId: string) => fetchJSON<{ conversations: Conversation[] }>(`/api/admin/bots/${id}/conversations?channelId=${encodeURIComponent(channelId)}`),

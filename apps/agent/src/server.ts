@@ -20,6 +20,7 @@ import { workspaceAdminRoutes } from "./routes/admin/workspace.js";
 import { gitOAuthAppAdminRoutes } from "./routes/admin/gitOAuthApps.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { openApiPreviewRoutes } from "./routes/openApiPreview.js";
+import { apiPreviewRoutes } from "./routes/apiPreviews.js";
 import { usageAdminRoutes } from "./routes/admin/usage.js";
 import { infrastructureRoutes } from "./routes/admin/infrastructure.js";
 import { statsAdminRoutes } from "./routes/admin/stats.js";
@@ -70,7 +71,9 @@ export function createServer() {
   app.route("/api/v1/bots", botRoutes);
   app.route("/api/v1/tenants", tenantRoutes);
   app.route("/api/v1/availability", availabilityTenantRoutes);
+  app.route("/api/v1", apiPreviewRoutes("/api-previews", (c) => c.get("tenantId")));
   app.route("/api/admin/tenants", tenantAdminRoutes);
+  app.route("/api/admin/tenants", apiPreviewRoutes("/:id/api-previews", (c) => c.req.param("id")!));
   app.route("/api/admin", apiKeyAdminRoutes);
   app.route("/api/admin", botAdminRoutes);
   app.route("/api/admin", profileAdminRoutes);

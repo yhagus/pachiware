@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useParams, useLocation } from "react-router";
-import { Brain, ChevronLeft, GitBranch, Kanban, Pause, Play, FolderTree, Plug, Settings2, Wrench } from "lucide-react";
+import { Brain, ChevronLeft, GitBranch, Globe, Kanban, Pause, Play, FolderTree, Plug, Settings2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmAction } from "@/components/ConfirmAction";
@@ -9,7 +9,7 @@ import { IconButton } from "@/components/IconButton";
 import { api, type Tenant } from "@/lib/api";
 
 // Add future tenant sections (tasks, …) here.
-const SECTIONS = [{ path: "integrations", label: "Integrations", icon: Plug }, { path: "profiles", label: "Profiles", icon: Brain }, { path: "git-accounts", label: "Git accounts", icon: GitBranch }, { path: "plane-accounts", label: "Plane accounts", icon: Kanban }, { path: "skills", label: "Skills", icon: Wrench }, { path: "workspace", label: "Workspace", icon: FolderTree }, { path: "settings", label: "Settings", icon: Settings2 }];
+const SECTIONS = [{ path: "integrations", label: "Integrations", icon: Plug }, { path: "profiles", label: "Profiles", icon: Brain }, { path: "git-accounts", label: "Git accounts", icon: GitBranch }, { path: "plane-accounts", label: "Plane accounts", icon: Kanban }, { path: "skills", label: "Skills", icon: Wrench }, { path: "workspace", label: "Workspace", icon: FolderTree }, { path: "api-previews", label: "API previews", icon: Globe }, { path: "settings", label: "Settings", icon: Settings2 }];
 
 export function TenantDetail() {
   const { id = "" } = useParams();

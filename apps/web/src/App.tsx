@@ -16,6 +16,7 @@ import { TenantSettings } from "@/pages/tenant/TenantSettings";
 import { IntegrationGitAccess } from "@/pages/tenant/IntegrationGitAccess";
 import { IntegrationAvailability } from "./pages/tenant/IntegrationAvailability";
 import { IntegrationReminders } from "@/pages/tenant/IntegrationReminders";
+import { IntegrationApiPreviews, TenantApiPreviews } from "@/pages/tenant/ApiPreviews";
 import { TenantProfiles } from "@/pages/tenant/TenantProfiles";
 import { TenantGitAccounts } from "@/pages/tenant/TenantGitAccounts";
 import { TenantPlaneAccounts } from "@/pages/tenant/TenantPlaneAccounts";
@@ -61,6 +62,7 @@ export default function App() {
             <Route path="plane-accounts" element={<TenantPlaneAccounts />} />
             <Route path="skills" element={<TenantSkills />} />
             <Route path="workspace" element={<TenantWorkspace />} />
+            <Route path="api-previews" element={<TenantApiPreviews />} />
             <Route path="settings" element={<TenantSettings />} />
             <Route path="git-accounts/:accountId" element={<GitRepos />} />
             <Route path="git-accounts/:accountId/repo" element={<GitRepoDetail />} />
@@ -71,6 +73,7 @@ export default function App() {
               <Route path="plane-access" element={<IntegrationPlaneAccess />} />
               <Route path="availability" element={<IntegrationAvailability />} />
               <Route path="reminders" element={<IntegrationReminders />} />
+              <Route path="api-previews" element={<IntegrationApiPreviews />} />
               <Route path="playground" element={<Suspense fallback={<Skeleton className="h-96" />}><IntegrationPlayground /></Suspense>} />
             </Route>
           </Route>
