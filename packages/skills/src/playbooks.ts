@@ -30,6 +30,8 @@ export interface Playbook {
   defaultOff: boolean;
   /** Tools withheld in the playbook's threads; a name no tool has is ignored. */
   closes: string[];
+  /** The only tools its threads offer, when it names any; set only in the console, like `closes` (ADR 0023). */
+  tools: string[];
   /** Playbooks whose bodies join this one's prompt at start, bringing their required skills and closed tools. */
   loads: string[];
   /** False for a reference: no menu or trigger word, so it is only ever loaded by another playbook. */
@@ -85,7 +87,7 @@ export function parsePlaybook(name: string, text: string, source: Playbook["sour
     name, source, menu, start, body: parsed.body.trim(),
     description: typeof f.description === "string" ? f.description : "",
     words: start ? list(trigger.word ?? trigger.words).map((w) => w.toLowerCase()).filter((w) => WORD.test(w)) : [],
-    requires: list(f.requires), optional: list(f.optional), closes: list(f.closes), loads: list(f.loads), defaultOff: !guild && f.default === "off",
+    requires: list(f.requires), optional: list(f.optional), closes: list(f.closes), tools: list(f.tools), loads: list(f.loads), defaultOff: !guild && f.default === "off",
     run: f.run === "in-place" ? "in-place" : "thread",
     ...(f.repository === "required" ? { repository: "required" as const } : {}),
     ...(f.budget === "long" ? { budget: "long" as const } : {}),
@@ -155,22 +157,34 @@ export async function playbookSaveProblem(tenantId: string, path: string, conten
   return saved ? chainSaveProblem(saved, await listPlaybooks(tenantId, guild?.guildId)) : null;
 }
 
-/** The started playbook with its chain folded in: the loaded bodies after its own, and requires, optional, closes and a required repository combined. A broken chain leaves it as it is; the availability check refuses it anyway. */
+/**
+ * The started playbook with its chain folded in: the loaded bodies after its own, and requires, optional, closes, tools and a required
+ * repository combined. Tools are narrowed only when every playbook of the chain names its own. A broken chain leaves it as it is; the
+ * availability check refuses it anyway.
+ */
 export function withLoads(playbook: Playbook, all: Playbook[]): Playbook {
   const found = playbookChain(playbook, all);
   if ("problem" in found || found.chain.length < 2) return playbook;
   const chain = found.chain.map((name) => name === playbook.name ? playbook : all.find((p) => p.name === name)!);
-  const union = (key: "requires" | "optional" | "closes") => [...new Set(chain.flatMap((p) => p[key]))];
+  const union = (key: "requires" | "optional" | "closes" | "tools") => [...new Set(chain.flatMap((p) => p[key]))];
   return {
-    ...playbook, requires: union("requires"), optional: union("optional"), closes: union("closes"),
+    ...playbook, requires: union("requires"), optional: union("optional"), closes: union("closes"), tools: chain.every((p) => p.tools.length) ? union("tools") : [],
     ...(chain.some((p) => p.repository === "required") ? { repository: "required" as const } : {}),
     body: [playbook.body, ...chain.slice(1).map((p) => `#### Loaded playbook: ${p.name}\n\n${p.body}`)].join("\n\n"),
   };
 }
 
-/** Tools a playbook closes in its threads, each with the error a call to it gets when the model names it anyway. */
-export const closedTools = (playbook?: { name: string; closes?: string[] }): Map<string, string> =>
-  new Map((playbook?.closes ?? []).map((tool) => [tool, `This thread follows the ${playbook!.name} playbook, which closes ${tool}: follow the playbook's steps instead.`]));
+/**
+ * Tools a playbook withholds in its threads, each with the error a call to it gets when the model names it anyway: the ones it closes,
+ * and, when it names the tools it offers, every other tool of `available`.
+ */
+export function closedTools(playbook?: { name: string; closes?: string[]; tools?: string[] }, available: string[] = []): Map<string, string> {
+  if (!playbook) return new Map();
+  const closed = new Map(playbook.closes?.map((tool) => [tool, `This thread follows the ${playbook.name} playbook, which closes ${tool}: follow the playbook's steps instead.`]));
+  const offered = new Set(playbook.tools ?? []);
+  if (offered.size) for (const tool of available) if (!offered.has(tool) && !closed.has(tool)) closed.set(tool, `This thread follows the ${playbook.name} playbook, which offers only its own tools, and ${tool} is not one of them: follow the playbook's steps instead.`);
+  return closed;
+}
 
 const validName = (name: string) => { try { checkSegments([name]); return true; } catch { return false; } };
 

@@ -601,7 +601,7 @@ export class DiscordBotManager {
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const repository = opts.binding && threadRepositoryOf(opts.binding), documents = opts.binding && threadDocumentsOf(opts.binding);
       const chained = opts.playbook && withLoads(opts.playbook, await listPlaybooks(runtime.tenantId, msg.guildId));
-      const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes, ...(chained.source === "guild" ? { madeInChat: true } : {}), ...(repository ? { repository } : {}), ...(documents ? { documents } : {}), ...(chained.budget === "long" ? { long: true } : {}) };
+      const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes, ...(chained.tools.length ? { tools: chained.tools } : {}), ...(chained.source === "guild" ? { madeInChat: true } : {}), ...(repository ? { repository } : {}), ...(documents ? { documents } : {}), ...(chained.budget === "long" ? { long: true } : {}) };
       const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId), language, new Map(items.flatMap((i) => (i.replyTo !== undefined ? [[i.msg, i.replyTo] as const] : []))));
       // The brief's author still gets a round: it asks them to describe the screenshot.
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);

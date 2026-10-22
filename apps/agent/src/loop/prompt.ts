@@ -76,7 +76,7 @@ export interface PromptContext {
   skillContext?: { parentChannelId?: string; privateThread?: boolean };
   /** The playbook this thread is bound to. Its body joins the cached prefix, which stays stable because the binding lasts for the thread. `madeInChat`: a server's own (ADR 0021). */
   /** `long`: the playbook asked for a long budget (LONG_PLAYBOOK_ITERATIONS model calls, `longTurnDeadline`). */
-  playbook?: { name: string; body: string; closes?: string[]; madeInChat?: boolean; repository?: ThreadRepository; documents?: ThreadDocuments; long?: boolean };
+  playbook?: { name: string; body: string; closes?: string[]; tools?: string[]; madeInChat?: boolean; repository?: ThreadRepository; documents?: ThreadDocuments; long?: boolean };
   /** What availability rules turn off where the message came from. It changes only when an admin changes a rule, so it may sit in the cached prompt. */
   off?: OffSummary;
   /** The zone of the place the message came from (the guild's, else the tenant's); only the per-turn context reads it. */

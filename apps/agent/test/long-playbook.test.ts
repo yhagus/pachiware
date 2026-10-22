@@ -72,3 +72,59 @@ discordScenario("the notes about going on are in the asker's language", async (s
   const started = await s.discord.send(`${s.discord.mention} trace: tolong lacak semua endpoint users yang berubah`);
   expect(said(started.thread)).toEqual(["GET /users sudah.\nBelum selesai: saya lanjutkan sendiri (1 dari 2).", "Semua endpoint sudah dilacak."]);
 });
+
+const RECORD_NOW = "This turn is nearly out of time. Before anything else, record with your playbook's tools everything you have finished but not recorded yet, then go on with the rest: the next turn continues from what is recorded, not from what you read.";
+const lastSent = (call: any[]) => call.at(-1)!.content;
+
+discordScenario("a long playbook's turn is told once to record what it finished, when 80% of its time has passed", async (s) => {
+  await s.guildSettings({ language: "en" });
+  await playbook(s, "trace", true);
+  await longDeadline(4000);
+  const lookupFor = (ms: number) => async () => { await new Promise((resolve) => setTimeout(resolve, ms)); return { tool: "listFiles", args: { path: "channel" } }; };
+  // 3.3 s of 4 s is past 80%: the next call carries the instruction, and the one after it does not get it again.
+  s.model.script(lookupFor(3300), { tool: "listFiles", args: { path: "channel" } }, "Recorded GET /users; POST /users is left.");
+  const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
+
+  expect(s.model.calls.map(lastSent).filter((c) => c === RECORD_NOW)).toHaveLength(1);
+  expect(lastSent(s.model.calls[1]!)).toBe(RECORD_NOW);
+  // A turn that answers after recording is not out of budget: nothing goes on by itself.
+  expect(said(started.thread)).toEqual(["Recorded GET /users; POST /users is left."]);
+});
+
+discordScenario("a long playbook's turn is told to record after 102 of its 128 model calls, and another playbook's turn never is", async (s) => {
+  await s.guildSettings({ language: "en" });
+  await playbook(s, "trace", true);
+  await playbook(s, "brief", false);
+  s.model.script(...lookups(103), "Traced 103.");
+  await s.discord.send(`${s.discord.mention} trace: the users API`);
+  expect(s.model.calls.map(lastSent).flatMap((c, i) => (c === RECORD_NOW ? [i] : []))).toEqual([102]);
+
+  s.model.script(...lookups(32), "Traced 32; the rest is left.");
+  await s.discord.send(`${s.discord.mention} brief: the users API`);
+  expect(s.model.calls.slice(104).map(lastSent)).not.toContain(RECORD_NOW);
+});
+
+const EMPTY_ANSWER = "Your last answer was empty. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
+
+discordScenario("an empty answer after a long playbook's tool work is asked for again without tools, and the work goes on by itself", async (s) => {
+  await s.guildSettings({ language: "en" });
+  await playbook(s, "trace", true);
+  s.model.script({ tool: "listFiles", args: { path: "channel" } }, "", "Traced GET /users; POST /users is left.", "Traced POST /users.");
+  const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
+
+  expect(lastSent(s.model.calls[2]!)).toBe(EMPTY_ANSWER);
+  expect(said(started.thread)).toEqual(["Traced GET /users; POST /users is left.\nNot finished yet: continuing on my own (1 of 2).", "Traced POST /users."]);
+  // The empty answer is not kept: the turn that goes on reads the summary as the bot's last word.
+  const history = s.model.calls[3]!.filter((m: any) => m.role === "assistant").map((m: any) => m.content);
+  expect(history).not.toContain("");
+  expect(history.at(-1)).toBe("Traced GET /users; POST /users is left.");
+});
+
+discordScenario("an empty answer after tool work in a chat is asked for once more instead of being called done", async (s) => {
+  await s.guildSettings({ language: "en" });
+  s.model.script({ tool: "listFiles", args: { path: "channel" } }, "", "The channel folder is empty.");
+  await s.discord.send(`${s.discord.mention} what's in our files?`);
+  expect(lastSent(s.model.calls[2]!)).toBe(EMPTY_ANSWER);
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual(["The channel folder is empty."]);
+  expect(s.model.calls).toHaveLength(3);
+});

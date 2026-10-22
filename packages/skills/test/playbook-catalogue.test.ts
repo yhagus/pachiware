@@ -101,7 +101,7 @@ describe("built-in playbooks", () => {
     for (const p of playbooks) {
       const all = text(p.name);
       for (const skill of [...p.requires, ...p.optional]) expect([p.name, skill, skills.has(skill)]).toEqual([p.name, skill, true]);
-      for (const tool of p.closes) expect([p.name, tool, tools.has(tool)]).toEqual([p.name, tool, true]);
+      for (const tool of [...p.closes, ...p.tools]) expect([p.name, tool, tools.has(tool)]).toEqual([p.name, tool, true]);
       expect([p.name, "chain" in playbookChain(p, playbooks)]).toEqual([p.name, true]);
       // A tool is written `toolName`; a playbook "the `name` playbook", or `/name` when a person starts it; a file of a playbook `name/FILE.md`.
       for (const [, tool] of all.matchAll(/`([a-z]+[A-Z][A-Za-z]*)`/g)) expect([p.name, tool, tools.has(tool!)]).toEqual([p.name, tool, true]);

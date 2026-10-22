@@ -40,6 +40,20 @@ discordScenario("tools a loaded playbook closes are not offered, and a skill it 
   expect(s.model.calls).toHaveLength(1);
 });
 
+discordScenario("a chain narrows its tools only when every playbook in it names its own, and then offers them all", async (s) => {
+  await s.workspace.write("shared/playbooks/grilling/PLAYBOOK.md", playbook("grilling", 'trigger: "grill"\ntools: ["listTasks"]', "Ask one question at a time."));
+  await s.workspace.write("shared/playbooks/notes/PLAYBOOK.md", playbook("notes", 'trigger: "notes"', "Write it down."));
+  await s.workspace.write("shared/playbooks/wayfinder/PLAYBOOK.md", playbook("wayfinder", 'trigger: "wayfinder"\ntools: ["readFile"]\nloads: ["grilling"]', "Map the work into tickets."));
+  await s.workspace.write("shared/playbooks/scribe/PLAYBOOK.md", playbook("scribe", 'trigger: "scribe"\ntools: ["readFile"]\nloads: ["notes"]', "Keep the record."));
+  await s.restart();
+
+  s.model.script("Mapping.", "Writing.");
+  await s.discord.send(`${s.discord.mention} wayfinder: plan the billing rewrite`);
+  expect([...s.model.tools[0]!].sort()).toEqual(["listTasks", "readFile"]);
+  await s.discord.send(`${s.discord.mention} scribe: the standup`, { channel: "channel-2" });
+  expect(s.model.tools[1]).toEqual(expect.arrayContaining(["readFile", "createTask", "listTasks"]));
+});
+
 discordScenario("a loaded playbook off in a channel refuses the start there with that cause, and turning it off ends an active thread with a note", async (s) => {
   await s.workspace.write("shared/playbooks/grilling/PLAYBOOK.md", playbook("grilling", 'trigger: "grill"', "Ask one question at a time."));
   await s.workspace.write("shared/playbooks/wayfinder/PLAYBOOK.md", playbook("wayfinder", 'trigger: "wayfinder"\nloads: ["grilling"]', "Map the work into tickets."));

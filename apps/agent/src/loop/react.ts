@@ -158,6 +158,10 @@ const OUT_OF_TIME_CALL = "This tool call was not run: the turn ran out of time. 
 const BUDGET_SPENT = "The action budget for this turn is exhausted. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
 const TIME_SPENT = "The time for this turn ran out. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
 const CONTINUE = "Your last answer was cut off at the output limit. Continue exactly where you stopped, without repeating anything you already wrote.";
+const EMPTY_ANSWER = "Your last answer was empty. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
+const RECORD_NOW = "This turn is nearly out of time. Before anything else, record with your playbook's tools everything you have finished but not recorded yet, then go on with the rest: the next turn continues from what is recorded, not from what you read.";
+/** The share of a long playbook turn's time or model calls after which the model is told once to record what it has finished. */
+export const RECORD_AT = 0.8;
 
 /**
  * Asks once for the rest of an answer cut at the output limit and joins the two parts; `stillCut` when the rest is cut too or never came.
@@ -189,9 +193,11 @@ export class AgentReActLoop {
    */
   async run(input: ReActInput): Promise<ReActOutput> {
     const long = !!input.context.playbook?.long;
-    const deadline = Date.now() + (long ? longTurnDeadline.ms : turnDeadline.ms);
+    const startedAt = Date.now(), deadline = startedAt + (long ? longTurnDeadline.ms : turnDeadline.ms);
     const requestedIterations = Number(input.maxIterations) || DEFAULT_REACT_ITERATIONS;
     const maxIterations = Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, long ? LONG_PLAYBOOK_ITERATIONS : PLAYBOOK_ITERATIONS) : requestedIterations));
+    // A long playbook's work survives a turn that runs out only as far as it was recorded: once, late in the turn, the model is told to record (#342).
+    const recordAt = { time: startedAt + RECORD_AT * (deadline - startedAt), iterations: Math.floor(RECORD_AT * maxIterations) };
     const toolCallsExecuted: Executed[] = [];
 
     // 1. Ensure the conversation exists, unless the caller holds it
@@ -269,9 +275,9 @@ export class AgentReActLoop {
     await record.add({ role: "user", content: input.message });
 
     // 5. Retrieve active tools
-    // Availability rules for this place first, then a playbook may close tools in its threads, and a skill may hide tools the place does not support
-    // (see SkillModule.hiddenTools); a call to any of them is refused even when the model names it anyway.
-    const closed = closedTools(input.context.playbook);
+    // Availability rules for this place first, then a playbook may close tools in its threads or name the only ones they offer (ADR 0023), and a
+    // skill may hide tools the place does not support (see SkillModule.hiddenTools); a call to any of them is refused even when the model names it anyway.
+    const closed = closedTools(input.context.playbook, available.tools.map((t) => t.name));
     if (input.readOnly) for (const t of available.tools) if (skillRegistry.effectOf(t.name) !== "read") closed.set(t.name, input.readOnly);
 
     // 6. Build execution context for tools
@@ -318,13 +324,19 @@ export class AgentReActLoop {
 
     const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;
-    let outOfTime = false;
+    let outOfTime = false, stalled = false, toldToRecord = false;
     let finalReply = "", failed = false;
     let imagesRejected = false;
 
     // 7. ReAct execution cycle
     while (iterations < maxIterations) {
       if (Date.now() >= deadline) { outOfTime = true; break; }
+      // Not stored, like the budget's instructions: it steers this turn only.
+      if (long && !toldToRecord && (Date.now() >= recordAt.time || iterations >= recordAt.iterations)) {
+        toldToRecord = true;
+        messageHistory.push({ role: "user", content: RECORD_NOW });
+        await audit(skillContext, "guardrail_denied", { kind: "limit", reason: "record_now" });
+      }
       iterations++;
 
       // LLM Step (Thinking & Tool Decision)
@@ -357,6 +369,9 @@ export class AgentReActLoop {
       const final = !response.toolCalls || response.toolCalls.length === 0;
       let answer = response.content, stillCut = false;
       if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, cacheKey, historyEnd, input, skillContext, deadline));
+      // An empty answer after this turn's tool work tells the person nothing of it: it is not kept, and the answer is asked for once more
+      // without tools, the way a spent budget's is, so a long playbook's work then goes on by itself (#342).
+      if (final && !stillCut && !answer?.trim() && toolCallsExecuted.length) { stalled = true; break; }
 
       // The final answer gets its citations rendered and its links checked before it is stored, so later turns read real links.
       const content = final && answer ? await cite(answer, toolCallsExecuted, messageHistory, skillContext) : answer;
@@ -428,11 +443,11 @@ export class AgentReActLoop {
       }
     }
 
-    const outOfBudget = (iterations >= maxIterations || outOfTime) && !finalReply;
+    const outOfBudget = (iterations >= maxIterations || outOfTime || stalled) && !finalReply;
     if (outOfBudget) {
       // One more call with the same tools and tool_choice none, so the cached prefix holds and completed work becomes a useful answer
       // instead of an opaque failure. The instruction is not stored; the answer is, so the next turn builds on it.
-      const request = [...messageHistory, { role: "user" as const, content: outOfTime ? TIME_SPENT : BUDGET_SPENT }];
+      const request = [...messageHistory, { role: "user" as const, content: outOfTime ? TIME_SPENT : stalled ? EMPTY_ANSWER : BUDGET_SPENT }];
       const options = { tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, language: input.context.language, deadline: Date.now() + turnDeadline.summaryMs };
       // A server that refuses tool_choice is asked once more without tools by the router, before any fallback Profile.
       const boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
@@ -442,7 +457,7 @@ export class AgentReActLoop {
         if (content) await record.add({ role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
         finalReply = redact(content || textIn(input.context.language).budgetSpent);
       }
-      await audit(skillContext, "guardrail_denied", { kind: "limit", source: outOfTime ? "deadline" : "iterations", synthesized: true });
+      await audit(skillContext, "guardrail_denied", { kind: "limit", source: outOfTime ? "deadline" : stalled ? "empty_answer" : "iterations", synthesized: true });
     }
 
     return {

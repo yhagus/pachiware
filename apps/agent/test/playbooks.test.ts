@@ -114,6 +114,25 @@ discordScenario("an issue-draft thread withholds the plain repository reads, iss
   expect(brief).toEqual(expect.arrayContaining(["briefRead", "createBriefIssues", "repoUpdateIssue"]));
 });
 
+discordScenario("a playbook that names its tools offers only those in its thread, refuses any other called anyway, and leaves the channel's tools alone", async (s) => {
+  await s.workspace.write("shared/playbooks/retro/PLAYBOOK.md", `---\nname: retro\ndescription: Collects a retrospective\ntrigger: {"word": "retro"}\ntools: ["listTasks", "noSuchTool"]\n---\nGroup the points into went well, went badly, and try next.\n`);
+  s.model.script(
+    { tool: "createTask", args: { title: "Shorter standups" } },
+    (turn) => {
+      expect(turn.toolResults[0]!.error).toContain("retro playbook, which offers only its own tools");
+      return "Grouped.";
+    },
+    "Plain answer.",
+  );
+  const retro = await s.discord.send(`${s.discord.mention} retro: standups ran long`);
+  expect(retro.thread).toBeDefined();
+  expect(s.discord.botMessages.map((m) => [m.channelId, m.content])).toEqual([[retro.thread!.id, "Grouped."]]);
+  expect(s.model.tools[0]).toEqual(["listTasks"]);
+
+  await s.discord.send(`${s.discord.mention} add a task`, { channel: "channel-2" });
+  expect(s.model.tools[2]).toContain("createTask");
+});
+
 discordScenario("a tenant playbook's closed tools are withheld in its thread and refused when called anyway; an unknown name is ignored", async (s) => {
   await s.workspace.write("shared/playbooks/retro/PLAYBOOK.md", `---\nname: retro\ndescription: Collects a retrospective\ntrigger: {"word": "retro"}\ncloses: ["createTask", "noSuchTool"]\n---\nGroup the points into went well, went badly, and try next.\n`);
   s.model.script(
