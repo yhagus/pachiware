@@ -1,5 +1,6 @@
 ---
 description: How to make a playbook for this server from what a person asks; the bot reads it before it drafts one with savePlaybook.
+category: Making playbooks
 start: false
 ---
 # Making a playbook

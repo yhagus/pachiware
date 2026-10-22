@@ -1,5 +1,6 @@
 ---
 description: Questions you about a plan, decision, or idea in rounds until every decision in it is settled.
+category: Matt Pocock's Skills
 default: off
 optional: ["workspace", "git_repositories"]
 license: MIT, adapted from mattpocock/skills; the notice is in LICENSE.md

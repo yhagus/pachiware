@@ -1,5 +1,6 @@
 ---
 description: Cuts a plan, a spec, or this thread into tracer-bullet issues and creates them in the thread's repository in one batch, with their blocking links.
+category: Matt Pocock's Skills
 default: off
 requires: ["git_repositories"]
 optional: ["workspace", "discord_management"]

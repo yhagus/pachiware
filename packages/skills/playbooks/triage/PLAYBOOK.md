@@ -1,5 +1,6 @@
 ---
 description: Moves the issues of the thread's repository through triage roles: shows what needs attention, recommends a category and state, relabels issues in one batch, and writes agent briefs.
+category: Matt Pocock's Skills
 default: off
 loads: ["grilling", "domain-modeling"]
 requires: ["git_repositories"]

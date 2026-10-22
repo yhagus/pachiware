@@ -6,6 +6,7 @@ import { workspaceSkill } from "./builtin/workspace.js";
 import { remindersSkill } from "./builtin/reminders.js";
 import { planeSkill } from "./builtin/plane.js";
 import { openapiSkill } from "./builtin/openapi.js";
+import { OTHER_CATEGORY } from "./categories.js";
 import { GuardrailService, audit, isEnforced, policyOf, actionKey, markDone, redact, guardrailMode } from "./guardrails.js";
 import { queueAction } from "./gitConfirm.js";
 import { resolveAvailability, availabilityPlace, type Availability, type Place } from "./availability.js";
@@ -82,7 +83,7 @@ export class SkillRegistry {
   /** Every skill with its tools as the code declares them: effect, group and playbook come from toolPolicy, never from the database. */
   public catalogue(): CatalogueSkill[] {
     return this.getAllSkills().map((s) => ({
-      id: s.id, name: s.name, description: s.description, groups: s.groups ?? [],
+      id: s.id, name: s.name, description: s.description, category: s.category ?? OTHER_CATEGORY, groups: s.groups ?? [],
       tools: s.tools.map((t) => { const p = s.toolPolicy?.[t.name]; return { name: t.name, description: t.description, effect: p?.effect, ...(p?.group ? { group: p.group } : {}), ...(p?.playbook ? { playbook: p.playbook } : {}), ...(p?.defaultOff ? { defaultOff: true as const } : {}) }; }),
     }));
   }

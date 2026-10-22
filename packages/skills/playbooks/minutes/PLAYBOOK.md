@@ -1,6 +1,7 @@
 ---
 name: minutes
 description: Writes minutes of a thread or a stretch of a channel: what was decided, what is still open, and who does what next.
+category: Records & meetings
 trigger: {"menu": "Write minutes", "word": ["minutes", "notulen"]}
 requires: ["workspace"]
 run: in-place

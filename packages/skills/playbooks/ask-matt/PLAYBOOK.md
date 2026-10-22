@@ -1,5 +1,6 @@
 ---
 description: Asks which playbook or flow fits your situation: a router over the bot's playbooks.
+category: Matt Pocock's Skills
 default: off
 requires: ["workspace"]
 license: MIT, adapted from mattpocock/skills; the notice is in LICENSE.md

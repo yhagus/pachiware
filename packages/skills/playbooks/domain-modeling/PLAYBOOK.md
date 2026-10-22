@@ -1,5 +1,6 @@
 ---
 description: Builds and sharpens a project's domain model: challenges terms and writes the glossary and decision records as they settle.
+category: Matt Pocock's Skills
 default: off
 optional: ["workspace", "git_repositories"]
 license: MIT, adapted from mattpocock/skills; the notice is in LICENSE.md

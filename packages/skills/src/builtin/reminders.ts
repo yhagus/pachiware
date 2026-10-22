@@ -115,6 +115,7 @@ const oneLine = (value: unknown) => (typeof value === "string" ? value.replace(/
 export const remindersSkill: SkillModule = {
   id: "reminders",
   name: "Reminders",
+  category: "Tasks & reminders",
   description: "Post a message at a time a person chose, or carry out an instruction then and post what it found (a Routine), once or repeating, where they asked, pinging them.",
   capabilities: ["reminders"],
   allowedScopes: ["tenant", "channel", "user"],

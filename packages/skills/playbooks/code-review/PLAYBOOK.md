@@ -1,5 +1,6 @@
 ---
 description: Reviews a pull request or the changes between two refs along two axes: the repository's coding standards, and the spec the change came from.
+category: Matt Pocock's Skills
 default: off
 requires: ["git_repositories"]
 repository: required

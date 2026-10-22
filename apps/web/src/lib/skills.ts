@@ -17,5 +17,14 @@ export function sections(s: TenantSkill): { title?: string; tools: SkillTool[] }
   return [...main, { title: "Playbook tools", tools: playbook }].filter((x) => x.tools.length);
 }
 
+/** The words of a search, lowercased; empty when there is nothing to search for. */
+export const searchWords = (query: string) => query.toLowerCase().split(/\s+/).filter(Boolean);
+
+/** Whether every word appears somewhere in the texts, in any case. */
+export const hasAll = (words: string[], ...texts: (string | undefined)[]) => {
+  const text = texts.join("\n").toLowerCase();
+  return words.every((w) => text.includes(w));
+};
+
 export const effectCounts = (tools: SkillTool[]) =>
   (Object.keys(EFFECTS) as ToolEffect[]).map((e) => [e, tools.filter((t) => t.effect === e).length] as const).filter(([, n]) => n).map(([e, n]) => `${n} ${e}`).join(" · ");

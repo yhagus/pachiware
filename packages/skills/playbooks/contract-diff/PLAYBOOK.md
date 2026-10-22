@@ -1,5 +1,6 @@
 ---
 description: Records every frontend-facing API contract change of a backend repository, for its whole history or between two dates, as an OpenAPI document read from the source code.
+category: Git, code & APIs
 trigger: {"word": ["changelog"]}
 default: off
 requires: ["git_repositories", "openapi"]

@@ -1,5 +1,6 @@
 ---
 description: Shared vocabulary for designing deep modules, loaded by playbooks that design or restructure code.
+category: Matt Pocock's Skills
 start: false
 default: off
 optional: ["git_repositories"]

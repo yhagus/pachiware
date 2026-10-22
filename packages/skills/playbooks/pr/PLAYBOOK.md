@@ -1,5 +1,6 @@
 ---
 description: Writes a pull request's body (summary, evidence, merge danger) and puts it on the pull request in the thread's repository.
+category: Matt Pocock's Skills
 default: off
 requires: ["git_repositories"]
 repository: required

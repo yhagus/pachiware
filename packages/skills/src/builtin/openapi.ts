@@ -17,6 +17,7 @@ const SIZE = ` Keep each call under ${MAX_ARGS.toLocaleString("en")} characters:
 export const openapiSkill: SkillModule = {
   id: "openapi",
   name: "OpenAPI",
+  category: "Git, code & APIs",
   description: "Write API changelogs of a repository as OpenAPI documents, and publish OpenAPI documents as public OpenAPI Schema Viewer pages.",
   capabilities: ["openapi"],
   allowedScopes: ["tenant"],

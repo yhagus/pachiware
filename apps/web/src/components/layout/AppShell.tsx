@@ -50,7 +50,7 @@ export function AppShell({ health }: { health: HealthResponse | null }) {
           </div>
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
         <header className="flex h-14 items-center gap-2 border-b px-5">
           <SidebarTrigger />
           <Separator orientation="vertical" className="h-4" />

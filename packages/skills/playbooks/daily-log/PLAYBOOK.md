@@ -1,6 +1,7 @@
 ---
 name: daily-log
 description: Writes the Daily log of one channel and one day from its messages; only the schedule starts it, at night, and it is never posted.
+category: Records & meetings
 start: false
 requires: ["workspace"]
 ---

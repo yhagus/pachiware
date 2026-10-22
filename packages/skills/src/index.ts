@@ -29,6 +29,7 @@ export * from "./gitOAuth.js";
 export * from "./registry.js";
 export * from "./availability.js";
 export * from "./playbooks.js";
+export * from "./categories.js";
 export * from "./brief.js";
 export * from "./issueDrafts.js";
 export * from "./briefImages.js";

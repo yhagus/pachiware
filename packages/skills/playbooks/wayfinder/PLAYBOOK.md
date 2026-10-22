@@ -1,5 +1,6 @@
 ---
 description: Plans a large piece of work as a map issue with decision sub-issues in the thread's repository, then resolves the sub-issues one thread at a time until the way is clear.
+category: Matt Pocock's Skills
 default: off
 loads: ["grilling", "domain-modeling"]
 requires: ["git_repositories"]

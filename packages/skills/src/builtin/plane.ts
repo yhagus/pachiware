@@ -90,6 +90,7 @@ export const planeHandlers: Record<string, ToolHandler> = checkedByVersion({
 export const planeSkill: SkillModule = {
   id: "plane",
   name: "Plane",
+  category: "Plane",
   description: "Read and change work items in the Plane projects enabled for this server and channel.",
   tools: planeTools,
   handlers: planeHandlers,

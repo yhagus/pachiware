@@ -1,5 +1,6 @@
 ---
 description: A relentless interview in a thread to sharpen a plan or design.
+category: Matt Pocock's Skills
 default: off
 loads: ["grilling"]
 license: MIT, adapted from mattpocock/skills; the notice is in LICENSE.md

@@ -1,6 +1,7 @@
 ---
 name: issue-draft
 description: Turns a brief into issue drafts in one thread, asking its author only what would change a draft.
+category: Git, code & APIs
 trigger: {"menu": "Draft issues", "word": "issue"}
 requires: ["workspace"]
 optional: ["git_repositories"]

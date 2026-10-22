@@ -168,7 +168,7 @@ export interface ServerPlaybook { name: string; description: string; words: stri
 export type ToolEffect = "read" | "write" | "danger";
 /** `group` is one of the skill's `groups`; `playbook` marks a tool that only serves that playbook. */
 export interface SkillTool { name: string; description: string; effect: ToolEffect; group?: string; playbook?: string; defaultOff?: boolean; }
-export interface TenantSkill { id: string; name: string; description: string; groups: string[]; tools: SkillTool[]; toolCount: number; isEnabled: boolean; }
+export interface TenantSkill { id: string; name: string; description: string; category: string; groups: string[]; tools: SkillTool[]; toolCount: number; isEnabled: boolean; }
 export type AvailabilityKind = "playbook" | "skill" | "tool" | "effect";
 export type AvailabilityValue = "off" | "opt_in" | "on";
 export interface AvailabilityRule { kind: AvailabilityKind; name: string; value: AvailabilityValue; }
@@ -185,7 +185,7 @@ export type PlaybookCause = { off: "playbook" } | { off: "loads"; playbook: stri
  * `defaultOff`: the playbook is off for the tenant until a tenant rule says on.
  * `loads` are the playbooks it names, `chain` every playbook a start brings in; `start` is false for a reference only other playbooks load.
  */
-export interface PlaybookSummary { name: string; description: string; requires: string[]; defaultOff: boolean; loads: string[]; chain: string[]; start: boolean; cause: PlaybookCause | null; }
+export interface PlaybookSummary { name: string; description: string; category: string; requires: string[]; defaultOff: boolean; loads: string[]; chain: string[]; start: boolean; cause: PlaybookCause | null; }
 /** One level of availability rules: the tenant, a bot, a guild of that bot, or a channel of that guild. */
 export type AvailabilityLevel = { tenantId: string } | { botId: string; guildId?: string; channelId?: string };
 const availabilityPath = (l: AvailabilityLevel) => "tenantId" in l
@@ -246,7 +246,7 @@ export const api = {
   deletePlaybook: (tenantId: string, name: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/playbooks/${encodeURIComponent(name)}`, json("DELETE")),
   serverPlaybooks: (tenantId: string, guildId: string) => fetchJSON<{ playbooks: ServerPlaybook[] }>(`/api/admin/tenants/${tenantId}/workspace/guilds/${encodeURIComponent(guildId)}/playbooks`),
   deleteServerPlaybook: (tenantId: string, guildId: string, name: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/guilds/${encodeURIComponent(guildId)}/playbooks/${encodeURIComponent(name)}`, json("DELETE")),
-  listSkills: (tenantId: string) => fetchJSON<{ skills: TenantSkill[]; playbooks: PlaybookSummary[] }>(`/api/admin/tenants/${tenantId}/skills`),
+  listSkills: (tenantId: string) => fetchJSON<{ skills: TenantSkill[]; playbooks: PlaybookSummary[]; categories: string[] }>(`/api/admin/tenants/${tenantId}/skills`),
   setSkillEnabled: (tenantId: string, skillId: string, isEnabled: boolean) => fetchJSON<{ isEnabled: boolean }>(`/api/admin/tenants/${tenantId}/skills/${skillId}`, json("PATCH", { isEnabled })),
   listAvailability: (level: AvailabilityLevel) => fetchJSON<LevelAvailability>(availabilityPath(level)),
   setAvailability: (level: AvailabilityLevel, rule: AvailabilityRule) => fetchJSON<LevelAvailability>(availabilityPath(level), json("PUT", rule)),

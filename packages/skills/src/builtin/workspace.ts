@@ -196,6 +196,7 @@ function clip(line: string, room: number) {
 export const workspaceSkill: SkillModule = {
   id: "workspace",
   name: "Workspace",
+  category: "Records & meetings",
   description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
   capabilities: ["workspace"],
   allowedScopes: ["tenant"],

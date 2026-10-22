@@ -1,19 +1,25 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { api, type AvailabilityRule, type PlaybookSummary, type SkillTool, type Tenant, type TenantSkill, type ToolEffect } from "@/lib/api";
-import { EFFECTS, effectCounts, sections, targetKey } from "@/lib/skills";
+import { EFFECTS, effectCounts, hasAll, searchWords, sections, targetKey } from "@/lib/skills";
 
 /** Target keys of the tenant's `off` rules, e.g. "tool:createTask" or "effect:danger". */
 type Off = Set<string>;
 /** Target keys of the tenant's `on` rules; only a default-off playbook can have one. */
 type On = Set<string>;
 type SwitchKind = "playbook" | "tool" | "effect";
+/** One row of a category: a skill with the tools a search left (opened when only its tools matched), or a playbook. */
+type Item = { kind: "skill"; skill: TenantSkill; tools: SkillTool[]; open: boolean } | { kind: "playbook"; playbook: PlaybookSummary };
+const ALL = "__all";
 
 function Effects({ off, onChange }: { off: Off | null; onChange: (effect: ToolEffect, on: boolean) => void }) {
   return (
@@ -49,63 +55,44 @@ function cannotStart(p: PlaybookSummary, isOff: (name: string) => boolean, names
   return null;
 }
 
-/**
- * A playbook switched off cannot start for any bot of this tenant; its tools go with it. `skillName` names the skills it needs.
- * A default-off playbook's switch is its tenant `on` rule instead (`on` holds those keys): off means no rule, so it falls back to off.
- */
-function Playbooks({ playbooks, off, on, skillName, onChange }: { playbooks: PlaybookSummary[]; off: Off | null; on: On | null; skillName: (id: string) => string; onChange: (playbook: PlaybookSummary, on: boolean) => void }) {
-  const byName = new Map(playbooks.map((p) => [p.name, p]));
-  const names = new Set(byName.keys());
-  const isOn = (p: PlaybookSummary) => (p.defaultOff ? !!on?.has(targetKey("playbook", p.name)) : !off?.has(targetKey("playbook", p.name)));
-  const isOff = (name: string) => { const p = byName.get(name); return !!p && !isOn(p); };
+const Kind = ({ children }: { children: string }) => <Badge variant="outline" className="text-muted-foreground">{children}</Badge>;
+
+/** A playbook switched off cannot start for any bot of this tenant; its tools go with it. `skillName` names the skills it needs. */
+function PlaybookRow({ p, on, blocked, skillName, disabled, onChange }: { p: PlaybookSummary; on: boolean; blocked: string | null; skillName: (id: string) => string; disabled: boolean; onChange: (on: boolean) => void }) {
   return (
-    <Card className="py-0">
-      <CardContent className="px-0">
-        <div className="p-4 pb-3">
-          <div className="font-medium">Playbooks</div>
-          <div className="text-xs text-muted-foreground">Switching a playbook off stops it, and every playbook that loads it, from starting for every bot of this tenant, and hides the tools that serve it.</div>
-        </div>
-        <ul className="divide-y border-t">
-          {playbooks.map((p) => {
-            const blocked = cannotStart(p, isOff, names);
-            return (
-              <li key={p.name} className="flex items-center gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="break-all font-mono text-sm">{p.name}</div>
-                  <div className="text-xs text-muted-foreground">{p.description}</div>
-                  {!p.start && <div className="text-xs text-muted-foreground">Reference: other playbooks load it; nobody starts it directly.</div>}
-                  {p.requires.length > 0 && <div className="text-xs text-muted-foreground">Needs {p.requires.map(skillName).join(", ")}.</div>}
-                  {p.loads.length > 0 && <div className="break-words text-xs text-muted-foreground">Loads {(p.chain.length ? p.chain : p.loads).join(", ")}.</div>}
-                  {p.defaultOff && <div className="text-xs text-muted-foreground">Off until you switch it on here. Bots, servers, and channels can still turn it off.</div>}
-                  {blocked && <div className="break-words text-xs font-medium">Cannot start: {blocked}.</div>}
-                </div>
-                <Switch checked={isOn(p)} disabled={!off} onCheckedChange={(v: boolean) => onChange(p, v)} aria-label={`${p.name} playbook available`} />
-              </li>
-            );
-          })}
-        </ul>
-      </CardContent>
-    </Card>
+    <li className="flex items-center gap-3 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2"><span className="break-all font-mono text-sm">{p.name}</span><Kind>Playbook</Kind></div>
+        <div className="text-xs text-muted-foreground">{p.description}</div>
+        {!p.start && <div className="text-xs text-muted-foreground">Reference: other playbooks load it; nobody starts it directly.</div>}
+        {p.requires.length > 0 && <div className="text-xs text-muted-foreground">Needs {p.requires.map(skillName).join(", ")}.</div>}
+        {p.loads.length > 0 && <div className="break-words text-xs text-muted-foreground">Loads {(p.chain.length ? p.chain : p.loads).join(", ")}.</div>}
+        {p.defaultOff && <div className="text-xs text-muted-foreground">Off until you switch it on here. Bots, servers, and channels can still turn it off.</div>}
+        {blocked && <div className="break-words text-xs font-medium">Cannot start: {blocked}.</div>}
+      </div>
+      <Switch checked={on} disabled={disabled} onCheckedChange={onChange} aria-label={`${p.name} playbook available`} />
+    </li>
   );
 }
 
 /**
  * `off` is null until the tenant's rules load; playbook tools follow their playbook and get no switch. A tool whose effect is off cannot be switched on here.
- * An administration tool starts off and is on only with a tenant `on` rule.
+ * An administration tool starts off and is on only with a tenant `on` rule. `shown` are the tools a search left; `open` starts the list open.
  */
-function Tools({ skill, off, on, onChange }: { skill: TenantSkill; off: Off | null; on: On | null; onChange: (tool: SkillTool, on: boolean) => void }) {
+function Tools({ skill, shown, open, off, on, onChange }: { skill: TenantSkill; shown: SkillTool[]; open: boolean; off: Off | null; on: On | null; onChange: (tool: SkillTool, on: boolean) => void }) {
   const effectOff = (t: SkillTool) => !!off?.has(targetKey("effect", t.effect));
   const isOn = (t: SkillTool) => !effectOff(t) && (t.defaultOff ? !!on?.has(targetKey("tool", t.name)) : !off?.has(targetKey("tool", t.name)));
   const offCount = off ? skill.tools.filter((t: SkillTool) => !t.playbook && !isOn(t)).length : 0;
+  const matching = shown.length < skill.tools.length ? ` · ${shown.length} matching` : "";
   return (
-    <details className="group border-t">
+    <details className="group border-t" open={open}>
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
         <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
         <span className="font-medium">Tools</span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">{effectCounts(skill.tools)}{offCount > 0 && ` · ${offCount} off`}</span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">{effectCounts(skill.tools)}{offCount > 0 && ` · ${offCount} off`}{matching}</span>
       </summary>
       <div className="space-y-4 border-t px-4 py-3">
-        {sections(skill).map((sec) => (
+        {sections({ ...skill, tools: shown }).map((sec) => (
           <section key={sec.title ?? "all"}>
             {sec.title && <h3 className="text-xs font-medium text-muted-foreground">{sec.title} · {sec.tools.length}</h3>}
             <ul className="divide-y">
@@ -133,11 +120,14 @@ export function TenantSkills() {
   const tenant = useOutletContext<Tenant>();
   const [list, setList] = useState<TenantSkill[] | null>(null);
   const [playbooks, setPlaybooks] = useState<PlaybookSummary[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [off, setOff] = useState<Off | null>(null);
   const [on, setOn] = useState<On | null>(null);
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState(ALL);
   useEffect(() => {
     api.listSkills(tenant.id)
-      .then((r: { skills: TenantSkill[]; playbooks: PlaybookSummary[] }) => { setList(r.skills); setPlaybooks(r.playbooks); })
+      .then((r) => { setList(r.skills); setPlaybooks(r.playbooks); setCategories(r.categories); })
       .catch((e: Error) => { toast.error(e.message); setList([]); });
   }, [tenant.id]);
   useEffect(() => {
@@ -174,26 +164,85 @@ export function TenantSkills() {
   const skillName = (id: string) => list?.find((s) => s.id === id)?.name ?? id;
 
   if (!list) return <div className="space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
-  if (!list.length) return <p className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">No skills available.</p>;
+  if (!list.length && !playbooks.length) return <p className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">No skills available.</p>;
+
+  // A default-off playbook's switch is its tenant `on` rule; the rest are on until an `off` rule. Chains are read over every playbook, not the filtered ones.
+  const byName = new Map(playbooks.map((p) => [p.name, p]));
+  const names = new Set(byName.keys());
+  const playbookOn = (p: PlaybookSummary) => (p.defaultOff ? !!on?.has(targetKey("playbook", p.name)) : !off?.has(targetKey("playbook", p.name)));
+  const playbookOff = (name: string) => { const p = byName.get(name); return !!p && !playbookOn(p); };
+
+  // A skill matches on its own words (all its tools shown), or through some of its tools (only those shown, opened).
+  const words = searchWords(query);
+  const skillItem = (s: TenantSkill): Item | null => {
+    if (!words.length || hasAll(words, s.name, s.description, s.category)) return { kind: "skill", skill: s, tools: s.tools, open: false };
+    const tools = s.tools.filter((t) => hasAll(words, s.name, s.description, t.name, t.description, t.group));
+    return tools.length ? { kind: "skill", skill: s, tools, open: true } : null;
+  };
+  const playbookMatches = (p: PlaybookSummary) => !words.length || hasAll(words, p.name, p.description, p.category, ...p.loads, ...p.requires.map(skillName));
+  const inCategory = (c: string): number => list.filter((s) => s.category === c).length + playbooks.filter((p) => p.category === c).length;
+  const groups = categories.filter((c) => category === ALL || c === category).map((c) => ({
+    name: c,
+    items: [
+      ...list.filter((s) => s.category === c).map(skillItem).filter((x): x is Item => !!x),
+      ...playbooks.filter((p) => p.category === c && playbookMatches(p)).map((p): Item => ({ kind: "playbook", playbook: p })),
+    ],
+  })).filter((g) => g.items.length);
+  const filtering = words.length > 0 || category !== ALL;
+  const shown = groups.reduce((n, g) => n + g.items.length, 0);
+
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Skills the assistant may use for this tenant. A disabled skill's tools are hidden from the model. A tool switched off here is hidden from every bot of this tenant; playbook tools follow their playbook.</p>
-      <Effects off={off} onChange={(e, on) => switchRule("effect", e, on)} />
-      {playbooks.length > 0 && <Playbooks playbooks={playbooks} off={off} on={on} skillName={skillName} onChange={(p, v) => (p.defaultOff ? switchDefaultOff("playbook", p.name, v) : switchRule("playbook", p.name, v))} />}
-      {list.map((s) => (
-        <Card key={s.id} className="py-0">
+      <p className="text-sm text-muted-foreground">Skills give the assistant its tools; playbooks are procedures a person starts by name. A disabled skill's tools are hidden from the model. A tool or playbook switched off here is off for every bot of this tenant: a playbook switched off also stops every playbook that loads it, and playbook tools follow their playbook.</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-48 flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input type="search" className="pl-9" placeholder="Search skills, playbooks and tools" aria-label="Search skills, playbooks and tools" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        <Select value={category} onValueChange={setCategory}>
+          <SelectTrigger className="w-full sm:w-60" aria-label="Filter by category"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All categories</SelectItem>
+            {categories.map((c) => <SelectItem key={c} value={c}>{c} · {inCategory(c)}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <p className="sr-only" aria-live="polite">{filtering ? `${shown} shown` : ""}</p>
+      {!filtering && <Effects off={off} onChange={(e, on) => switchRule("effect", e, on)} />}
+      {groups.map((g) => (
+        <Card key={g.name} className="py-0">
           <CardContent className="px-0">
-            <div className="flex items-center gap-3 p-4">
-              <div className="min-w-0 flex-1">
-                <div className="font-medium">{s.name}</div>
-                <div className="text-xs text-muted-foreground">{s.description} · {s.toolCount} tools</div>
-              </div>
-              <Switch checked={s.isEnabled} onCheckedChange={(v: boolean) => switchSkill(s, v)} aria-label={`${s.name} enabled`} />
-            </div>
-            {s.tools.length > 0 && <Tools skill={s} off={off} on={on} onChange={(t, v) => (t.defaultOff ? switchDefaultOff("tool", t.name, v) : switchRule("tool", t.name, v))} />}
+            <h2 className="flex items-baseline gap-2 p-4 pb-3 font-medium">{g.name} <span className="text-xs font-normal text-muted-foreground">{g.items.length}</span></h2>
+            <ul className="divide-y border-t">
+              {g.items.map((item) => item.kind === "playbook" ? (
+                <PlaybookRow key={`playbook:${item.playbook.name}`} p={item.playbook} on={playbookOn(item.playbook)} blocked={cannotStart(item.playbook, playbookOff, names)} skillName={skillName} disabled={!off}
+                  onChange={(v) => (item.playbook.defaultOff ? switchDefaultOff("playbook", item.playbook.name, v) : switchRule("playbook", item.playbook.name, v))} />
+              ) : (
+                <li key={`skill:${item.skill.id}`}>
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{item.skill.name}</span><Kind>Skill</Kind></div>
+                      <div className="text-xs text-muted-foreground">{item.skill.description} · {item.skill.toolCount} tools</div>
+                    </div>
+                    <Switch checked={item.skill.isEnabled} onCheckedChange={(v: boolean) => switchSkill(item.skill, v)} aria-label={`${item.skill.name} enabled`} />
+                  </div>
+                  {item.skill.tools.length > 0 && (
+                    // Keyed by the search, so a new search opens or closes the list again.
+                    <Tools key={words.join(" ")} skill={item.skill} shown={item.tools} open={item.open} off={off} on={on}
+                      onChange={(t, v) => (t.defaultOff ? switchDefaultOff("tool", t.name, v) : switchRule("tool", t.name, v))} />
+                  )}
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       ))}
+      {filtering && !groups.length && (
+        <div className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">
+          <p>Nothing matches{words.length ? ` "${query.trim()}"` : ""}{category !== ALL ? ` in ${category}` : ""}.</p>
+          <Button variant="link" onClick={() => { setQuery(""); setCategory(ALL); }}>Clear the search and filter</Button>
+        </div>
+      )}
     </div>
   );
 }

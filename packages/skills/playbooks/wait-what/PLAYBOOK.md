@@ -1,5 +1,6 @@
 ---
 description: That last message did not land: says it again, plainer, with the context that was missing.
+category: Matt Pocock's Skills
 trigger: {"menu": "Explain this"}
 run: in-place
 default: off

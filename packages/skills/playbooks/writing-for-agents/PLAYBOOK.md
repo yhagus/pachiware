@@ -1,5 +1,6 @@
 ---
 description: Reference for writing documents an agent reads: playbooks, AGENTS.md, and documents they point at.
+category: Matt Pocock's Skills
 start: false
 default: off
 license: MIT, adapted from mattpocock/skills; the notice is in LICENSE.md

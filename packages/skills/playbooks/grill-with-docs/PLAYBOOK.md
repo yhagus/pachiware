@@ -1,5 +1,6 @@
 ---
 description: A relentless interview to sharpen a plan or design, which also writes the glossary and decision records as we go.
+category: Matt Pocock's Skills
 default: off
 loads: ["grilling", "domain-modeling"]
 optional: ["workspace", "git_repositories"]

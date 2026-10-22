@@ -44,6 +44,17 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     assert((await list(alpha)).find((s) => s.id === "git_repositories").isEnabled === !byId.git_repositories.isEnabled, "alpha git not toggled");
     const betaGit = (await list(beta)).find((s) => s.id === "git_repositories");
     assert(betaGit.isEnabled === byId.git_repositories.isEnabled && betaGit.toolCount === gitRepositorySkill.tools.length, "beta affected by alpha");
+
+    // Categories: each skill's from its module, each playbook's from its frontmatter, a tenant playbook naming none under the tenant's own.
+    const { workspaceStore } = await imp("packages/skills/src/index.ts");
+    await workspaceStore().write(alpha.id, "shared/playbooks/retro/PLAYBOOK.md", "---\\ndescription: Group the points\\n---\\nGroup the points.\\n");
+    await workspaceStore().write(alpha.id, "shared/playbooks/release-notes/PLAYBOOK.md", "---\\ndescription: Write release notes\\ncategory: Releases\\n---\\nWrite them.\\n");
+    const all = await (await app.request("/api/admin/tenants/" + alpha.id + "/skills", { headers: h })).json();
+    const categoryOf = (items) => Object.fromEntries(items.map((x) => [x.id ?? x.name, x.category]));
+    assert(JSON.stringify(categoryOf(all.skills)) === JSON.stringify({ discord_management: "Discord", git_repositories: "Git, code & APIs", openapi: "Git, code & APIs", plane: "Plane", reminders: "Tasks & reminders", task_management: "Tasks & reminders", workspace: "Records & meetings" }), "skill categories " + JSON.stringify(categoryOf(all.skills)));
+    const pb = categoryOf(all.playbooks);
+    assert(pb.grilling === "Matt Pocock's Skills" && pb.minutes === "Records & meetings" && pb.retro === "This tenant's playbooks" && pb["release-notes"] === "Releases", "playbook categories " + JSON.stringify(pb));
+    assert(JSON.stringify(all.categories) === JSON.stringify(["Tasks & reminders", "Records & meetings", "Git, code & APIs", "Plane", "Discord", "Making playbooks", "Matt Pocock's Skills", "Releases", "This tenant's playbooks"]), "category order " + JSON.stringify(all.categories));
     console.log(JSON.stringify({ ok: true }));`;
   const result = Bun.spawnSync({ cmd: ["bun", "--eval", script], cwd: root, env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "t.db")}`, WORKSPACE_DIR: join(dir, "ws"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" } });
   try { expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); } finally { rmSync(dir, { recursive: true, force: true }); }

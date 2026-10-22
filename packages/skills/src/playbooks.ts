@@ -40,6 +40,8 @@ export interface Playbook {
   repository?: "required";
   /** `budget: long`: a turn in its threads may take many more model calls and minutes, and goes on by itself when they run out (#289). */
   budget?: "long";
+  /** Where the console lists it, e.g. "Matt Pocock's Skills" (`categories.ts` holds the known ones). */
+  category?: string;
   body: string;
   /** A `guild` playbook was made in chat for one server; it never replaces a built-in or tenant one of its name (ADR 0021). */
   source: "builtin" | "tenant" | "guild";
@@ -67,6 +69,7 @@ export const renderFrontmatter = (fields: Record<string, unknown>, body: string)
 
 const list = (v: unknown) => (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean);
 const WORD = /^[\p{L}\p{N}_-]{1,32}$/u;
+const MAX_CATEGORY = 40;
 
 /** A playbook file, or null when it is not one: a broken file is skipped, never half-trusted. */
 export function parsePlaybook(name: string, text: string, source: Playbook["source"]): Playbook | null {
@@ -86,6 +89,7 @@ export function parsePlaybook(name: string, text: string, source: Playbook["sour
     run: f.run === "in-place" ? "in-place" : "thread",
     ...(f.repository === "required" ? { repository: "required" as const } : {}),
     ...(f.budget === "long" ? { budget: "long" as const } : {}),
+    ...(typeof f.category === "string" && f.category.trim() ? { category: f.category.trim().slice(0, MAX_CATEGORY) } : {}),
     ...(guild && typeof by?.id === "string" && typeof by.name === "string" ? { createdBy: { id: by.id, name: by.name } } : {}),
     ...(guild && typeof f.createdAt === "string" ? { createdAt: f.createdAt } : {}),
   };

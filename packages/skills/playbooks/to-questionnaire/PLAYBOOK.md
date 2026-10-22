@@ -1,5 +1,6 @@
 ---
 description: Turns a decision you cannot fully answer into a questionnaire for someone else to fill in.
+category: Matt Pocock's Skills
 default: off
 requires: ["workspace"]
 license: MIT, adapted from mattpocock/skills; the notice is in LICENSE.md

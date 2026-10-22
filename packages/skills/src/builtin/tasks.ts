@@ -19,6 +19,7 @@ const DUE_AT_HINT = "Due date: YYYY-MM-DD (the whole day), or a date-time such a
 export const taskManagementSkill: SkillModule = {
   id: "task_management",
   name: "Task Management",
+  category: "Tasks & reminders",
   description: "Create, view, update status, assign, and set due dates of tasks kept as Markdown files in the Workspace.",
   capabilities: ["tasks"],
   allowedScopes: ["tenant"],

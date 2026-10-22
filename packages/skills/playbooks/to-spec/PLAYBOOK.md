@@ -1,5 +1,6 @@
 ---
 description: Turns what was already discussed into a spec and publishes it as an issue in the thread's repository: no interview, just synthesis.
+category: Matt Pocock's Skills
 default: off
 requires: ["git_repositories"]
 optional: ["workspace", "discord_management"]

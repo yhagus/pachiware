@@ -29,6 +29,7 @@ const MEMBER_LIMIT_DEFAULT = 10, MEMBER_LIMIT_MAX = 50;
 export const discordManagementSkill: SkillModule = {
   id: "discord_management",
   name: "Discord Management",
+  category: "Discord",
   description: "Manage Discord guild channels, topics, archiving, and permissions.",
   capabilities: ["discord_channels"],
   allowedScopes: ["tenant", "guild", "channel", "user"],

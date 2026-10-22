@@ -20,6 +20,13 @@ describe("built-in playbooks", () => {
     expect(playbooks.map((p) => p.name)).toEqual(folders);
   });
 
+  test("the imported playbooks are listed as Matt Pocock's Skills, and ours each under a category the console knows", () => {
+    for (const p of imported) expect([p.name, p.category]).toEqual([p.name, "Matt Pocock's Skills"]);
+    expect(Object.fromEntries(OWN.map((name) => [name, named(name)?.category]))).toEqual({
+      "contract-diff": "Git, code & APIs", "daily-log": "Records & meetings", "issue-draft": "Git, code & APIs", "making-playbooks": "Making playbooks", minutes: "Records & meetings",
+    });
+  });
+
   test("the conversation playbooks are imported off, wait-what answers in place, and the references cannot be started", () => {
     for (const name of ["grilling", "grill-me", "to-questionnaire", "ask-matt", "wait-what", "codebase-design", "writing-for-agents"]) expect([name, named(name)?.defaultOff]).toEqual([name, true]);
     expect(named("wait-what")).toMatchObject({ run: "in-place", menu: "Explain this", start: true });

@@ -1,4 +1,5 @@
 import type { Language } from "./language.js";
+import type { SkillCategory } from "./categories.js";
 
 export interface ToolPropertySchema {
   type: string;
@@ -251,6 +252,8 @@ export interface SkillModule {
   toolPolicy?: Record<string, ToolPolicy>;
   /** Display order of the groups the tools sit in; large skills only. */
   groups?: string[];
+  /** Where the console lists the skill; none puts it under Other. */
+  category?: SkillCategory;
   /**
    * Tools of this skill that the place does not support although Availability rules allow them (git and Plane tools where no scope
    * opens an account, Plane's workspace tools where the Plane scope names specific Plane projects). They are not offered to the model,
@@ -262,4 +265,4 @@ export interface SkillModule {
 }
 
 export interface CatalogueTool { name: string; description: string; effect?: Effect; group?: string; playbook?: string; defaultOff?: true }
-export interface CatalogueSkill { id: string; name: string; description: string; groups: string[]; tools: CatalogueTool[] }
+export interface CatalogueSkill { id: string; name: string; description: string; category: string; groups: string[]; tools: CatalogueTool[] }

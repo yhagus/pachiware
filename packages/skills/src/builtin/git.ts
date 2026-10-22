@@ -144,6 +144,7 @@ const WITHOUT_ACCOUNT = new Set(["gitAccounts", ...playbookDocumentTools.map((t)
 export const gitRepositorySkill: SkillModule = {
   id: "git_repositories",
   name: "Git Repositories",
+  category: "Git, code & APIs",
   description: "Browse and change repositories on the git accounts enabled for this server and channel (GitHub, GitLab, self-hosted GitLab).",
   tools: gitSkillTools,
   capabilities: ["git"],
