@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Hono, type Context } from "hono";
@@ -45,7 +46,7 @@ const page = (id: string, title: string) => `<!doctype html>
 <div id="app" data-url="./${id}/view.json"></div>
 <noscript>This page needs JavaScript. The document itself: <a href="./${id}/openapi.json">openapi.json</a></noscript>
 <script src="./${scalarPath}"></script>
-<script src="./_/start.js"></script>
+<script src="./${startPath}"></script>
 </body>
 </html>
 `;
@@ -56,11 +57,13 @@ const START = `(function () {
   Scalar.createApiReference(app, {
     url: app.dataset.url,
     withDefaultFonts: false, telemetry: false, hideClientButton: true, hideTestRequestButton: true,
-    showDeveloperTools: "never", agent: { disabled: true }, documentDownloadType: "none", hideDownloadButton: true,
+    showDeveloperTools: "never", agent: { disabled: true }, mcp: { disabled: true }, documentDownloadType: "none",
   });
 })();
 `;
 
+/** Both scripts are named by what they hold, so a browser may keep them forever and an upgrade is never served stale. */
+const startPath = `_/start-${createHash("sha256").update(START).digest("hex").slice(0, 12)}.js`;
 const notFound = (c: Context) => c.text("Not found", 404);
 
 export function openApiPreviewRoutes() {
@@ -74,9 +77,8 @@ export function openApiPreviewRoutes() {
     await next();
   });
 
-  // The bundle's name carries its version, so it may be kept as long as a browser likes.
   app.get(`/${scalarPath}`, () => new Response(Bun.file(SCALAR_JS), { headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "public, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" } }));
-  app.get("/_/start.js", (c) => { c.header("Cache-Control", "public, max-age=3600"); return c.body(START, 200, { "Content-Type": "text/javascript; charset=utf-8" }); });
+  app.get(`/${startPath}`, (c) => { c.header("Cache-Control", "public, max-age=31536000, immutable"); return c.body(START, 200, { "Content-Type": "text/javascript; charset=utf-8" }); });
 
   // A revoked preview must stop showing at once, so nothing below is cached.
   const preview = async (c: Context) => {

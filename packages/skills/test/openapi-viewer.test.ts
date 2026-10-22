@@ -32,9 +32,7 @@ const changelog = () => ({
   },
 });
 
-const HEADER = "| Change | Where | Field | Impact | Details |\n| --- | --- | --- | --- | --- |";
-
-test("a changelog's operations get badges and a table of their changes, and its description the summary and what goes beyond one endpoint", () => {
+test("a changelog's operations get badges and a list of their changes, and its description the summary and what goes beyond one endpoint", () => {
   const doc = changelog(), original = structuredClone(doc);
   const view = forViewer(doc, { download: "./0f1e/openapi.json" });
   expect(doc).toEqual(original);
@@ -42,17 +40,15 @@ test("a changelog's operations get badges and a table of their changes, and its 
   expect(view.paths["/api/v2/users"].post["x-badges"]).toEqual([{ name: "Breaking", color: "#cf222e", position: "before" }, { name: "Changed", color: "#0969da", position: "before" }]);
   expect(view.paths["/api/v2/users"].post.description).toBe(`**Changes**
 
-${HEADER}
-| CHANGED | url |  | breaking | \`POST /api/v1/users\` → \`POST /api/v2/users\` |
-| RENAMED | body | \`full_name\` (was \`name\`) | breaking |  |
-| CHANGED | body | \`phone\` | breaking | \`{"required":false}\` → \`{"required":true,"format":"E.164"}\` |
-| NEW | response.409 |  | non-breaking | error \`PHONE_ALREADY_USED\` |`);
+- **CHANGED** url · breaking: \`POST /api/v1/users\` → \`POST /api/v2/users\`
+- **RENAMED** body \`full_name\` (was \`name\`) · breaking
+- **CHANGED** body \`phone\` · breaking: \`{"required":false}\` → \`{"required":true,"format":"E.164"}\`
+- **NEW** response.409 · non-breaking: error \`PHONE_ALREADY_USED\``);
 
   expect(view.paths["/api/v2/health"].get["x-badges"]).toEqual([{ name: "New", color: "#1a7f37", position: "before" }]);
   expect(view.paths["/api/v2/health"].get.description).toBe(`**Changes**
 
-${HEADER}
-| NEW | operation |  | non-breaking |  |
+- **NEW** operation · non-breaking
 
 **Not verified**
 
@@ -66,8 +62,7 @@ Liveness.`);
 
 ### Changes to every endpoint
 
-${HEADER}
-| CHANGED | header | \`X-Client-Version\` | breaking | \`{"required":false}\` → \`{"required":true}\` |
+- **CHANGED** header \`X-Client-Version\` · breaking: \`{"required":false}\` → \`{"required":true}\`
 
 ### Removed endpoints
 
@@ -82,10 +77,10 @@ ${HEADER}
 Users service.`);
 });
 
-test("a document that is no changelog is shown as it is, and a pipe in a note stays in its cell", () => {
+test("a document that is no changelog is shown as it is, and a note on several lines stays on one", () => {
   const plain = { openapi: "3.1.0", info: { title: "Plain", version: "1" }, paths: {} };
   expect(forViewer(plain)).toBe(plain);
   const doc = changelog();
   doc.paths["/api/v2/users"].post["x-changes"] = [{ status: "CHANGED", impact: "breaking", in: "body", field: "kind", before: "a|b", after: "a", note: "one of a | b\nnow a" } as any];
-  expect(forViewer(doc).paths["/api/v2/users"].post.description).toContain("| CHANGED | body | `kind` | breaking | `a\\|b` → `a`; one of a \\| b now a |");
+  expect(forViewer(doc).paths["/api/v2/users"].post.description).toBe("**Changes**\n\n- **CHANGED** body `kind` · breaking: `a|b` → `a`; one of a | b now a");
 });
