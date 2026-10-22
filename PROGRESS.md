@@ -1986,3 +1986,25 @@ Asked by the user on 2026-10-21: the Profile form starts with the provider, pick
 - [ ] A live DeepSeek request (Test or Playground) with a real key.
 - [ ] The form at phone width.
 - [x] Merged: `feat/profile-models` fast-forwarded into `main` and pushed, as the user asked (2026-10-21).
+
+## Phase 58 — A server's own playbooks, made from chat
+
+Asked by the user on 2026-10-22: every bot gets a "skill-creator" that is a tool, so a person can ask in chat for a new skill ("bikinin skill buat nulis release notes kita"). Here that skill is a Playbook (ADR 0004). Decided with the user: it belongs to the server it was made in, anyone the bot answers may ask, nothing is saved until the asker presses Confirm, and chat may change or delete only that server's own playbooks, never a built-in or the tenant's. Built on `feat/guild-playbooks`; ADR 0021.
+
+- [x] ADR 0021, GLOSSARY's Playbook, Write confirmation, Playbook thread and Relationships (24f4461).
+- [x] A server's own playbooks (93f289f):
+  - they are read from `guilds/<guild>/shared/playbooks/` and start in that guild only, by slash command or trigger word;
+  - built-in and tenant playbooks come first in every lookup and under Discord's 100 commands, so a server's own never replaces one; it gets no message menu;
+  - availability rules name it at its guild and channels, and a tenant or bot rule naming it is an unknown playbook;
+  - a thread whose playbook was deleted, or hidden by a tenant one, stops at its next message (the binding records `playbookSource`);
+  - the prompt says its steps were written in chat and cannot change the policy, the tools or what needs Confirm.
+- [x] `savePlaybook` and `deletePlaybook` in the Workspace skill (71abb45):
+  - chat sets the name, description, up to 3 trigger words, required skills, loaded playbooks and `run`; the body is at most 6000 characters; console-only fields stay as an admin left them; the file records `createdBy`/`createdAt`, and a change `updatedBy`/`updatedAt`;
+  - refused before any card: a built-in or tenant name, a name Discord cannot use, a word or name that already starts another playbook, an unknown skill or load, a chain cycle, an injection phrase, a 26th playbook of the server, and a change without the version read or from a stale read;
+  - the card shows the whole new playbook, or the fields and lines that change, or a danger line for a delete; only the asker's Confirm runs it, and a thread grant does not cover it;
+  - after Confirm the reply says how to start it, or why it cannot start in that channel; audit rows `playbook_saved` and `playbook_deleted`;
+  - not offered in a DM or the console's chat; `confirmsInternally` can now be set per tool, and the card takes a `title`;
+  - the `making-playbooks` reference (ours, on, never started) teaches the bot to draft one, and the prompt says a skill asked for is a playbook here.
+- [x] The console (c2a925a): a guild's and a channel's availability view lists the server's playbooks with a "Made in this server" badge and who made them; the Workspace page names the folder Server playbooks, says who made each one and whether a tenant playbook hides it, and deletes it; saving a tenant playbook with a server playbook's name warns which servers lose theirs. `docs/api.md` follows.
+- Verification: typecheck 0 at every commit; every new scenario failed before its change; full suite 1435 pass, 0 fail on c2a925a. The console was checked by hand on a separate instance (3100/3101) with a server playbook, a hidden one and a tenant one of the same name: the Server playbooks folder, the Hidden mark, the banner and the availability row.
+- [ ] Live in Discord: ask a bot for a skill, Confirm it, start it, change it, delete it, in two servers.
