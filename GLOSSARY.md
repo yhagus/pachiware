@@ -37,7 +37,7 @@ The rule that says which of a bot's git accounts, and which repositories of each
 _Avoid_: Git permissions, repo ACL
 
 **Write confirmation**:
-The Confirm/Cancel buttons shown in Discord before any change on a git platform or in Plane (commit, pull request, comment, issue, merge, close, work item). Only the person who asked can press them. Reading never needs it.
+The Confirm/Cancel buttons shown in Discord before any change on a git platform or in Plane (commit, pull request, comment, issue, merge, close, work item), and before a playbook is saved or deleted from chat. Only the person who asked can press them. Reading never needs it.
 _Avoid_: Approval, git approval, Git write confirmation (its older, git-only name)
 
 **Brief**:
@@ -101,11 +101,11 @@ What calling a tool can do: read (changes nothing), write (changes something tha
 _Avoid_: Risk level, destructive (too narrow: a webhook change deletes nothing)
 
 **Playbook**:
-Written guidance the agent follows for one kind of work, such as turning a brief into issue drafts or writing minutes. It says how to think and in what steps; the tools it uses come from skills. A person starts one by name from chat, unless it is only a reference other playbooks load or one the schedule starts, such as the Daily log's; the agent never picks one on its own, but a playbook may load another playbook that is also available.
-_Avoid_: Skill (a skill is tools, even though other agent tools call this a skill), prompt, template
+Written guidance the agent follows for one kind of work, such as turning a brief into issue drafts or writing minutes. It says how to think and in what steps; the tools it uses come from skills. A person starts one by name from chat, unless it is only a reference other playbooks load or one the schedule starts, such as the Daily log's; the agent never picks one on its own, but a playbook may load another playbook that is also available. It is built in, the tenant's own, or a server's own: one a person made in chat for that guild alone, which never replaces a built-in or tenant playbook of the same name.
+_Avoid_: Skill (a skill is tools, even though other agent tools and people in chat call this a skill), prompt, template
 
 **Playbook thread**:
-The thread a started playbook opened, bound to that playbook, the bot that started it, and the person who started it. It follows its parent channel's availability.
+The thread a started playbook opened, bound to that playbook, the bot that started it, and the person who started it. It follows its parent channel's availability, and stops following its playbook when that playbook is deleted or replaced.
 _Avoid_: Session, conversation
 
 **Workspace**:
@@ -206,6 +206,7 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A **Work item** belongs to one **Plane project**. **Work items** and **Tasks** are never synced or converted into each other; the **Digest** and **Reminders** read only **Tasks**.
 - A **Playbook** requires some **Skills** and may load other **Playbooks**; it cannot start while a required skill or a loaded playbook is off.
 - A **Playbook thread** belongs to one **Playbook** and one **Bot**; only that bot answers in it.
+- A server's own **Playbook** belongs to one **Guild** and is offered by every **Bot** of the tenant there; an **Availability rule** names it only at that guild or its channels.
 - An **Availability rule** narrows **Playbooks** and **Skills** for the tenant and per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too, and for Plane tools a **Plane scope** must allow the Plane project.
 - A **Task** belongs to one **Project**, which is one channel, unless it is a **Personal task**; it has zero or one **Assignee** and any number of **Progress notes**.
 - A **Task** made from **Minutes** belongs to the Project of the channel the Minutes were written in and points at the action item it came from; one action item makes at most one Task.
