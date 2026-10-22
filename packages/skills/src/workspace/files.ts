@@ -1,6 +1,6 @@
 import { MAX_BLOB_BYTES, workspaceStore } from "./store.js";
 import { placeRoot, resolvePath, visibleRoots } from "./paths.js";
-import { documentText, extensionOf, extractsText, scannedPages, type ScannedPage } from "./extract.js";
+import { documentText, extensionOf, extractsText, readsThroughMarkdown, scannedPages, type ScannedPage } from "./extract.js";
 import { addKeywords } from "./keywords.js";
 import type { Completion, SkillContext } from "../types.js";
 import { DOCUMENT_TYPES } from "./documentTypes.js";
@@ -121,6 +121,23 @@ async function provenanceOf(tenantId: string, where: Where, path: string): Promi
 export async function filedText(tenantId: string, where: Where, path: string, siblings: () => Promise<string[]>) {
   const given = await provenanceOf(tenantId, where, path);
   return { given, textPath: given ? given.textPath ?? null : unrecordedTextPath(path, await siblings()) };
+}
+
+/**
+ * The store path of the text kept beside the file at `storePath` (a Document's extracted text, an image's description), from its
+ * filing record, else from the names beside it for a Document read through Markdown; null when it has none. Unlike `filedText`, it
+ * needs no place: the record sits in the `.documents/` folder of the place whose `files/` holds the file.
+ */
+export async function keptTextBeside(tenantId: string, storePath: string): Promise<string | null> {
+  const m = /^(.+?)\/(files\/.+)$/.exec(storePath);
+  if (!m) return null;
+  const [, place, rest] = m, record = await workspaceStore().read(tenantId, `${place}/.documents/${rest}.json`).catch(() => null);
+  if (record) {
+    try { const textPath = JSON.parse(record.content).textPath; return typeof textPath === "string" ? `${place}/${textPath.split("/").slice(1).join("/")}` : null; } catch { return null; }
+  }
+  if (!readsThroughMarkdown(storePath)) return null;
+  const folder = storePath.slice(0, storePath.lastIndexOf("/"));
+  return unrecordedTextPath(storePath, (await workspaceStore().list(tenantId, folder)).map((e) => e.path.slice(folder.length + 1)));
 }
 
 async function extractInto(tenantId: string, where: Where, root: string, name: string, bytes: Uint8Array, names: Set<string>, readPages?: PageReader): Promise<Extracted> {

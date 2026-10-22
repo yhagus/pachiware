@@ -6,6 +6,7 @@ import { memberAuth, type DiscordBotManager } from "./client.js";
 import { readingOnly } from "./readingOnly.js";
 import { prepareReply } from "./replyStyle.js";
 import { placeOfChannel, speakerTurn } from "./routing.js";
+import { outgoingFiles } from "./outgoingFiles.js";
 
 const NOT_POSTED = "A Routine only reads: nothing is posted but its own report.";
 const NOT_CHANGED = "Not run: a Routine only reads, so nothing was changed. Report what you found, and what its owner could do themselves.";
@@ -74,5 +75,6 @@ export async function runRoutine(manager: DiscordBotManager, row: Schedule, late
   if (head.length + 1 + first.length <= MESSAGE_LIMIT) await channel.send({ content: `${head}\n${first}`, allowedMentions: { users } });
   else { await channel.send({ content: head, allowedMentions: { users } }); rest.unshift(first); }
   for (const content of rest) await channel.send({ content, allowedMentions: { parse: [] } });
+  for (const file of outgoingFiles(output.toolCallsExecuted)) await channel.send({ files: [file], allowedMentions: { parse: [] } });
   if (row.error) await repositories().schedules.update(row.id, { error: null });
 }

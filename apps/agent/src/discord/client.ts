@@ -9,6 +9,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
+import { outgoingFiles, type OutgoingDiscordFile } from "./outgoingFiles.js";
 import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { causeText, playbookReport } from "./serverPlaybooks.js";
@@ -582,7 +583,7 @@ export class DiscordBotManager {
     // ⏳ marks the messages being answered until the turn ends; one not meant for the bot gets none, since it may get no answer.
     const botUserId = runtime.client.user?.id;
     const working = await Promise.all(items.filter((i) => i.direct !== false && i.msg.author.id !== botUserId).map((i) => i.msg.react("⏳").catch(() => null)));
-    const send = (content: string) => thread ? thread.send({ content, allowedMentions: { parse: [] } }) : msg.reply({ content, allowedMentions: { parse: [] } });
+    const send = (content: string, files: OutgoingDiscordFile[] = []) => thread ? thread.send({ content, files, allowedMentions: { parse: [] } }) : msg.reply({ content, files, allowedMentions: { parse: [] } });
     // The language to answer in is judged on the people's own words, not the quotes and framing around them (#257).
     const shown = shownLanguage(items.map((i) => i.text).join("\n")), language: Language = shown ?? "en", t = textIn(language);
     const projectChannelId = (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined;
@@ -627,7 +628,10 @@ export class DiscordBotManager {
       if (plan.messages.length || direct) plan = withNotes(plan, notes);
       if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
-      for (const chunk of plan.messages) await send(chunk);
+      // A file sendFiles built goes with the reply's last message; several go one a message after it, so no upload holds two files' worth.
+      const files = outgoingFiles(output.toolCallsExecuted), withLast = files.length === 1 && plan.messages.length ? files.splice(0) : [];
+      for (const [i, chunk] of plan.messages.entries()) await send(chunk, i === plan.messages.length - 1 ? withLast : []);
+      for (const file of files) await send("", [file]);
       if (briefed?.written.length && place && target.isSendable()) await showDrafts(runtime.tenantId, target, place, briefed.written);
       if (output.toolCallsExecuted.length && target.isSendable()) {
         // Write actions never run on the model's say-so: each one gets Confirm/Cancel buttons for the person who asked.

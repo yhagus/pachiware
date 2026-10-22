@@ -20,6 +20,7 @@ import { capMatches, dateRange, queriesTerms, shownMatch, wordingsOf, type FileM
 import { DEFAULT_TIMEZONE } from "../clock.js";
 import { namesChannel, readableSources, searchSource, searchSources, sourcePath } from "../workspace/sources.js";
 import { recall, recallTool } from "../workspace/recall.js";
+import { MAX_SEND_FILES, MAX_SEND_BYTES, sendWorkspaceFiles } from "../workspace/send.js";
 import { oneOf, textIn } from "../language.js";
 import { hasPermission } from "../permissions.js";
 
@@ -187,7 +188,7 @@ export const workspaceSkill: SkillModule = {
   description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
   capabilities: ["workspace"],
   allowedScopes: ["tenant"],
-  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, searchFiles: { effect: "read" }, recall: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, ...guildPlaybookPolicy, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true }, remember: { effect: "write", requiresConfirmation: false }, forget: { effect: "write", requiresConfirmation: false }, saveAttachment: { effect: "write", requiresConfirmation: false }, keepAsNote: { effect: "write", requiresConfirmation: false }, setTeamMember: { effect: "write", requiresConfirmation: false }, teamRoster: { effect: "read" } },
+  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, sendFiles: { effect: "read" }, searchFiles: { effect: "read" }, recall: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, ...guildPlaybookPolicy, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true }, remember: { effect: "write", requiresConfirmation: false }, forget: { effect: "write", requiresConfirmation: false }, saveAttachment: { effect: "write", requiresConfirmation: false }, keepAsNote: { effect: "write", requiresConfirmation: false }, setTeamMember: { effect: "write", requiresConfirmation: false }, teamRoster: { effect: "read" } },
   // Refused before Confirm is offered, since pressing it could never delete another channel's file.
   checks: { deleteFile: async (args, ctx) => notElsewhere(ctx, args.path) },
   // A playbook is made for a server, so a DM or the console's chat has nowhere to keep one.
@@ -196,6 +197,7 @@ export const workspaceSkill: SkillModule = {
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: readPathArg }, required: ["path"] } },
     { name: "readFile", description: `Reads a text file from the Workspace: Markdown, CSV or TXT. A filed ${THROUGH_MARKDOWN} file is read through the .md beside it, also when you name the Document itself; a CSV over 256 KB through its .md too (named in the file note as "text in ..."); an XLSX's .md holds each sheet as a table. A file within ${READ_LIMIT.toLocaleString("en")} characters is returned whole. A longer one is read for you by the bot's own model: with question, it returns a short answer and quotes, the file's own lines with their numbers, checked against the file; without question, a summary and an outline of sections with their lines. answer is the reader's words: rely on the quotes. unreadFrom is the first line the reader did not read and unreadBecause says why: read on with fromLine. cutLines are lines longer than a chunk, of which the reader saw only the start. When the reader cannot read, readerFailed says why and the read without question comes instead: the file's first lines with totalLines and nextLine, or the range. fromLine and toLine (1-based, inclusive) limit the reader to those lines; without question they read only those lines, each with its number: when searchFiles or recall gave a matching line, read around it, e.g. 20 lines before to 60 after. Such a range returns at most ${READ_LIMIT.toLocaleString("en")} characters, with nextLine when it stopped early.`, parameters: { type: "object", properties: { path: readPathArg, question: { type: "string", description: "The person's question, in their words, for a long file's reader" }, fromLine: { type: "integer", description: "First line to read, 1-based" }, toLine: { type: "integer", description: "Last line to read, inclusive; at most the file's last line" } }, required: ["path"] } },
+    { name: "sendFiles", description: `Sends Workspace files to the person as attachments of your reply, when they ask for the file itself rather than what it says ("kirim filenya", "send me the minutes"). Give the paths of files or folders, as readFile and listFiles take them; another channel's start with its name, e.g. "#marketing/files". One file goes as it is; several, or a folder, go as one zip that keeps their folders. At most ${MAX_SEND_FILES} files and ${MAX_SEND_BYTES / 1024 / 1024} MB zipped. The text the bot kept beside a Document or an image goes only when you name it. The result gives the attachment's name and size, never the content: say in your reply what you sent. Works only in Discord.`, parameters: { type: "object", properties: { paths: { type: "array", items: { type: "string" }, description: 'Files or folders, e.g. ["channel/files/report.pdf"] or ["channel/files/changelogs"]' } }, required: ["paths"] } },
     { name: "writeFile", description: "Creates or replaces a Markdown file in the Workspace. Missing folders are created. To replace an existing file, pass the version from readFile. Under notes/ and decisions/ the server then writes topics and keywords into the file's head, replacing any already there.", parameters: { type: "object", properties: { path: pathArg, content: { type: "string", description: "Full file content" }, version: { type: "string", description: "Version returned by readFile; required when the file exists" } }, required: ["path", "content"] } },
     { name: "moveFile", description: "Moves or renames a file or folder. Refuses to overwrite.", parameters: { type: "object", properties: { from: pathArg, to: pathArg }, required: ["from", "to"] } },
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
@@ -238,6 +240,18 @@ export const workspaceSkill: SkillModule = {
       const read = await readText(ctx, file, args);
       // A reading names the file it read, and so does a read through the .md beside a Document.
       return textFile || "answer" in read ? { path: textFile ? text!.shown : String(args.path), ...read } : read;
+    },
+    sendFiles: async (args, ctx) => {
+      if (!ctx.discord) throw new Error(textIn(ctx.language).sendOnlyInDiscord);
+      const paths: string[] = Array.isArray(args.paths) ? args.paths.filter((p: unknown): p is string => typeof p === "string" && !!p.trim()).map((p: string) => p.trim().replace(/\/$/, "")) : [];
+      if (!paths.length) throw new Error("paths must list at least one file or folder");
+      const access = threadAccess(ctx), named = [];
+      // Checked like readFile: another channel's path through its Source, refused before anything is read when not quotable here.
+      for (const shown of paths) {
+        if (namesChannel(shown)) named.push({ full: (await namedSource(ctx, shown)).path, shown });
+        else { const full = resolvePath(ctx, shown); await access.check(full); named.push({ full, shown }); }
+      }
+      return sendWorkspaceFiles(ctx, named, async (entries) => (await access.sort(entries)).shown);
     },
     writeFile: async (args, ctx) => {
       if (typeof args.content !== "string") throw new Error("content is required");

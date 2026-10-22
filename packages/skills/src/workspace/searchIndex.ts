@@ -32,6 +32,7 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
   }
 
   read(tenantId: string, path: string) { return this.inner.read(tenantId, path); }
+  readBytes(tenantId: string, path: string) { return this.inner.readBytes(tenantId, path); }
   readFrontmatter(tenantId: string, path: string) { return this.inner.readFrontmatter(tenantId, path); }
   list(tenantId: string, path: string) { return this.inner.list(tenantId, path); }
   files(tenantId: string, path: string) { return this.inner.files(tenantId, path); }

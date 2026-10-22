@@ -290,6 +290,11 @@ const en = {
   saveNoMessage: "I can't find that message in this channel.",
   saveNoFile: "That message has no file attached.",
   saveWhich: (names: string[]) => `That message holds several files: ${names.join(", ")}. Say which one.`,
+  // sendFiles
+  sendNothing: (path: string) => `There is no file to send at ${path}.`,
+  sendTooMany: (count: number, max: number) => `That is ${count} files; I send at most ${max} at once. Name fewer files or a smaller folder.`,
+  sendTooLarge: (size: string, max: string) => `The files come to ${size} MB zipped, over the ${max} MB Discord takes in one upload. Name fewer files.`,
+  sendOnlyInDiscord: "Files can be sent only in Discord, not here.",
   // keepAsNote
   keepNoPlace: "Notes are kept in a channel's or a DM's folder, and this place has none.",
   keepNotDocument: (root: string) => `Only a Document under ${root}/files/ can be kept as a Note.`,
@@ -536,6 +541,10 @@ const id: typeof en = {
   saveNoMessage: "Pesan itu tidak ketemu di channel ini.",
   saveNoFile: "Pesan itu tidak punya lampiran file.",
   saveWhich: (names) => `Pesan itu punya beberapa file: ${names.join(", ")}. Sebutkan yang mana.`,
+  sendNothing: (path) => `Tidak ada file untuk dikirim di ${path}.`,
+  sendTooMany: (count, max) => `Itu ${count} file; sekali kirim paling banyak ${max}. Sebutkan lebih sedikit file atau folder yang lebih kecil.`,
+  sendTooLarge: (size, max) => `Setelah di-zip ukurannya ${size} MB, lebih dari ${max} MB yang diterima Discord sekali unggah. Sebutkan lebih sedikit file.`,
+  sendOnlyInDiscord: "File hanya bisa dikirim di Discord, tidak di sini.",
   keepNoPlace: "Catatan disimpan di folder channel atau DM, dan tempat ini tidak punya folder.",
   keepNotDocument: (root) => `Hanya Dokumen di ${root}/files/ yang bisa disimpan sebagai Catatan.`,
   keepNoDocument: (path) => `Tidak ada Dokumen di ${path}.`,

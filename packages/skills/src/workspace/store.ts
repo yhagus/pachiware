@@ -15,6 +15,8 @@ export interface WorkspaceEntry { path: string; type: "file" | "dir"; size?: num
 /** What every storage driver offers. Paths are tenant-relative and already validated by resolvePath; a driver adds the tenant prefix and refuses anything that would leave it. */
 export interface WorkspaceStore {
   read(tenantId: string, path: string): Promise<{ content: string; version: string } | null>;
+  /** A file's bytes as stored, whatever its type, up to MAX_BLOB_BYTES; null when there is no file. */
+  readBytes(tenantId: string, path: string): Promise<{ bytes: Uint8Array; version: string } | null>;
   readFrontmatter(tenantId: string, path: string): Promise<{ content: string; version: string } | null>;
   /** Replacing an existing file needs the version last read; a file that changed since is refused (WorkspaceConflict). */
   write(tenantId: string, path: string, content: string, expectedVersion?: string): Promise<{ version: string }>;
@@ -73,6 +75,16 @@ export class LocalWorkspaceStore implements WorkspaceStore {
       if (!stat.isFile()) return null;
       if (stat.size > MAX_FILE_BYTES) throw new Error("File is too large to read");
       return { content: readFileSync(target, "utf8"), version: versionOf(stat) };
+    } catch (e: any) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return null; throw e; }
+  }
+
+  async readBytes(tenantId: string, path: string) {
+    const { target } = this.locate(tenantId, path);
+    try {
+      const stat = statSync(target);
+      if (!stat.isFile()) return null;
+      if (stat.size > MAX_BLOB_BYTES) throw new Error("File is too large to read");
+      return { bytes: new Uint8Array(readFileSync(target)), version: versionOf(stat) };
     } catch (e: any) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return null; throw e; }
   }
 

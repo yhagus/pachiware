@@ -50,7 +50,17 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
       assert(!esc.success, "symlink escape read a file outside the workspace");
       const escW = await call(alpha, "writeFile", { path: "channel/notes/escape/new.md", content: "x" });
       assert(!escW.success && !fs.existsSync(${JSON.stringify(dir + "/outside/new.md")}), "symlink escape wrote outside the workspace");
+      const escS = await call(alpha, "sendFiles", { paths: ["channel/notes/escape/secret.md"] }, { discord: {} });
+      assert(!escS.success && escS.error === "Path is outside the workspace", "symlink escape sent a file outside the workspace: " + JSON.stringify(escS));
     `, dir);
+  });
+
+  test("sendFiles refuses outside Discord, where nothing could be attached", () => {
+    scenario(`
+      assert((await call(alpha, "writeFile", { path: "channel/notes/a.md", content: "a" })).success, "write");
+      const sent = await call(alpha, "sendFiles", { paths: ["channel/notes/a.md"] });
+      assert(!sent.success && sent.error === "Files can be sent only in Discord, not here.", JSON.stringify(sent));
+    `);
   });
 
   test("visibility follows channel, guild, tenant, thread and DM", () => {
