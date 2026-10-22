@@ -214,6 +214,7 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A **Work item** belongs to one **Plane project**. **Work items** and **Tasks** are never synced or converted into each other; the **Digest** and **Reminders** read only **Tasks**.
 - A **Playbook** requires some **Skills** and may load other **Playbooks**; it cannot start while a required skill or a loaded playbook is off.
 - A **Playbook thread** belongs to one **Playbook** and one **Bot**; only that bot answers in it.
+- A **Playbook thread** offers only the tools its **Playbook** names, when the Playbook names any.
 - A server's own **Playbook** belongs to one **Guild** and is offered by every **Bot** of the tenant there; an **Availability rule** names it only at that guild or its channels.
 - An **Availability rule** narrows **Playbooks** and **Skills** for the tenant and per **Bot**, **Guild**, and channel; for git tools a **Git scope** must allow the repository too, and for Plane tools a **Plane scope** must allow the Plane project.
 - A **Task** belongs to one **Project**, which is one channel, unless it is a **Personal task**; it has zero or one **Assignee** and any number of **Progress notes**.
