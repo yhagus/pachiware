@@ -168,6 +168,14 @@ _Avoid_: Memo, doc, memory
 A file or a long text a person gave the bot in a conversation, or a file an admin chose to mirror from a repository, kept as it was in the Workspace folder of that place so the bot can read it when it needs to. A mirrored file follows its repository: it changes and goes when the file does upstream. Where the Profile sees images, an image given to the bot is kept too, with what the model saw in it written beside it, and a scanned PDF's pages are read the same way. Nobody asked to keep a given one; asking turns its content into a note.
 _Avoid_: Attachment (Discord's word for any file on a message), upload, Note
 
+**API changelog**:
+An OpenAPI document the bot wrote from a repository's source code, recording every endpoint whose frontend-facing contract changed between two of its commits, or every endpoint when it covers the whole history. What it covers, the whole history or a range of days, is always the asker's answer, never the bot's choice.
+_Avoid_: Contract diff (the playbook that writes one), API docs, Swagger, release notes
+
+**API preview**:
+A public page showing one OpenAPI document as it was when the bot published it, which anyone with its link can open without signing in, until it is revoked in the console. Publishing again makes another; a later change to the file never reaches it.
+_Avoid_: Public link, share, docs page
+
 **Team roster**:
 A guild's list of the people its team keeps: each one's role, what they are responsible for, and their time zone. Anyone in the guild sets a line from chat, and each line says who set it and when. It answers "who owns X?" and is searched by recall beside the Tasks; it is neither Memory nor kept material, and its time zones do not change when Reminders post.
 _Avoid_: Directory, org chart, members list (Discord's own)
@@ -189,7 +197,7 @@ The record the bot writes on its own, each night, of one channel's talk on the d
 _Avoid_: Summary, recap, journal, automatic minutes
 
 **Kept material**:
-The Minutes, Daily logs, Decisions, Notes and Documents the bot kept for a place, which people can ask about later. Memory and Tasks are not kept material.
+The Minutes, Daily logs, Decisions, Notes, Documents and API changelogs the bot kept for a place, which people can ask about later. Memory and Tasks are not kept material.
 _Avoid_: Records, archive, files (a place's files also hold its tasks and memory)
 
 **Source**:
@@ -217,6 +225,8 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A **Document** is kept in the Workspace folder of the channel or DM it was given in; a **Note** may be made from it, never the other way round.
 - A mirrored **Document** is kept under `files/docs/` of the channel an admin chose, and refreshed only while that channel's **Git scope** allows its repository.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.
+- An **API changelog** is written in a **Playbook thread** bound to one repository the **Git scope** allows, and kept in the **Workspace** folder of the thread's channel (or the DM's).
+- An **API preview** belongs to the **Bot** that published it and to the channel or DM it was asked in. It holds a copy of the document, never a link to the file, and it is made only from a file the asker may read there, under the rules of quoting a **Source**.
 - A **Daily log** is written by one **Bot** of the tenant, following a **Playbook** that only the schedule starts; it covers one channel and one day, with the channel's public threads; a private thread and a DM never get one. The messages stay in Discord: the Daily log links to them and keeps no copy, and what rests only on a deleted message leaves it.
 - **Minutes**, **Daily logs**, **Decisions**, **Notes** and **Documents** of a channel can be read from another channel of the same guild, or from a DM, by someone who can view that channel, unless an **Availability rule** turns the Workspace off there; only a **Public channel**'s may be quoted in a channel other than their own. **Memory** is never read this way.
 - When someone asks whether work was done, the **Tasks** of the channels they can view are read under the same rules as **Sources**: only a **Public channel**'s may be quoted in a channel other than their own.
