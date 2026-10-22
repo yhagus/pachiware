@@ -103,6 +103,9 @@ async function tellAssigneesWhereTasksAre(runtime: BotRuntime, botId: string, tu
 export const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
 const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
+/** How many turns a long playbook's work goes on by itself after a turn ran out, and what the model is told for each (#289). */
+const LONG_CONTINUATIONS = 2;
+const CONTINUE_TURN = "[No one wrote this: the last turn ran out of its budget before the work was done. Continue from where it stopped, building on what is already recorded; do not start over or repeat finished steps.]";
 /** Where something was asked: a message, or the channel a command was run in. */
 type Where = Pick<Message, "guildId" | "channelId" | "channel">;
 /** How an in-place playbook was started: `message` is the menu target, the mention, or a slash stand-in; `about` is the message a mention replies to. */
@@ -575,7 +578,8 @@ export class DiscordBotManager {
     const answered = o.from === "slash" ? about ?? at : at;
     await this.serialize(`conv:${botId}:${at.channelId}`, () => this.reply(runtime, botId, answered, items, at.channelId, null, { actor: o.actor, playbook }));
   }
-  private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean } = {}) {
+  /** `continued` counts the turns a long playbook's work went on by itself; such a turn has no items and answers in `answerIn`. */
+  private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean; continued?: number; answerIn?: Language } = {}) {
     const target = thread ?? msg.channel;
     const typing = async () => { try { if ("sendTyping" in target) await target.sendTyping(); } catch {} };
     await typing();
@@ -585,7 +589,7 @@ export class DiscordBotManager {
     const working = await Promise.all(items.filter((i) => i.direct !== false && i.msg.author.id !== botUserId).map((i) => i.msg.react("⏳").catch(() => null)));
     const send = (content: string, files: OutgoingDiscordFile[] = []) => thread ? thread.send({ content, files, allowedMentions: { parse: [] } }) : msg.reply({ content, files, allowedMentions: { parse: [] } });
     // The language to answer in is judged on the people's own words, not the quotes and framing around them (#257).
-    const shown = shownLanguage(items.map((i) => i.text).join("\n")), language: Language = shown ?? "en", t = textIn(language);
+    const shown = opts.answerIn ?? shownLanguage(items.map((i) => i.text).join("\n")), language: Language = shown ?? "en", t = textIn(language);
     const projectChannelId = (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined;
     try {
       const agent = await repositories().agentConfig.get(runtime.tenantId);
@@ -597,7 +601,7 @@ export class DiscordBotManager {
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const repository = opts.binding && threadRepositoryOf(opts.binding), documents = opts.binding && threadDocumentsOf(opts.binding);
       const chained = opts.playbook && withLoads(opts.playbook, await listPlaybooks(runtime.tenantId, msg.guildId));
-      const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes, ...(chained.source === "guild" ? { madeInChat: true } : {}), ...(repository ? { repository } : {}), ...(documents ? { documents } : {}) };
+      const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes, ...(chained.source === "guild" ? { madeInChat: true } : {}), ...(repository ? { repository } : {}), ...(documents ? { documents } : {}), ...(chained.budget === "long" ? { long: true } : {}) };
       const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId), language, new Map(items.flatMap((i) => (i.replyTo !== undefined ? [[i.msg, i.replyTo] as const] : []))));
       // The brief's author still gets a round: it asks them to describe the screenshot.
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);
@@ -608,10 +612,12 @@ export class DiscordBotManager {
       const images = sees && !opts.playbook ? await fileTurnImages(runtime.tenantId, items, media.shots) : null;
       for (const [id, note] of images?.notes ?? []) filed.set(id, note);
       const lines = items.flatMap((i) => [replyLine(i.replyTo, botUserId), speakerTurn(i.msg.guildId, speakerName(i.msg), withPlaceholders(i.text, i.msg, filed), keepableId(i.text, i.msg.id), i.msg.author.id === botUserId ? undefined : i.msg.author.id)]);
-      let turn = [...lines, media.context].filter(Boolean).join("\n");
+      let turn = opts.continued ? CONTINUE_TURN : [...lines, media.context].filter(Boolean).join("\n");
       const brief = opts.binding && { place: bindingPlace(opts.binding), authorId: opts.binding.authorId, outsider: actor.id !== opts.binding.authorId };
-      if (brief?.outsider) turn = outsiderTurn(turn);
-      else if (brief) { const input = await takeBriefInput(runtime.tenantId, brief.place).catch(() => null); if (input) turn = inputTurn(input, turn); }
+      if (!opts.continued) {
+        if (brief?.outsider) turn = outsiderTurn(turn);
+        else if (brief) { const input = await takeBriefInput(runtime.tenantId, brief.place).catch(() => null); if (input) turn = inputTurn(input, turn); }
+      }
       const place = brief?.place ?? (opts.playbook && thread?.parentId && msg.guildId ? { guildId: msg.guildId, channelId: thread.parentId, threadId: thread.id } : null);
       const shots = place && !brief?.outsider ? media.shots : [];
       if (shots.length) await recordBriefImages(runtime.tenantId, place!, shots).catch(() => null);
@@ -627,6 +633,9 @@ export class DiscordBotManager {
       let plan: ReplyPlan = briefed?.plan ?? prepareReply(output.reply, { addressed: direct, language });
       if (plan.messages.length || direct) plan = withNotes(plan, notes);
       if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
+      // A long playbook's turn that ran out goes on by itself LONG_CONTINUATIONS times; after that, a reply in the thread continues it.
+      const continued = opts.continued ?? 0, cut = !!playbook && "long" in playbook && output.outOfBudget === true, again = cut && continued < LONG_CONTINUATIONS;
+      if (cut) plan = withNotes(plan, [again ? t.continuingAlone(continued + 1, LONG_CONTINUATIONS) : t.continueByReply(LONG_CONTINUATIONS)]);
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       // A file sendFiles built goes with the reply's last message; several go one a message after it, so no upload holds two files' worth.
       const files = outgoingFiles(output.toolCallsExecuted), withLast = files.length === 1 && plan.messages.length ? files.splice(0) : [];
@@ -653,6 +662,7 @@ export class DiscordBotManager {
       // Still inside this conversation's serialized job, so the next turn reads the rewritten summary and when this one ran.
       await patchConversationMetadata(runtime.tenantId, output.conversationId, { lastTurnAt: new Date(now()).toISOString() }).catch(() => {});
       if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});
+      if (again) await this.reply(runtime, botId, msg, [], channelId, thread, { ...opts, continued: continued + 1, answerIn: shown ?? undefined });
     } catch (error) {
       const failure = failureOf(error);
       console.error(`[turn] tenant ${runtime.tenantId} bot ${botId} channel ${channelId} failed: ${failure.error}: ${failure.message}`);

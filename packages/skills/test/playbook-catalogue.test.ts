@@ -98,3 +98,13 @@ describe("built-in playbooks", () => {
     }
   });
 });
+
+test("budget: long is read alike from a built-in, a tenant's and a server's own playbook, and any other value is ignored", async () => {
+  const { parsePlaybook } = await import("../src/playbooks.ts");
+  const text = (budget: string) => `---\ndescription: Traces endpoints\n${budget}---\nTrace them.\n`;
+  for (const source of ["builtin", "tenant", "guild"] as const) {
+    expect([source, parsePlaybook("trace", text("budget: long\n"), source)?.budget]).toEqual([source, "long"]);
+    expect([source, parsePlaybook("trace", text("budget: short\n"), source)?.budget]).toEqual([source, undefined]);
+    expect([source, parsePlaybook("trace", text(""), source)?.budget]).toEqual([source, undefined]);
+  }
+});

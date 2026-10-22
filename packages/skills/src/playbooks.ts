@@ -38,6 +38,8 @@ export interface Playbook {
   run: "thread" | "in-place";
   /** `repository: required`: the playbook cannot start where git scope allows no repository (ADR 0007). */
   repository?: "required";
+  /** `budget: long`: a turn in its threads may take many more model calls and minutes, and goes on by itself when they run out (#289). */
+  budget?: "long";
   body: string;
   /** A `guild` playbook was made in chat for one server; it never replaces a built-in or tenant one of its name (ADR 0021). */
   source: "builtin" | "tenant" | "guild";
@@ -83,6 +85,7 @@ export function parsePlaybook(name: string, text: string, source: Playbook["sour
     requires: list(f.requires), optional: list(f.optional), closes: list(f.closes), loads: list(f.loads), defaultOff: !guild && f.default === "off",
     run: f.run === "in-place" ? "in-place" : "thread",
     ...(f.repository === "required" ? { repository: "required" as const } : {}),
+    ...(f.budget === "long" ? { budget: "long" as const } : {}),
     ...(guild && typeof by?.id === "string" && typeof by.name === "string" ? { createdBy: { id: by.id, name: by.name } } : {}),
     ...(guild && typeof f.createdAt === "string" ? { createdAt: f.createdAt } : {}),
   };

@@ -56,6 +56,8 @@ export interface ReActOutput {
   recorded?: TurnRow[];
   /** The provider failed, so `reply` is the host's failure text, not an answer. */
   failed?: true;
+  /** The turn stopped because its model calls or its time ran out, so `reply` summarizes work that is not finished. */
+  outOfBudget?: true;
 }
 
 /** Where a turn's conversation rows are read from and written to: the conversation store, or rows the caller holds. */
@@ -80,6 +82,8 @@ function heldRecord(history: TurnRow[], recorded: TurnRow[]): TurnRecord {
 const MAX_TOOL_RESULT = 12000;
 /** A grounded brief round takes several tool steps per point, more than a tenant's usual cap. */
 export const PLAYBOOK_ITERATIONS = 20;
+/** A playbook with `budget: long` (an API changelog traces dozens of endpoints) gets the loop's ceiling. */
+export const LONG_PLAYBOOK_ITERATIONS = 128;
 
 /** A change as the person reads it, in the turn's language: what was done and the thing it touched. */
 function changeLine({ call, result }: Executed, t: Strings) {
@@ -97,6 +101,8 @@ export const toolTimeout = { ms: 90_000 };
  * tool call starts, and the turn ends with the same summary the action budget gives, which may take `summaryMs` more. Tests shorten both.
  */
 export const turnDeadline = { ms: (Number(process.env.TURN_DEADLINE_SECONDS) || 180) * 1000, summaryMs: 30_000 };
+/** The deadline of a turn of a playbook with `budget: long` (LONG_TURN_DEADLINE_SECONDS, default 15 minutes); tests shorten it. */
+export const longTurnDeadline = { ms: (Number(process.env.LONG_TURN_DEADLINE_SECONDS) || 900) * 1000 };
 
 /**
  * When a running tool call gives up; a call that runs nested calls (recall) is moved past each nested call's own ceiling,
@@ -182,9 +188,10 @@ export class AgentReActLoop {
    * Executes the ReAct cycle (Thought -> Action -> Observation -> Answer).
    */
   async run(input: ReActInput): Promise<ReActOutput> {
-    const deadline = Date.now() + turnDeadline.ms;
+    const long = !!input.context.playbook?.long;
+    const deadline = Date.now() + (long ? longTurnDeadline.ms : turnDeadline.ms);
     const requestedIterations = Number(input.maxIterations) || DEFAULT_REACT_ITERATIONS;
-    const maxIterations = Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, PLAYBOOK_ITERATIONS) : requestedIterations));
+    const maxIterations = Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, long ? LONG_PLAYBOOK_ITERATIONS : PLAYBOOK_ITERATIONS) : requestedIterations));
     const toolCallsExecuted: Executed[] = [];
 
     // 1. Ensure the conversation exists, unless the caller holds it
@@ -421,7 +428,8 @@ export class AgentReActLoop {
       }
     }
 
-    if ((iterations >= maxIterations || outOfTime) && !finalReply) {
+    const outOfBudget = (iterations >= maxIterations || outOfTime) && !finalReply;
+    if (outOfBudget) {
       // One more call with the same tools and tool_choice none, so the cached prefix holds and completed work becomes a useful answer
       // instead of an opaque failure. The instruction is not stored; the answer is, so the next turn builds on it.
       const request = [...messageHistory, { role: "user" as const, content: outOfTime ? TIME_SPENT : BUDGET_SPENT }];
@@ -447,6 +455,7 @@ export class AgentReActLoop {
       offered: activeTools.map((t) => t.name),
       ...(input.ephemeral ? { recorded } : {}),
       ...(failed ? { failed: true as const } : {}),
+      ...(outOfBudget && !failed ? { outOfBudget: true as const } : {}),
     };
   }
 }

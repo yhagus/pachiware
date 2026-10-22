@@ -324,6 +324,8 @@ const en = {
   // The loop's own fallbacks, when the model gives no text
   emptyAnswer: "Done.",
   budgetSpent: "I did what I could in this turn. Ask me to continue for the rest.",
+  continuingAlone: (n: number, max: number) => `Not finished yet: continuing on my own (${n} of ${max}).`,
+  continueByReply: (max: number) => `Still not finished after ${max} more turns. Reply here and I'll continue from where I stopped.`,
 };
 
 const id: typeof en = {
@@ -571,6 +573,8 @@ const id: typeof en = {
   briefNeedsThread: "Membuat issue perlu dikonfirmasi penulis brief, dan itu hanya bisa di thread Discord.",
   emptyAnswer: "Selesai.",
   budgetSpent: "Yang bisa saya kerjakan di giliran ini sudah saya kerjakan. Minta saya melanjutkan untuk sisanya.",
+  continuingAlone: (n, max) => `Belum selesai: saya lanjutkan sendiri (${n} dari ${max}).`,
+  continueByReply: (max) => `Masih belum selesai setelah ${max} giliran tambahan. Balas di sini dan saya lanjutkan dari bagian terakhir.`,
 };
 
 export type Strings = typeof en;
