@@ -79,7 +79,7 @@ discordScenario("a non-quotable channel's file, a file that is no OpenAPI docume
   expect(await repositories().apiPreviews.list(s.tenant.id)).toEqual([]);
 
   const local = await ask(s, "publishOpenApi", { path: "channel/files/api.json", title: "Users API" });
-  expect(local).toMatchObject({ url: expect.stringMatching(new RegExp(`^http://localhost:3001/open-api/${UUID}$`)), title: "Users API", warning: "PUBLIC_URL is not an address others can reach, so this link opens only on the server's own machine. Tell the person; the platform admin sets PUBLIC_URL." });
+  expect(local).toMatchObject({ url: expect.stringMatching(new RegExp(`^http://localhost:3001/open-api/${UUID}$`)), title: "Users API", warning: "For now this link opens only on the server's own computer. To open it from anywhere else, an admin needs to set the bot's public address." });
 });
 
 discordScenario("an unknown or malformed id is a plain 404, and one address gets 60 requests a minute", async (s) => {

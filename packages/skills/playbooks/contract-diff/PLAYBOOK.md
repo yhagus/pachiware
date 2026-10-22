@@ -124,9 +124,12 @@ Call `finishChangelog`. It validates the whole document (the contract-diff check
 
 ## 8. Report
 
-The file holds the details; the report says in plain words what it means for the frontend. Keep it to one or two sentences: how many endpoints changed, how many of them break existing frontend code, and the main change in everyday words. Name no file paths, schemas, error code tables or commit hashes, and send the file with `sendFiles`.
+The file holds the details; the report says in plain words what changed for the frontend, as a list. Send the file with `sendFiles`, and write:
+
+1. One sentence: the changelog for the range is ready, how many endpoints changed, and how many of them break existing frontend code.
+2. One bullet per endpoint: its method and path in code format, then what changed in everyday words. The request and response fields the frontend uses may be named, in code format; nothing else of the code is (no file paths, schema or class names, commit hashes).
+3. What the code could not settle, as a count in one line, such as "Two things could not be confirmed from the code; the file marks them."
+4. When the request also asked to show, preview or share the changelog, publish it with `publishOpenApi`, give the link it returns on its own line, and pass on its warning as written.
 
 - When nothing frontend-visible changed, `finishChangelog` writes no file: say so in one sentence, with how many changed files were examined.
-- What the code could not settle goes in as a count, such as "two things could not be confirmed from the code; the file marks them".
-- When the request also asked to show, preview or share the changelog, publish it with `publishOpenApi` and give the link it returns, with any warning.
 - When `repoCompare` said GitHub stopped at 300 changed files, add that the changelog may miss some endpoints.

@@ -39,7 +39,8 @@ export async function publishPreview(ctx: SkillContext, { full, shown }: NamedPa
   return {
     url: previewUrl(preview.id), title: named,
     note: "Anyone with the link can open it. It shows the file as it is now; publishing again makes a new link, and the console revokes one.",
-    ...(ON_THIS_MACHINE.test(publicUrl()) ? { warning: "PUBLIC_URL is not an address others can reach, so this link opens only on the server's own machine. Tell the person; the platform admin sets PUBLIC_URL." } : {}),
+    // PUBLIC_URL names a loopback address: the warning is the sentence the person reads, in their language.
+    ...(ON_THIS_MACHINE.test(publicUrl()) ? { warning: textIn(ctx.askerLanguage ?? ctx.language).previewOnlyHere } : {}),
   };
 }
 

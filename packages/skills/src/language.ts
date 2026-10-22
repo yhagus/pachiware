@@ -300,6 +300,8 @@ const en = {
   previewNotHere: "An OpenAPI Schema Viewer page is published by a bot in Discord, not here.",
   previewDraft: "That is an unfinished changelog draft. Finish it with finishChangelog, then publish the .json it writes.",
   previewTooLarge: (size: string, max: number) => `That file is ${size} MB; an OpenAPI Schema Viewer page holds at most ${max} MB.`,
+  // Relayed to the person as written, so it names no setting (#345).
+  previewOnlyHere: "For now this link opens only on the server's own computer. To open it from anywhere else, an admin needs to set the bot's public address.",
   previewNotOpenApi: (path: string) => `"${path}" is not an OpenAPI 3 JSON document: it needs "openapi": "3.x.y" and "paths".`,
   // keepAsNote
   keepNoPlace: "Notes are kept in a channel's or a DM's folder, and this place has none.",
@@ -584,6 +586,7 @@ const id: typeof en = {
   previewNotHere: "Halaman OpenAPI Schema Viewer dipublikasikan oleh bot di Discord, tidak di sini.",
   previewDraft: "Itu draft changelog yang belum selesai. Selesaikan dengan finishChangelog, lalu publikasikan .json yang ditulisnya.",
   previewTooLarge: (size, max) => `Ukuran file itu ${size} MB; satu halaman OpenAPI Schema Viewer paling besar ${max} MB.`,
+  previewOnlyHere: "Untuk sekarang link ini hanya bisa dibuka dari komputer server. Supaya bisa dibuka dari tempat lain, admin perlu mengatur alamat publik bot.",
   previewNotOpenApi: (path) => `"${path}" bukan dokumen JSON OpenAPI 3: perlu "openapi": "3.x.y" dan "paths".`,
   keepNoPlace: "Catatan disimpan di folder channel atau DM, dan tempat ini tidak punya folder.",
   keepNotDocument: (root) => `Hanya Dokumen di ${root}/files/ yang bisa disimpan sebagai Catatan.`,
