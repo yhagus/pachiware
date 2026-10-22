@@ -13,10 +13,10 @@ export interface WriteRequest {
   /** Only the asker's own Confirm runs it: a thread grant neither covers it nor can be given from it. */
   ownConfirmation?: boolean;
 }
-/** What the skill checked (account, scope, arguments) and will do; `prepare` throws to refuse the call. */
-export interface PreparedWrite<T> { summary: string; run: () => Promise<T> }
+/** What the skill checked (account, scope, arguments) and will do; `prepare` throws to refuse the call. `title` heads the card instead of the default. */
+export interface PreparedWrite<T> { summary: string; title?: string; run: () => Promise<T> }
 /** The tool result that makes the Discord host post Confirm/Cancel buttons for the asker. */
-export interface PendingWrite { pending: true; confirmationId: string; summary: string; ownConfirmation?: true; note: string }
+export interface PendingWrite { pending: true; confirmationId: string; summary: string; title?: string; ownConfirmation?: true; note: string }
 
 /** The start of every danger change's summary, git or Plane. */
 export const DANGER_PREFIX = "⚠️ DANGEROUS: ";
@@ -27,7 +27,7 @@ export const DANGER_PREFIX = "⚠️ DANGEROUS: ";
  */
 export async function confirmWrite<T>(ctx: SkillContext, req: WriteRequest, prepare: () => PreparedWrite<T> | Promise<PreparedWrite<T>>): Promise<T | PendingWrite> {
   if (req.access === "trusted" && !isTrustedMember(ctx)) throw new Error(textIn(ctx.language).guardTrustedOnly);
-  const { summary, run } = await prepare();
+  const { summary, title, run } = await prepare();
   if (!ctx.botId || !ctx.userId || !ctx.guildId || !ctx.channelId) throw new Error(textIn(ctx.language).guardNoConfirmer);
   const key = actionKey(req.tool, req.args, ctx);
   if (isDone(key)) throw new Error(textIn(ctx.language).guardDuplicate);
@@ -38,6 +38,6 @@ export async function confirmWrite<T>(ctx: SkillContext, req: WriteRequest, prep
   }
   const q = queueAction({ tenantId: ctx.tenantId, botId: ctx.botId, userId: ctx.userId, guildId: ctx.guildId, channelId: ctx.channelId, parentChannelId: ctx.parentChannelId, privateThread: ctx.privateThread, tool: req.tool, args: req.args, summary, auth: ctx.auth, ...(req.ownConfirmation ? { ownConfirmation: true } : {}) });
   return req.ownConfirmation
-    ? { pending: true, ownConfirmation: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the person who asked to press Confirm or Cancel on the message that appears; a thread grant does not cover this. Do not call this tool again." }
-    : { pending: true, confirmationId: q.id, summary, note: "Nothing has changed yet. Tell the user to press Confirm or Cancel on the message that appears in the channel. Do not call this tool again." };
+    ? { pending: true, ownConfirmation: true, confirmationId: q.id, summary, ...(title ? { title } : {}), note: "Nothing has changed yet. Tell the person who asked to press Confirm or Cancel on the message that appears; a thread grant does not cover this. Do not call this tool again." }
+    : { pending: true, confirmationId: q.id, summary, ...(title ? { title } : {}), note: "Nothing has changed yet. Tell the user to press Confirm or Cancel on the message that appears in the channel. Do not call this tool again." };
 }

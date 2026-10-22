@@ -6,7 +6,7 @@ license: MIT, adapted from mattpocock/skills; the notice is in LICENSE.md
 ---
 Reference for writing any document an agent consumes: a playbook, an `AGENTS.md` / `CLAUDE.md`, a doc reached by a pointer. The packaging differs; the writing does not: the same levers make each one predictable, since the agent takes the same _process_ every run rather than producing the same output.
 
-When the document you're writing is a playbook, read `writing-for-agents/PLAYBOOK-MECHANICS.md` with `readPlaybookFile` for frontmatter, the choice between a startable playbook and a reference, and router playbooks. In chat you cannot save a playbook: draft its text for a person to paste into the console's playbook editor.
+When the document you're writing is a playbook, read `writing-for-agents/PLAYBOOK-MECHANICS.md` with `readPlaybookFile` for frontmatter, the choice between a startable playbook and a reference, and router playbooks. In chat, a playbook for this server is saved with `savePlaybook`, as `making-playbooks/PLAYBOOK.md` says; a built-in or tenant playbook changes only in the console, so draft its text for a person to paste into the console's playbook editor.
 
 ## Context pointers
 

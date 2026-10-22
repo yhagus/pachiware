@@ -173,6 +173,7 @@ export interface ToolPolicy {
   /** The playbook this tool serves; it is available exactly when that playbook is. */ playbook?: string;
   /** Replaces the skill's requiredPermissions for this tool; empty means anyone may ask. */ requiredPermissions?: string[];
   /** Administration (settings, members, secrets, transfer…): off for the tenant until a tenant rule says on, so its schema is not sent on every call (#251, ADR 0005). */ defaultOff?: true;
+  /** The tool queues and checks its own Confirm, as a skill that confirms internally does, while the rest of its skill leaves that to the registry. */ confirmsInternally?: true;
 }
 
 export interface SkillContext {

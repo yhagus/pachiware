@@ -2,14 +2,14 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "disc
 import { skillRegistry, peekAction, dropAction, takeExpired, payloadIntact, audit, redact, grantThreadConfirmation, isTrustedMember, availabilityPlace, textIn, replyLanguage, type SkillContext, type ToolResult } from "@pachiware/skills";
 
 const PREFIX = "gitconfirm";
-type Pending = { confirmationId: string; summary: string; ownConfirmation?: boolean };
+type Pending = { confirmationId: string; summary: string; title?: string; ownConfirmation?: boolean };
 /** The tool result shape that asks for a person's confirmation (see packages/skills/src/gitConfirm.ts). */
 export const pendingOf = (data: any): Pending | null =>
-  data?.pending === true && typeof data.confirmationId === "string" ? { confirmationId: data.confirmationId, summary: String(data.summary ?? ""), ...(data.ownConfirmation === true ? { ownConfirmation: true } : {}) } : null;
+  data?.pending === true && typeof data.confirmationId === "string" ? { confirmationId: data.confirmationId, summary: String(data.summary ?? ""), ...(typeof data.title === "string" ? { title: data.title } : {}), ...(data.ownConfirmation === true ? { ownConfirmation: true } : {}) } : null;
 
 /** An action with its own confirmation offers no thread grant: only its asker's Confirm runs it. */
 export function confirmMessage(p: Pending, userId: string) {
-  const embed = new EmbedBuilder().setTitle("Sensitive action waiting").setColor(0xfee75c).setDescription(p.summary.slice(0, 4000))
+  const embed = new EmbedBuilder().setTitle(p.title ?? "Sensitive action waiting").setColor(0xfee75c).setDescription(p.summary.slice(0, 4000))
     .setFooter({ text: p.ownConfirmation ? "Only the person who asked can confirm this. Confirming changes for the thread does not cover it. Expires in 10 minutes." : "Confirm this action, or confirm changes for this thread. Expires in 10 minutes." });
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(`${PREFIX}:ok:${p.confirmationId}`).setLabel("Confirm").setStyle(ButtonStyle.Success),

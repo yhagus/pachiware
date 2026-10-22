@@ -1,9 +1,10 @@
 import type { SkillContext, SkillModule } from "../types.js";
 import { teamHandlers, teamTools } from "./team.js";
+import { guildPlaybookHandlers, guildPlaybookPolicy, guildPlaybookTools, PLAYBOOK_TOOLS, serverPlaybookVersion } from "./guildPlaybooks.js";
 import { agentPaths, KEPT_FOLDERS, keptPath, placeRoot, resolvePath, visibleRoots } from "../workspace/paths.js";
 import { workspaceStore } from "../workspace/store.js";
 import { checkThreadWrite, threadAccess } from "../workspace/threads.js";
-import { readPlaybookFile } from "../playbooks.js";
+import { readPlaybookFile, PLAYBOOK_FILE } from "../playbooks.js";
 import { postBriefRound, postBriefRoundTool } from "../brief.js";
 import { recordBriefAnswers, recordBriefAnswersTool, writeIssueDraft, writeIssueDraftTool } from "../issueDrafts.js";
 import { describeBriefImages, describeBriefImagesTool } from "../briefImages.js";
@@ -46,10 +47,10 @@ function notElsewhere(ctx: SkillContext, path: unknown) {
   if (namesChannel(path)) throw new Error(textIn(ctx.language).sourceReadOnly);
 }
 
-/** Playbooks are the agent's rules, so chat cannot rewrite them; people edit them in the console. Case-folded for case-insensitive disks. */
+/** Playbooks are the agent's rules, so these tools never write them: a server's own changes only through savePlaybook, behind its asker's Confirm (ADR 0021). Case-folded for case-insensitive disks. */
 function writable(ctx: SkillContext, path: unknown) {
   notElsewhere(ctx, path);
-  if (typeof path === "string" && path.split("/")[1]?.toLowerCase() === "playbooks") throw new Error("Files under playbooks/ cannot be changed from chat. Playbooks are edited in the console.");
+  if (typeof path === "string" && path.split("/")[1]?.toLowerCase() === "playbooks") throw new Error("Files under playbooks/ cannot be changed with this tool. A server's own playbook changes with savePlaybook; built-in and tenant playbooks only in the console.");
   return path;
 }
 
@@ -186,9 +187,12 @@ export const workspaceSkill: SkillModule = {
   description: "Keep notes and memory as Markdown files in this tenant's Workspace.",
   capabilities: ["workspace"],
   allowedScopes: ["tenant"],
-  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, searchFiles: { effect: "read" }, recall: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true }, remember: { effect: "write", requiresConfirmation: false }, forget: { effect: "write", requiresConfirmation: false }, saveAttachment: { effect: "write", requiresConfirmation: false }, keepAsNote: { effect: "write", requiresConfirmation: false }, setTeamMember: { effect: "write", requiresConfirmation: false }, teamRoster: { effect: "read" } },
+  toolPolicy: { listFiles: { effect: "read" }, readFile: { effect: "read" }, searchFiles: { effect: "read" }, recall: { effect: "read" }, readPlaybookFile: { effect: "read" }, postBriefRound: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, recordBriefAnswers: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, writeIssueDraft: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, describeBriefImages: { effect: "write", requiresConfirmation: false, playbook: ISSUE_DRAFT_PLAYBOOK }, ...guildPlaybookPolicy, writeFile: { effect: "write", requiresConfirmation: false }, moveFile: { effect: "write", requiresConfirmation: false }, deleteFile: { effect: "danger", requiresConfirmation: true }, remember: { effect: "write", requiresConfirmation: false }, forget: { effect: "write", requiresConfirmation: false }, saveAttachment: { effect: "write", requiresConfirmation: false }, keepAsNote: { effect: "write", requiresConfirmation: false }, setTeamMember: { effect: "write", requiresConfirmation: false }, teamRoster: { effect: "read" } },
   // Refused before Confirm is offered, since pressing it could never delete another channel's file.
   checks: { deleteFile: async (args, ctx) => notElsewhere(ctx, args.path) },
+  // A playbook is made for a server, so a DM or the console's chat has nowhere to keep one.
+  hiddenTools: async (ctx) => (ctx.guildId ? [] : PLAYBOOK_TOOLS),
+  hiddenReason: async (ctx, tool) => (PLAYBOOK_TOOLS.includes(tool) ? textIn(ctx.language).playbooksOnlyInServer : "Tool is disabled or unavailable here"),
   tools: [
     { name: "listFiles", description: "Lists files and folders in a Workspace folder.", parameters: { type: "object", properties: { path: readPathArg }, required: ["path"] } },
     { name: "readFile", description: `Reads a text file from the Workspace: Markdown, CSV or TXT. A filed ${THROUGH_MARKDOWN} file is read through the .md beside it, also when you name the Document itself; a CSV over 256 KB through its .md too (named in the file note as "text in ..."); an XLSX's .md holds each sheet as a table. A file within ${READ_LIMIT.toLocaleString("en")} characters is returned whole. A longer one is read for you by the bot's own model: with question, it returns a short answer and quotes, the file's own lines with their numbers, checked against the file; without question, a summary and an outline of sections with their lines. answer is the reader's words: rely on the quotes. unreadFrom is the first line the reader did not read and unreadBecause says why: read on with fromLine. cutLines are lines longer than a chunk, of which the reader saw only the start. When the reader cannot read, readerFailed says why and the read without question comes instead: the file's first lines with totalLines and nextLine, or the range. fromLine and toLine (1-based, inclusive) limit the reader to those lines; without question they read only those lines, each with its number: when searchFiles or recall gave a matching line, read around it, e.g. 20 lines before to 60 after. Such a range returns at most ${READ_LIMIT.toLocaleString("en")} characters, with nextLine when it stopped early.`, parameters: { type: "object", properties: { path: readPathArg, question: { type: "string", description: "The person's question, in their words, for a long file's reader" }, fromLine: { type: "integer", description: "First line to read, 1-based" }, toLine: { type: "integer", description: "Last line to read, inclusive; at most the file's last line" } }, required: ["path"] } },
@@ -197,12 +201,13 @@ export const workspaceSkill: SkillModule = {
     { name: "deleteFile", description: "Deletes a file, or an empty folder.", parameters: { type: "object", properties: { path: pathArg }, required: ["path"] } },
     { name: "searchFiles", description: `Finds files that hold words of the queries in their name, their topics and keywords, or their text, in any order and case. Words match whole in any of their forms ("normalisasi", "normalization" and "normalize" meet; "diimplementasikan" meets "implementasi"; "log" never matches "blog"), common work words meet across Indonesian and English ("rilis" and "release", "rapat" and "meeting"), and filler words such as "yang", "sudah" or "the" are ignored; the words need not share a line and a file need not hold them all. Pass several wordings of the same question in queries (Indonesian, English, same-meaning words) to search them at once. Best match first: files holding more of a query's words and rarer ones, above all in their name, topics or keywords, then newest first by the date a file name starts with; at most 50 files, and when more matched, total and leftOut say how many. Each match gives up to three of the file's lines, those holding the most query words, with their line numbers. The text of a ${THROUGH_MARKDOWN} file is searched in the .md beside it. Without a path, searches the minutes, Daily logs, decisions, notes and files of this place and of every other channel you may read from here, grouped by channel. A match marked partial holds only some words of every query; nothingStrong means no match holds every word of any query, so nothing matched well: read before relying on a partial match, and say plainly when nothing answers the question. since and until keep only files dated in that range (the date a file name starts with, else the day it last changed). notShownHere counts matches that cannot be shown in this channel; follow its suggestion and never guess what or where they are.`, parameters: { type: "object", properties: { query: { type: "string", description: "Words to find, e.g. \"pricing decision\"" }, queries: { type: "array", items: { type: "string" }, description: "Several wordings searched together, e.g. [\"normalisasi audio\", \"audio normalization\", \"loudness\"]" }, path: { type: "string", description: 'Folder to search, e.g. "channel/minutes" or "#marketing"; leave it out to search every channel you may read from here' }, since: { type: "string", description: "Only files dated on or after this day, YYYY-MM-DD" }, until: { type: "string", description: "Only files dated on or before this day, YYYY-MM-DD" } } } },
     recallTool,
-    { name: "readPlaybookFile", description: "Reads a reference file of a playbook, such as a template or checklist one of its steps points at.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
+    { name: "readPlaybookFile", description: "Reads a file of a playbook: its PLAYBOOK.md, or a template or checklist one of its steps points at. For a playbook this server made, PLAYBOOK.md comes with the version savePlaybook needs to change it.", parameters: { type: "object", properties: { playbook: { type: "string", description: "Playbook name, e.g. issue-draft" }, path: { type: "string", description: 'File name inside the playbook folder, e.g. "template.md"' } }, required: ["playbook", "path"] } },
     { name: "remember", description: "Keeps one fact in Memory for later turns: a decision, how someone likes to be addressed or to work, a convention of the place. Writes a dated line with the asker's name. Mention it only when the person asked you to remember it. Never keep private details or the conversation itself.", parameters: { type: "object", properties: { level: levelArg, text: { type: "string", description: "One line, in the asker's words" } }, required: ["text"] } },
     { name: "forget", description: "Removes every Memory line containing the text, case-insensitively, and reports how many went.", parameters: { type: "object", properties: { level: levelArg, match: { type: "string", description: "Text the lines to remove contain" } }, required: ["match"] } },
     { name: "saveAttachment", description: `Files one attachment of a message in this channel under files/, when a person asks to keep a file that was not sent to the bot. Same rules as files sent to the bot: ${DOCUMENTS}, 10 MB at most, a taken name gets -2. The result's text names the .md holding the text of a ${THROUGH_MARKDOWN} file, or of a CSV over 256 KB.`, parameters: { type: "object", properties: { messageId: { type: "string", description: 'The message id from the file placeholder, e.g. "[file: report.pdf (message 123)]"' }, name: { type: "string", description: "Attachment name, when the message holds more than one file" } }, required: ["messageId"] } },
     { name: "keepAsNote", description: `Keeps text a person gave you as a new Note, word for word: the server copies a Document's text (the extracted text of a ${THROUGH_MARKDOWN} file), or the texts of messages in this channel or thread joined in the order given, under notes/, headed with who wrote it, who asked and the date, however long it is. Use it when a person asks to keep that text as it is; use writeFile for your own writing. Give exactly one source: document, or messageIds (at most ${MAX_KEPT_MESSAGES}), any person's messages. The Document stays in files/. Refuses a path that exists.`, parameters: { type: "object", properties: { document: { type: "string", description: 'The Document under files/, e.g. "channel/files/minutes.pdf"' }, messageIds: { type: "array", items: { type: "string" }, description: 'Message ids in reading order, from turn lines such as "Alice (message 123): ..."' }, path: { type: "string", description: 'The new Note under notes/, e.g. "channel/notes/2026-10-14-minutes.md"' } }, required: ["path"] } },
     ...teamTools,
+    ...guildPlaybookTools,
     postBriefRoundTool,
     recordBriefAnswersTool,
     writeIssueDraftTool,
@@ -210,6 +215,7 @@ export const workspaceSkill: SkillModule = {
   ],
   handlers: {
     ...teamHandlers,
+    ...guildPlaybookHandlers,
     listFiles: async (args, ctx) => {
       if (namesChannel(args.path)) {
         const { source, path, shown } = await namedSource(ctx, args.path, true);
@@ -256,7 +262,9 @@ export const workspaceSkill: SkillModule = {
       if (typeof args.playbook !== "string" || typeof args.path !== "string") throw new Error("playbook and path are required");
       const content = await readPlaybookFile(ctx.tenantId, args.playbook, args.path, ctx.guildId);
       if (content === null) throw new Error(`Playbook file "${args.playbook}/${args.path}" not found.`);
-      return { content };
+      // A server's own playbook is changed from chat, which needs the version it was read at.
+      const version = args.path === PLAYBOOK_FILE ? await serverPlaybookVersion(ctx, args.playbook) : undefined;
+      return { content, ...(version ? { version } : {}) };
     },
     remember: async (args, ctx) => {
       const text = typeof args.text === "string" ? args.text.replace(/\s+/g, " ").trim() : "";

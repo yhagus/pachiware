@@ -212,7 +212,8 @@ export class SkillRegistry {
 
     try {
       const data = await handler(args, context);
-      if (policyOf(skill, name).effect !== "read" && !skill.confirmsInternally && guardrailMode() !== "observe") markDone(actionKey(name, args, context));
+      const policy = policyOf(skill, name);
+      if (policy.effect !== "read" && !policy.confirmsInternally && guardrailMode() !== "observe") markDone(actionKey(name, args, context));
       return {
         toolCallId,
         name,

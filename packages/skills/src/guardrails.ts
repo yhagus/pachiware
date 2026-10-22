@@ -18,7 +18,7 @@ export const guardrailMode = (): GuardrailMode => (process.env.GUARDRAIL_MODE ==
 export type GuardrailKind = "out_of_scope" | "unauthorized" | "prompt_injection" | "confirmation_required" | "limit" | "duplicate" | "citation";
 export type GuardrailDecision = { allow: true } | { allow: false; kind: GuardrailKind; message: string };
 
-export type AuditEvent = "guardrail_denied" | "tool_denied" | "confirmation_requested" | "confirmation_accepted" | "confirmation_expired" | "prompt_injection_detected" | "thread_confirmation_requested" | "thread_confirmation_granted" | "thread_confirmation_denied" | "thread_confirmation_expired" | "model_fallback" | "turn_failed" | "daily_log_failed" | "docs_mirror_failed" | "docs_mirror_not_allowed";
+export type AuditEvent = "guardrail_denied" | "tool_denied" | "confirmation_requested" | "confirmation_accepted" | "confirmation_expired" | "prompt_injection_detected" | "thread_confirmation_requested" | "thread_confirmation_granted" | "thread_confirmation_denied" | "thread_confirmation_expired" | "model_fallback" | "turn_failed" | "daily_log_failed" | "docs_mirror_failed" | "docs_mirror_not_allowed" | "playbook_saved" | "playbook_deleted";
 
 /** Web chat has no Workspace place to keep a long text as a Document, so it takes inline text up to this length. */
 export const MAX_WEB_INPUT = 50_000;
@@ -51,7 +51,7 @@ export const markDone = (key: string) => { done.set(key, Date.now() + COOLDOWN_M
 
 export const policyOf = (skill: SkillModule, tool: string) => {
   const p = skill.toolPolicy?.[tool], effect = p?.effect ?? skill.effect ?? "read";
-  return { effect, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? effect !== "read", metered: p?.metered ?? false, requiredPermissions: p?.requiredPermissions };
+  return { effect, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? effect !== "read", metered: p?.metered ?? false, requiredPermissions: p?.requiredPermissions, confirmsInternally: p?.confirmsInternally ?? skill.confirmsInternally ?? false };
 };
 
 // Phrases that try to rewrite the rules or pull out hidden material. Matching text is flagged, never obeyed.
@@ -149,9 +149,9 @@ export const GuardrailService = {
     const needs = policy.requiredPermissions ?? skill.requiredPermissions;
     if (policy.effect !== "read" && needs?.length && !hasPermission(ctx, ...needs)) return this.denyUnauthorized(t.guardPermission(needs.join(", ")));
     const who = ctx.userId ?? "anon";
-    // A skill that confirms internally (git) runs its own duplicate guard behind Confirm, so the per-tool write limit and the checks below skip it.
-    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !skill.confirmsInternally && !ctx.bulkApproved && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", t.guardRateLimit);
-    if (policy.effect !== "read" && !skill.confirmsInternally) {
+    // A tool that confirms internally (git, savePlaybook) runs its own duplicate guard behind Confirm, so the per-tool write limit and the checks below skip it.
+    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !policy.confirmsInternally && !ctx.bulkApproved && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", t.guardRateLimit);
+    if (policy.effect !== "read" && !policy.confirmsInternally) {
       const until = done.get(actionKey(tool, args, ctx));
       if (until && until > Date.now()) return deny("duplicate", t.guardDuplicate);
       if (policy.requiresConfirmation && !ctx.confirmed && !hasThreadConfirmation(ctx)) return this.requireConfirmation(`${tool} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`);

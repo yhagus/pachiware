@@ -48,10 +48,10 @@ describe("tool catalogue", () => {
     expect(tool("repoList").description).toMatch(/^Lists repositories/);
   });
 
-  test("every write tool of a skill the registry confirms for says whether it asks for Confirm", () => {
-    // policyOf gives a write without requiresConfirmation a Confirm button; git and Plane confirm their writes themselves.
-    const unstated = skillRegistry.getAllSkills().filter((s) => !s.confirmsInternally)
-      .flatMap((s) => s.tools.filter((t) => policyOf(s, t.name).effect === "write" && s.toolPolicy?.[t.name]?.requiresConfirmation === undefined).map((t) => t.name));
+  test("every write tool the registry confirms for says whether it asks for Confirm", () => {
+    // policyOf gives a write without requiresConfirmation a Confirm button; git, Plane and savePlaybook confirm their writes themselves.
+    const unstated = skillRegistry.getAllSkills()
+      .flatMap((s) => s.tools.filter((t) => !policyOf(s, t.name).confirmsInternally && policyOf(s, t.name).effect === "write" && s.toolPolicy?.[t.name]?.requiresConfirmation === undefined).map((t) => t.name));
     expect(unstated).toEqual([]);
   });
 });

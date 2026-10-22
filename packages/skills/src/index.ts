@@ -7,6 +7,7 @@ export * from "./builtin/taskScopes.js";
 export * from "./builtin/assignee.js";
 export * from "./builtin/checklist.js";
 export * from "./builtin/workspace.js";
+export * from "./builtin/guildPlaybooks.js";
 export * from "./workspace/store.js";
 export * from "./workspace/paths.js";
 export * from "./workspace/threads.js";

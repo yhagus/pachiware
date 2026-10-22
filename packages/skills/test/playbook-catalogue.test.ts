@@ -5,7 +5,7 @@ import { skillRegistry } from "../src/registry.ts";
 import { BUILTIN_PLAYBOOKS_DIR, builtinPlaybooks, builtinPlaybookFiles, playbookChain } from "../src/playbooks.ts";
 
 // Ours; every other built-in is copied from mattpocock/skills and must say so.
-const OWN = ["daily-log", "issue-draft", "minutes"];
+const OWN = ["daily-log", "issue-draft", "making-playbooks", "minutes"];
 const folders = readdirSync(BUILTIN_PLAYBOOKS_DIR).filter((n) => statSync(join(BUILTIN_PLAYBOOKS_DIR, n)).isDirectory()).sort();
 const playbooks = builtinPlaybooks();
 const imported = playbooks.filter((p) => !OWN.includes(p.name));
@@ -25,6 +25,12 @@ describe("built-in playbooks", () => {
     expect(named("wait-what")).toMatchObject({ run: "in-place", menu: "Explain this", start: true });
     for (const name of ["codebase-design", "writing-for-agents"]) expect([name, named(name)!.start, named(name)!.menu, named(name)!.words]).toEqual([name, false, null, []]);
     expect(named("grill-me")!.loads).toEqual(["grilling"]);
+  });
+
+  test("making-playbooks is an own reference that is on, and its limits match what savePlaybook takes", () => {
+    expect(named("making-playbooks")).toMatchObject({ start: false, defaultOff: false, menu: null, words: [] });
+    expect(named("making-playbooks")!.body).toContain("under 6000 characters");
+    expect(named("making-playbooks")!.body).toContain("under 100 characters");
   });
 
   test("minutes start from the English or the Indonesian word", () => {

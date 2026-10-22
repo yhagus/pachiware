@@ -161,6 +161,7 @@ export class SystemPromptBuilder {
     const activeTools = await skillRegistry.getActiveTools(context.tenantId);
     const hasGit = activeTools.some((t) => t.name === "repoList");
     const hasPlane = activeTools.some((t) => t.name === "planeAccounts");
+    const makesPlaybooks = activeTools.some((t) => t.name === "savePlaybook");
     promptSections.push(`
 ### Execution Rules:
 - You operate using an explicit ReAct (Reasoning + Action) cycle.
@@ -175,6 +176,7 @@ ${hasGit ? `- Git tools (repo*, gitAccounts) act on repositories the admins enab
 - Plane changes (workItemCreate, workItemUpdate, workItemComment and the other workItem* changes, and the cycle*, module*, intake*, Plane project, state, label and Plane workspace invitation changes) do not run immediately: they return pending, and the user must press Confirm on a message that appears. Say what you asked for and that it awaits their confirmation; never claim it is done, and never call the tool a second time.
 - Deleting in Plane, editing, archiving or deleting a Plane project, adding Plane project members and Plane workspace invitations are for Trusted members only, and each waits for its own Confirm even where changes in the thread were confirmed. If one is refused for the asker, say so and do not look for another way.
 - A work item, intake item or comment you write in Plane gets a line saying who asked and from which channel; do not add one yourself.
+` : ""}${makesPlaybooks ? `- A skill, SOP, template or workflow someone asks you to make for this server is a playbook: read making-playbooks/PLAYBOOK.md with readPlaybookFile, then save it with savePlaybook, which shows them a card to confirm.
 ` : ""}- Do NOT fabricate tool results. Always observe the output returned by the system.
 `);
 

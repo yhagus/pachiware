@@ -11,6 +11,7 @@ import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
 import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
+import { causeText, playbookReport } from "./serverPlaybooks.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
 import { prepareReply, replyQuietly, splitReply, withNotes, type ReplyPlan } from "./replyStyle.js";
 import { gatherTurnImages, fileTurnDocuments, fileTurnImages, withPlaceholders } from "./attachments.js";
@@ -128,12 +129,7 @@ async function playbookRefusal(tenantId: string, botId: string, playbook: Playbo
     const noRepository = withLoads(playbook, playbooks).repository === "required" && !await anyRepositoryAllowed(place);
     return noRepository ? t.repositoryNone(playbook.name) : null;
   }
-  switch (cause.off) {
-    case "playbook": return t.playbookOff(playbook.name);
-    case "loads": return t.loadsOff(playbook.name, cause.playbook);
-    case "chain": return t.chainBroken(playbook.name, cause.problem);
-    case "skills": return t.skillsOff(playbook.name, cause.skills.map((id) => skillRegistry.getAllSkills().find((s) => s.id === id)?.name ?? id));
-  }
+  return causeText(t, playbook.name, cause);
 }
 export class DiscordBotManager {
   private clients = new Map<string, BotRuntime>();
@@ -227,7 +223,7 @@ export class DiscordBotManager {
     client.on(Events.ShardResume, () => { runtime.connected = true; void repositories().bots.update(id, { connectionStatus: "connected" }).catch(() => {}); });
     client.on(Events.Error, () => { void repositories().bots.update(id, { lastError: "Discord gateway error" }).catch(() => {}); });
     client.on(Events.InteractionCreate, (i) => {
-      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), async (action, result) => (await afterBriefConfirm(runtime.client, runtime.tenantId, action, result)) ?? issueBatchReport(action.tool, result)));
+      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), async (action, result) => (await afterBriefConfirm(runtime.client, runtime.tenantId, action, result)) ?? issueBatchReport(action.tool, result) ?? await playbookReport(action, result)));
       else if (i.isMessageContextMenuCommand()) this.track(this.handleCommand(id, i));
       else if (i.isChatInputCommand()) this.track(this.handleSlash(id, i));
     });

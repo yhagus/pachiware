@@ -61,6 +61,7 @@ discordScenario("each guild's availability view reports every playbook's slash s
     { playbook: "daily-log", status: "not_registered", reason: "reference" },
     { playbook: "house-style", status: "not_registered", reason: "reference" },
     { playbook: "issue-draft", status: "registered" },
+    { playbook: "making-playbooks", status: "not_registered", reason: "reference" },
     { playbook: "minutes", status: "registered" },
     { playbook: "retro", status: "not_registered", reason: "off", level: "tenant" },
     { playbook: LONG_NAME, status: "name_unusable" },
