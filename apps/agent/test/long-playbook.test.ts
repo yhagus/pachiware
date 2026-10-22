@@ -22,7 +22,7 @@ discordScenario("a long playbook's turn runs past the 32 model calls another pla
   s.model.script(...lookups(32), "Traced 32; the rest is left.");
   const short = await s.discord.send(`${s.discord.mention} brief: the users API`);
   expect(s.model.calls).toHaveLength(41 + 33);
-  expect(String(s.model.calls.at(-1)!.at(-1)!.content)).toBe("The action budget for this turn is exhausted. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.");
+  expect(String(s.model.calls.at(-1)!.at(-1)!.content)).toBe("This turn has used all its steps. Tell the person in one to three short, plain sentences how far the work is toward what they asked and what happens next. Do not name files, folders, tools, functions, schemas, commit hashes or other internal details. Do not call tools.");
   expect(said(short.thread)).toEqual(["Traced 32; the rest is left."]);
 });
 
@@ -48,9 +48,9 @@ discordScenario("a long playbook's turn that runs out goes on by itself twice, t
   const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
 
   expect(said(started.thread)).toEqual([
-    "Traced GET /users.\nNot finished yet: continuing on my own (1 of 2).",
-    "Traced POST /users.\nNot finished yet: continuing on my own (2 of 2).",
-    "Traced DELETE /users/{id}.\nStill not finished after 2 more turns. Reply here and I'll continue from where I stopped.",
+    "Traced GET /users.\nStill working on it; I'll carry on by myself.",
+    "Traced POST /users.\nStill working on it; I'll carry on by myself.",
+    "Traced DELETE /users/{id}.\nNot finished yet. Reply here if you want me to carry on.",
   ]);
   // Each turn that went on by itself was the host's line, not a person's.
   const continued = "[No one wrote this: the last turn ran out of its budget before the work was done. Continue from where it stopped, building on what is already recorded; do not start over or repeat finished steps.]";
@@ -70,7 +70,7 @@ discordScenario("the notes about going on are in the asker's language", async (s
   await longDeadline(600);
   s.model.script(slowLookup, "GET /users sudah.", "Semua endpoint sudah dilacak.");
   const started = await s.discord.send(`${s.discord.mention} trace: tolong lacak semua endpoint users yang berubah`);
-  expect(said(started.thread)).toEqual(["GET /users sudah.\nBelum selesai: saya lanjutkan sendiri (1 dari 2).", "Semua endpoint sudah dilacak."]);
+  expect(said(started.thread)).toEqual(["GET /users sudah.\nMasih saya kerjakan, saya lanjutkan sendiri.", "Semua endpoint sudah dilacak."]);
 });
 
 const RECORD_NOW = "This turn is nearly out of time. Before anything else, record with your playbook's tools everything you have finished but not recorded yet, then go on with the rest: the next turn continues from what is recorded, not from what you read.";
@@ -104,7 +104,7 @@ discordScenario("a long playbook's turn is told to record after 102 of its 128 m
   expect(s.model.calls.slice(104).map(lastSent)).not.toContain(RECORD_NOW);
 });
 
-const EMPTY_ANSWER = "Your last answer was empty. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
+const EMPTY_ANSWER = "Your last answer was empty. Tell the person in one to three short, plain sentences how far the work is toward what they asked and what happens next. Do not name files, folders, tools, functions, schemas, commit hashes or other internal details. Do not call tools.";
 
 discordScenario("an empty answer after a long playbook's tool work is asked for again without tools, and the work goes on by itself", async (s) => {
   await s.guildSettings({ language: "en" });
@@ -113,7 +113,7 @@ discordScenario("an empty answer after a long playbook's tool work is asked for 
   const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
 
   expect(lastSent(s.model.calls[2]!)).toBe(EMPTY_ANSWER);
-  expect(said(started.thread)).toEqual(["Traced GET /users; POST /users is left.\nNot finished yet: continuing on my own (1 of 2).", "Traced POST /users."]);
+  expect(said(started.thread)).toEqual(["Traced GET /users; POST /users is left.\nStill working on it; I'll carry on by myself.", "Traced POST /users."]);
   // The empty answer is not kept: the turn that goes on reads the summary as the bot's last word.
   const history = s.model.calls[3]!.filter((m: any) => m.role === "assistant").map((m: any) => m.content);
   expect(history).not.toContain("");
@@ -130,7 +130,7 @@ discordScenario("an empty answer after tool work in a chat is asked for once mor
 });
 
 const CUT_EMPTY = "Your last response reached the output limit before any of it arrived, so nothing was said or run. Keep your thinking short and make the next step smaller, for example by splitting the content over several calls.";
-const CUT_SPENT = "Your last responses kept reaching the output limit before any of them arrived. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
+const CUT_SPENT = "Your last responses kept reaching the output limit before any of them arrived. Tell the person in one to three short, plain sentences how far the work is toward what they asked and what happens next. Do not name files, folders, tools, functions, schemas, commit hashes or other internal details. Do not call tools.";
 
 discordScenario("a response cut before any of it arrived is asked for smaller, and the turn goes on", async (s) => {
   await s.guildSettings({ language: "en" });
@@ -147,7 +147,7 @@ discordScenario("a response cut before any of it arrived three times ends the tu
   s.model.script({ tool: "listFiles", args: { path: "channel" } }, { cut: "" }, { cut: "" }, { cut: "" }, "Traced GET /users; POST /users is left.", "Traced POST /users.");
   const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
   expect(s.model.calls.slice(2, 5).map(lastSent)).toEqual([CUT_EMPTY, CUT_EMPTY, CUT_SPENT]);
-  expect(said(started.thread)).toEqual(["Traced GET /users; POST /users is left.\nNot finished yet: continuing on my own (1 of 2).", "Traced POST /users."]);
+  expect(said(started.thread)).toEqual(["Traced GET /users; POST /users is left.\nStill working on it; I'll carry on by myself.", "Traced POST /users."]);
 });
 
 discordScenario("a long playbook's turn asks for at least 16,384 output tokens on every call, and a chat leaves the tenant's limit alone", async (s) => {

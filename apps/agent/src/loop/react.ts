@@ -159,12 +159,14 @@ async function cite(reply: string, executed: Executed[], sent: ChatMessage[], ct
 
 const CUT_TOOL_CALL = "This tool call was cut off at the output limit and was not run. Make it smaller, for example by splitting the content over several calls.";
 const OUT_OF_TIME_CALL = "This tool call was not run: the turn ran out of time. Say it was not done.";
-const BUDGET_SPENT = "The action budget for this turn is exhausted. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
-const TIME_SPENT = "The time for this turn ran out. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
+// What a turn that stops early tells the person: progress toward what they asked, in plain words, never the machinery (#345).
+const PLAIN = "Tell the person in one to three short, plain sentences how far the work is toward what they asked and what happens next. Do not name files, folders, tools, functions, schemas, commit hashes or other internal details. Do not call tools.";
+const BUDGET_SPENT = `This turn has used all its steps. ${PLAIN}`;
+const TIME_SPENT = `The time for this turn ran out. ${PLAIN}`;
 const CONTINUE = "Your last answer was cut off at the output limit. Continue exactly where you stopped, without repeating anything you already wrote.";
 const CUT_EMPTY = "Your last response reached the output limit before any of it arrived, so nothing was said or run. Keep your thinking short and make the next step smaller, for example by splitting the content over several calls.";
-const CUT_SPENT = "Your last responses kept reaching the output limit before any of them arrived. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
-const EMPTY_ANSWER = "Your last answer was empty. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
+const CUT_SPENT = `Your last responses kept reaching the output limit before any of them arrived. ${PLAIN}`;
+const EMPTY_ANSWER = `Your last answer was empty. ${PLAIN}`;
 const RECORD_NOW = "This turn is nearly out of time. Before anything else, record with your playbook's tools everything you have finished but not recorded yet, then go on with the rest: the next turn continues from what is recorded, not from what you read.";
 /** The share of a long playbook turn's time or model calls after which the model is told once to record what it has finished. */
 export const RECORD_AT = 0.8;

@@ -20,6 +20,7 @@ import { describeImage, pageReader } from "./vision.js";
 import { briefTurn, showDrafts, afterBriefConfirm } from "./briefThread.js";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
+import { TurnProgress } from "./progress.js";
 import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, NOT_A_CORRECTION, type MinutesBrief } from "./minutes.js";
 
 const BURST_MS = 2500;
@@ -590,6 +591,7 @@ export class DiscordBotManager {
     const send = (content: string, files: OutgoingDiscordFile[] = []) => thread ? thread.send({ content, files, allowedMentions: { parse: [] } }) : msg.reply({ content, files, allowedMentions: { parse: [] } });
     // The language to answer in is judged on the people's own words, not the quotes and framing around them (#257).
     const shown = opts.answerIn ?? shownLanguage(items.map((i) => i.text).join("\n")), language: Language = shown ?? "en", t = textIn(language);
+    let progress: TurnProgress | undefined;
     const projectChannelId = (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined;
     try {
       const agent = await repositories().agentConfig.get(runtime.tenantId);
@@ -626,7 +628,9 @@ export class DiscordBotManager {
         ...items.filter((i) => i.msg.author.id === actor.id).map((i) => i.text),
         ...(conversation ? askerLines(await repositories().conversations.latestMessages(runtime.tenantId, conversation.id, { limit: ASKER_ROWS, chatOnly: true }), { guildId: msg.guildId, userId: actor.id }) : []),
       ];
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
+      // In the asker's language when their words show it, else the place's.
+      progress = new TurnProgress((content) => send(content), shown ?? configuredLanguage(guild, agent), opts.playbook?.name);
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, onStep: progress.step, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       const briefed = briefTurn(output.toolCallsExecuted);
@@ -635,7 +639,9 @@ export class DiscordBotManager {
       if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
       // A long playbook's turn that ran out goes on by itself LONG_CONTINUATIONS times; after that, a reply in the thread continues it.
       const continued = opts.continued ?? 0, cut = !!playbook && "long" in playbook && output.outOfBudget === true, again = cut && continued < LONG_CONTINUATIONS;
-      if (cut) plan = withNotes(plan, [again ? t.continuingAlone(continued + 1, LONG_CONTINUATIONS) : t.continueByReply(LONG_CONTINUATIONS)]);
+      if (cut) plan = withNotes(plan, [again ? t.continuingAlone : t.continueByReply]);
+      // The progress message shrinks before the answer goes, so the answer is the newest message and notifies.
+      await progress.finish(plan.messages.length > 0);
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       // A file sendFiles built goes with the reply's last message; several go one a message after it, so no upload holds two files' worth.
       const files = outgoingFiles(output.toolCallsExecuted), withLast = files.length === 1 && plan.messages.length ? files.splice(0) : [];
@@ -667,8 +673,10 @@ export class DiscordBotManager {
       const failure = failureOf(error);
       console.error(`[turn] tenant ${runtime.tenantId} bot ${botId} channel ${channelId} failed: ${failure.error}: ${failure.message}`);
       await audit({ tenantId: runtime.tenantId, botId }, "turn_failed", { channelId, ...failure });
+      await progress?.finish(true);
       await send(t.failed).catch(() => {});
     } finally {
+      await progress?.finish(false);
       clearInterval(interval);
       await Promise.all(working.map((r) => r?.users.remove().catch(() => {})));
     }

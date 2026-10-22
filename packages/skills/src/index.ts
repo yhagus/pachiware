@@ -42,6 +42,7 @@ export * from "./builtin/playbookDocuments.js";
 export * from "./builtin/git.js";
 export * from "./git.js";
 export * from "./language.js";
+export * from "./progress.js";
 export * from "./permissions.js";
 export * from "./clock.js";
 export * from "./schedule.js";

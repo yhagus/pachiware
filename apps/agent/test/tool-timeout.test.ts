@@ -148,7 +148,7 @@ discordScenario("past the turn's deadline the next tool call is not run and the 
   const tools = asked.filter((m) => m.role === "tool").map((m) => String(m.content));
   expect(tools[0]).toContain("Hall B");
   expect(tools[1]).toContain("This tool call was not run: the turn ran out of time. Say it was not done.");
-  expect(String(asked.at(-1).content)).toBe("The time for this turn ran out. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.");
+  expect(String(asked.at(-1).content)).toBe("The time for this turn ran out. Tell the person in one to three short, plain sentences how far the work is toward what they asked and what happens next. Do not name files, folders, tools, functions, schemas, commit hashes or other internal details. Do not call tools.");
   expect(s.discord.botMessages.at(-1)!.content).toBe("I found Hall B but ran out of time before saving it.");
   expect(s.model.calls.length).toBe(2);
   const { repositories } = await import("@pachiware/db");
