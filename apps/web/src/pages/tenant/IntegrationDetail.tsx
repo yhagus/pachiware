@@ -36,7 +36,7 @@ export function IntegrationDetail() {
       </div>
       <div className="flex flex-col gap-5 lg:flex-row lg:gap-7.5">
         <div key={pathname} className="min-w-0 flex-1 animate-in fade-in slide-in-from-bottom-2 duration-300 motion-reduce:animate-none"><Outlet context={{ bot, tenant, setBot }} /></div>
-        <nav aria-label={`${p.name} sections`} className="order-first flex gap-1 overflow-x-auto lg:order-last lg:w-52 lg:shrink-0 lg:flex-col lg:border-l lg:pl-4">
+        <nav aria-label={`${p.name} sections`} className="order-first flex gap-1 overflow-x-auto lg:order-last lg:w-60 lg:shrink-0 lg:flex-col lg:border-l lg:pl-4">
           {p.sections.map(({ path, label: text, icon: Icon }) => (
             <NavLink key={path} to={path} className={({ isActive }) => `flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm ${isActive ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
               <Icon className="size-4" /> {text}

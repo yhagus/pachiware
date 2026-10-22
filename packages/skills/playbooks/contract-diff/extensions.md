@@ -1,6 +1,6 @@
 # Extension reference
 
-The validator behind `finishChangelog` holds the JSON Schema for these extensions; the viewer of an API preview relies on it. The tools fill in the summary and each operation's x-impact.
+The validator behind `finishChangelog` holds the JSON Schema for these extensions; the OpenAPI Schema Viewer relies on it. The tools fill in the summary and each operation's x-impact.
 
 ## `info.x-changelog`
 

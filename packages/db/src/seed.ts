@@ -87,7 +87,7 @@ export function builtInSkills(): SkillDefinition[] {
   const openapiSkill = {
     id: "openapi",
     name: "OpenAPI",
-    description: "Write API changelogs of a repository as OpenAPI documents, and publish OpenAPI documents as public preview pages.",
+    description: "Write API changelogs of a repository as OpenAPI documents, and publish OpenAPI documents as public OpenAPI Schema Viewer pages.",
     defaultEnabled: true,
     handlerType: "builtin",
     toolDefinitions: [],

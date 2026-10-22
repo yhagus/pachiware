@@ -38,8 +38,8 @@ function PreviewList({ tenant, bot }: { tenant: Tenant; bot?: Bot }) {
   const copy = (p: ApiPreview) => navigator.clipboard.writeText(p.url).then(() => toast.success("Link copied"), () => toast.error("Copy failed"));
   const revoke = async (p: ApiPreview) => {
     setBusy(p.id);
-    try { await api.revokeApiPreview(tenant.id, p.id); setList((l) => l?.filter((x) => x.id !== p.id) ?? l); toast.success("API preview revoked"); }
-    catch (e) { toast.error(`Could not revoke the API preview: ${(e as Error).message}`); }
+    try { await api.revokeApiPreview(tenant.id, p.id); setList((l) => l?.filter((x) => x.id !== p.id) ?? l); toast.success("Link revoked"); }
+    catch (e) { toast.error(`Could not revoke the link: ${(e as Error).message}`); }
     finally { setBusy(null); }
   };
 
@@ -52,8 +52,8 @@ function PreviewList({ tenant, bot }: { tenant: Tenant; bot?: Bot }) {
       <CardContent className="px-0">
         <div className="flex flex-wrap items-start gap-3 p-4 pb-2">
           <div className="min-w-0 flex-1">
-            <h3 className="font-medium">API previews</h3>
-            <p className="text-xs text-muted-foreground">Public pages of OpenAPI documents {who} published from chat, such as API changelogs. Anyone with a link can open it without signing in; each shows its document as it was when published. Revoking a link stops it at once.</p>
+            <h3 className="font-medium">OpenAPI Schema Viewer</h3>
+            <p className="text-xs text-muted-foreground">Public pages showing OpenAPI documents {who} published from chat, such as API changelogs. Anyone with a link can open it without signing in; each shows its document as it was when published. Revoking a link stops it at once.</p>
           </div>
           {!bot && bots.length > 1 && (
             <Select value={shownBot} onValueChange={setShownBot}>
@@ -67,13 +67,13 @@ function PreviewList({ tenant, bot }: { tenant: Tenant; bot?: Bot }) {
         </div>
         {error ? (
           <div role="alert" className="space-y-3 border-t p-4 text-sm">
-            <p>Could not load the API previews: {error}</p>
+            <p>Could not load the pages: {error}</p>
             <Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button>
           </div>
         ) : !list ? (
-          <div role="status" className="space-y-3 border-t p-4"><p className="sr-only">Loading API previews</p>{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+          <div role="status" className="space-y-3 border-t p-4"><p className="sr-only">Loading pages</p>{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
         ) : shown.length === 0 ? (
-          <p className="border-t px-4 py-10 text-center text-sm text-muted-foreground">No API previews. One appears here when someone asks {who} in chat to show or share an OpenAPI document, such as an API changelog.</p>
+          <p className="border-t px-4 py-10 text-center text-sm text-muted-foreground">No pages yet. One appears here when someone asks {who} in chat to show or share an OpenAPI document, such as an API changelog.</p>
         ) : (
           <ul className="divide-y border-t px-4">
             {shown.map((p) => (
@@ -97,7 +97,7 @@ function PreviewList({ tenant, bot }: { tenant: Tenant; bot?: Bot }) {
                   <Button asChild variant="ghost" size="sm" className="h-11 sm:h-8"><a href={p.url} target="_blank" rel="noreferrer" aria-label={`Open "${p.title}"`}>Open</a></Button>
                   <ConfirmAction
                     trigger={<Button variant="ghost" size="sm" className="h-11 sm:h-8" disabled={busy === p.id} aria-label={`Revoke the link to "${p.title}"`}>Revoke</Button>}
-                    title="Revoke this API preview?" description={`The link to "${p.title}" stops working at once, for everyone who has it. The file in the Workspace stays, and ${p.botName ?? "the bot"} can publish it again as a new link.`}
+                    title="Revoke this link?" description={`The link to "${p.title}" stops working at once, for everyone who has it. The file in the Workspace stays, and ${p.botName ?? "the bot"} can publish it again as a new link.`}
                     confirmLabel="Revoke the link" danger onConfirm={() => void revoke(p)} />
                 </div>
               </li>

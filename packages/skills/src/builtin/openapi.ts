@@ -17,7 +17,7 @@ const SIZE = ` Keep each call under ${MAX_ARGS.toLocaleString("en")} characters:
 export const openapiSkill: SkillModule = {
   id: "openapi",
   name: "OpenAPI",
-  description: "Write API changelogs of a repository as OpenAPI documents, and publish OpenAPI documents as public preview pages.",
+  description: "Write API changelogs of a repository as OpenAPI documents, and publish OpenAPI documents as public OpenAPI Schema Viewer pages.",
   capabilities: ["openapi"],
   allowedScopes: ["tenant"],
   // Publishing goes without a Write confirmation, as the user decided (#285); the console revokes a link.
@@ -33,9 +33,9 @@ export const openapiSkill: SkillModule = {
       parameters: { type: "object", properties: { draft: draftP, globalChanges: { type: "array", items: { type: "object" }, description: "Change entries" }, removedOperations: { type: "array", items: { type: "object" }, description: '{"method": "delete", "path": "/api/v1/sessions", "replacedBy": "POST /api/v2/sessions/revoke"}' }, unverified: { type: "array", items: { type: "object" }, description: '{"in": "response.200", "field": "data.meta", "reason": "..."}' }, title: { type: "string" }, description: { type: "string" } }, required: ["draft"] } },
     { name: "finishChangelog", description: "Validates the whole draft (the contract-diff checks and the OpenAPI 3.1 schema), counts the summary, and when there are no errors writes the changelog .json beside it and removes the draft. With errors nothing is written: fix each and call it again. A draft that records no change writes nothing. Returns the file path, the summary, one line per breaking change and the unverified items, for your report.",
       parameters: { type: "object", properties: { draft: draftP }, required: ["draft"] } },
-    { name: "publishOpenApi", description: "Publishes an OpenAPI JSON from the Workspace as an API preview: a public page anyone with its link can open without signing in, showing the document in an API viewer (an API changelog's changes as badges and tables). It shows the file as it is now: later changes to the file do not reach it, and publishing again makes a new link. Use it when the person asks to show, preview or share an OpenAPI document or a changelog. The path is as readFile takes it. Returns the link; give it to the person, with any warning.",
+    { name: "publishOpenApi", description: "Publishes an OpenAPI JSON from the Workspace as an OpenAPI Schema Viewer page: a public page anyone with its link can open without signing in, showing the document (an API changelog's changes as badges and tables). It shows the file as it is now: later changes to the file do not reach it, and publishing again makes a new link. Use it when the person asks to show, preview or share an OpenAPI document or a changelog. The path is as readFile takes it. Returns the link; give it to the person, with any warning.",
       parameters: { type: "object", properties: { path: { type: "string", description: 'The .json file, e.g. "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json"' }, title: { type: "string", description: "Default: the document's info.title" } }, required: ["path"] } },
-    { name: "listOpenApiPreviews", description: "Lists the API previews this bot published in this channel (with its threads) or this DM, newest first, with their links.",
+    { name: "listOpenApiPreviews", description: "Lists the OpenAPI Schema Viewer pages this bot published in this channel (with its threads) or this DM, newest first, with their links.",
       parameters: { type: "object", properties: {} } },
   ],
   handlers: {

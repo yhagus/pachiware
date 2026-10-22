@@ -129,9 +129,9 @@ Dashboard bisa dibuka sebelum LLM dikonfigurasi, tetapi chat memerlukan kredensi
 3. Di **Discord Bots**, tambahkan nama dan token bot. Isi Application ID dan Guild IDs bila diperlukan, lalu simpan dengan **Enabled** aktif.
 4. Periksa status koneksinya, lalu mention bot atau kirim DM untuk mencoba percakapan.
 
-### 4. Bagikan API Preview (Opsional)
+### 4. Bagikan Dokumen OpenAPI lewat OpenAPI Schema Viewer (Opsional)
 
-Bot bisa memublikasikan dokumen OpenAPI dari Workspace-nya, misalnya API changelog yang ditulisnya, sebagai halaman publik: **API preview** di `<PUBLIC_URL>/open-api/<id>`. Siapa pun yang punya tautannya bisa membukanya tanpa login. Halaman itu menampilkan dokumen seperti saat dipublikasikan, dan **API previews** di dashboard mencantumkan semuanya, per tenant dan per bot, sekaligus mencabutnya.
+Bot bisa memublikasikan dokumen OpenAPI dari Workspace-nya, misalnya API changelog yang ditulisnya, sebagai halaman publik di **OpenAPI Schema Viewer** pada `<PUBLIC_URL>/open-api/<id>`. Siapa pun yang punya tautannya bisa membukanya tanpa login. Halaman itu menampilkan dokumen seperti saat dipublikasikan, dan **OpenAPI Schema Viewer** di dashboard mencantumkan semuanya, per tenant dan per bot, sekaligus mencabutnya.
 
 1. Isi `PUBLIC_URL` di `.env` dengan alamat yang dipakai orang untuk menjangkau agent (port 3001 secara default), lalu restart. Jika dibiarkan `http://localhost:3001`, tautan hanya terbuka di server itu sendiri, dan bot menyebutkannya saat memberikan tautan.
 2. Di belakang reverse proxy, teruskan hanya `/open-api/` ke agent (dan `/api/oauth/` jika memakai login git satu klik), dan biarkan sisanya tetap privat, seperti dashboard. Satu pengunjung mendapat 60 permintaan per menit.

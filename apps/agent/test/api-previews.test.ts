@@ -38,7 +38,7 @@ discordScenario("a published changelog becomes an API preview whose page, docume
     "x-robots-tag": "noindex, nofollow", "referrer-policy": "no-referrer", "cache-control": "no-store", "x-content-type-options": "nosniff",
   });
   const html = await page.text();
-  expect(html).toContain("<title>Users API changes</title>");
+  expect(html).toContain("<title>Users API changes · OpenAPI Schema Viewer</title>");
   expect(html).toContain(`<div id="app" data-url="./${id}/view.json"></div>`);
   expect(html).not.toMatch(/https?:\/\//);
   for (const script of [...html.matchAll(/<script src="\.\/([^"]+)"><\/script>/g)].map((m) => m[1])) {

@@ -295,11 +295,11 @@ const en = {
   sendTooMany: (count: number, max: number) => `That is ${count} files; I send at most ${max} at once. Name fewer files or a smaller folder.`,
   sendTooLarge: (size: string, max: string) => `The files come to ${size} MB zipped, over the ${max} MB Discord takes in one upload. Name fewer files.`,
   sendOnlyInDiscord: "Files can be sent only in Discord, not here.",
-  // API changelogs and API previews
+  // API changelogs and OpenAPI Schema Viewer pages
   changelogNoPlace: "A changelog is kept in a channel's, a thread's or a DM's folder, and this place has none.",
-  previewNotHere: "An API preview is published by a bot in Discord, not here.",
+  previewNotHere: "An OpenAPI Schema Viewer page is published by a bot in Discord, not here.",
   previewDraft: "That is an unfinished changelog draft. Finish it with finishChangelog, then publish the .json it writes.",
-  previewTooLarge: (size: string, max: number) => `That file is ${size} MB; an API preview holds at most ${max} MB.`,
+  previewTooLarge: (size: string, max: number) => `That file is ${size} MB; an OpenAPI Schema Viewer page holds at most ${max} MB.`,
   previewNotOpenApi: (path: string) => `"${path}" is not an OpenAPI 3 JSON document: it needs "openapi": "3.x.y" and "paths".`,
   // keepAsNote
   keepNoPlace: "Notes are kept in a channel's or a DM's folder, and this place has none.",
@@ -554,9 +554,9 @@ const id: typeof en = {
   sendTooLarge: (size, max) => `Setelah di-zip ukurannya ${size} MB, lebih dari ${max} MB yang diterima Discord sekali unggah. Sebutkan lebih sedikit file.`,
   sendOnlyInDiscord: "File hanya bisa dikirim di Discord, tidak di sini.",
   changelogNoPlace: "Changelog disimpan di folder channel, thread, atau DM, dan tempat ini tidak punya folder.",
-  previewNotHere: "API preview dipublikasikan oleh bot di Discord, tidak di sini.",
+  previewNotHere: "Halaman OpenAPI Schema Viewer dipublikasikan oleh bot di Discord, tidak di sini.",
   previewDraft: "Itu draft changelog yang belum selesai. Selesaikan dengan finishChangelog, lalu publikasikan .json yang ditulisnya.",
-  previewTooLarge: (size, max) => `Ukuran file itu ${size} MB; satu API preview paling besar ${max} MB.`,
+  previewTooLarge: (size, max) => `Ukuran file itu ${size} MB; satu halaman OpenAPI Schema Viewer paling besar ${max} MB.`,
   previewNotOpenApi: (path) => `"${path}" bukan dokumen JSON OpenAPI 3: perlu "openapi": "3.x.y" dan "paths".`,
   keepNoPlace: "Catatan disimpan di folder channel atau DM, dan tempat ini tidak punya folder.",
   keepNotDocument: (root) => `Hanya Dokumen di ${root}/files/ yang bisa disimpan sebagai Catatan.`,

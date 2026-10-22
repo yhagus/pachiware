@@ -22,7 +22,7 @@ export function apiPreviewRoutes(base: string, tenantOf: (c: Context<any>) => st
     return c.json({ success: true, previews: rows.map((r) => previewOut(r, names.get(r.botId) ?? null)) });
   });
   app.delete(`${base}/:previewId`, async (c) => {
-    if (!await repositories().apiPreviews.remove(tenantOf(c), c.req.param("previewId")!)) return c.json({ error: "API preview not found" }, 404);
+    if (!await repositories().apiPreviews.remove(tenantOf(c), c.req.param("previewId")!)) return c.json({ error: "OpenAPI Schema Viewer page not found" }, 404);
     return c.json({ success: true });
   });
   return app;

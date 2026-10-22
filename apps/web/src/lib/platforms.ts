@@ -12,7 +12,7 @@ export interface Platform { id: string; name: string; description: string; icon:
 export const PLATFORMS: Platform[] = [
   {
     id: "discord", name: "Discord", description: "Connect a Discord bot to servers and channels.", icon: DiscordIcon, scopeLabel: "servers",
-    sections: [{ path: "servers", label: "Servers", icon: Server }, { path: "git-access", label: "Git access", icon: GitBranch }, { path: "plane-access", label: "Plane access", icon: Kanban }, { path: "availability", label: "Availability", icon: ToggleRight }, { path: "reminders", label: "Reminders", icon: AlarmClock }, { path: "api-previews", label: "API previews", icon: Globe }, { path: "playground", label: "Playground", icon: FlaskConical }],
+    sections: [{ path: "servers", label: "Servers", icon: Server }, { path: "git-access", label: "Git access", icon: GitBranch }, { path: "plane-access", label: "Plane access", icon: Kanban }, { path: "availability", label: "Availability", icon: ToggleRight }, { path: "reminders", label: "Reminders", icon: AlarmClock }, { path: "api-previews", label: "OpenAPI Schema Viewer", icon: Globe }, { path: "playground", label: "Playground", icon: FlaskConical }],
     fields: [
       { key: "token", label: "Bot token", secret: true },
       { key: "clientId", label: "Client ID" },

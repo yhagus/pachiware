@@ -40,11 +40,11 @@ const page = (id: string, title: string) => `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>${escapeHtml(title)}</title>
+<title>${escapeHtml(title)} · OpenAPI Schema Viewer</title>
 </head>
 <body>
 <div id="app" data-url="./${id}/view.json"></div>
-<noscript>This page needs JavaScript. The document itself: <a href="./${id}/openapi.json">openapi.json</a></noscript>
+<noscript>The OpenAPI Schema Viewer needs JavaScript. The document itself: <a href="./${id}/openapi.json">openapi.json</a></noscript>
 <script src="./${scalarPath}"></script>
 <script src="./${startPath}"></script>
 </body>

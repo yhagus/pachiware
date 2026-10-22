@@ -9,7 +9,7 @@ import { IconButton } from "@/components/IconButton";
 import { api, type Tenant } from "@/lib/api";
 
 // Add future tenant sections (tasks, …) here.
-const SECTIONS = [{ path: "integrations", label: "Integrations", icon: Plug }, { path: "profiles", label: "Profiles", icon: Brain }, { path: "git-accounts", label: "Git accounts", icon: GitBranch }, { path: "plane-accounts", label: "Plane accounts", icon: Kanban }, { path: "skills", label: "Skills", icon: Wrench }, { path: "workspace", label: "Workspace", icon: FolderTree }, { path: "api-previews", label: "API previews", icon: Globe }, { path: "settings", label: "Settings", icon: Settings2 }];
+const SECTIONS = [{ path: "integrations", label: "Integrations", icon: Plug }, { path: "profiles", label: "Profiles", icon: Brain }, { path: "git-accounts", label: "Git accounts", icon: GitBranch }, { path: "plane-accounts", label: "Plane accounts", icon: Kanban }, { path: "skills", label: "Skills", icon: Wrench }, { path: "workspace", label: "Workspace", icon: FolderTree }, { path: "api-previews", label: "OpenAPI Schema Viewer", icon: Globe }, { path: "settings", label: "Settings", icon: Settings2 }];
 
 export function TenantDetail() {
   const { id = "" } = useParams();
