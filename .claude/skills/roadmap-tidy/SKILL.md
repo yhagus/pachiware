@@ -113,7 +113,7 @@ Show the grouping to the user and **wait for approval or edits before creating a
 
 **Milestones**
 
-- Close a milestone when all its issues are closed.
+- Close a milestone when all its issues are closed, except one whose marker ends with `keep-open` (Maintenance and polish), which never closes.
 - Reopen it if a new open issue joins it.
 - Due dates are set only when the user gives them.
 
