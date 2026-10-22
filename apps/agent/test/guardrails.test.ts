@@ -95,6 +95,13 @@ test("every guardrail refusal speaks English and Indonesian", async () => {
   expect(G.checkTool(repeatable, "save", { n: 1 }, ctx("en"))).toMatchObject({ allow: true });
   for (let i = 0; i < 9; i++) G.checkTool(repeatable, "save", { n: 1 }, ctx("en"));
   expect(refusal(G.checkTool(repeatable, "save", { n: 1 }, ctx("en")))).toEqual(["limit", "Too many requests right now. Wait a minute and try again."]);
+  // A metered write (an API changelog's drafting, capped by its playbook's budget) passes the per-tool limit, but not the tenant's.
+  g.resetGuardrailState();
+  const metered: any = { ...write, toolPolicy: { save: { effect: "write", requiresConfirmation: false, metered: true } } };
+  const passed = Array.from({ length: 30 }, (_, i) => G.checkTool(metered, "save", { n: i }, ctx("en")).allow);
+  expect(passed.every(Boolean)).toBe(true);
+  for (let i = 30; i < 120; i++) G.checkTool(metered, "save", { n: i }, ctx("en"));
+  expect(refusal(G.checkTool(metered, "save", { n: 120 }, ctx("en")))).toEqual(["limit", "Too many requests right now. Wait a minute and try again."]);
   g.resetGuardrailState();
 });
 

@@ -73,6 +73,14 @@ test("repoFileDiff gives one file's patch with its old path, or says why there i
   });
 });
 
+test("past GitHub's 300 files, a file the comparison does not list is not said to be unchanged", async () => {
+  const files = Array.from({ length: 300 }, (_, i) => ({ filename: `f${String(i).padStart(3, "0")}.ts`, status: "modified", patch: "@@" }));
+  await withFetch({ "/repos/o/r/compare/a...b": { files } }, async () => {
+    expect(await fileDiff(github, "o/r", "a", "b", "src/routes.ts")).toEqual({ path: "src/routes.ts", note: "src/routes.ts is not among the 300 changed files GitHub lists for this comparison, so whether it changed is unknown. Read it at each ref with repoReadFile." });
+    expect(await fileDiff(github, "o/r", "a", "b", "f007.ts")).toEqual({ path: "f007.ts", status: "modified", patch: "@@" });
+  });
+});
+
 test("repoCompare pages the changed files 50 at a time and says when GitHub stopped at 300", async () => {
   const files = Array.from({ length: 300 }, (_, i) => ({ filename: `f${String(i).padStart(3, "0")}.ts`, status: "modified" }));
   await withFetch({ "/repos/o/r/compare/a...b": { ahead_by: 2, behind_by: 0, commits: [], files } }, async () => {

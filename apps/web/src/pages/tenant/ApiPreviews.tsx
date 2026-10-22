@@ -10,7 +10,7 @@ import { ConfirmAction } from "@/components/ConfirmAction";
 import { api, type ApiPreview, type Bot, type Guild, type Tenant } from "@/lib/api";
 import { useIntegration } from "@/pages/tenant/IntegrationDetail";
 
-/** A tenant's API previews, or one bot's: each public link, where and by whom it was published, and a way to revoke it. */
+/** A tenant's API previews, or one bot's: each page's address, where and by whom it was published, and a way to revoke it. */
 function PreviewList({ tenant, bot }: { tenant: Tenant; bot?: Bot }) {
   const [list, setList] = useState<ApiPreview[] | null>(null);
   const [error, setError] = useState<string | null>(null);

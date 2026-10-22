@@ -45,6 +45,15 @@ discordScenario("a folder goes as one zip of its files, without the text the bot
   expect(Object.keys(unzipSync(new Uint8Array(named[0].attachment))).sort()).toEqual(["budget.csv", "report.md"]);
 });
 
+discordScenario("a folder of one file still goes as a zip named after the folder", async (s) => {
+  await s.guildSettings({ useThreads: false });
+  s.clock.set("2026-10-22T10:00:00+07:00");
+  await s.workspace.write(`${GENERAL}/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json`, "{}\n");
+  const [zip] = (await ask(s, ["channel/files/changelogs/acme-api"])).files;
+  expect(zip.name).toBe("acme-api-2026-10-22.zip");
+  expect(Object.keys(unzipSync(new Uint8Array(zip.attachment)))).toEqual(["2026-10-22_9f8e7d6..a1b2c3d.json"]);
+});
+
 discordScenario("files from several folders keep their folders inside the zip", async (s) => {
   await s.guildSettings({ useThreads: false });
   s.clock.set("2026-10-22T10:00:00+07:00");

@@ -72,11 +72,17 @@ discordScenario("without the person's answer to all or part, nothing starts and 
 discordScenario("a run cut midway is picked up by the next start of the same changelog, with what it recorded", async (s) => {
   await acmeApi(s);
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } }, results);
-  await turn(s, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } }, results);
+  await turn(s, [
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } },
+    { tool: "putChangelogNotes", args: { draft: DRAFT, removedOperations: [{ method: "delete", path: "/api/v1/sessions" }] } },
+  ], results);
   s.clock.set("2026-10-23T09:00:00+07:00");
   const [again] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } }, results);
   expect(again.draft).toBe(DRAFT);
-  expect(again.resumed).toEqual({ operations: ["POST /api/v2/users (breaking)"], note: "This changelog was started before; its operations so far are kept. Go on with the endpoints not yet recorded." });
+  expect(again.resumed).toEqual({
+    operations: ["POST /api/v2/users (breaking)"], removedOperations: ["DELETE /api/v1/sessions"], globalChanges: 0, unverified: 0,
+    note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded.",
+  });
 });
 
 discordScenario("an operation's problems come back at once, and finishing refuses while any remain", async (s) => {

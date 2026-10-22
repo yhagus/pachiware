@@ -19,7 +19,7 @@ async function visit(path: string, headers: Record<string, string> = {}) {
   return createServer().request(path, { headers });
 }
 
-discordScenario("a published changelog gets a public link whose page, document and view stay as they were when published", async (s) => {
+discordScenario("a published changelog becomes an API preview whose page, document and view stay as they were when published", async (s) => {
   await s.guildSettings({ language: "en", useThreads: false });
   process.env.PUBLIC_URL = "https://pachi.example.com/";
   await s.workspace.write(`${GENERAL}/${CHANGELOG.slice("channel/".length)}`, FIXTURE_TEXT);

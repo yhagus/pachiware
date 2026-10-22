@@ -1,12 +1,5 @@
 import { iterOperations } from "./validate.js";
 
-/**
- * An OpenAPI document as an API preview's viewer shows it. The viewer (Scalar) draws no `x-changes`, so a changelog's are spelled
- * out where it does draw: each changed operation gets badges for its impact and whether it is new, and a list of its changes at the
- * top of its description; the document's description opens with the changelog's summary, its changes to every endpoint, its removed
- * endpoints and what the code could not settle. A document without `x-changelog` is shown as it is. The published document itself
- * is never changed: this is a copy, and `download` links to the original.
- */
 type Json = any;
 
 const BADGES = {
@@ -38,6 +31,13 @@ const changesList = (changes: Json[]) => changes.map((c) => {
 const unverifiedList = (items: Json[]) => items.map((u) => `- ${line(u.in)}${u.field ? ` ${code(u.field)}` : ""}: ${line(u.reason)}`).join("\n");
 const join = (...parts: (string | false | undefined)[]) => parts.filter(Boolean).join("\n\n");
 
+/**
+ * An OpenAPI document as an API preview's viewer shows it. The viewer (Scalar) draws no `x-changes`, so a changelog's are spelled
+ * out where it does draw: each changed operation gets badges for its impact and whether it is new, and a list of its changes at the
+ * top of its description; the document's description opens with the changelog's summary, its changes to every endpoint, its removed
+ * endpoints and what the code could not settle. A document without `x-changelog` is shown as it is. The published document itself
+ * is never changed: this is a copy, and `download` links to the original.
+ */
 export function forViewer(doc: Json, { download }: { download?: string } = {}): Json {
   const changelog = doc?.info?.["x-changelog"];
   if (!changelog || typeof changelog !== "object") return doc;

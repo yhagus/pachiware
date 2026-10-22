@@ -8,7 +8,7 @@ const previewOut = (p: ApiPreviewSummary, botName: string | null) => ({
 });
 
 /**
- * A tenant's API previews (ADR 0022): GET lists them newest first, one bot's with `?botId=`, each with its public link and its bot's name;
+ * A tenant's API previews (ADR 0022): GET lists them newest first, one bot's with `?botId=`, each with its page's address and its bot's name;
  * DELETE `/:previewId` revokes one, and its link stops at once. Nothing creates one here: publishOpenApi does, from chat.
  * `tenantOf` names the tenant; an unknown tenant or another tenant's preview is a 404.
  */

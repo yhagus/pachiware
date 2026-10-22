@@ -14,7 +14,6 @@ export const OPENAPI_VERSION = "3.1.2";
 export const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace", "query"] as const;
 export const IMPACTS = ["breaking", "deprecated", "non-breaking"] as const;
 export type Impact = (typeof IMPACTS)[number];
-export const SEVERITY: Record<Impact, number> = { "non-breaking": 1, deprecated: 2, breaking: 3 };
 const STATUSES = ["NEW", "CHANGED", "RENAMED", "DEPRECATED", "REMOVED"];
 const IN_PATTERN = "^(operation|url|path|query|header|cookie|body|security|envelope|response\\.([1-5][0-9]{2}|[1-5]XX|default))$";
 const PARAM_LOCATIONS = ["path", "query", "header", "cookie"];
@@ -308,19 +307,32 @@ function validateExtension(instance: Json, definition: string, where: string, re
   return false;
 }
 
-function checkOperation(doc: Json, o: Op, report: Report, counts?: Record<Impact, number>) {
+function checkOperation(doc: Json, o: Op, report: Report) {
   const where = `${o.method.toUpperCase()} ${o.path}`;
   if (!validateExtension(o.op, "operation", where, report)) return false;
   const changes: Json[] = o.op["x-changes"], highest = mostSevere(changes);
   if (o.op["x-impact"] !== highest) report.error(where, `x-impact is '${o.op["x-impact"]}' but the most severe change is '${highest}'`);
   if (!o.op.responses || !Object.keys(o.op.responses).length) report.error(where, "operation documents no responses");
   if (!("security" in o.op) && !("security" in doc)) report.error(where, "declare `security` explicitly (use [] for public endpoints) so auth requirements are part of the contract");
-  changes.forEach((change, i) => {
-    if (counts) counts[change.impact as Impact]++;
-    checkChangeTarget(doc, o, change, `${where} x-changes[${i}]`, report);
-  });
+  changes.forEach((change, i) => checkChangeTarget(doc, o, change, `${where} x-changes[${i}]`, report));
   return true;
 }
+
+/** How many changes of each impact a changelog records: each global change, each removed operation (breaking), and each operation's changes. */
+export function changeCounts(doc: Json): Record<Impact, number> {
+  const counts: Record<Impact, number> = { breaking: 0, deprecated: 0, "non-breaking": 0 }, changelog = doc.info?.["x-changelog"] ?? {};
+  const count = (c: Json) => { if (IMPACTS.includes(c?.impact)) counts[c.impact as Impact]++; };
+  (changelog.globalChanges ?? []).forEach(count);
+  counts.breaking += (changelog.removedOperations ?? []).length;
+  for (const o of iterOperations(doc)) (Array.isArray(o.op["x-changes"]) ? o.op["x-changes"] : []).forEach(count);
+  return counts;
+}
+
+/** A changelog with no operation, no global change and no removed operation records nothing. */
+export const recordsNothing = (doc: Json) => {
+  const changelog = doc.info?.["x-changelog"] ?? {};
+  return ![...iterOperations(doc)].length && !changelog.globalChanges?.length && !changelog.removedOperations?.length;
+};
 
 function checkExtensions(doc: Json, report: Report) {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(doc.openapi ?? ""));
@@ -329,14 +341,11 @@ function checkExtensions(doc: Json, report: Report) {
   if (changelog === undefined) { report.error("/info", "missing x-changelog"); return; }
   if (!validateExtension(changelog, "changelog", "/info/x-changelog", report)) return;
 
-  const counts: Record<Impact, number> = { breaking: 0, deprecated: 0, "non-breaking": 0 };
-  for (const change of changelog.globalChanges ?? []) counts[change.impact as Impact]++;
-  counts.breaking += (changelog.removedOperations ?? []).length;
-  const operations = [...iterOperations(doc)];
-  if (!operations.length && !changelog.globalChanges?.length && !changelog.removedOperations?.length) report.warn("/paths", "document records no changes at all");
+  if (recordsNothing(doc)) report.warn("/paths", "document records no changes at all");
   let countable = true;
-  for (const o of operations) if (!checkOperation(doc, o, report, counts)) countable = false;
+  for (const o of iterOperations(doc)) if (!checkOperation(doc, o, report)) countable = false;
   if (!countable) { report.warn("/info/x-changelog/summary", "not checked until the x-changes errors above are fixed"); return; }
+  const counts = changeCounts(doc);
   for (const impact of IMPACTS) {
     if (changelog.summary[impact] !== counts[impact]) report.error("/info/x-changelog/summary", `${impact} is ${changelog.summary[impact]} but the document contains ${counts[impact]}`);
   }

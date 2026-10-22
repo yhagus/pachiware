@@ -29,7 +29,7 @@ discordScenario("changelog: opens a contract-diff thread whose turns carry the p
 
   const system = String(s.model.calls[0]![0]!.content);
   expect(system).toContain("### Playbook: contract-diff");
-  expect(system).toContain("Never choose a scope, a first day or a last day for the person, and do not call any git tool before you have their answer.");
+  expect(system).toContain("Never choose a scope, a first day or a last day for the person, and call no tool before you have their answer.");
   for (const tool of ["startChangelog", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "repoFileDiff", "repoTree", "sendFiles", "publishOpenApi"]) expect([tool, s.model.tools[0]!.includes(tool)]).toEqual([tool, true]);
   expect(started.thread!.messages.filter((m) => m.author.bot).map((m) => m.content)).toEqual(["Should the changelog cover the whole history, or a range of days (from which day to which day)?"]);
 });

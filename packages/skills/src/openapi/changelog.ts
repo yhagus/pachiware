@@ -3,7 +3,8 @@ import { placeRoot, resolvePath } from "../workspace/paths.js";
 import { checkThreadWrite } from "../workspace/threads.js";
 import { browseTree, compareRefs, defaultBranch, EMPTY_TREE, lastCommitBy, type GitConn } from "../git.js";
 import { DEFAULT_TIMEZONE, isoInZone, zonedTime } from "../clock.js";
-import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, escapePointer, iterOperations, mostSevere, resolveLocal, validateChangelog, validateOperation, type Impact } from "./validate.js";
+import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, changeCounts, escapePointer, iterOperations, mostSevere, recordsNothing, resolveLocal, validateChangelog, validateOperation } from "./validate.js";
+import { textIn } from "../language.js";
 import type { SkillContext } from "../types.js";
 
 /**
@@ -90,13 +91,38 @@ function draftPath(ctx: SkillContext, draft: unknown) {
   return full;
 }
 
+/** Reads a draft, lets `change` change it, and writes it back: one call at a time per draft. */
+async function withDraft<T>(ctx: SkillContext, draft: unknown, change: (doc: Json) => T): Promise<T> {
+  const full = draftPath(ctx, draft);
+  return serial(`${ctx.tenantId}/${full}`, async () => {
+    const found = await readJson(ctx.tenantId, full);
+    if (!found) throw new Error("No such draft: start it with startChangelog.");
+    const result = change(found.doc);
+    await writeJson(ctx.tenantId, full, found.doc, found.version);
+    return result;
+  });
+}
+
+/** Each operation's x-impact is the most severe of its changes, set once every change names a known impact (else the validator says why). */
+function setImpact(op: Json) {
+  const changes = op["x-changes"];
+  if (Array.isArray(changes) && changes.length && changes.every((c: Json) => IMPACTS.includes(c?.impact))) op["x-impact"] = mostSevere(changes);
+}
+
+/** Adds `components` to the draft's, each entry replacing one of the same section and name. */
+function mergeComponents(doc: Json, components: Json) {
+  for (const [section, entries] of Object.entries<Json>(components ?? {})) {
+    if (entries && typeof entries === "object") doc.components = { ...(doc.components ?? {}), [section]: { ...(doc.components?.[section] ?? {}), ...entries } };
+  }
+}
+
 /** "GET /users (breaking)" for each operation a draft holds. */
 const operationsOf = (doc: Json) => [...iterOperations(doc)].map((o) => `${o.method.toUpperCase()} ${o.path} (${o.op["x-impact"] ?? "no changes yet"})`);
 
 /** Where a changelog of `repo` lives in this place, and its file names for these revisions. */
-function placeOf(ctx: SkillContext, repo: string, base: Revision, head: Revision, today: string) {
+function changelogFiles(ctx: SkillContext, repo: string, base: Revision, head: Revision, today: string) {
   const root = placeRoot(ctx);
-  if (!root) throw new Error("A changelog is kept in a channel's, a thread's or a DM's folder, and this place has none.");
+  if (!root) throw new Error(textIn(ctx.language).changelogNoPlace);
   const folder = `${root}/${FOLDER}/${repo.replace(/\//g, "-")}`, stem = `${short(base.commit)}..${short(head.commit)}`;
   return { folder, stem, draft: `${folder}/${today}_${stem}.draft.json` };
 }
@@ -106,16 +132,23 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
   const covers = changelogScope(args, today);
   const branch = typeof args.branch === "string" && args.branch.trim() ? args.branch.trim() : await defaultBranch(conn, repo);
   const { base, head } = await changelogRevisions(conn, repo, branch, covers, timezone);
-  const at = placeOf(ctx, repo, base, { ref: head.ref, commit: head.commit }, today);
+  const at = changelogFiles(ctx, repo, base, { ref: head.ref, commit: head.commit }, today);
   const names = (await workspaceStore().list(ctx.tenantId, resolvePath(ctx, at.folder, true))).map((e) => e.path.split("/").pop()!);
   const draftName = names.find((n) => n.endsWith(`_${at.stem}.draft.json`)), written = names.find((n) => n.endsWith(`_${at.stem}.json`));
   const draft = draftName ? `${at.folder}/${draftName}` : at.draft, full = resolvePath(ctx, draft);
   checkThreadWrite(ctx, full);
 
-  let resumed: string[] | undefined;
+  let resumed: Json;
   await serial(`${ctx.tenantId}/${full}`, async () => {
     const found = await readJson(ctx.tenantId, full);
-    if (found) { resumed = operationsOf(found.doc); return; }
+    if (found) {
+      const notes = found.doc.info["x-changelog"];
+      resumed = {
+        operations: operationsOf(found.doc), removedOperations: (notes.removedOperations ?? []).map((r: Json) => `${String(r.method).toUpperCase()} ${r.path}`),
+        globalChanges: (notes.globalChanges ?? []).length, unverified: (notes.unverified ?? []).length,
+      };
+      return;
+    }
     const meta: DraftMeta = { repo, ...(args.account ? { account: args.account } : {}), branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to };
     await writeJson(ctx.tenantId, full, {
       openapi: OPENAPI_VERSION,
@@ -126,24 +159,31 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
 
   // From the empty tree every file of head is new; otherwise the comparison lists what changed.
   const fromNothing = base.commit === EMPTY_TREE;
-  const files = fromNothing ? await browseTree(conn, repo, head.commit, undefined, 1) : await compareRefs(conn, repo, base.commit, head.commit, 1);
   return {
     draft, repo, branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to,
     base: { ...base, commit: fromNothing ? "empty tree" : base.commit }, head,
     ...(fromNothing ? { note: "Nothing came before this changelog: every endpoint of head is NEW. Read head only." } : {}),
-    changedFiles: fromNothing
-      ? { files: (files as any).files, totalFiles: (files as any).totalFiles, ...((files as any).nextPage ? { more: `repoTree with ref ${head.commit} and page ${(files as any).nextPage}` } : {}) }
-      : { commits: (files as any).ahead, files: (files as any).files, totalFiles: (files as any).totalFiles, ...((files as any).nextPage ? { more: `repoCompare from ${base.commit} to ${head.commit} with page ${(files as any).nextPage}` } : {}), ...((files as any).filesCapped ? { capped: (files as any).filesCapped } : {}) },
-    ...(resumed ? { resumed: { operations: resumed, note: "This changelog was started before; its operations so far are kept. Go on with the endpoints not yet recorded." } } : {}),
+    changedFiles: fromNothing ? await headFiles(conn, repo, head.commit) : await changedFiles(conn, repo, base.commit, head.commit),
+    ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
     ...(written ? { alreadyWritten: `${at.folder}/${written}`, alreadyNote: "A changelog of these same commits was written before. Offer it with sendFiles unless the person asked to write it again." } : {}),
   };
+}
+
+/** The first page of every file at head, with how to list the rest. */
+async function headFiles(conn: GitConn, repo: string, head: string) {
+  const { files, totalFiles, nextPage } = await browseTree(conn, repo, head, undefined, 1);
+  return { files, totalFiles, ...(nextPage ? { more: `repoTree with ref ${head} and page ${nextPage}` } : {}) };
+}
+/** The first page of the files changed from base to head, with how to list the rest. */
+async function changedFiles(conn: GitConn, repo: string, base: string, head: string) {
+  const { ahead, files, totalFiles, nextPage, filesCapped } = await compareRefs(conn, repo, base, head, 1);
+  return { commits: ahead, files, totalFiles, ...(nextPage ? { more: `repoCompare from ${base} to ${head} with page ${nextPage}` } : {}), ...(filesCapped ? { capped: filesCapped } : {}) };
 }
 
 const METHODS = new Set<string>(HTTP_METHODS);
 
 /** Adds or replaces one operation of a draft (null removes it), with the components it brings; returns that operation's own problems. */
 export async function putOperation(ctx: SkillContext, args: { draft?: unknown; method?: unknown; path?: unknown; operation?: unknown; components?: unknown }) {
-  const full = draftPath(ctx, args.draft);
   const method = typeof args.method === "string" ? args.method.trim().toLowerCase() : "";
   if (!METHODS.has(method)) throw new Error(`method must be one of ${[...METHODS].join(", ")}.`);
   const path = typeof args.path === "string" ? args.path.trim() : "";
@@ -154,27 +194,20 @@ export async function putOperation(ctx: SkillContext, args: { draft?: unknown; m
   const changes = (operation as Json)?.["x-changes"];
   if (operation && (!Array.isArray(changes) || !changes.length)) throw new Error("operation needs x-changes, at least one entry saying what changed. An endpoint whose contract did not change does not belong in the changelog.");
 
-  return serial(`${ctx.tenantId}/${full}`, async () => {
-    const found = await readJson(ctx.tenantId, full);
-    if (!found) throw new Error("No such draft: start it with startChangelog.");
-    const doc = found.doc, where = `${method.toUpperCase()} ${path}`;
+  const where = `${method.toUpperCase()} ${path}`;
+  return withDraft(ctx, args.draft, (doc) => {
     doc.paths ??= {};
     if (operation === null) {
       if (doc.paths[path]) { delete doc.paths[path][method]; if (!Object.keys(doc.paths[path]).some((k) => METHODS.has(k))) delete doc.paths[path]; }
-    } else {
-      const op = { ...(operation as Json) };
-      if (changes.every((c: Json) => IMPACTS.includes(c?.impact))) op["x-impact"] = mostSevere(changes);
-      doc.paths[path] = { ...(doc.paths[path] ?? {}), [method]: op };
-      for (const [section, entries] of Object.entries<Json>((args.components as Json) ?? {})) {
-        if (entries && typeof entries === "object") doc.components = { ...(doc.components ?? {}), [section]: { ...(doc.components?.[section] ?? {}), ...entries } };
-      }
+      return { removed: where, operations: operationsOf(doc) };
     }
-    await writeJson(ctx.tenantId, full, doc, found.version);
-    const operations = operationsOf(doc);
-    if (operation === null) return { removed: where, operations };
+    const op = { ...(operation as Json) };
+    setImpact(op);
+    doc.paths[path] = { ...(doc.paths[path] ?? {}), [method]: op };
+    mergeComponents(doc, args.components);
     const report = validateOperation(doc, path, method);
     return {
-      saved: where, impact: doc.paths[path][method]["x-impact"], operations: operations.length,
+      saved: where, impact: op["x-impact"], operations: [...iterOperations(doc)].length,
       ...(report.errors.length ? { problems: report.errors, fix: "Send the whole operation again with putChangelogOperation; finishChangelog refuses while any problem remains." } : {}),
       ...(report.warnings.length ? { warnings: report.warnings } : {}),
     };
@@ -183,32 +216,24 @@ export async function putOperation(ctx: SkillContext, args: { draft?: unknown; m
 
 /** Adds or replaces shared components (schemas, responses, parameters, securitySchemes, ...) by name, for operations to $ref. */
 export async function putComponents(ctx: SkillContext, args: { draft?: unknown; components?: unknown }) {
-  const full = draftPath(ctx, args.draft), components = args.components;
+  const components = args.components;
   if (!components || typeof components !== "object" || Array.isArray(components) || !Object.values(components).every((v) => v && typeof v === "object" && !Array.isArray(v))) {
     throw new Error('components must be an object of sections, e.g. {"schemas": {"User": {...}}, "securitySchemes": {"bearerAuth": {...}}}.');
   }
-  return serial(`${ctx.tenantId}/${full}`, async () => {
-    const found = await readJson(ctx.tenantId, full);
-    if (!found) throw new Error("No such draft: start it with startChangelog.");
-    const doc = found.doc;
-    for (const [section, entries] of Object.entries<Json>(components)) doc.components = { ...(doc.components ?? {}), [section]: { ...(doc.components?.[section] ?? {}), ...entries } };
-    await writeJson(ctx.tenantId, full, doc, found.version);
+  return withDraft(ctx, args.draft, (doc) => {
+    mergeComponents(doc, components);
     return { saved: Object.entries<Json>(components).flatMap(([section, entries]) => Object.keys(entries).map((name) => `#/components/${section}/${name}`)) };
   });
 }
 
 /** Sets what a changelog says beyond its operations: changes to every endpoint, removed endpoints, what the code could not settle, and its title. */
 export async function putNotes(ctx: SkillContext, args: { draft?: unknown; globalChanges?: unknown; removedOperations?: unknown; unverified?: unknown; title?: unknown; description?: unknown }) {
-  const full = draftPath(ctx, args.draft);
   for (const key of ["globalChanges", "removedOperations", "unverified"] as const) if (args[key] !== undefined && !Array.isArray(args[key])) throw new Error(`${key} must be a list.`);
-  return serial(`${ctx.tenantId}/${full}`, async () => {
-    const found = await readJson(ctx.tenantId, full);
-    if (!found) throw new Error("No such draft: start it with startChangelog.");
-    const doc = found.doc, changelog = doc.info["x-changelog"];
+  return withDraft(ctx, args.draft, (doc) => {
+    const changelog = doc.info["x-changelog"];
     for (const key of ["globalChanges", "removedOperations", "unverified"] as const) if (args[key] !== undefined) changelog[key] = args[key];
     if (typeof args.title === "string" && args.title.trim()) doc.info.title = args.title.trim();
     if (typeof args.description === "string") { if (args.description.trim()) doc.info.description = args.description.trim(); else delete doc.info.description; }
-    await writeJson(ctx.tenantId, full, doc, found.version);
     return { saved: true, globalChanges: changelog.globalChanges.length, removedOperations: changelog.removedOperations.length, unverified: changelog.unverified.length };
   });
 }
@@ -253,23 +278,17 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     const found = await readJson(ctx.tenantId, full);
     if (!found) throw new Error("No such draft: start it with startChangelog.");
     const { "x-draft": _, ...doc } = found.doc, changelog = doc.info["x-changelog"];
-    const operations = [...iterOperations(doc)];
-    if (!operations.length && !changelog.globalChanges?.length && !changelog.removedOperations?.length) {
+    if (recordsNothing(doc)) {
       await workspaceStore().remove(ctx.tenantId, full);
       return { written: false, note: "The draft records no frontend-visible change, so no changelog was written; the draft is gone. Say so, with what was examined." };
     }
-    const summary: Record<Impact, number> = { breaking: 0, deprecated: 0, "non-breaking": 0 };
-    for (const c of changelog.globalChanges ?? []) if (IMPACTS.includes(c?.impact)) summary[c.impact as Impact]++;
-    summary.breaking += (changelog.removedOperations ?? []).length;
-    for (const o of operations) {
-      const changes = Array.isArray(o.op["x-changes"]) ? o.op["x-changes"] : [];
-      if (changes.length && changes.every((c: Json) => IMPACTS.includes(c?.impact))) o.op["x-impact"] = mostSevere(changes);
-      for (const c of changes) if (IMPACTS.includes(c?.impact)) summary[c.impact as Impact]++;
-    }
+    const operations = [...iterOperations(doc)];
+    for (const o of operations) setImpact(o.op);
+    const summary = changeCounts(doc);
     changelog.summary = summary;
-    const reached = reachedComponents(doc), named = new Set(operations.flatMap((o) => (o.op.security ?? []).flatMap((r: Json) => Object.keys(r ?? {}))));
+    const reached = reachedComponents(doc), schemes = new Set(operations.flatMap((o) => (o.op.security ?? []).flatMap((r: Json) => Object.keys(r ?? {}))));
     for (const [section, entries] of Object.entries<Json>(doc.components ?? {})) {
-      for (const name of Object.keys(entries ?? {})) if (section === "securitySchemes" ? !named.has(name) : !reached.has(`#/components/${section}/${escapePointer(name)}`)) delete entries[name];
+      for (const name of Object.keys(entries ?? {})) if (section === "securitySchemes" ? !schemes.has(name) : !reached.has(`#/components/${section}/${escapePointer(name)}`)) delete entries[name];
       if (!Object.keys(entries ?? {}).length) delete doc.components[section];
     }
     if (!Object.keys(doc.components ?? {}).length) delete doc.components;

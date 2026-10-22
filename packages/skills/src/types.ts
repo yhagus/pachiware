@@ -168,7 +168,7 @@ export interface AuthorizationContext extends MemberAuth {
 export interface ToolPolicy {
   /** A tool with several actions carries its riskiest one. */ effect: Effect;
   /** Default: true for write and danger. */ requiresConfirmation?: boolean;
-  /** Calls are capped by a playbook's own read budget, so they skip the per-user rate limit (the tenant limit still applies). */ metered?: boolean;
+  /** Calls are capped by a playbook's own budget, so they skip the per-user rate limit and the per-tool write limit (the tenant limit still applies). */ metered?: boolean;
   /** One of the skill's groups; set for every tool of a skill that declares groups. */ group?: string;
   /** The playbook this tool serves; it is available exactly when that playbook is. */ playbook?: string;
   /** Replaces the skill's requiredPermissions for this tool; empty means anyone may ask. */ requiredPermissions?: string[];

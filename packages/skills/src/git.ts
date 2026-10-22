@@ -579,7 +579,9 @@ export async function compareRefs(c: GitConn, repo: string, from: string, to: st
 }
 /** One file's patch between two refs, the file named by its path at either ref; when the provider gives none, why. */
 export async function fileDiff(c: GitConn, repo: string, from: string, to: string, path: string) {
-  const p = cleanPath(path), found = (await compared(c, repo, from, to)).files.find((f) => f.path === p || f.oldPath === p);
+  const p = cleanPath(path), { files } = await compared(c, repo, from, to), found = files.find((f) => f.path === p || f.oldPath === p);
+  // Past GitHub's 300 files a comparison lists no more, so a file missing from it may still have changed.
+  if (!found && c.provider === "github" && files.length >= GITHUB_COMPARE_FILES) return { path: p, note: `${p} is not among the ${GITHUB_COMPARE_FILES} changed files GitHub lists for this comparison, so whether it changed is unknown. Read it at each ref with repoReadFile.` };
   if (!found) return { path: p, note: `${p} did not change between ${from} and ${to}.` };
   const { patch, ...file } = found;
   if (!patch) return { ...file, note: "The provider gives no patch for this file (binary, or too large). Read it at each ref with repoReadFile." };

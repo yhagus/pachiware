@@ -18,7 +18,7 @@ const SCALAR_JS = join(dirname(Bun.resolveSync("@scalar/api-reference/package.js
 const scalarPath = `_/scalar-${SCALAR.version}.js`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Requests a minute from one address. */
-export const PREVIEW_RATE = 60;
+const PREVIEW_RATE = 60;
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const PRIVATE = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|::ffff:(127|10)\.|fc|fd)/i;

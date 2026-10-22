@@ -20,14 +20,14 @@ Produce an OpenAPI document that holds only the endpoints whose frontend-facing 
 
 ## 1. Pin what the changelog covers
 
-The repository is this thread's: call `playbookRepositories` unless the prompt already names it. With several allowed, ask the person who started the thread which one, in one line, and wait.
-
 What the changelog covers is the person's choice, never yours:
 
 - **all**: the whole history. Every endpoint as it is now goes in, each one NEW.
 - **range**: what changed from one day to another, both days included.
 
-When the request does not say which, ask once, offering both, and wait. For a range, ask for any end the request leaves open: "per hari ini" or "up to today" names only the last day, so ask for the first. Days are read in this place's time zone. Never choose a scope, a first day or a last day for the person, and do not call any git tool before you have their answer.
+When the request does not say which, ask once, offering both, and wait. For a range, ask for any end the request leaves open: "per hari ini" or "up to today" names only the last day, so ask for the first. Days are read in this place's time zone. Never choose a scope, a first day or a last day for the person, and call no tool before you have their answer.
+
+The repository is this thread's. When the prompt does not name it, call `playbookRepositories` once you have the answer; with several allowed, ask the person who started the thread which one, in one line, and wait. When neither the scope nor the repository is settled, ask both in the same message, and call `playbookRepositories` first only to offer its list.
 
 Then call `startChangelog` with the repository, the scope, and for a range from and to. It turns the days into two commits on the branch (head: the last commit through the last day; base: the last commit before the first day) and returns the draft path, both commits, and the first page of changed files.
 

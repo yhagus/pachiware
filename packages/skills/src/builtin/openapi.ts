@@ -44,7 +44,7 @@ export const openapiSkill: SkillModule = {
     putChangelogComponents: (args, ctx) => putComponents(ctx, args),
     putChangelogNotes: (args, ctx) => putNotes(ctx, args),
     finishChangelog: (args, ctx) => finishChangelog(ctx, args),
-    publishOpenApi: async (args, ctx) => publishPreview(ctx, await readablePath(ctx, args.path), String(args.path).trim(), args.title),
+    publishOpenApi: async (args, ctx) => publishPreview(ctx, { full: await readablePath(ctx, args.path), shown: String(args.path).trim() }, args.title),
     listOpenApiPreviews: (_args, ctx) => listPreviews(ctx),
   },
 };

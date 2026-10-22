@@ -21,16 +21,18 @@ const ROOTS = new Set(["tenant", "guild", "channel", "thread", "dm"]);
 const megabytes = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
 
 /**
- * Builds what `sendFiles` attaches: one file as it is, or several (a folder's, or several named) as one zip whose entries keep their
+ * Builds what `sendFiles` attaches: one named file as it is, or a folder, or several files, as one zip whose entries keep their
  * folders below the folder they share. The text the bot kept beside a Document or an image goes only when it is named itself.
  * The file waits in the outbox for the host; the result says only its name, size and what it holds.
  */
 export async function sendWorkspaceFiles(ctx: SkillContext, named: NamedPath[], shownHere: Shown): Promise<{ attachment: OutgoingAttachment }> {
   const t = textIn(ctx.language), store = workspaceStore();
   const picked = new Map<string, Picked>();
+  let folder = false;
   for (const p of named) {
     const file = await store.readBytes(ctx.tenantId, p.full);
     if (file) { picked.set(p.full, { ...p, named: true, bytes: file.bytes }); continue; }
+    folder = true;
     const walked = await shownHere(await store.files(ctx.tenantId, p.full));
     if (!walked.length) throw new Error(t.sendNothing(p.shown));
     for (const f of walked) if (!picked.has(f.path)) picked.set(f.path, { full: f.path, shown: p.shown + f.path.slice(p.full.length), named: false });
@@ -42,7 +44,8 @@ export async function sendWorkspaceFiles(ctx: SkillContext, named: NamedPath[], 
   const read = await Promise.all(files.map(async (f) => ({ ...f, bytes: f.bytes ?? (await store.readBytes(ctx.tenantId, f.full))!.bytes })));
   const shown = files.map((f) => f.shown);
   let name = read[0]!.shown.split("/").pop()!, bytes = read[0]!.bytes;
-  if (read.length > 1) {
+  // A folder goes as a zip even when it holds one file, so what arrives keeps the folder's name.
+  if (read.length > 1 || folder) {
     const folder = sharedFolder(shown), below = folder.length ? folder.join("/").length + 1 : 0, last = folder.at(-1);
     bytes = zipSync(Object.fromEntries(read.map((f) => [f.shown.slice(below).replace(/^<#([\w-]+)>/, "$1").replace(/^#/, ""), f.bytes])));
     name = `${last && !ROOTS.has(last) && !/^<?#/.test(last) ? last : "files"}-${isoInZone(ctx.timezone ?? DEFAULT_TIMEZONE).slice(0, 10)}.zip`;
