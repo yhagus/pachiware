@@ -1,11 +1,11 @@
 // The profile Test checklist and Playground: one request at a time against a profile's connection, reported step by step.
 // Requests carry the same parameters the router sends, so a passing Test means the bot's own requests are accepted too.
 import type { ContentPart } from "./types.js";
-import { API_FORMAT_NAMES, API_FORMAT_PATHS, formatHeaders, type ApiFormat } from "./providers.js";
+import { API_FORMAT_NAMES, API_FORMAT_PATHS, effortFields, formatHeaders, type ApiFormat } from "./providers.js";
 import { answerOf } from "./answer.js";
 import { anthropicBlocks, openAIContent, responsesContent, DEFAULT_TEMPERATURE } from "./router.js";
 
-export type ProfileConnection = { provider: string; format: ApiFormat; baseUrl: string; key: string | null; model: string };
+export type ProfileConnection = { provider: string; format: ApiFormat; baseUrl: string; key: string | null; model: string; reasoningEffort?: string | null };
 export type CheckStatus = "ok" | "warning" | "failed" | "skipped";
 export type Check = { status: CheckStatus; message: string; reply?: string };
 export type ProfileChecks = { url: Check; key: Check; model: Check; text: Check; image: Check };
@@ -78,7 +78,7 @@ export async function sendToProfile(c: ProfileConnection, content: string | Cont
   try {
     res = await fetch(`${c.baseUrl}/${API_FORMAT_PATHS[c.format]}`, {
       method: "POST", headers: { "Content-Type": "application/json", ...formatHeaders(c.provider, c.format, c.key) },
-      body: JSON.stringify(wire.body(c.model, content, opts.system, opts.maxTokens)), signal: AbortSignal.timeout(opts.timeoutMs),
+      body: JSON.stringify({ ...wire.body(c.model, content, opts.system, opts.maxTokens), ...effortFields(c.format, c.reasoningEffort) }), signal: AbortSignal.timeout(opts.timeoutMs),
     });
     raw = await res.text();
   } catch (err) {

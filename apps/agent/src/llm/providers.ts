@@ -26,6 +26,15 @@ export const API_FORMAT_PATHS: Record<ApiFormat, string> = { chat_completions: "
 export const apiFormatOf = (provider: string, format?: string | null): ApiFormat =>
   provider === "anthropic" ? "messages" : provider === "custom" && isApiFormat(format) ? format : "chat_completions";
 
+/** The reasoning efforts the console names; a provider's other words (xhigh, max, minimal…) go in as typed (#344). */
+export const REASONING_EFFORTS = ["low", "medium", "high"] as const;
+/** One word, as providers name their efforts; null or empty sends none, the provider's own default. */
+export const isReasoningEffort = (v: unknown): v is string | null => v === null || v === "" || (typeof v === "string" && /^[A-Za-z0-9_.-]{1,32}$/.test(v.trim()));
+export const REASONING_EFFORT_ERROR = "reasoningEffort must be one word, such as low, medium or high, or null for the provider's default";
+/** The request fields that carry a reasoning effort in an API format: none when it is unset. */
+export const effortFields = (format: ApiFormat, effort?: string | null): Record<string, unknown> =>
+  !effort ? {} : format === "messages" ? { output_config: { effort } } : format === "responses" ? { reasoning: { effort } } : { reasoning_effort: effort };
+
 export const providerBaseUrl = (provider: string, baseUrl?: string | null) => (baseUrl?.trim() || DEFAULT_BASE_URLS[provider as Provider] || "").replace(/\/+$/, "");
 export const providerHeaders = (provider: string, key?: string | null): Record<string, string> =>
   !key ? {} : provider === "anthropic" ? { "x-api-key": key, "anthropic-version": "2023-06-01" } : { Authorization: `Bearer ${key}` };

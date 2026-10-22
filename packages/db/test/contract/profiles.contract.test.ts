@@ -8,7 +8,7 @@ contract("Profiles", (use) => {
     const { tenants, profiles } = use().repos;
     const tenant = await tenants.create({ name: "Acme", slug: "acme" });
     const created = await profiles.create(tenant.id, { name: "Fast", provider: "openai", model: "gpt-mini" });
-    expect(created).toMatchObject({ tenantId: tenant.id, name: "Fast", provider: "openai", model: "gpt-mini", baseUrl: null, apiKeyEncrypted: null, acceptsImages: false, apiFormat: "chat_completions", fallbackModels: [] });
+    expect(created).toMatchObject({ tenantId: tenant.id, name: "Fast", provider: "openai", model: "gpt-mini", baseUrl: null, apiKeyEncrypted: null, acceptsImages: false, apiFormat: "chat_completions", fallbackModels: [], reasoningEffort: null });
     expect(created.id).toMatch(UUID);
     expect(created.createdAt).toBeInstanceOf(Date);
     expect(await profiles.get(created.id)).toEqual(created);
@@ -16,6 +16,17 @@ contract("Profiles", (use) => {
 
     const full = await profiles.create(tenant.id, { name: "Own", provider: "custom", model: "m", baseUrl: "https://llm.example", apiKeyEncrypted: "secret", acceptsImages: true, apiFormat: "messages" });
     expect(full).toMatchObject({ baseUrl: "https://llm.example", apiKeyEncrypted: "secret", acceptsImages: true, apiFormat: "messages" });
+  });
+
+  test("a profile keeps the reasoning effort given, as typed; an update changes it or clears it to null, and other updates keep it", async () => {
+    const { tenants, profiles } = use().repos;
+    const tenant = await tenants.create({ name: "Acme", slug: "acme" });
+    const created = await profiles.create(tenant.id, { name: "Deep", provider: "anthropic", model: "m", reasoningEffort: "low" });
+    expect(created.reasoningEffort).toBe("low");
+    expect((await profiles.update(created.id, { reasoningEffort: "xhigh" }))!.reasoningEffort).toBe("xhigh");
+    expect((await profiles.update(created.id, { model: "n" }))!.reasoningEffort).toBe("xhigh");
+    expect((await profiles.update(created.id, { reasoningEffort: null }))!.reasoningEffort).toBeNull();
+    expect((await profiles.get(created.id))!.reasoningEffort).toBeNull();
   });
 
   test("a tenant lists only its own profiles, newest first, and reads only its own", async () => {

@@ -182,6 +182,28 @@ describe("SQLite tenancy migration", () => {
     }
   });
 
+  test("adds the reasoning effort to existing profiles, empty", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-effort-"));
+    const database = join(directory, "profiles.db");
+    try {
+      const result = run(database, `
+        import { runMigrations } from ${JSON.stringify(join(source, "migrate.ts"))};
+        import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
+        await runMigrations();
+        queryClient.exec("ALTER TABLE profiles DROP COLUMN reasoning_effort");
+        queryClient.exec("INSERT INTO tenants (id,name,slug) VALUES ('t1','One','one')");
+        queryClient.exec("INSERT INTO profiles (id,tenant_id,name,provider,model) VALUES ('p1','t1','Old','openai','gpt-x')");
+        await runMigrations();
+        await runMigrations();
+        console.log(JSON.stringify(queryClient.query("SELECT id, reasoning_effort AS effort FROM profiles").all()));
+      `);
+      expect(result.exitCode, stderr(result)).toBe(0);
+      expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual([{ id: "p1", effort: null }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("upgrades profiles to fallback models: the fallback profile goes, and an OpenAI or Anthropic base URL becomes BYOK unless it is the provider's own", () => {
     const directory = mkdtempSync(join(tmpdir(), "pachiware-migration-fallback-"));
     const database = join(directory, "fallback.db");

@@ -3,13 +3,18 @@ import { HTTPException } from "hono/http-exception";
 import { repositories, encryptSecret, decryptSecret, type NewProfile, type Profile, type ProfileUpdate } from "@pachiware/db";
 import { object, string } from "../validation.js";
 import { checkProfile, modelIds, sendToProfile } from "../../llm/probe.js";
-import { apiFormatOf, formatHeaders, isApiFormat, isProvider, providerBaseUrl, API_FORMAT_ERROR, MAX_PROFILE_MODELS, PROVIDER_ERROR } from "../../llm/providers.js";
+import { apiFormatOf, formatHeaders, isApiFormat, isProvider, isReasoningEffort, providerBaseUrl, API_FORMAT_ERROR, MAX_PROFILE_MODELS, PROVIDER_ERROR, REASONING_EFFORT_ERROR } from "../../llm/providers.js";
 
 export const profileAdminRoutes = new Hono();
 
 const publicProfile = ({ apiKeyEncrypted, ...p }: any) => ({ ...p, hasApiKey: Boolean(apiKeyEncrypted) });
 const BASE_URL_ERROR = "Only a BYOK profile takes a baseUrl";
 const MODELS_ERROR = "fallbackModels must be a list of model names";
+/** A reasoning effort as given: null for the provider's default, else the word trimmed. */
+function effortOf(v: unknown): string | null {
+  if (!isReasoningEffort(v)) throw new HTTPException(400, { message: REASONING_EFFORT_ERROR });
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
 function fields(body: Record<string, any>, creating: boolean): ProfileUpdate {
   const out: Record<string, any> = {};
   if (creating || body.name !== undefined) out.name = string(body.name, "name");
@@ -34,6 +39,7 @@ function fields(body: Record<string, any>, creating: boolean): ProfileUpdate {
     if (!Array.isArray(body.fallbackModels) || body.fallbackModels.some((m: unknown) => typeof m !== "string" || !m.trim())) throw new HTTPException(400, { message: MODELS_ERROR });
     out.fallbackModels = body.fallbackModels.map((m: string) => m.trim());
   }
+  if (body.reasoningEffort !== undefined) out.reasoningEffort = effortOf(body.reasoningEffort);
   if (body.apiKey !== undefined && !String(body.apiKey).includes("••••")) out.apiKeyEncrypted = body.apiKey ? encryptSecret(string(body.apiKey, "apiKey")!) : null;
   return out;
 }
@@ -86,10 +92,10 @@ async function connection(body: Record<string, any>) {
   const baseUrl = providerBaseUrl(provider, typeof body.baseUrl === "string" ? body.baseUrl : null);
   if (!/^https?:\/\//i.test(baseUrl)) throw new HTTPException(400, { message: "A base URL is required" });
   if (body.apiFormat !== undefined && !isApiFormat(body.apiFormat)) throw new HTTPException(400, { message: API_FORMAT_ERROR });
-  const format = apiFormatOf(provider, body.apiFormat);
-  if (typeof body.apiKey === "string" && body.apiKey && !body.apiKey.includes("••••")) return { provider, format, baseUrl, key: body.apiKey.trim() };
+  const format = apiFormatOf(provider, body.apiFormat), reasoningEffort = body.reasoningEffort === undefined ? null : effortOf(body.reasoningEffort);
+  if (typeof body.apiKey === "string" && body.apiKey && !body.apiKey.includes("••••")) return { provider, format, baseUrl, key: body.apiKey.trim(), reasoningEffort };
   const row = typeof body.profileId === "string" ? await repositories().profiles.get(body.profileId) : null;
-  return { provider, format, baseUrl, key: row?.apiKeyEncrypted ? decryptSecret(row.apiKeyEncrypted) : null };
+  return { provider, format, baseUrl, key: row?.apiKeyEncrypted ? decryptSecret(row.apiKeyEncrypted) : null, reasoningEffort };
 }
 profileAdminRoutes.post("/profiles/models", async (c) => {
   const { provider, format, baseUrl, key } = await connection(object(await c.req.json(), "body"));

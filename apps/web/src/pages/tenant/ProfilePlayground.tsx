@@ -52,7 +52,7 @@ export function ProfilePlayground({ profile, onClose }: { profile: Profile | nul
   useEffect(() => { setChecks(null); setResult(null); }, [profile?.id]);
   if (!profile) return null;
 
-  const target = { provider: profile.provider, apiFormat: profile.apiFormat, model: profile.model, baseUrl: profile.baseUrl ?? undefined, profileId: profile.id };
+  const target = { provider: profile.provider, apiFormat: profile.apiFormat, model: profile.model, baseUrl: profile.baseUrl ?? undefined, profileId: profile.id, reasoningEffort: profile.reasoningEffort };
   const runChecks = async () => {
     setChecking(true);
     try { setChecks((await api.testProfile(target)).checks); } catch (e: any) { toast.error(e.message); } finally { setChecking(false); }

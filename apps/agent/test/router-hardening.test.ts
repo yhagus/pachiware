@@ -223,6 +223,40 @@ describe("Router hardening", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("a Profile's reasoning effort goes out as each API format names it, a custom word as typed, and none without one", () => {
+    const { code, stderr } = scenario(`
+      const profile = async (body) => (await (await post("/tenants/" + tenant.id + "/profiles", { name: body.apiFormat ?? body.provider, model: "m", apiKey: "k", ...body })).json()).profile;
+      const botOn = async (p) => (await repositories().bots.create({ tenantId: tenant.id, token: "t-" + p.id, isEnabled: false, profileId: p.id })).id;
+      const ask = (botId) => llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId });
+      reply = (call) => call.url.endsWith("/messages") ? json({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" })
+        : call.url.endsWith("/responses") ? json({ object: "response", status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "ok" }] }] })
+        : json(openai("ok"));
+
+      const chat = await profile({ provider: "custom", baseUrl: "https://llm.example/v1", reasoningEffort: "low" });
+      assert(chat.reasoningEffort === "low", "effort not kept: " + JSON.stringify(chat));
+      await ask(await botOn(chat));
+      assert(calls.at(-1).body.reasoning_effort === "low", "chat effort: " + JSON.stringify(calls.at(-1).body));
+      await ask(await botOn(await profile({ provider: "custom", apiFormat: "responses", baseUrl: "https://llm.example/v1", reasoningEffort: "high" })));
+      assert(JSON.stringify(calls.at(-1).body.reasoning) === JSON.stringify({ effort: "high" }), "responses effort: " + JSON.stringify(calls.at(-1).body));
+      await ask(await botOn(await profile({ provider: "anthropic", reasoningEffort: " xhigh " })));
+      assert(JSON.stringify(calls.at(-1).body.output_config) === JSON.stringify({ effort: "xhigh" }), "messages effort: " + JSON.stringify(calls.at(-1).body));
+      const plain = await profile({ provider: "anthropic" });
+      await ask(await botOn(plain));
+      assert(!("output_config" in calls.at(-1).body) && plain.reasoningEffort === null, "an unset effort was sent: " + JSON.stringify(calls.at(-1).body));
+
+      // An update clears it with null; two words are refused.
+      const cleared = await (await app.request("/api/admin/profiles/" + chat.id, { method: "PATCH", headers: admin, body: JSON.stringify({ reasoningEffort: null }) })).json();
+      assert(cleared.profile.reasoningEffort === null, "not cleared: " + JSON.stringify(cleared));
+      const refused = await post("/tenants/" + tenant.id + "/profiles", { name: "x", provider: "openai", model: "m", reasoningEffort: "very high" });
+      assert(refused.status === 400, "two words accepted: " + refused.status);
+
+      // The Test button sends the form's effort too.
+      await post("/profiles/test", { provider: "custom", baseUrl: "https://llm.example/v1", model: "m", apiKey: "k", reasoningEffort: "medium" });
+      assert(calls.some((c) => c.url.endsWith("/chat/completions") && c.body?.reasoning_effort === "medium"), "test did not send the effort");
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("an answer cut at the output limit reads as \"length\" in every request format, keeping the cut tool call it holds", () => {
     const { code, stderr } = scenario(`
       const profile = async (body) => (await (await post("/tenants/" + tenant.id + "/profiles", { name: body.apiFormat ?? body.provider, model: "m", apiKey: "k", ...body })).json()).profile;

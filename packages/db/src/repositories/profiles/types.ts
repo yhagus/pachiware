@@ -14,6 +14,8 @@ export type Profile = {
   apiFormat: string;
   /** Models of the same provider and key, asked in this order when `model` fails. */
   fallbackModels: string[];
+  /** How hard the model reasons, sent with every request as its API format names it; null sends nothing, the provider's own default (#344). */
+  reasoningEffort: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -27,17 +29,18 @@ export type NewProfile = {
   acceptsImages?: boolean;
   apiFormat?: string;
   fallbackModels?: string[];
+  reasoningEffort?: string | null;
 };
 
 export type ProfileUpdate = Partial<NewProfile>;
 
 /** What a new profile holds where its input names nothing, on every engine. */
-export const PROFILE_DEFAULTS = { baseUrl: null, apiKeyEncrypted: null, acceptsImages: false, apiFormat: "chat_completions", fallbackModels: [] as string[] };
+export const PROFILE_DEFAULTS = { baseUrl: null, apiKeyEncrypted: null, acceptsImages: false, apiFormat: "chat_completions", fallbackModels: [] as string[], reasoningEffort: null };
 
 /** The address an OpenAI or Anthropic profile could name before only BYOK took one, and the format it spoke there. */
 export const PROVIDER_ADDRESSES = [["openai", "https://api.openai.com/v1", "chat_completions"], ["anthropic", "https://api.anthropic.com/v1", "messages"]] as const;
 
-const FIELDS = ["name", "provider", "model", "baseUrl", "apiKeyEncrypted", "acceptsImages", "apiFormat", "fallbackModels"] as const;
+const FIELDS = ["name", "provider", "model", "baseUrl", "apiKeyEncrypted", "acceptsImages", "apiFormat", "fallbackModels", "reasoningEffort"] as const;
 
 /** The profile fields an input gives; an undefined one is left out, so it keeps the stored value. */
 export const definedProfileFields = (input: Record<string, any>) => Object.fromEntries(FIELDS.filter((f) => input[f] !== undefined).map((f) => [f, input[f]]));

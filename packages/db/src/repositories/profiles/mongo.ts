@@ -75,6 +75,6 @@ export function createMongoProfileRepository(connection: MongoConnection): Profi
 function toProfile(doc: ProfileDoc): Profile {
   return {
     id: doc._id, tenantId: doc.tenantId, name: doc.name, provider: doc.provider, model: doc.model, baseUrl: doc.baseUrl ?? null,
-    apiKeyEncrypted: doc.apiKeyEncrypted ?? null, acceptsImages: Boolean(doc.acceptsImages), apiFormat: doc.apiFormat, fallbackModels: [...(doc.fallbackModels ?? [])], createdAt: doc.createdAt, updatedAt: doc.updatedAt,
+    apiKeyEncrypted: doc.apiKeyEncrypted ?? null, acceptsImages: Boolean(doc.acceptsImages), apiFormat: doc.apiFormat, fallbackModels: [...(doc.fallbackModels ?? [])], reasoningEffort: doc.reasoningEffort ?? null, createdAt: doc.createdAt, updatedAt: doc.updatedAt,
   };
 }

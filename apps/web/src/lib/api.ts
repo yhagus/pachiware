@@ -147,9 +147,9 @@ async function tryBot(id: string, data: { guildId: string; channelId: string; se
   throw new Error("The connection closed before the bot answered.");
 }
 export type ProfileProvider = "openai" | "anthropic" | "deepseek" | "custom";
-export interface Profile { id: string; tenantId: string; name: string; provider: ProfileProvider; model: string; fallbackModels: string[]; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; createdAt: string; }
+export interface Profile { id: string; tenantId: string; name: string; provider: ProfileProvider; model: string; fallbackModels: string[]; baseUrl: string | null; hasApiKey: boolean; acceptsImages: boolean; apiFormat: ApiFormat; reasoningEffort: string | null; createdAt: string; }
 export type ApiFormat = "chat_completions" | "responses" | "messages";
-export interface ProfileInput { name?: string; provider?: ProfileProvider; model?: string; fallbackModels?: string[]; baseUrl?: string | null; apiKey?: string | null; acceptsImages?: boolean; apiFormat?: ApiFormat; }
+export interface ProfileInput { name?: string; provider?: ProfileProvider; model?: string; fallbackModels?: string[]; baseUrl?: string | null; apiKey?: string | null; acceptsImages?: boolean; apiFormat?: ApiFormat; reasoningEffort?: string | null; }
 export type CheckStatus = "ok" | "warning" | "failed" | "skipped";
 export interface ProfileCheck { status: CheckStatus; message: string; reply?: string; }
 export interface ProfileChecks { url: ProfileCheck; key: ProfileCheck; model: ProfileCheck; text: ProfileCheck; image: ProfileCheck; }
@@ -234,8 +234,8 @@ export const api = {
   listProfiles: (tenantId: string) => fetchJSON<{ profiles: Profile[] }>(`/api/admin/tenants/${tenantId}/profiles`),
   createProfile: (tenantId: string, data: ProfileInput) => fetchJSON<{ profile: Profile }>(`/api/admin/tenants/${tenantId}/profiles`, json("POST", data)),
   listProfileModels: (data: { provider: string; apiFormat?: ApiFormat; baseUrl?: string; apiKey?: string; profileId?: string }) => fetchJSON<{ models: string[] }>("/api/admin/profiles/models", json("POST", data)),
-  testProfile: (data: { provider: string; apiFormat?: ApiFormat; model: string; baseUrl?: string; apiKey?: string; profileId?: string }) => fetchJSON<{ success: boolean; checks: ProfileChecks }>("/api/admin/profiles/test", json("POST", data)),
-  tryProfile: (data: { provider: string; apiFormat?: ApiFormat; model: string; baseUrl?: string; profileId: string; system?: string; prompt: string }) => fetchJSON<PlaygroundResult>("/api/admin/profiles/playground", json("POST", data)),
+  testProfile: (data: { provider: string; apiFormat?: ApiFormat; model: string; baseUrl?: string; apiKey?: string; profileId?: string; reasoningEffort?: string | null }) => fetchJSON<{ success: boolean; checks: ProfileChecks }>("/api/admin/profiles/test", json("POST", data)),
+  tryProfile: (data: { provider: string; apiFormat?: ApiFormat; model: string; baseUrl?: string; profileId: string; reasoningEffort?: string | null; system?: string; prompt: string }) => fetchJSON<PlaygroundResult>("/api/admin/profiles/playground", json("POST", data)),
   updateProfile: (id: string, data: ProfileInput) => fetchJSON<{ profile: Profile }>(`/api/admin/profiles/${id}`, json("PATCH", data)),
   workspaceTree: (tenantId: string, path = "") => fetchJSON<{ entries: WorkspaceEntry[] }>(`/api/admin/tenants/${tenantId}/workspace/tree?path=${encodeURIComponent(path)}`),
   workspaceRead: (tenantId: string, path: string) => fetchJSON<{ content: string; version: string; readOnly?: boolean }>(`/api/admin/tenants/${tenantId}/workspace/file?path=${encodeURIComponent(path)}`),

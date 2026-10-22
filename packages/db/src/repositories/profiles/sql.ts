@@ -41,6 +41,6 @@ export function createSqlProfileRepository(connection: SqlConnection): ProfileRe
 function toProfile(row: any): Profile {
   return {
     id: row.id, tenantId: row.tenantId, name: row.name, provider: row.provider, model: row.model, baseUrl: row.baseUrl ?? null,
-    apiKeyEncrypted: row.apiKeyEncrypted ?? null, acceptsImages: Boolean(row.acceptsImages), apiFormat: row.apiFormat, fallbackModels: [...(row.fallbackModels ?? [])], createdAt: row.createdAt, updatedAt: row.updatedAt,
+    apiKeyEncrypted: row.apiKeyEncrypted ?? null, acceptsImages: Boolean(row.acceptsImages), apiFormat: row.apiFormat, fallbackModels: [...(row.fallbackModels ?? [])], reasoningEffort: row.reasoningEffort ?? null, createdAt: row.createdAt, updatedAt: row.updatedAt,
   };
 }

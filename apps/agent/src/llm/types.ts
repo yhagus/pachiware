@@ -37,6 +37,8 @@ export interface LLMRequestOptions {
   maxTokens?: number;
   /** The least output a call may be given, above the tenant's own limit, which it never lowers: a long playbook writes whole documents in one tool call. */
   minOutputTokens?: number;
+  /** The Profile's reasoning effort, sent as the API format names it; unset sends none (#344). */
+  reasoningEffort?: string;
   cacheKey?: string;
   /** The index of the last stored-history message: on Anthropic its last block carries a cache breakpoint, so the history is cached with the prefix. */
   historyEnd?: number;

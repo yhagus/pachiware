@@ -30,7 +30,7 @@ export const tenants = pgTable("tenants", {
 
 export const profiles = pgTable("profiles", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), provider: text("provider").notNull(), model: text("model").notNull(), baseUrl: text("base_url"), apiKeyEncrypted: text("api_key_encrypted"), acceptsImages: boolean("accepts_images").notNull().default(false), apiFormat: text("api_format").notNull().default("chat_completions"), fallbackModels: jsonb("fallback_models").$type<string[]>().notNull().default([]),
+  name: text("name").notNull(), provider: text("provider").notNull(), model: text("model").notNull(), baseUrl: text("base_url"), apiKeyEncrypted: text("api_key_encrypted"), acceptsImages: boolean("accepts_images").notNull().default(false), apiFormat: text("api_format").notNull().default("chat_completions"), fallbackModels: jsonb("fallback_models").$type<string[]>().notNull().default([]), reasoningEffort: text("reasoning_effort"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [index("profiles_tenant_idx").on(t.tenantId)]);
 

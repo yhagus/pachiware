@@ -6,7 +6,7 @@ import { CacheService, tenantKey } from "../cache/redis.js";
 import { skillRegistry, textIn, configuredLanguage, audit } from "@pachiware/skills";
 import type { ChatMessage, ContentPart, LLMRequestOptions, LLMResponse } from "./types.js";
 import type { ToolCall } from "@pachiware/skills";
-import { providerBaseUrl, providerHeaders, formatHeaders, apiFormatOf, isProvider, DEFAULT_BASE_URLS, DEFAULT_PROVIDERS, DEFAULT_MODELS, MAX_PROFILE_MODELS, ANTHROPIC_TEST_MODEL } from "./providers.js";
+import { providerBaseUrl, providerHeaders, formatHeaders, apiFormatOf, isProvider, DEFAULT_BASE_URLS, DEFAULT_PROVIDERS, DEFAULT_MODELS, MAX_PROFILE_MODELS, ANTHROPIC_TEST_MODEL, effortFields } from "./providers.js";
 
 const textOf = (content: ChatMessage["content"]) => typeof content === "string" || content === null ? content || "" : content.filter((p) => p.type === "text").map((p) => p.text).join("\n");
 const hasImages = (messages: ChatMessage[]) => messages.some((m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image"));
@@ -120,7 +120,7 @@ export class LLMRouter {
       dbConfig = { ...dbConfig, defaultProvider: profile.provider, defaultModel: profile.model, [`${profile.provider}ApiKey`]: key, [`${profile.provider}BaseUrl`]: profile.baseUrl, [`${profile.provider}Model`]: profile.model };
     }
     const provider = options.provider || dbConfig.defaultProvider;
-    const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature ?? DEFAULT_TEMPERATURE, maxTokens: options.maxTokens ?? (options.minOutputTokens ? Math.max(dbConfig.maxTokens ?? 0, options.minOutputTokens) : dbConfig.maxTokens), language: configuredLanguage({ language: options.language }, dbConfig) };
+    const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature ?? DEFAULT_TEMPERATURE, maxTokens: options.maxTokens ?? (options.minOutputTokens ? Math.max(dbConfig.maxTokens ?? 0, options.minOutputTokens) : dbConfig.maxTokens), reasoningEffort: options.reasoningEffort ?? profile?.reasoningEffort ?? undefined, language: configuredLanguage({ language: options.language }, dbConfig) };
     const call = (list: ChatMessage[], opts: LLMRequestOptions = resolved) => {
       switch (provider) {
         case "anthropic": return this.callAnthropic(list, opts, dbConfig);
@@ -199,6 +199,7 @@ export class LLMRouter {
       temperature: options.temperature ?? DEFAULT_TEMPERATURE,
       max_tokens: options.maxTokens ?? 4096,
       stream: false,
+      ...effortFields("chat_completions", options.reasoningEffort),
     };
 
     // Routes requests of one conversation to the same cache; only OpenAI itself is known to accept the field.
@@ -325,6 +326,7 @@ export class LLMRouter {
       messages: anthropicMessages,
       max_tokens: options.maxTokens ?? 4096,
       stream: false,
+      ...effortFields("messages", options.reasoningEffort),
     };
 
     if (options.tools && options.tools.length > 0) {
@@ -430,6 +432,7 @@ export class LLMRouter {
       temperature: options.temperature ?? DEFAULT_TEMPERATURE,
       max_tokens: options.maxTokens ?? 4096,
       stream: false,
+      ...effortFields("chat_completions", options.reasoningEffort),
     };
 
     if (options.tools && options.tools.length > 0) {
@@ -519,7 +522,7 @@ export class LLMRouter {
         for (const tc of m.toolCalls ?? []) input.push({ type: "function_call", call_id: tc.id, name: tc.name, arguments: JSON.stringify(tc.arguments) });
       } else input.push({ role: m.role, content: responsesContent(m.content) });
     }
-    const body: any = { model, input, temperature: options.temperature ?? DEFAULT_TEMPERATURE, max_output_tokens: options.maxTokens ?? 4096, store: false, stream: false };
+    const body: any = { model, input, temperature: options.temperature ?? DEFAULT_TEMPERATURE, max_output_tokens: options.maxTokens ?? 4096, store: false, stream: false, ...effortFields("responses", options.reasoningEffort) };
     // Responses function tools are flat, and strict by default; the skill schemas are not written for strict mode.
     if (options.tools && options.tools.length > 0) {
       body.tools = skillRegistry.toOpenAITools(options.tools).map((t: any) => ({ type: "function", ...t.function, strict: false }));

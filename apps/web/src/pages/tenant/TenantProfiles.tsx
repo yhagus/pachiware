@@ -35,7 +35,12 @@ export const API_FORMATS: { id: ApiFormat; name: string; path: string }[] = [
 ];
 export const profileLabel = (p: Pick<Profile, "provider" | "apiFormat">) =>
   p.provider === "custom" ? `${providerName(p.provider)} · ${API_FORMATS.find((f) => f.id === p.apiFormat)?.name ?? p.apiFormat}` : providerName(p.provider);
-const EMPTY = { name: "", provider: "openai" as ProfileProvider, apiFormat: "chat_completions" as ApiFormat, models: [] as string[], baseUrl: "", apiKey: "", acceptsImages: false };
+// Mirrors REASONING_EFFORTS in apps/agent/src/llm/providers.ts; Custom takes a provider's own word, such as xhigh or minimal.
+const EFFORTS = ["low", "medium", "high"];
+type EffortChoice = "default" | "custom" | (typeof EFFORTS)[number];
+const EMPTY = { name: "", provider: "openai" as ProfileProvider, apiFormat: "chat_completions" as ApiFormat, models: [] as string[], baseUrl: "", apiKey: "", acceptsImages: false, effort: "default" as EffortChoice, customEffort: "" };
+const effortChoice = (stored: string | null): { effort: EffortChoice; customEffort: string } =>
+  !stored ? { effort: "default", customEffort: "" } : EFFORTS.includes(stored) ? { effort: stored, customEffort: "" } : { effort: "custom", customEffort: stored };
 
 export function TenantProfiles() {
   const tenant = useOutletContext<Tenant>();
@@ -55,7 +60,7 @@ export function TenantProfiles() {
   useEffect(() => { void load(); }, [load]);
 
   const open = (p: Profile | "new") => {
-    setForm(p === "new" ? EMPTY : { name: p.name, provider: p.provider, apiFormat: p.apiFormat, models: [p.model, ...p.fallbackModels], baseUrl: p.baseUrl ?? "", apiKey: "", acceptsImages: p.acceptsImages });
+    setForm(p === "new" ? EMPTY : { name: p.name, provider: p.provider, apiFormat: p.apiFormat, models: [p.model, ...p.fallbackModels], baseUrl: p.baseUrl ?? "", apiKey: "", acceptsImages: p.acceptsImages, ...effortChoice(p.reasoningEffort) });
     setDraft(""); setFetched([]); setProbe(null); setEditing(p);
   };
   // A Test result describes the connection it ran with, so changing that connection clears it.
@@ -63,13 +68,14 @@ export function TenantProfiles() {
   const custom = form.provider === "custom";
   const typed = draft.trim();
   const models = typed && !form.models.includes(typed) && form.models.length < MAX_MODELS ? [...form.models, typed] : form.models;
+  const reasoningEffort = form.effort === "default" ? null : form.effort === "custom" ? form.customEffort.trim() || null : form.effort;
   const connection = () => ({
     provider: form.provider, ...(custom ? { apiFormat: form.apiFormat, baseUrl: form.baseUrl.trim() || undefined } : {}),
     apiKey: form.apiKey || undefined, profileId: editing !== "new" ? editing?.id : undefined,
   });
   const runTest = async () => {
     setTesting(true);
-    try { setProbe((await api.testProfile({ ...connection(), model: models[0] })).checks); } catch (e: any) { toast.error(e.message); } finally { setTesting(false); }
+    try { setProbe((await api.testProfile({ ...connection(), model: models[0], reasoningEffort })).checks); } catch (e: any) { toast.error(e.message); } finally { setTesting(false); }
   };
   const fetchModels = async () => {
     setLoadingModels(true);
@@ -81,7 +87,7 @@ export function TenantProfiles() {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     const body = {
-      name: form.name.trim(), provider: form.provider, model: models[0], fallbackModels: models.slice(1), acceptsImages: form.acceptsImages,
+      name: form.name.trim(), provider: form.provider, model: models[0], fallbackModels: models.slice(1), acceptsImages: form.acceptsImages, reasoningEffort,
       baseUrl: custom ? form.baseUrl.trim() : null, ...(custom ? { apiFormat: form.apiFormat } : {}), ...(form.apiKey ? { apiKey: form.apiKey.trim() } : {}),
     };
     try {
@@ -110,7 +116,7 @@ export function TenantProfiles() {
                 <Card key={p.id} className="py-5"><CardContent className="flex h-full flex-col gap-3">
                   <div className="flex items-start gap-3">
                     <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted"><ProviderLogo provider={p.provider} /></div>
-                    <div className="min-w-0 flex-1"><div className="truncate font-medium">{p.name}</div><div className="text-xs text-muted-foreground">{profileLabel(p)}{p.acceptsImages ? " · Vision" : ""}</div></div>
+                    <div className="min-w-0 flex-1"><div className="truncate font-medium">{p.name}</div><div className="text-xs text-muted-foreground">{profileLabel(p)}{p.acceptsImages ? " · Vision" : ""}{p.reasoningEffort ? ` · Effort ${p.reasoningEffort}` : ""}</div></div>
                     {!p.hasApiKey && <Badge variant="outline">No key</Badge>}
                   </div>
                   <code className="truncate font-mono text-xs">{p.model}{p.fallbackModels.length > 0 && <span className="text-muted-foreground"> → {p.fallbackModels.join(" → ")}</span>}</code>
@@ -152,6 +158,19 @@ export function TenantProfiles() {
             <div className="space-y-2"><Label htmlFor="pm">Models</Label>
               <ProfileModels id="pm" models={form.models} onChange={(m) => edit({ models: m })} draft={draft} onDraftChange={setDraft} options={fetched}
                 placeholder={PROVIDERS.find((p) => p.id === form.provider)?.hint} fetching={loadingModels} canFetch={!custom || !!form.baseUrl.trim()} onFetch={fetchModels} /></div>
+            <div className="space-y-2"><Label htmlFor="pe">Reasoning effort</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Select value={form.effort} onValueChange={(v) => edit({ effort: v as EffortChoice })}>
+                  <SelectTrigger id="pe" className="w-full sm:w-44"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Default</SelectItem>
+                    {EFFORTS.map((e) => <SelectItem key={e} value={e}>{e[0]!.toUpperCase() + e.slice(1)}</SelectItem>)}
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+                {form.effort === "custom" && <Input aria-label="Custom reasoning effort" required pattern="[A-Za-z0-9_.\-]{1,32}" placeholder="e.g. xhigh" className="font-mono sm:flex-1" value={form.customEffort} onChange={(e) => edit({ customEffort: e.target.value })} />}
+              </div>
+              <p className="text-xs text-muted-foreground">How hard a reasoning model thinks on every request. Default sends nothing, so the provider decides; Custom sends the word as you type it.</p></div>
             <label className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
               <input type="checkbox" className="size-4 cursor-pointer rounded accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" checked={form.acceptsImages} onChange={(e) => setForm((f) => ({ ...f, acceptsImages: e.target.checked }))} />
               Vision
