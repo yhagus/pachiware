@@ -24,7 +24,7 @@ async function acmeApi(s: Scenario) {
     const until = new URL(req.url).searchParams.get("until")!;
     return until < "2026-10-01" ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: HEAD, commit: { committer: { date: "2026-10-21T08:00:00Z" } } }];
   });
-  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 3, behind_by: 0, commits: [], files: [{ filename: "src/users/users.controller.ts", status: "modified" }, { filename: "src/users/dto/create-user.dto.ts", status: "modified" }] }));
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 3, behind_by: 0, commits: [], files: [{ filename: "src/users/users.controller.ts", status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, { filename: "src/users/dto/create-user.dto.ts", status: "modified" }] }));
 }
 
 async function turn(s: Scenario, ...steps: Parameters<Scenario["model"]["script"]>) {
@@ -39,7 +39,11 @@ discordScenario("a range becomes two commits, the operation and components go in
   expect(started).toEqual({
     draft: DRAFT, repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22",
     base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: HEAD, date: "2026-10-21T08:00:00Z" },
-    changedFiles: { commits: 3, files: [{ path: "src/users/users.controller.ts", status: "modified" }, { path: "src/users/dto/create-user.dto.ts", status: "modified" }], totalFiles: 2 },
+    // The patches that fit come with the list (#342): this comparison gives one for the controller only.
+    changedFiles: {
+      commits: 3, totalFiles: 2, patches: "Patches are given for 1 of these 2 files; get the others with repoFileDiff.",
+      files: [{ path: "src/users/users.controller.ts", status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, { path: "src/users/dto/create-user.dto.ts", status: "modified" }],
+    },
   });
 
   const [components, saved] = await turn(s,

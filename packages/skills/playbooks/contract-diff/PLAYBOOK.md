@@ -4,7 +4,7 @@ category: Git, code & APIs
 trigger: {"word": ["changelog"]}
 default: off
 requires: ["git_repositories", "openapi"]
-tools: ["playbookRepositories", "startChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "sendFiles", "publishOpenApi"]
+tools: ["playbookRepositories", "startChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "sendFiles", "publishOpenApi"]
 repository: required
 budget: long
 ---
@@ -51,19 +51,24 @@ Read a convention's files at base too only when they are among the changed files
 
 ## 3. Find the affected endpoints
 
-1. List the changed files. The first page came with `startChangelog`; get the rest with `repoCompare` from base to head, page by page, or with `repoTree` at head when base is the empty tree.
-2. Follow each changed file outward to every route that uses it. A changed DTO, serializer, model, exception class, or shared helper changes every endpoint that touches it, even when those route files are untouched. Search for its usages (imports, class and function names) with `repoSearchCode`, recursively until you reach route registrations, and confirm each hit with `repoReadFile` at head: the search reads only the default branch. Missing this step is the most common way a changelog ends up incomplete.
+1. List the changed files. The first page came with `startChangelog`, with the patches of as many of them as fit; get the other patches with `repoFileDiff`, and the rest of the list with `repoCompare` from base to head, page by page, or with `repoTree` at head when base is the empty tree.
+2. Follow each changed file outward to every route that uses it. A changed DTO, serializer, model, exception class, or shared helper changes every endpoint that touches it, even when those route files are untouched. Search for its usages (imports, class and function names) with `repoSearchCode`, recursively until you reach route registrations, and confirm each hit at head, since the search reads only the default branch: with `repoFindDefinition` for a function, class or constant, or with `repoReadFile` from the hit's line. Missing this step is the most common way a changelog ends up incomplete.
 3. When the changed files include where routes are mounted, prefixed or versioned (the app's bootstrap, its modules or router mounts, a global prefix or versioning setting), compare the full route tables of base and head: list the route, controller and router files of each revision with `repoTree` (pass path for a folder) and read them at each commit, since a one-line change there can move or remove many endpoints. When none of those changed, the route table differs only in the changed controller and route files: compare just their routes, at both commits.
 
 You now have candidate endpoints (method and path), plus any endpoints that exist only in base or only in head.
 
-## 4. Trace each candidate end to end, in both revisions, and record it
+## 4. Trace each candidate, record it, then deepen
 
-For each endpoint, follow the request through the code at head and at base:
+An endpoint's request goes through the code like this, at head and at base:
 
 route registration (with prefixes and versioning) → middleware (global, group, route) → auth → input parsing and validation (declarative rules and manual checks inside the handler) → handler → services and the exceptions they throw → exception-to-status mapping → response building (serializer, resource, transformer) → envelope wrapping → serialization settings.
 
-Read what changed in a file with `repoFileDiff` from base to head, and whole files with `repoReadFile` at each commit. A tool result is cut at 12,000 characters and a file at 20,000: when a part you need is cut off, record what you could not read as unverified.
+Trace it in two passes, so every endpoint is recorded before any of them is followed deep:
+
+1. **For every candidate, first:** trace what changed to its end, and the rest of the contract as far as the route, the handler's signature, its DTOs, the validation and the global conventions show it: parameters, body, security, the success response, and the errors the changed code produces. Record it then. A response path the change did not touch and you have not traced, such as how a service's errors from another system map to statuses, goes in the operation's `x-unverified` by name (`"in": "operation"`, the reason saying what is left to trace) instead of being followed now.
+2. **Once every candidate is recorded:** trace those named paths, and record each operation again with what you learned, its `x-unverified` entries removed as they are settled.
+
+Read what changed in a file from the patch `startChangelog` gave, or with `repoFileDiff` from base to head; a function, method, class or constant at a commit with `repoFindDefinition`, which brings its decorators and whole body; and any other part of a file with `repoReadFile`, which reads about 9,000 characters at a time from the line you name and says where the next part starts.
 
 From that, write down the contract for each revision: method and path; every path, query, header and cookie parameter (type, required, constraints, default); request content type and body schema; security; and every response the code can produce (status, body schema, error codes). Compare the two contracts. Each difference becomes one x-changes entry. If there are no differences, drop the endpoint.
 
@@ -103,7 +108,7 @@ RENAMED is always breaking and DEPRECATED is always deprecated; the validator en
 
 The draft is OpenAPI 3.1.2: use 3.1 features only. Read extensions.md with `readPlaybookFile` before you record the first operation: it holds the extension reference and an example operation.
 
-- **Only changed endpoints, each one complete.** Include every parameter, the full body, and every response the code can produce, unchanged parts included. Viewers and type generators need the whole shape, and unchanged fields give context.
+- **Only changed endpoints, each one complete.** Include every parameter, the full body, and every response the code can produce, unchanged parts included; what the first pass of step 4 left untraced is named in `x-unverified` until the second pass settles it. Viewers and type generators need the whole shape, and unchanged fields give context.
 - **Self-contained.** No external $refs, and no servers. Components no path reaches are left out when the changelog is written.
 - **Explicit security on every operation**, with `[]` for public endpoints, so auth is part of the recorded contract.
 - **Examples.** Every JSON request body, every 2xx response, and every response named in x-changes gets an example: a realistic full payload exactly as received when hitting the endpoint, envelope included. Take values from the code where possible (enum members, constants, values matching the regex, fixtures, seeds, tests). When the null case of a field matters, give two named examples (one with the value, one with null) instead of a single one.

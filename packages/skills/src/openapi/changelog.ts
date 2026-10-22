@@ -174,10 +174,16 @@ async function headFiles(conn: GitConn, repo: string, head: string) {
   const { files, totalFiles, nextPage } = await browseTree(conn, repo, head, undefined, 1);
   return { files, totalFiles, ...(nextPage ? { more: `repoTree with ref ${head} and page ${nextPage}` } : {}) };
 }
-/** The first page of the files changed from base to head, with how to list the rest. */
+/** How much of startChangelog's result its patches may take, so the whole result stays under the loop's 12,000-character cut. */
+const START_PATCHES = 7_000;
+/** The first page of the files changed from base to head, with the patches that fit and how to list the rest. */
 async function changedFiles(conn: GitConn, repo: string, base: string, head: string) {
-  const { ahead, files, totalFiles, nextPage, filesCapped } = await compareRefs(conn, repo, base, head, 1);
-  return { commits: ahead, files, totalFiles, ...(nextPage ? { more: `repoCompare from ${base} to ${head} with page ${nextPage}` } : {}), ...(filesCapped ? { capped: filesCapped } : {}) };
+  const { ahead, files, totalFiles, nextPage, filesCapped } = await compareRefs(conn, repo, base, head, 1, START_PATCHES);
+  const given = files.filter((f) => "patch" in f).length;
+  return {
+    commits: ahead, files, totalFiles, ...(nextPage ? { more: `repoCompare from ${base} to ${head} with page ${nextPage}` } : {}), ...(filesCapped ? { capped: filesCapped } : {}),
+    ...(given && given < files.length ? { patches: `Patches are given for ${given} of these ${files.length} files; get the others with repoFileDiff.` } : {}),
+  };
 }
 
 const METHODS = new Set<string>(HTTP_METHODS);

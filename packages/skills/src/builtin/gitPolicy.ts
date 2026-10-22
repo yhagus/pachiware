@@ -7,7 +7,7 @@ const R: Effect = "read", W: Effect = "write", D: Effect = "danger";
 // [effect, group] per tool. The effect describes the tool for the admin and availability rules; who may ask and Confirm stay in gitShared.guard.
 const declared: Record<string, [Effect, string]> = {
   gitAccounts: [R, "Browse"], playbookRepositories: [R, "Browse"], repoList: [R, "Browse"], repoBranches: [R, "Browse"], repoCommits: [R, "Browse"], repoCommit: [R, "Browse"], repoCompare: [R, "Browse"], repoFileDiff: [R, "Browse"], repoTree: [R, "Browse"],
-  repoReadFile: [R, "Browse"], repoSearchCode: [R, "Browse"], repoTags: [R, "Browse"], repoReleases: [R, "Browse"], repoStats: [R, "Browse"], repoNotifications: [R, "Browse"],
+  repoReadFile: [R, "Browse"], repoSearchCode: [R, "Browse"], repoFindDefinition: [R, "Browse"], repoTags: [R, "Browse"], repoReleases: [R, "Browse"], repoStats: [R, "Browse"], repoNotifications: [R, "Browse"],
 
   repoIssues: [R, "Issues & PRs"], repoIssue: [R, "Issues & PRs"], repoComments: [R, "Issues & PRs"], repoLabels: [R, "Issues & PRs"],
   repoMergeRequests: [R, "Issues & PRs"], repoSearchWork: [R, "Issues & PRs"], repoMergeRequest: [R, "Issues & PRs"], repoMergeRequestDiff: [R, "Issues & PRs"],

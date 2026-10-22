@@ -70,7 +70,9 @@ export async function defaultBranch(c: GitConn, repo: string): Promise<string> {
   if (!r) throw new Error(`Repository ${repo} not found or not accessible`);
   return r.default_branch;
 }
-export async function readFile(c: GitConn, repo: string, path: string, ref?: string) {
+type DirEntry = { name: string; type: "dir" | "file" };
+/** A file's whole text at `ref` (the default branch when absent), or a directory's entries. */
+async function readRaw(c: GitConn, repo: string, path: string, ref?: string): Promise<{ type: "dir"; entries: DirEntry[] } | { type: "file"; ref: string; text: string }> {
   const p = cleanPath(path), at = ref ?? await defaultBranch(c, repo);
   const r = await call(c, `${fileUrl(c, repo, p)}?ref=${encodeURIComponent(at)}`);
   if (!r) {
@@ -80,9 +82,114 @@ export async function readFile(c: GitConn, repo: string, path: string, ref?: str
     throw new Error(`${p} not found at ${at}`);
   }
   if (Array.isArray(r)) return { type: "dir", entries: r.map((e: any) => ({ name: e.name, type: e.type === "dir" ? "dir" : "file" })) };
-  const text = Buffer.from(r.content, "base64").toString("utf8");
-  // ponytail: output capped at 20k chars; add paging by line range when larger files matter.
-  return { type: "file", ref: at, content: text.slice(0, 20000), truncated: text.length > 20000 };
+  return { type: "file", ref: at, text: Buffer.from(r.content, "base64").toString("utf8") };
+}
+export async function readFile(c: GitConn, repo: string, path: string, ref?: string) {
+  const r = await readRaw(c, repo, path, ref);
+  return r.type === "dir" ? r : { type: "file", ref: r.ref, content: r.text.slice(0, 20000), truncated: r.text.length > 20000 };
+}
+/** How much of a file one read gives, so the tool result stays whole under the loop's 12,000-character cut. */
+export const READ_PAGE = 9_000;
+/**
+ * A file's lines from `fromLine` (1 by default) through `toLine` (the end by default), at most READ_PAGE characters of them, with the file's
+ * line count and where the next page starts; a directory's entries.
+ */
+export async function readFilePage(c: GitConn, repo: string, path: string, ref?: string, fromLine?: number, toLine?: number) {
+  const r = await readRaw(c, repo, path, ref);
+  if (r.type === "dir") return r;
+  const lines = r.text.split("\n"), total = lines.length;
+  const from = Math.min(Math.max(1, Math.floor(fromLine ?? 1) || 1), total), to = Math.min(total, Math.max(from, Math.floor(toLine ?? total) || total));
+  let last = from - 1, size = 0;
+  // Always at least one line, however long, so a read moves forward.
+  while (last < to && (last === from - 1 || size + lines[last]!.length + 1 <= READ_PAGE)) size += lines[last++]!.length + 1;
+  const content = lines.slice(from - 1, last).join("\n");
+  return {
+    type: "file", ref: r.ref, path: cleanPath(path), fromLine: from, toLine: last, totalLines: total, content: content.slice(0, READ_PAGE),
+    ...(last < to ? { nextFromLine: last + 1 } : {}),
+  };
+}
+
+/** Lines that may define `name`: a function, class, interface, type, enum, variable, method, Python def or Go func. A call such as `name(x);` is not one. */
+function definitionStart(lines: string[], name: string): number[] {
+  const id = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const declared = new RegExp(`^\\s*(?:export\\s+)?(?:default\\s+)?(?:declare\\s+)?(?:abstract\\s+)?(?:(?:async\\s+)?function\\*?\\s+${id}\\b|class\\s+${id}\\b|interface\\s+${id}\\b|type\\s+${id}\\b|enum\\s+${id}\\b|(?:const|let|var)\\s+${id}\\b|(?:async\\s+)?def\\s+${id}\\b|func\\s+(?:\\([^)]*\\)\\s*)?${id}\\b)`);
+  const method = new RegExp(`^\\s*(?:(?:public|private|protected|static|readonly|async|override|get|set)\\s+)*${id}\\s*(?:<[^>]*>)?\\s*\\(`);
+  const starts: number[] = [];
+  lines.forEach((line, i) => {
+    if (declared.test(line)) { starts.push(i); return; }
+    if (!method.test(line) || /^\s*(?:return|await|if|for|while|switch|catch)\b/.test(line)) return;
+    // A method's signature reaches its body's "{" before any ";" (within a few lines, for parameters on lines of their own).
+    const ahead = lines.slice(i, i + 12).join("\n").slice(line.indexOf(name));
+    const brace = ahead.indexOf("{"), semi = ahead.indexOf(";");
+    if (brace >= 0 && (semi < 0 || brace < semi)) starts.push(i);
+  });
+  return starts;
+}
+const indentOf = (line: string) => line.length - line.trimStart().length;
+/** The decorators and comments right above a definition, which carry routes, guards and validation in frameworks such as NestJS. */
+function leadIn(lines: string[], start: number): number {
+  const own = indentOf(lines[start]!);
+  let i = start;
+  while (i > 0 && start - i < 20) {
+    const prev = lines[i - 1]!, t = prev.trim();
+    if (!t) break;
+    if (t.startsWith("@") || t.startsWith("*") || t.startsWith("/") || /^[)\]}]+[),]?$/.test(t) || indentOf(prev) > own) i--;
+    else break;
+  }
+  return i;
+}
+/** Where a definition starting at `start` ends: its braces closed, or for one without braces its first statement end, or for Python its indented block. */
+function definitionEnd(lines: string[], start: number): number {
+  if (/^\s*(?:async\s+)?def\s/.test(lines[start]!)) {
+    const own = indentOf(lines[start]!);
+    let end = start;
+    for (let i = start + 1; i < lines.length; i++) { if (!lines[i]!.trim()) continue; if (indentOf(lines[i]!) <= own) break; end = i; }
+    return end;
+  }
+  let depth = 0, opened = false;
+  for (let i = start; i < lines.length; i++) {
+    for (const ch of lines[i]!.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, "").replace(/\/\/.*$/, "")) {
+      if (ch === "{") { depth++; opened = true; } else if (ch === "}") depth--;
+    }
+    if (opened && depth <= 0) return i;
+    if (!opened && /;\s*$/.test(lines[i]!)) return i;
+  }
+  return lines.length - 1;
+}
+/** Every definition of `name` in a file's text: from its decorators and comments to its end, 1-based lines, at most READ_PAGE characters each. */
+export function definitionsIn(text: string, name: string) {
+  const lines = text.split("\n");
+  return definitionStart(lines, name).map((start) => {
+    const from = leadIn(lines, start), end = definitionEnd(lines, start), body = lines.slice(from, end + 1).join("\n");
+    return { line: from + 1, endLine: end + 1, content: body.slice(0, READ_PAGE), ...(body.length > READ_PAGE ? { cut: `Cut at ${READ_PAGE.toLocaleString("en")} characters: read the rest with repoReadFile from line ${from + 1 + body.slice(0, READ_PAGE).split("\n").length - 1}.` } : {}) };
+  });
+}
+const TEST_OR_DOC = /(?:^|\/)(?:__tests__|tests?|spec|docs?)\/|[._-](?:spec|test)\.[a-z]+$|\.(?:md|mdx|txt|rst)$/i;
+/**
+ * Where `name` is defined at `ref`, with its body: the files the provider's code search finds for it (GitHub searches only the default branch,
+ * GitLab the branch or tag `ref` names), source before tests and docs, read at `ref`; or only `path` when the caller knows the file.
+ */
+export async function findDefinition(c: GitConn, repo: string, ref: string, name: string, path?: string) {
+  if (!/^[A-Za-z_$][\w$]*$/.test(name)) throw new Error("name must be one identifier, such as normalizeRequest or HttpClientService.");
+  let candidates = path ? [cleanPath(path)] : [];
+  if (!path) {
+    const search = (at?: string) => call(c, c.provider === "github"
+      ? `/search/code?per_page=20&q=${encodeURIComponent(`${name} repo:${repo}`)}`
+      : `${repoRef(c, repo)}/search?scope=blobs&per_page=20&search=${encodeURIComponent(name)}${at ? `&ref=${encodeURIComponent(at)}` : ""}`).catch(() => null);
+    // GitLab's ref is a branch or tag: a commit is searched on the default branch instead.
+    const rows = (c.provider === "github" ? (await search())?.items : (/^[0-9a-f]{7,40}$/i.test(ref) ? null : await search(ref)) ?? await search()) ?? [];
+    candidates = [...new Set<string>(rows.map((r: any) => r.path))].sort((a, b) => Number(TEST_OR_DOC.test(a)) - Number(TEST_OR_DOC.test(b)));
+  }
+  const definitions: { path: string; line: number; endLine: number; content: string; cut?: string }[] = [];
+  for (const p of candidates.slice(0, 6)) {
+    // Tests and docs are read only while no source file has given a definition.
+    if (definitions.length && TEST_OR_DOC.test(p)) break;
+    const file = await readRaw(c, repo, p, ref).catch(() => null);
+    if (file?.type === "file") definitions.push(...definitionsIn(file.text, name).map((d) => ({ path: p, ...d })));
+    if (definitions.length >= 2) break;
+  }
+  if (definitions.length) return { ref, name, definitions: definitions.slice(0, 2) };
+  return { ref, name, definitions: [], note: path ? `${name} is not defined in ${path} at ${ref}.` : `No definition of ${name} found at ${ref} in the files the code search found (${candidates.slice(0, 6).join(", ") || "none"}). Name the file with path, or read it with repoReadFile.` };
 }
 /** Returns the default branch, or throws when `branch` is it: plain writes go to another branch, only repoWriteDefaultBranch writes there. */
 async function assertNotDefaultBranch(c: GitConn, repo: string, branch: string) {
@@ -564,14 +671,27 @@ async function compared(c: GitConn, repo: string, from: string, to: string) {
   return { r, files };
 }
 const FILES_PAGE = 50, GITHUB_COMPARE_FILES = 300, PATCH_LIMIT = 10_000;
-/** Commits and changed files going from `from` to `to`; the files FILES_PAGE a page, the commits (at most 30) on the first. */
-export async function compareRefs(c: GitConn, repo: string, from: string, to: string, page = 1) {
+/** The page's files with the patches that fit in `budget` characters, source files before tests and docs, each patch whole or not at all. */
+function withPatches(files: ComparedFile[], budget: number) {
+  let left = budget;
+  const given = new Set<ComparedFile>();
+  for (const f of [...files].sort((a, b) => Number(TEST_OR_DOC.test(a.path)) - Number(TEST_OR_DOC.test(b.path)))) {
+    if (f.patch && f.patch.length <= left) { given.add(f); left -= f.patch.length; }
+  }
+  return files.map((f) => { const { patch, ...rest } = f; return given.has(f) ? { ...rest, patch } : rest; });
+}
+/**
+ * Commits and changed files going from `from` to `to`; the files FILES_PAGE a page, the commits (at most 30) on the first. With a
+ * `patchBudget`, the page's files carry their patches as far as they fit (see withPatches).
+ */
+export async function compareRefs(c: GitConn, repo: string, from: string, to: string, page = 1, patchBudget = 0) {
   const gh = c.provider === "github", p = Math.floor(page) > 0 ? Math.floor(page) : 1, { r, files } = await compared(c, repo, from, to);
   const commits: any[] = r.commits ?? [];
+  const shown = files.slice((p - 1) * FILES_PAGE, p * FILES_PAGE);
   return {
     ahead: gh ? r.ahead_by : commits.length, behind: gh ? r.behind_by : null,
     ...(p === 1 ? { commits: commits.slice(0, 30).map((m) => ({ sha: (m.sha ?? m.id).slice(0, 10), message: String(gh ? m.commit.message : m.title).split("\n")[0] })) } : {}),
-    files: files.slice((p - 1) * FILES_PAGE, p * FILES_PAGE).map(({ patch: _, ...f }) => f),
+    files: patchBudget > 0 ? withPatches(shown, patchBudget) : shown.map(({ patch: _, ...f }) => f),
     totalFiles: files.length,
     ...(files.length > p * FILES_PAGE ? { nextPage: p + 1 } : {}),
     ...(gh && files.length >= GITHUB_COMPARE_FILES ? { filesCapped: `GitHub lists at most ${GITHUB_COMPARE_FILES} changed files in a comparison; files past them are not listed.` } : {}),
