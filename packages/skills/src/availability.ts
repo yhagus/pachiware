@@ -69,7 +69,7 @@ export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; v
   if (!(TARGET_KINDS as readonly string[]).includes(rule.kind)) return `kind must be one of ${TARGET_KINDS.join(", ")}`;
   if (!(RULE_VALUES as readonly string[]).includes(rule.value)) return `value must be one of ${RULE_VALUES.join(", ")}`;
   const playbook = rule.kind === "playbook" ? playbooks.find((p) => p.name === rule.name) : undefined;
-  if (rule.kind === "playbook" && !playbook) return `Unknown playbook "${rule.name}"`;
+  if (rule.kind === "playbook" && !playbook) return `Unknown playbook "${rule.name}"${key.level === "tenant" || key.level === "bot" ? "; a server's own playbook takes rules only at its guild or a channel of it" : ""}`;
   if (rule.value === "opt_in" && key.level !== "bot" && key.level !== "guild") return "opt_in is only for a bot or a guild: it makes each level below say on";
   const toolOff = rule.kind === "tool" && skills.some((s) => s.toolPolicy?.[rule.name]?.defaultOff);
   if (rule.value === "on" && key.level === "tenant") {
@@ -90,7 +90,8 @@ export function ruleProblem(key: LevelKey, rule: { kind: string; name: string; v
 }
 
 export async function setAvailabilityRule(key: LevelKey, rule: AvailabilityRule, skills: SkillModule[]): Promise<void> {
-  const playbooks = rule.kind === "playbook" ? await listPlaybooks(key.tenantId) : [];
+  // A server's own playbook is known only to its guild and channels (ADR 0021).
+  const playbooks = rule.kind === "playbook" ? await listPlaybooks(key.tenantId, key.level === "guild" || key.level === "channel" ? key.guildId : undefined) : [];
   const problem = ruleProblem(key, rule, skills, playbooks);
   if (problem) throw new AvailabilityError(problem);
   if (rule.value !== "off" && key.level !== "tenant") {

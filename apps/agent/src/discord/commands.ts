@@ -1,4 +1,4 @@
-import { playbooksOffAbove, type AvailabilityLevel, type Playbook } from "@pachiware/skills";
+import { playbooksOffAbove, slashNameUsable, type AvailabilityLevel, type Playbook } from "@pachiware/skills";
 
 export const SLASH_COMMAND = 1; // ApplicationCommandType.ChatInput
 export const MESSAGE_COMMAND = 3; // ApplicationCommandType.Message
@@ -9,9 +9,6 @@ export const MENU_LIMIT = 15;
 export const SLASH_LIMIT = 100;
 /** Discord's cap on a string option, and so on a slash start's text. */
 export const SLASH_TEXT_MAX = 6000;
-/** What Discord accepts as a slash command name (its rule also allows other lowercase scripts; playbook names use these). */
-const SLASH_NAME = /^[a-z0-9_-]{1,32}$/;
-export const slashNameUsable = (name: string) => SLASH_NAME.test(name);
 
 type Option = { type: number; name: string; description: string; maxLength?: number };
 export type CommandData = { name: string; type: number; description?: string; options?: Option[] };
@@ -38,8 +35,9 @@ export type SlashStatus = { playbook: string } & (
 /** Each playbook's standing in one guild: whether the guild offers it (its menu counts then) and its slash status. */
 async function guildOffer(place: GuildPlace, playbooks: Playbook[]) {
   const offAt = await playbooksOffAbove(place, playbooks);
-  const slashable = playbooks.filter((p) => p.start && slashNameUsable(p.name) && !offAt.has(p.name)).map((p) => p.name).sort();
-  const within = new Set(slashable.slice(0, SLASH_LIMIT));
+  const slashable = (guild: boolean) => playbooks.filter((p) => (p.source === "guild") === guild && p.start && slashNameUsable(p.name) && !offAt.has(p.name)).map((p) => p.name).sort();
+  // A server's own playbooks take what is left under Discord's limit, so they never push out a built-in or tenant command (ADR 0021).
+  const within = new Set([...slashable(false), ...slashable(true)].slice(0, SLASH_LIMIT));
   return playbooks.map((p) => {
     const off = offAt.get(p.name), playbook = p.name;
     const status: SlashStatus = !p.start ? { playbook, status: "not_registered", reason: "reference" }

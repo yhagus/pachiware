@@ -1,9 +1,8 @@
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { repositories } from "@pachiware/db";
-import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, tenantPlaybookAt, TENANT_PLAYBOOKS_DIR } from "@pachiware/skills";
+import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, tenantPlaybookAt, guildPlaybookAt, removePlaybookFolder, slashNameUsable, TENANT_PLAYBOOKS_DIR } from "@pachiware/skills";
 import { object, string } from "../validation.js";
-import { slashNameUsable } from "../../discord/commands.js";
 
 export const workspaceAdminRoutes = new Hono();
 
@@ -23,15 +22,18 @@ function writable(input: unknown) {
   if (builtinParts(path)) throw new HTTPException(403, { message: "Built-in playbooks are read-only. Copy one as an override to change it." });
   return path;
 }
-/** A saved, moved, or deleted path that can change a playbook makes the tenant's bots register their commands again. */
+/** The folders above a server's playbooks: moving or deleting one moves or deletes them. */
+const ABOVE_GUILD_PLAYBOOKS = /^guilds(?:\/[^/]+(?:\/shared(?:\/playbooks)?)?)?$/;
+/** A saved, moved, or deleted path that can change a playbook, the tenant's or a server's own, makes the tenant's bots register their commands again. */
 const changed = (tenantId: string, ...paths: string[]) => {
-  if (paths.some((p) => p === "shared" || p === TENANT_PLAYBOOKS_DIR || p.startsWith(`${TENANT_PLAYBOOKS_DIR}/`))) playbooksChanged(tenantId);
+  const touches = (p: string) => p === "shared" || p === TENANT_PLAYBOOKS_DIR || p.startsWith(`${TENANT_PLAYBOOKS_DIR}/`) || ABOVE_GUILD_PLAYBOOKS.test(p) || /^guilds\/[^/]+\/shared\/playbooks\//.test(p);
+  if (paths.some(touches)) playbooksChanged(tenantId);
 };
 
 /** A saved or moved playbook a person can start whose name Discord cannot use still works by mention and menu, but gets no slash command: say so. */
 async function slashWarning(tenantId: string, path: string) {
-  const name = tenantPlaybookAt(path)?.name;
-  const playbook = name && !slashNameUsable(name) ? await loadPlaybook(tenantId, name) : null;
+  const guild = guildPlaybookAt(path), name = tenantPlaybookAt(path)?.name ?? guild?.name;
+  const playbook = name && !slashNameUsable(name) ? await loadPlaybook(tenantId, name, guild?.guildId) : null;
   if (!playbook?.start) return {};
   const ways = [playbook.words.length && `by mention with ${playbook.words.map((w) => `"${w}:"`).join(" or ")}`, playbook.menu && `from the message menu "${playbook.menu}"`].filter(Boolean);
   const still = ways.length ? `It still starts ${ways.join(" and ")}.` : "Give it a trigger word or a menu label, or rename it, so people can start it.";
@@ -107,11 +109,7 @@ workspaceAdminRoutes.post("/tenants/:id/workspace/playbooks/:name/override", rou
 workspaceAdminRoutes.delete("/tenants/:id/workspace/playbooks/:name", route(async (c, t) => {
   const dir = `${TENANT_PLAYBOOKS_DIR}/${clean(c.req.param("name"))}`;
   if (!(await workspaceStore().list(t, TENANT_PLAYBOOKS_DIR)).some((e) => e.path === dir && e.type === "dir")) return c.json({ error: "This tenant has no playbook with that name" }, 404);
-  const removeTree = async (path: string): Promise<void> => {
-    for (const e of await workspaceStore().list(t, path)) await (e.type === "dir" ? removeTree(e.path) : workspaceStore().remove(t, e.path));
-    await workspaceStore().remove(t, path);
-  };
-  await removeTree(dir);
+  await removePlaybookFolder(t, dir);
   playbooksChanged(t);
   return c.json({ success: true });
 }));

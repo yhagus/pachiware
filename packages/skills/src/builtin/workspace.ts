@@ -254,7 +254,7 @@ export const workspaceSkill: SkillModule = {
     },
     readPlaybookFile: async (args, ctx) => {
       if (typeof args.playbook !== "string" || typeof args.path !== "string") throw new Error("playbook and path are required");
-      const content = await readPlaybookFile(ctx.tenantId, args.playbook, args.path);
+      const content = await readPlaybookFile(ctx.tenantId, args.playbook, args.path, ctx.guildId);
       if (content === null) throw new Error(`Playbook file "${args.playbook}/${args.path}" not found.`);
       return { content };
     },

@@ -9,7 +9,7 @@ import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
-import { audit, failureOf, scheduleCardOf, listPlaybooks, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
 import { prepareReply, replyQuietly, splitReply, withNotes, type ReplyPlan } from "./replyStyle.js";
@@ -121,7 +121,7 @@ const placeOf = (tenantId: string, botId: string, m: Where) => availabilityPlace
  * needs a repository and git scope allows none. Null when it can start.
  */
 async function playbookRefusal(tenantId: string, botId: string, playbook: Playbook, at: Where, language?: Language) {
-  const playbooks = await listPlaybooks(tenantId), place = placeOf(tenantId, botId, at);
+  const playbooks = await listPlaybooks(tenantId, at.guildId), place = placeOf(tenantId, botId, at);
   const cause = (await skillRegistry.availableAt(place, playbooks)).playbookCause(playbook.name);
   const t = textIn(language);
   if (!cause) {
@@ -278,11 +278,11 @@ export class DiscordBotManager {
     if (!runtime.globalCleared) {
       await application.commands.fetch().then(async (global) => { if (global.size) await application.commands.set([]); runtime.globalCleared = true; }).catch(() => {});
     }
-    const playbooks = await listPlaybooks(runtime.tenantId);
+    const catalogue = await playbookCatalogue(runtime.tenantId);
     const refused: string[] = [];
     for (const guildId of runtime.client.guilds.cache.keys()) {
       const setUp = !runtime.guildIds.length || runtime.guildIds.includes(guildId);
-      const commands = setUp ? await guildCommands({ tenantId: runtime.tenantId, botId, guildId }, playbooks) : [];
+      const commands = setUp ? await guildCommands({ tenantId: runtime.tenantId, botId, guildId }, await listPlaybooks(runtime.tenantId, guildId, catalogue)) : [];
       const sent = JSON.stringify(commands);
       if (runtime.sentCommands.get(guildId) === sent) continue;
       // One guild refusing (no applications.commands scope there) must not keep the others from their commands.
@@ -311,15 +311,17 @@ export class DiscordBotManager {
     const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
     const channelId0 = msg.channelId;
     const parentId = msg.channel.isThread() ? msg.channel.parentId : null;
-    const bound = msg.guildId && parentId ? await boundPlaybook(runtime.tenantId, { guildId: msg.guildId, channelId: parentId, threadId: channelId0 }) : null;
+    const found = msg.guildId && parentId ? await boundPlaybook(runtime.tenantId, { guildId: msg.guildId, channelId: parentId, threadId: channelId0 }) : null;
     // A playbook thread is its starting bot's alone; a binding from before bots were recorded is open to any.
-    if (bound?.binding.botId && bound.binding.botId !== botId) return;
-    // A playbook no longer available here, or one its chain loads, ends its thread's binding; the message that finds out gets the one note instead of an answer.
-    if (bound && (await skillRegistry.availableAt(placeOf(runtime.tenantId, botId, msg))).playbookCause(bound.playbook.name)) {
-      const ended = await rewriteBinding(runtime.tenantId, bindingPlace(bound.binding), ({ binding }) => binding.status === "active" ? { binding: { ...binding, status: "cancelled" as const }, value: true } : null).catch(() => null);
-      if (ended) await replyQuietly(msg)(textIn(replyLanguage(msg.content)).playbookEnded(bound.playbook.name));
+    if (found?.binding.botId && found.binding.botId !== botId) return;
+    // A playbook gone (deleted, or a server's own now hidden by a tenant one), no longer available here, or one whose chain is not, ends its
+    // thread's binding; the message that finds out gets the one note instead of an answer.
+    if (found && (!found.playbook || (await skillRegistry.availableAt(placeOf(runtime.tenantId, botId, msg))).playbookCause(found.playbook.name))) {
+      const ended = await rewriteBinding(runtime.tenantId, bindingPlace(found.binding), ({ binding }) => binding.status === "active" ? { binding: { ...binding, status: "cancelled" as const }, value: true } : null).catch(() => null);
+      if (ended) await replyQuietly(msg)(textIn(replyLanguage(msg.content)).playbookEnded(found.binding.playbook));
       return;
     }
+    const bound = found as { playbook: Playbook; binding: PlaybookBinding } | null;
     // A thread bound to a playbook is the bot's to follow even when someone else opened it.
     const ownThread = msg.channel.isThread() && (msg.channel.ownerId === botUserId || !!bound);
     const shared = ownThread || (guild?.alwaysChannelIds ?? []).includes(channelId0);
@@ -417,7 +419,7 @@ export class DiscordBotManager {
     const m = TRIGGER.exec(text) ?? WORD_ONLY.exec(text), requested = m ? null : requestedWord(text);
     if (!m && !requested) return false;
     const word = (m?.[1] ?? requested)!.toLowerCase();
-    const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.words.includes(word) || (p.name === word && p.start));
+    const playbook = (await listPlaybooks(runtime.tenantId, msg.guildId)).find((p) => p.words.includes(word) || (p.name === word && p.start));
     // A request without a colon ("notulen dong") carries no points, so it starts only a playbook that needs none.
     if (!playbook || (requested && playbook.run !== "in-place")) return false;
     const say = replyQuietly(msg);
@@ -454,7 +456,7 @@ export class DiscordBotManager {
   private async briefFromMinutes(runtime: BotRuntime, botId: string, msg: Message, minutes: Message, text: string) {
     if (!new RegExp(`<@!?${runtime.client.user?.id}>`).test(msg.content)) return false;
     const said = text.toLowerCase();
-    const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.run === "thread" && p.words.some((w) => new RegExp(`(?<![\\p{L}\\p{N}_])${w}s?(?![\\p{L}\\p{N}_])`, "u").test(said)));
+    const playbook = (await listPlaybooks(runtime.tenantId, msg.guildId)).find((p) => p.run === "thread" && p.words.some((w) => new RegExp(`(?<![\\p{L}\\p{N}_])${w}s?(?![\\p{L}\\p{N}_])`, "u").test(said)));
     if (!playbook) return false;
     const say = replyQuietly(msg);
     const brief = await minutesBrief(runtime.tenantId, minutes, namedNumbers(text), replyLanguage(text));
@@ -501,7 +503,7 @@ export class DiscordBotManager {
     const say = (content: string) => i.editReply({ content }).catch(() => {});
     if ((await repositories().tenants.get(runtime.tenantId))?.status !== "active") return say(t.botOff);
     if (!i.guildId || !i.channel?.isSendable() || (runtime.guildIds.length && !runtime.guildIds.includes(i.guildId))) return say(t.wrongServer);
-    const playbook = (await listPlaybooks(runtime.tenantId)).find((p) => p.name === i.commandName && p.start);
+    const playbook = (await listPlaybooks(runtime.tenantId, i.guildId)).find((p) => p.name === i.commandName && p.start);
     if (!playbook) return say(t.commandGone);
     const channel = i.channel;
     const actor = commandActor(i);
@@ -541,7 +543,7 @@ export class DiscordBotManager {
     const place = { guildId: source.guildId, channelId: thread.parentId, threadId: thread.id };
     const previous = await readBinding(runtime.tenantId, place).catch(() => null);
     if (previous?.binding.status === "active") return refuse(t.alreadyBound(previous.binding.playbook));
-    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, status: "active", ...place, authorId: actor.id, authorName: actor.name, botId, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: today().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
+    const saved = await writeBinding(runtime.tenantId, { playbook: playbook.name, playbookSource: playbook.source, status: "active", ...place, authorId: actor.id, authorName: actor.name, botId, botName: runtime.client.user?.username, sourceMessageId: source.id, startedAt: today().toISOString(), ...(fromMinutes && { points: fromMinutes.points }) }, `${brief}\n`, previous?.version).catch(() => null);
     if (!saved) return refuse(t.notSaved);
     const turn = opening.turnOf?.(source) ?? source;
     return { thread, start: () => this.serialize(`conv:${botId}:${thread.id}`, () => this.reply(runtime, botId, turn, [{ msg: turn, text: fromMinutes ? presetPointsTurn(brief) : brief }], thread.id, thread, { actor, playbook })) };
@@ -597,8 +599,8 @@ export class DiscordBotManager {
       const conversation = latest && continuesConversation(latest.metadata, { idleMs, at: now(), playbook: !!opts.playbook }) ? latest : null;
       const actor = opts.actor ?? actorOf(msg), direct = opts.direct ?? true;
       const repository = opts.binding && threadRepositoryOf(opts.binding), documents = opts.binding && threadDocumentsOf(opts.binding);
-      const chained = opts.playbook && withLoads(opts.playbook, await listPlaybooks(runtime.tenantId));
-      const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes, ...(repository ? { repository } : {}), ...(documents ? { documents } : {}) };
+      const chained = opts.playbook && withLoads(opts.playbook, await listPlaybooks(runtime.tenantId, msg.guildId));
+      const playbook = chained && { name: chained.name, body: chained.body, closes: chained.closes, ...(chained.source === "guild" ? { madeInChat: true } : {}), ...(repository ? { repository } : {}), ...(documents ? { documents } : {}) };
       const media = await gatherTurnImages(items.map((i) => i.msg), () => llmRouter.acceptsImages(runtime.tenantId, botId), language, new Map(items.flatMap((i) => (i.replyTo !== undefined ? [[i.msg, i.replyTo] as const] : []))));
       // The brief's author still gets a round: it asks them to describe the screenshot.
       const briefAuthor = !!opts.playbook && (!opts.binding || actor.id === opts.binding.authorId);

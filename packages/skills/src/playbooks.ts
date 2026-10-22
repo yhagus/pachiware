@@ -9,6 +9,13 @@ export const BUILTIN_PLAYBOOKS_DIR = fileURLToPath(new URL("../playbooks/", impo
 export const TENANT_PLAYBOOKS_DIR = "shared/playbooks";
 export const PLAYBOOK_FILE = "PLAYBOOK.md";
 
+/** A server's own playbooks, made from chat (ADR 0021), live in its shared folder; null when the id cannot be a folder name. */
+export const guildPlaybooksDir = (guildId: string | null | undefined) => { const g = safeId(guildId ?? undefined); return g ? `guilds/${g}/shared/playbooks` : null; };
+
+/** What Discord accepts as a slash command name (its rule also allows other lowercase scripts; playbook names use these). */
+const SLASH_NAME = /^[a-z0-9_-]{1,32}$/;
+export const slashNameUsable = (name: string) => SLASH_NAME.test(name);
+
 export interface Playbook {
   /** The folder name; a tenant playbook with the same name overrides the built-in. */
   name: string;
@@ -32,7 +39,10 @@ export interface Playbook {
   /** `repository: required`: the playbook cannot start where git scope allows no repository (ADR 0007). */
   repository?: "required";
   body: string;
-  source: "builtin" | "tenant";
+  /** A `guild` playbook was made in chat for one server; it never replaces a built-in or tenant one of its name (ADR 0021). */
+  source: "builtin" | "tenant" | "guild";
+  /** Who made a server's own playbook, as chat recorded it. */
+  createdBy?: { id: string; name: string };
 }
 
 /** `key: value` per line; a value is JSON when it parses (which keeps it valid YAML), else the bare text. */
@@ -61,14 +71,18 @@ export function parsePlaybook(name: string, text: string, source: Playbook["sour
   if (!parsed || !parsed.body.trim()) return null;
   const f = parsed.fields, trigger = typeof f.trigger === "object" && f.trigger ? f.trigger as Record<string, unknown> : { word: f.trigger };
   const start = f.start !== false && f.start !== "false";
-  const menu = start && typeof trigger.menu === "string" && trigger.menu.trim() ? trigger.menu.trim().slice(0, 32) : null;
+  // A server's playbook gets no context menu, which Discord caps at 15 a server, and cannot start off: no tenant rule may name it to turn it on.
+  const guild = source === "guild";
+  const menu = !guild && start && typeof trigger.menu === "string" && trigger.menu.trim() ? trigger.menu.trim().slice(0, 32) : null;
+  const by = f.createdBy as { id?: unknown; name?: unknown } | undefined;
   return {
     name, source, menu, start, body: parsed.body.trim(),
     description: typeof f.description === "string" ? f.description : "",
     words: start ? list(trigger.word ?? trigger.words).map((w) => w.toLowerCase()).filter((w) => WORD.test(w)) : [],
-    requires: list(f.requires), optional: list(f.optional), closes: list(f.closes), loads: list(f.loads), defaultOff: f.default === "off",
+    requires: list(f.requires), optional: list(f.optional), closes: list(f.closes), loads: list(f.loads), defaultOff: !guild && f.default === "off",
     run: f.run === "in-place" ? "in-place" : "thread",
     ...(f.repository === "required" ? { repository: "required" as const } : {}),
+    ...(guild && typeof by?.id === "string" && typeof by.name === "string" ? { createdBy: { id: by.id, name: by.name } } : {}),
   };
 }
 
@@ -105,21 +119,31 @@ export function tenantPlaybookAt(path: string): { name: string; file: boolean } 
   return m ? { name: m[1]!, file: !!m[2] } : null;
 }
 
+/** The server playbook a Workspace path names, as its folder or its PLAYBOOK.md; null for any other path. */
+export function guildPlaybookAt(path: string): { guildId: string; name: string; file: boolean } | null {
+  const m = new RegExp(`^guilds/([^/]+)/shared/playbooks/([^/]+)(/${PLAYBOOK_FILE})?$`).exec(path);
+  return m ? { guildId: m[1]!, name: m[2]!, file: !!m[3] } : null;
+}
+
 /**
- * Why saving `content` at `path` would break a chain: a cycle, or a chain deeper than MAX_LOAD_DEPTH, that was not there before,
+ * Why saving `saved` among `before` would break a chain: a cycle, or a chain deeper than MAX_LOAD_DEPTH, that was not there before,
  * the saved playbook's own chain checked first. A load of a playbook that does not exist yet is allowed; the start refuses it.
  */
-export async function playbookSaveProblem(tenantId: string, path: string, content: string): Promise<string | null> {
-  const at = tenantPlaybookAt(path);
-  const saved = at?.file && parsePlaybook(at.name, content, "tenant");
-  if (!saved) return null;
-  const before = await listPlaybooks(tenantId), after = [saved, ...before.filter((p) => p.name !== saved.name)];
+export function chainSaveProblem(saved: Playbook, before: Playbook[]): string | null {
+  const after = [saved, ...before.filter((p) => p.name !== saved.name)];
   const broken = (p: Loader, all: Loader[]) => { const found = playbookChain(p, all); return "problem" in found && !("missing" in found.problem) ? chainProblemText(found.problem) : null; };
   for (const p of after) {
     const problem = broken(p, after), old = before.find((x) => x.name === p.name);
     if (problem && (!old || broken(old, before) !== problem)) return `${p.name} ${problem}`;
   }
   return null;
+}
+
+/** `chainSaveProblem` for a file saved at `path`, a tenant playbook or a server's own; null for any other path. */
+export async function playbookSaveProblem(tenantId: string, path: string, content: string): Promise<string | null> {
+  const tenant = tenantPlaybookAt(path), guild = guildPlaybookAt(path);
+  const saved = tenant?.file ? parsePlaybook(tenant.name, content, "tenant") : guild?.file ? parsePlaybook(guild.name, content, "guild") : null;
+  return saved ? chainSaveProblem(saved, await listPlaybooks(tenantId, guild?.guildId)) : null;
 }
 
 /** The started playbook with its chain folded in: the loaded bodies after its own, and requires, optional, closes and a required repository combined. A broken chain leaves it as it is; the availability check refuses it anyway. */
@@ -156,18 +180,49 @@ async function tenantPlaybook(tenantId: string, name: string) {
   return file ? parsePlaybook(name, file.content, "tenant") : null;
 }
 
-/** The effective playbook for a tenant: its own under shared/playbooks/, else the built-in of that name. */
-export async function loadPlaybook(tenantId: string, name: string): Promise<Playbook | null> {
-  if (!validName(name)) return null;
-  return (await tenantPlaybook(tenantId, name)) ?? builtinPlaybooks().find((p) => p.name === name) ?? null;
+async function guildPlaybook(tenantId: string, guildId: string, name: string) {
+  const dir = guildPlaybooksDir(guildId), file = dir && await workspaceStore().read(tenantId, `${dir}/${name}/${PLAYBOOK_FILE}`).catch(() => null);
+  return file ? parsePlaybook(name, file.content, "guild") : null;
 }
 
-/** Every playbook a tenant can start: built-ins, each replaced by a tenant playbook of the same name, plus the tenant's new ones. */
-export async function listPlaybooks(tenantId: string): Promise<Playbook[]> {
-  const entries = await workspaceStore().list(tenantId, TENANT_PLAYBOOKS_DIR).catch(() => []);
-  const names = entries.filter((e) => e.type === "dir").map((e) => e.path.split("/").pop()!).filter(validName);
-  const own = (await Promise.all(names.map((n) => tenantPlaybook(tenantId, n)))).filter((p): p is Playbook => !!p);
+/** The names of the playbook folders under `dir`. */
+async function folderNames(tenantId: string, dir: string) {
+  const entries = await workspaceStore().list(tenantId, dir).catch(() => []);
+  return entries.filter((e) => e.type === "dir").map((e) => e.path.split("/").pop()!).filter(validName);
+}
+
+/**
+ * The effective playbook for a tenant: its own under shared/playbooks/, else the built-in of that name, else, given a guild, that
+ * server's own, which never replaces either (ADR 0021).
+ */
+export async function loadPlaybook(tenantId: string, name: string, guildId?: string | null): Promise<Playbook | null> {
+  if (!validName(name)) return null;
+  return (await tenantPlaybook(tenantId, name)) ?? builtinPlaybooks().find((p) => p.name === name) ?? (guildId ? await guildPlaybook(tenantId, guildId, name) : null);
+}
+
+/** What every server of the tenant has: built-ins, each replaced by a tenant playbook of the same name, plus the tenant's new ones. */
+export async function playbookCatalogue(tenantId: string): Promise<Playbook[]> {
+  const own = (await Promise.all((await folderNames(tenantId, TENANT_PLAYBOOKS_DIR)).map((n) => tenantPlaybook(tenantId, n)))).filter((p): p is Playbook => !!p);
   return [...builtinPlaybooks().filter((b) => !own.some((p) => p.name === b.name)), ...own].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Every playbook a server made, by name, those a catalogue playbook hides among them; none for an id that cannot be a folder name. */
+export async function guildPlaybooks(tenantId: string, guildId: string): Promise<Playbook[]> {
+  const dir = guildPlaybooksDir(guildId);
+  if (!dir) return [];
+  const own = await Promise.all((await folderNames(tenantId, dir)).map((n) => guildPlaybook(tenantId, guildId, n)));
+  return own.filter((p): p is Playbook => !!p).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Every playbook that can start for a tenant: the catalogue, then, given a guild, that server's own playbooks whose names the catalogue does
+ * not hold. The catalogue comes first, so it wins every lookup by name, word or Discord's command limit.
+ */
+export async function listPlaybooks(tenantId: string, guildId?: string | null, catalogue?: Playbook[]): Promise<Playbook[]> {
+  const shared = catalogue ?? await playbookCatalogue(tenantId);
+  if (!guildId) return shared;
+  const taken = new Set(shared.map((p) => p.name));
+  return [...shared, ...(await guildPlaybooks(tenantId, guildId)).filter((p) => !taken.has(p.name))];
 }
 
 const changeListeners = new Set<(tenantId: string) => void>();
@@ -175,14 +230,25 @@ const changeListeners = new Set<(tenantId: string) => void>();
 export function onPlaybooksChanged(listener: (tenantId: string) => void) { changeListeners.add(listener); return () => changeListeners.delete(listener); }
 export function playbooksChanged(tenantId: string) { for (const listener of changeListeners) listener(tenantId); }
 
-/** A sibling file of the effective playbook (a template or checklist its steps point at): the tenant's copy first, then the built-in one. */
-export async function readPlaybookFile(tenantId: string, name: string, path: string): Promise<string | null> {
+/**
+ * A sibling file of the effective playbook (a template or checklist its steps point at): the tenant's copy first, then the built-in one;
+ * a server's own playbook has only its own folder.
+ */
+export async function readPlaybookFile(tenantId: string, name: string, path: string, guildId?: string | null): Promise<string | null> {
   const parts = path.replace(/\/$/, "").split("/");
   if (!validName(name)) return null;
   checkSegments(parts);
-  if (!(await loadPlaybook(tenantId, name))) return null;
+  const playbook = await loadPlaybook(tenantId, name, guildId);
+  if (!playbook) return null;
+  if (playbook.source === "guild") return (await workspaceStore().read(tenantId, `${guildPlaybooksDir(guildId)}/${name}/${parts.join("/")}`).catch(() => null))?.content ?? null;
   const own = await workspaceStore().read(tenantId, `${TENANT_PLAYBOOKS_DIR}/${name}/${parts.join("/")}`).catch(() => null);
   return own ? own.content : readBuiltinPlaybookFile(name, parts.join("/"));
+}
+
+/** Deletes a playbook folder in the Workspace with everything in it. */
+export async function removePlaybookFolder(tenantId: string, dir: string): Promise<void> {
+  for (const e of await workspaceStore().list(tenantId, dir)) await (e.type === "dir" ? removePlaybookFolder(tenantId, e.path) : workspaceStore().remove(tenantId, e.path));
+  await workspaceStore().remove(tenantId, dir);
 }
 
 /** Where a path inside a built-in playbook's folder lives on disk, or null when the name is not a built-in. */
@@ -227,6 +293,8 @@ export interface PlaybookBinding {
   authorId: string;
   /** The bot that started the thread and alone answers in it; absent on bindings written before it was recorded. */
   botId?: string;
+  /** Where the playbook came from when the thread started; a server's own is not swapped for a tenant one of its name. Absent on older bindings. */
+  playbookSource?: Playbook["source"];
   sourceMessageId: string;
   startedAt: string;
   [field: string]: unknown;
@@ -269,10 +337,14 @@ export async function rewriteBinding<T>(tenantId: string, place: BindingPlace, c
   }
 }
 
-/** The playbook a thread is bound to while the binding is active, or null. */
-export async function boundPlaybook(tenantId: string, place: BindingPlace): Promise<{ playbook: Playbook; binding: PlaybookBinding } | null> {
+/**
+ * The playbook a thread is bound to while the binding is active, or null when no binding is. `playbook` is null when the playbook is gone:
+ * deleted, or a server's own that a tenant or built-in playbook of its name now hides.
+ */
+export async function boundPlaybook(tenantId: string, place: BindingPlace): Promise<{ playbook: Playbook | null; binding: PlaybookBinding } | null> {
   const found = await readBinding(tenantId, place).catch(() => null);
   if (found?.binding.status !== "active") return null;
-  const playbook = await loadPlaybook(tenantId, found.binding.playbook);
-  return playbook ? { playbook, binding: found.binding } : null;
+  const playbook = await loadPlaybook(tenantId, found.binding.playbook, place.guildId);
+  const swapped = !!playbook && found.binding.playbookSource !== undefined && (found.binding.playbookSource === "guild") !== (playbook.source === "guild");
+  return { playbook: swapped ? null : playbook, binding: found.binding };
 }

@@ -101,9 +101,9 @@ export class SkillRegistry {
     return this.getAllSkills().filter((s) => names.has(s.id));
   }
 
-  /** What the tenant's switched-on skills and its playbooks offer at this place once availability rules apply. A caller holding the playbooks it asks about may pass them. */
+  /** What the tenant's switched-on skills and its playbooks (the place's server's own among them) offer at this place once availability rules apply. A caller holding the playbooks it asks about may pass them. */
   public async availableAt(place: Place, playbooks?: Playbook[]): Promise<Availability> {
-    return resolveAvailability(place, await this.getActiveSkills(place.tenantId), playbooks ?? await listPlaybooks(place.tenantId));
+    return resolveAvailability(place, await this.getActiveSkills(place.tenantId), playbooks ?? await listPlaybooks(place.tenantId, place.guildId));
   }
 
   /** The tools the place does not support, from every skill that says so (`SkillModule.hiddenTools`); `skills` defaults to all registered. */
