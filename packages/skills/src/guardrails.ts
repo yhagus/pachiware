@@ -91,7 +91,8 @@ function onlyInjection(text: string, phrases: { text: string; at: number }[]) {
 
 const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE/i;
 const SECRET_PATTERNS = [/\bsk-[A-Za-z0-9_-]{16,}/g, /\bgh[pousr]_[A-Za-z0-9]{20,}/g, /\bglpat-[A-Za-z0-9_-]{16,}/g, /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, /\b[MNO][A-Za-z\d_-]{23,25}\.[\w-]{6}\.[\w-]{27,}/g, /\b(Bearer|Basic) [A-Za-z0-9._~+/=-]{16,}/g];
-const PATHS = /(?:\/(?:Users|home|root|var|opt|app|srv|etc|tmp|usr)\/[^\s"'`)\]},:;]+|[A-Za-z]:\\(?:Users|Windows|Program Files)[^\s"'`)\]},:;]*)/g;
+/** Absolute paths only: a folder inside a relative path, such as a repository's `src/app/…`, is not the host's. */
+const PATHS = /(?:(?<![\w.-])\/(?:Users|home|root|var|opt|app|srv|etc|tmp|usr)\/[^\s"'`)\]},:;]+|(?<!\w)[A-Za-z]:\\(?:Users|Windows|Program Files)[^\s"'`)\]},:;]*)/g;
 /** Keeps credentials, env values and filesystem paths out of anything shown to a user or fed back to the model. */
 export function redact(text: string): string {
   let out = text;
