@@ -39,7 +39,9 @@ discordScenario("a tenant with no rules is offered every tool of the skills on b
   s.model.script("ok");
   await s.discord.send(`${s.discord.mention} hi`);
   const onByDefault = [taskManagementSkill, discordManagementSkill, workspaceSkill, remindersSkill];
-  expect(s.model.tools[0]).toEqual(onByDefault.flatMap((skill) => skill.tools.map((t) => t.name)).sort());
+  // OpenAPI is on too, but its changelog tools follow the contract-diff playbook, which needs git.
+  const openapi = ["publishOpenApi", "listOpenApiPreviews"];
+  expect(s.model.tools[0]).toEqual([...onByDefault.flatMap((skill) => skill.tools.map((t) => t.name)), ...openapi].sort());
 });
 
 discordScenario("execution refuses a tool that is off here even when the model calls it", async (s) => {

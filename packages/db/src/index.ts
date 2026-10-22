@@ -19,6 +19,7 @@ export { DEFAULT_REACT_ITERATIONS, DEFAULT_CONVERSATION_IDLE_HOURS } from "./rep
 export { ALL_PLANE_PROJECTS, PLANE_ID, FIRST_PLANE_VERSION } from "./repositories/plane/rules.js";
 export type { DigestChannel, DailyLogChannel, DocSource } from "./schema/types.js";
 export type { Repositories, Tenant, TenantStatus, NewTenant, TenantUpdate, ApiKey, ApiKeyListing, IssuedApiKey, TenantRepository } from "./repositories/index.js";
+export type { ApiPreview, ApiPreviewSummary, NewApiPreview, ApiPreviewRepository } from "./repositories/index.js";
 export type { Schedule, NewSchedule, ScheduleUpdate, ScheduleFilter, ScheduleKind, ScheduleRecurrence, ScheduleStatus, ScheduleRepository, TaskRow, NewTaskRow, TaskRowRepository } from "./repositories/index.js";
 export type { Profile, NewProfile, ProfileUpdate, ProfileRepository, AgentConfig, AgentConfigUpdate, AgentLanguage, AgentConfigRepository, UsageEvent, NewUsageEvent, UsageTotal, UsageRepository, StatsRepository } from "./repositories/index.js";
 export type { Bot, NewBot, BotUpdate, BotWithToken, BotSearch, GuildConfig, GuildConfigInput, BotRepository } from "./repositories/index.js";

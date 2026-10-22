@@ -123,6 +123,14 @@ export const schedules = pgTable("schedules", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (t) => [index("schedules_due_idx").on(t.status, t.nextAt), foreignKey({ columns: [t.tenantId, t.botId], foreignColumns: [bots.tenantId, bots.id] })]);
 
+/** An OpenAPI document a bot published from chat, as it was then; its public page is /open-api/<id> until it is revoked. */
+export const apiPreviews = pgTable("api_previews", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id").notNull(),
+  guildId: text("guild_id"), channelId: text("channel_id").notNull(), sourcePath: text("source_path").notNull(), title: text("title").notNull(), version: text("version"),
+  document: text("document").notNull(), createdById: text("created_by_id"), createdByName: text("created_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [index("api_previews_tenant_created_idx").on(t.tenantId, t.createdAt), foreignKey({ columns: [t.tenantId, t.botId], foreignColumns: [bots.tenantId, bots.id] })]);
+
 export const usageEvents = pgTable("usage_events", {
   id: text("id").primaryKey().default(sql`gen_random_uuid()`), tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), botId: text("bot_id"),
   type: text("type").notNull(), provider: text("provider"), model: text("model"),

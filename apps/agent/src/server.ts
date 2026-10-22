@@ -19,6 +19,7 @@ import { skillAdminRoutes } from "./routes/admin/skills.js";
 import { workspaceAdminRoutes } from "./routes/admin/workspace.js";
 import { gitOAuthAppAdminRoutes } from "./routes/admin/gitOAuthApps.js";
 import { oauthRoutes } from "./routes/oauth.js";
+import { openApiPreviewRoutes } from "./routes/openApiPreview.js";
 import { usageAdminRoutes } from "./routes/admin/usage.js";
 import { infrastructureRoutes } from "./routes/admin/infrastructure.js";
 import { statsAdminRoutes } from "./routes/admin/stats.js";
@@ -83,6 +84,8 @@ export function createServer() {
   app.route("/api/admin", statsAdminRoutes);
   app.route("/api/admin", logAdminRoutes);
   app.route("/api/admin/infrastructure", infrastructureRoutes);
+  // Public: an API preview's page and its document, by the preview's id alone (ADR 0022).
+  app.route("/open-api", openApiPreviewRoutes());
 
   // Fallback root endpoint
   app.get("/", (c) => {

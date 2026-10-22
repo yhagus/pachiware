@@ -62,6 +62,17 @@ async function namedSource(ctx: SkillContext, input: string, allowRoot = false, 
   return named;
 }
 
+/**
+ * The store path of a file or folder the asker may have shown here, by the path the agent named: another channel's through its Source,
+ * refused before anything is read when it may not be quoted here; the place's own through `resolvePath` and the private thread check.
+ */
+export async function readablePath(ctx: SkillContext, input: unknown, access = threadAccess(ctx)) {
+  if (namesChannel(input)) return (await namedSource(ctx, input)).path;
+  const full = resolvePath(ctx, input);
+  await access.check(full);
+  return full;
+}
+
 /** How many matches may not be shown here, and the place's suggestion to ask in a DM; nothing when every match may be shown. */
 const notShown = (ctx: SkillContext, count: number) => (count ? { notShownHere: count, suggestion: textIn(ctx.language).notShownHere(count) } : {});
 
@@ -231,8 +242,7 @@ export const workspaceSkill: SkillModule = {
       return { entries: entries.filter((e) => !e.path.split("/").pop()!.startsWith(".")).map((e) => ({ ...e, path: shown(e.path) })) };
     },
     readFile: async (args, ctx) => {
-      const path = namesChannel(args.path) ? (await namedSource(ctx, args.path)).path : resolvePath(ctx, args.path);
-      await threadAccess(ctx).check(path);
+      const path = await readablePath(ctx, args.path);
       const text = readsThroughMarkdown(path) ? await textBeside(ctx, String(args.path), path) : null;
       const textFile = text && await workspaceStore().read(ctx.tenantId, text.full).catch(() => null);
       const file = textFile ?? await workspaceStore().read(ctx.tenantId, path);
@@ -246,11 +256,7 @@ export const workspaceSkill: SkillModule = {
       const paths: string[] = Array.isArray(args.paths) ? args.paths.filter((p: unknown): p is string => typeof p === "string" && !!p.trim()).map((p: string) => p.trim().replace(/\/$/, "")) : [];
       if (!paths.length) throw new Error("paths must list at least one file or folder");
       const access = threadAccess(ctx), named = [];
-      // Checked like readFile: another channel's path through its Source, refused before anything is read when not quotable here.
-      for (const shown of paths) {
-        if (namesChannel(shown)) named.push({ full: (await namedSource(ctx, shown)).path, shown });
-        else { const full = resolvePath(ctx, shown); await access.check(full); named.push({ full, shown }); }
-      }
+      for (const shown of paths) named.push({ full: await readablePath(ctx, shown, access), shown });
       return sendWorkspaceFiles(ctx, named, async (entries) => (await access.sort(entries)).shown);
     },
     writeFile: async (args, ctx) => {

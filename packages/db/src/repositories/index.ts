@@ -38,6 +38,9 @@ import type { GitRepository } from "./git/types.js";
 import { createSqlPlaneRepository } from "./plane/sql.js";
 import { createMongoPlaneRepository } from "./plane/mongo.js";
 import type { PlaneRepository } from "./plane/types.js";
+import { createSqlApiPreviewRepository } from "./api-previews/sql.js";
+import { createMongoApiPreviewRepository } from "./api-previews/mongo.js";
+import type { ApiPreviewRepository } from "./api-previews/types.js";
 
 // One folder per kind of record: `types.ts` (domain types, interface), `sql.ts` (SQLite, PostgreSQL) and `mongo.ts`.
 // Its contract suite, packages/db/test/contract/<name>.contract.test.ts, runs on every engine.
@@ -54,6 +57,7 @@ export type * from "./availability/types.js";
 export type * from "./conversations/types.js";
 export type * from "./git/types.js";
 export type * from "./plane/types.js";
+export type * from "./api-previews/types.js";
 
 /** Every repository, one per kind of record. Code outside the database package reads and writes records only through these. */
 export type Repositories = {
@@ -70,6 +74,7 @@ export type Repositories = {
   conversations: ConversationRepository;
   git: GitRepository;
   plane: PlaneRepository;
+  apiPreviews: ApiPreviewRepository;
 };
 
 /** The repositories of one open database, implemented for its engine. */
@@ -91,6 +96,7 @@ export function createRepositories(connection: Connection): Repositories {
         conversations: createSqlConversationRepository(connection),
         git: createSqlGitRepository(connection),
         plane: createSqlPlaneRepository(connection),
+        apiPreviews: createSqlApiPreviewRepository(connection),
       };
     case "mongodb":
       return {
@@ -107,6 +113,7 @@ export function createRepositories(connection: Connection): Repositories {
         conversations: createMongoConversationRepository(connection),
         git: createMongoGitRepository(connection),
         plane: createMongoPlaneRepository(connection),
+        apiPreviews: createMongoApiPreviewRepository(connection),
       };
   }
 }

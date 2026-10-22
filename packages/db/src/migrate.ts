@@ -6,7 +6,7 @@ import { recordDatabaseEngine } from "./runtime-store.js";
 import { migrateMongo } from "./mongo/migrate.js";
 import { PROVIDER_ADDRESSES } from "./repositories/profiles/types.js";
 
-export const SQL_TABLES = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "plane_accounts", "bot_plane_accounts", "plane_scopes", "availability_rules", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events", "schedules"] as const;
+export const SQL_TABLES = ["api_keys", "tenants", "profiles", "git_accounts", "git_oauth_apps", "bots", "guild_configs", "bot_git_accounts", "git_scopes", "plane_accounts", "bot_plane_accounts", "plane_scopes", "availability_rules", "agents_config", "skills", "tenant_skills", "tasks", "conversations", "messages", "usage_events", "schedules", "api_previews"] as const;
 
 function definitions(pg: boolean): Record<string, string> {
   const time = pg ? "TIMESTAMPTZ" : "INTEGER";
@@ -40,6 +40,8 @@ function definitions(pg: boolean): Record<string, string> {
     messages: `id ${id}, ${tenant}, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role TEXT NOT NULL, content TEXT, tool_calls ${json}, tool_call_id TEXT, tokens_used INTEGER, created_at ${time} NOT NULL DEFAULT ${now}, FOREIGN KEY(tenant_id,conversation_id) REFERENCES conversations(tenant_id,id) ON DELETE CASCADE`,
     usage_events: `id ${id}, ${tenant}, bot_id TEXT, type TEXT NOT NULL, provider TEXT, model TEXT, prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0, metadata ${json} NOT NULL DEFAULT '{}', created_at ${time} NOT NULL DEFAULT ${now}, FOREIGN KEY(tenant_id,bot_id) REFERENCES bots(tenant_id,id)`,
     schedules: `id ${id}, ${tenant}, bot_id TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'reminder', guild_id TEXT, channel_id TEXT NOT NULL, owner_id TEXT, owner_name TEXT, text TEXT NOT NULL DEFAULT '', with_tasks ${bool} NOT NULL DEFAULT ${no}, mentions ${json} NOT NULL DEFAULT '[]', recurrence TEXT NOT NULL DEFAULT 'once', weekdays ${json} NOT NULL DEFAULT '[]', day_of_month INTEGER, time_of_day TEXT, timezone TEXT NOT NULL, until ${time}, next_at ${time} NOT NULL, last_fired_at ${time}, status TEXT NOT NULL DEFAULT 'active', attempts INTEGER NOT NULL DEFAULT 0, error TEXT, created_at ${time} NOT NULL DEFAULT ${now}, FOREIGN KEY(tenant_id,bot_id) REFERENCES bots(tenant_id,id)`,
+    // The document is TEXT on both engines, so the page serves it exactly as published (JSONB would reorder its keys).
+    api_previews: `id ${id}, ${tenant}, bot_id TEXT NOT NULL, guild_id TEXT, channel_id TEXT NOT NULL, source_path TEXT NOT NULL, title TEXT NOT NULL, version TEXT, document TEXT NOT NULL, created_by_id TEXT, created_by_name TEXT, created_at ${time} NOT NULL DEFAULT ${now}, FOREIGN KEY(tenant_id,bot_id) REFERENCES bots(tenant_id,id)`,
   };
 }
 
@@ -248,6 +250,7 @@ async function migrate(exec: Execute, pg: boolean): Promise<string | null> {
   await exec("CREATE UNIQUE INDEX IF NOT EXISTS availability_rules_key_idx ON availability_rules(tenant_id,level,COALESCE(bot_id,''),guild_id,channel_id,target_kind,target_name)");
   await exec("CREATE INDEX IF NOT EXISTS usage_tenant_created_idx ON usage_events(tenant_id,created_at)");
   await exec("CREATE INDEX IF NOT EXISTS schedules_due_idx ON schedules(status,next_at)");
+  await exec("CREATE INDEX IF NOT EXISTS api_previews_tenant_created_idx ON api_previews(tenant_id,created_at)");
   // A prompt still equal to a default nobody wrote gets the persona; anything an admin typed stays. After the bootstrap row above so it is covered too.
   await exec(`UPDATE agents_config SET system_prompt=${pg ? "$1" : "?"} WHERE system_prompt IN (${OLD_DEFAULT_PROMPTS.map((_, i) => (pg ? `$${i + 2}` : "?")).join(",")})`, [DEFAULT_SYSTEM_PROMPT, ...OLD_DEFAULT_PROMPTS]);
   return bootstrapKey;

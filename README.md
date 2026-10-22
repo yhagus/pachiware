@@ -140,6 +140,13 @@ The bot acts in Plane as the user whose API key you give it, so it can do whatev
 
 Plane allows 60 requests a minute per API key by default. On a self-hosted Plane, consider raising `API_KEY_RATE_LIMIT` on the Plane server if the bot reports the limit often.
 
+### 5. Share API Previews (Optional)
+
+The bot can publish an OpenAPI document from its Workspace, such as an API changelog it wrote, as a public page: an **API preview** at `<PUBLIC_URL>/open-api/<id>`. Anyone with the link can open it without signing in. It shows the document as it was when published, and **API previews** in the console lists every one, per tenant and per bot, and revokes them.
+
+1. Set `PUBLIC_URL` in `.env` to the address people reach the agent at (port 3001 by default), then restart. Left at `http://localhost:3001`, a link opens only on the server itself, and the bot says so when it gives one.
+2. Behind a reverse proxy, forward only `/open-api/` to the agent (and `/api/oauth/` if you use one-click git login), and keep the rest private, as with the dashboard. One visitor gets 60 requests a minute.
+
 Your installation is ready when the dashboard connects, chat receives a model response, and the bot connects if you use Discord.
 
 ## Everyday Commands

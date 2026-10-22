@@ -2,11 +2,11 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { repositories, encryptSecret, assertHostAllowed } from "@pachiware/db";
 import { object, string } from "../validation.js";
-import { GIT_PROVIDERS, isDefaultGitHost, type GitProvider } from "@pachiware/skills";
+import { GIT_PROVIDERS, isDefaultGitHost, publicUrl, type GitProvider } from "@pachiware/skills";
 
 export const gitOAuthAppAdminRoutes = new Hono();
 
-export const redirectUri = () => `${(process.env.PUBLIC_URL || "http://localhost:3001").replace(/\/+$/, "")}/api/oauth/git/callback`;
+export const redirectUri = () => `${publicUrl()}/api/oauth/git/callback`;
 const publicApp = ({ clientSecretEncrypted, ...a }: any) => ({ ...a, hasSecret: Boolean(clientSecretEncrypted) });
 
 function host(value: unknown): string {
