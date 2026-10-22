@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { repositories } from "@pachiware/db";
-import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, tenantPlaybookAt, guildPlaybookAt, removePlaybookFolder, slashNameUsable, TENANT_PLAYBOOKS_DIR } from "@pachiware/skills";
+import { workspaceStore, WorkspaceConflict, checkSegments, builtinPlaybooks, loadPlaybook, listBuiltinPlaybookDir, readBuiltinPlaybookFile, builtinPlaybookFiles, playbooksChanged, playbookSaveProblem, tenantPlaybookAt, guildPlaybookAt, guildPlaybooksDir, removePlaybookFolder, serverPlaybooks, serversWithPlaybook, slashNameUsable, TENANT_PLAYBOOKS_DIR } from "@pachiware/skills";
 import { object, string } from "../validation.js";
 
 export const workspaceAdminRoutes = new Hono();
@@ -38,6 +38,17 @@ async function slashWarning(tenantId: string, path: string) {
   const ways = [playbook.words.length && `by mention with ${playbook.words.map((w) => `"${w}:"`).join(" or ")}`, playbook.menu && `from the message menu "${playbook.menu}"`].filter(Boolean);
   const still = ways.length ? `It still starts ${ways.join(" and ")}.` : "Give it a trigger word or a menu label, or rename it, so people can start it.";
   return { warning: `${name} gets no slash command: Discord takes only names of 1 to 32 lowercase letters, digits, - or _. ${still}` };
+}
+
+/** A tenant playbook saved with the name of a server's own playbook replaces it in that server: say which (ADR 0021). */
+async function hidesWarning(tenantId: string, path: string) {
+  const at = tenantPlaybookAt(path), servers = at ? await serversWithPlaybook(tenantId, at.name) : [];
+  return servers.length ? `${at!.name} now replaces the playbook of that name made in ${servers.length === 1 ? "the server" : "the servers"} ${servers.join(", ")}; theirs is hidden, and threads that followed it stop at their next message.` : null;
+}
+/** Every warning a save or move gets, joined. */
+async function warnings(tenantId: string, path: string) {
+  const all = [(await slashWarning(tenantId, path)).warning, await hidesWarning(tenantId, path)].filter(Boolean);
+  return all.length ? { warning: all.join(" ") } : {};
 }
 
 /** Runs a route for an existing tenant and turns the store's refusals into 400 and 409 answers. */
@@ -81,13 +92,13 @@ workspaceAdminRoutes.put("/tenants/:id/workspace/file", route(async (c, t) => {
   if (problem) return c.json({ error: `Not saved: ${problem}.` }, 400);
   const saved = await workspaceStore().write(t, path, body.content, version);
   changed(t, path);
-  return c.json({ success: true, ...saved, ...await slashWarning(t, path) });
+  return c.json({ success: true, ...saved, ...await warnings(t, path) });
 }));
 workspaceAdminRoutes.post("/tenants/:id/workspace/move", route(async (c, t) => {
   const body = object(await c.req.json(), "body"), from = writable(body.from), to = writable(body.to);
   await workspaceStore().move(t, from, to);
   changed(t, from, to);
-  return c.json({ success: true, ...await slashWarning(t, to) });
+  return c.json({ success: true, ...await warnings(t, to) });
 }));
 workspaceAdminRoutes.delete("/tenants/:id/workspace/file", route(async (c, t) => {
   const path = writable(c.req.query("path"));
@@ -109,6 +120,22 @@ workspaceAdminRoutes.post("/tenants/:id/workspace/playbooks/:name/override", rou
 workspaceAdminRoutes.delete("/tenants/:id/workspace/playbooks/:name", route(async (c, t) => {
   const dir = `${TENANT_PLAYBOOKS_DIR}/${clean(c.req.param("name"))}`;
   if (!(await workspaceStore().list(t, TENANT_PLAYBOOKS_DIR)).some((e) => e.path === dir && e.type === "dir")) return c.json({ error: "This tenant has no playbook with that name" }, 404);
+  await removePlaybookFolder(t, dir);
+  playbooksChanged(t);
+  return c.json({ success: true });
+}));
+
+/** A server's own playbooks, made in chat (ADR 0021), with who made them and which a tenant or built-in playbook of their name hides. */
+workspaceAdminRoutes.get("/tenants/:id/workspace/guilds/:guildId/playbooks", route(async (c, t) => {
+  if (!guildPlaybooksDir(c.req.param("guildId"))) throw new RangeError("Invalid guild");
+  return c.json({ success: true, playbooks: await serverPlaybooks(t, c.req.param("guildId")!) });
+}));
+/** Deletes a server's own playbook folder with everything in it; its threads stop at their next message. */
+workspaceAdminRoutes.delete("/tenants/:id/workspace/guilds/:guildId/playbooks/:name", route(async (c, t) => {
+  const root = guildPlaybooksDir(c.req.param("guildId"));
+  if (!root) throw new RangeError("Invalid guild");
+  const dir = `${root}/${clean(c.req.param("name"))}`;
+  if (!(await workspaceStore().list(t, root).catch(() => [])).some((e) => e.path === dir && e.type === "dir")) return c.json({ error: "This server has no playbook with that name" }, 404);
   await removePlaybookFolder(t, dir);
   playbooksChanged(t);
   return c.json({ success: true });

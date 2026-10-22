@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type AvailabilityKind, type AvailabilityLevel, type AvailabilityLevelName, type AvailabilityValue, type Guild, type InheritedAvailability, type LevelAvailability, type PlaybookSummary, type SkillTool, type SlashStatus, type TenantSkill, type ToolEffect } from "@/lib/api";
+import { api, type AvailabilityKind, type AvailabilityLevel, type AvailabilityLevelName, type AvailabilityValue, type Guild, type InheritedAvailability, type LevelAvailability, type PlaybookSummary, type ServerPlaybook, type SkillTool, type SlashStatus, type TenantSkill, type ToolEffect } from "@/lib/api";
 import { EFFECTS, effectCounts, sections, targetKey as key } from "@/lib/skills";
 import { useIntegration } from "@/pages/tenant/IntegrationDetail";
 
@@ -263,12 +263,15 @@ export function IntegrationAvailability() {
           </Section>
 
           {catalogue.playbooks.length > 0 && (
-            <Section title="Playbooks" hint={`A playbook starts only where it and every skill it needs are on. Its tools follow it.${state.slash ? " The slash command badge shows it is in this server's / picker; channel rules are checked when someone uses it." : ""}`}>
-              {catalogue.playbooks.map((p) => {
+            <Section title="Playbooks" hint={`A playbook starts only where it and every skill it needs are on. Its tools follow it.${state.slash ? " The slash command badge shows it is in this server's / picker; channel rules are checked when someone uses it." : ""}${state.guildPlaybooks?.length ? " Playbooks made in this server come last; they take rules only here and in its channels." : ""}`}>
+              {[...catalogue.playbooks.map((p) => ({ ...p, made: null as ServerPlaybook | null })), ...(state.guildPlaybooks ?? []).map((p) => ({ ...p, made: p }))].map((p) => {
                 const blocked = p.requires.filter((id) => outcome("skill", id) === "off" || outcome("skill", id) === "waiting").map(skillName);
                 const slash = slashStatus.get(p.name);
-                return <Row key={p.name} title={p.name} description={p.description} badge={slash?.status === "registered" && <Badge variant="outline" className="font-mono">/{p.name}</Badge>}
-                  notes={[note("playbook", p.name), blocked.length > 0 && `Cannot start here: needs ${blocked.join(", ")}, which ${blocked.length === 1 ? "is" : "are"} off.`, slashNote(slash)]} control={control("playbook", p.name, `${p.name} playbook`)} />;
+                const by = p.made?.createdBy, at = p.made?.createdAt;
+                const madeBy = by ? `Made in chat by ${by.name}${at ? ` on ${at.slice(0, 10)}` : ""}.` : null;
+                return <Row key={`${p.made ? "server" : "tenant"}:${p.name}`} title={p.name} description={p.description}
+                  badge={<>{p.made && <Badge variant="secondary">Made in this server</Badge>}{slash?.status === "registered" && <Badge variant="outline" className="font-mono">/{p.name}</Badge>}</>}
+                  notes={[madeBy, note("playbook", p.name), blocked.length > 0 && `Cannot start here: needs ${blocked.join(", ")}, which ${blocked.length === 1 ? "is" : "are"} off.`, slashNote(slash)]} control={control("playbook", p.name, `${p.name} playbook`)} />;
               })}
             </Section>
           )}

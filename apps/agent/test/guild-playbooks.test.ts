@@ -89,3 +89,36 @@ discordScenario("a server's own playbooks take only what Discord's 100 commands 
   expect(status.find((p: any) => p.playbook === "aaa")).toEqual({ playbook: "aaa", status: "not_registered", reason: "limit" });
   expect(status.filter((p: any) => p.status === "registered")).toHaveLength(100);
 });
+
+const made = `---\nname: "standup"\ndescription: "Runs our standup"\ntrigger: {"word":["standup"]}\ncreatedBy: {"id":"user-bob","name":"Bob"}\ncreatedAt: "2026-10-20T03:00:00.000Z"\n---\nAsk each person.\n`;
+
+discordScenario("the console lists a server's own playbooks with who made them, and which a tenant playbook hides", async (s) => {
+  await s.workspace.write("guilds/guild-1/shared/playbooks/standup/PLAYBOOK.md", made);
+  await s.workspace.write("guilds/guild-1/shared/playbooks/retro/PLAYBOOK.md", `---\nname: retro\ndescription: Our retro\n---\nGroup the points.\n`);
+  await s.workspace.write("guilds/guild-1/.name", "Acme");
+  await s.restart();
+  const base = `/api/admin/tenants/${s.tenant.id}/workspace`;
+
+  const saved = await s.admin("PUT", `${base}/file`, { path: "shared/playbooks/retro/PLAYBOOK.md", content: `---\nname: retro\ndescription: The tenant's retro\n---\nGroup the points our way.\n` });
+  expect(saved).toMatchObject({ status: 200, body: { warning: "retro now replaces the playbook of that name made in the server Acme; theirs is hidden, and threads that followed it stop at their next message." } });
+
+  const listed = await s.admin("GET", `${base}/guilds/guild-1/playbooks`);
+  expect(listed.body.playbooks).toEqual([
+    { name: "retro", description: "Our retro", words: [], requires: [], start: true, hidden: true },
+    { name: "standup", description: "Runs our standup", words: ["standup"], requires: [], start: true, createdBy: { id: "user-bob", name: "Bob" }, createdAt: "2026-10-20T03:00:00.000Z", hidden: false },
+  ]);
+
+  // Availability names only the playbooks that can take a rule here: not one a tenant playbook hides, and none at the bot.
+  const guild = await s.admin("GET", `/api/admin/bots/${s.bot.id}/guilds/guild-1/availability`);
+  expect(guild.body.guildPlaybooks.map((p: any) => p.name)).toEqual(["standup"]);
+  const channel = await s.admin("GET", `/api/admin/bots/${s.bot.id}/guilds/guild-1/channels/channel-1/availability`);
+  expect(channel.body.guildPlaybooks.map((p: any) => p.name)).toEqual(["standup"]);
+  const bot = await s.admin("GET", `/api/admin/bots/${s.bot.id}/availability`);
+  expect(bot.body.guildPlaybooks).toBeUndefined();
+
+  const removed = await s.admin("DELETE", `${base}/guilds/guild-1/playbooks/standup`);
+  expect(removed.status).toBe(200);
+  expect(await s.workspace.list("guilds/guild-1/shared/playbooks")).toEqual(["guilds/guild-1/shared/playbooks/retro"]);
+  expect(s.discord.commandsIn("guild-1")!.filter((c) => c.type === 1).map((c) => c.name)).toEqual(["issue-draft", "minutes", "retro"]);
+  expect((await s.admin("DELETE", `${base}/guilds/guild-1/playbooks/standup`)).status).toBe(404);
+});

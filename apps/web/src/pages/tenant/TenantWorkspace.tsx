@@ -8,13 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmAction } from "@/components/ConfirmAction";
 import { IconButton } from "@/components/IconButton";
-import { api, type Tenant, type WorkspaceEntry } from "@/lib/api";
+import { api, type ServerPlaybook, type Tenant, type WorkspaceEntry } from "@/lib/api";
 
 const LABELS: Record<string, string> = { shared: "Tenant shared", guilds: "Guilds", dms: "Direct messages", channels: "Channels", tasks: "Tasks" };
 // "playbooks" at the root is the read-only folder of built-in playbooks; the tenant's own live in "shared/playbooks".
 const PATH_LABELS: Record<string, string> = { playbooks: "Built-in playbooks", "shared/playbooks": "Playbooks" };
 const crumb = (p: string) => p.split("/").pop()!;
-const label = (p: string) => PATH_LABELS[p] ?? LABELS[crumb(p)] ?? crumb(p);
+// A server's own folder and the playbooks it made in chat (ADR 0021).
+const SERVER_LABELS: [RegExp, string][] = [[/^guilds\/[^/]+\/shared$/, "Server shared"], [/^guilds\/[^/]+\/shared\/playbooks$/, "Server playbooks"]];
+const label = (p: string) => PATH_LABELS[p] ?? SERVER_LABELS.find(([r]) => r.test(p))?.[1] ?? LABELS[crumb(p)] ?? crumb(p);
 
 export function TenantWorkspace() {
   const tenant = useOutletContext<Tenant>();
@@ -35,6 +37,12 @@ export function TenantWorkspace() {
   const readOnly = dir === "playbooks" || dir.startsWith("playbooks/");
   const inPlaybook = /^(shared\/)?playbooks\/([^/]+)/.exec(dir);
   const playbook = inPlaybook && { name: inPlaybook[2]!, builtin: !inPlaybook[1], ofBuiltin: builtins.find((b) => crumb(b.path) === inPlaybook[2]) };
+  const inServer = /^guilds\/([^/]+)\/shared\/playbooks(?:\/([^/]+))?/.exec(dir), serverGuild = inServer?.[1];
+  const [serverPlaybooks, setServerPlaybooks] = useState<ServerPlaybook[]>([]);
+  const loadServer = useCallback(() => (serverGuild ? api.serverPlaybooks(tenant.id, serverGuild).then((r) => setServerPlaybooks(r.playbooks)).catch(() => setServerPlaybooks([])) : Promise.resolve(setServerPlaybooks([]))), [tenant.id, serverGuild]);
+  useEffect(() => { void loadServer(); }, [loadServer]);
+  const made = (name: string | undefined) => serverPlaybooks.find((p) => p.name === name);
+  const serverPlaybook = inServer?.[2] ? { name: inServer[2], ...made(inServer[2]) } : null;
 
   const show = async (path: string) => {
     try { const f = await api.workspaceRead(tenant.id, path); setOpen({ path, ...f }); setDraft(null); setConflict(false); setWarning(null); } catch (e) { toast.error((e as Error).message); }
@@ -84,10 +92,19 @@ export function TenantWorkspace() {
     } catch (e) { toast.error((e as Error).message); }
   };
 
+  const deleteServerPlaybook = async (guildId: string, name: string) => {
+    try {
+      await api.deleteServerPlaybook(tenant.id, guildId, name);
+      if (open?.path.startsWith(`guilds/${guildId}/shared/playbooks/${name}/`)) setOpen(null);
+      setDir(`guilds/${guildId}/shared/playbooks`); await loadServer();
+      toast.success("Playbook deleted. Threads that followed it stop at their next message.");
+    } catch (e) { toast.error((e as Error).message); }
+  };
+
   const parts = dir ? dir.split("/") : [];
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">Everything the assistant keeps for this tenant as files: tasks, notes and memory. You see all servers and channels; the assistant sees only its own channel and the shared folders. Playbooks are edited only here: the assistant can read them but not change them.</p>
+      <p className="text-sm text-muted-foreground">Everything the assistant keeps for this tenant as files: tasks, notes and memory. You see all servers and channels; the assistant sees only its own channel and the shared folders. Built-in and tenant playbooks are edited only here. A server's own playbooks are made in that server's chat, once the person who asked presses Confirm, and can be edited or deleted here too.</p>
       <nav aria-label="Folder" className="flex flex-wrap items-center gap-1 text-sm">
         <button type="button" className="rounded px-1 hover:bg-muted" onClick={() => setDir("")}>Workspace</button>
         {parts.map((p, i) => (<span key={i} className="flex items-center gap-1"><ChevronRight className="size-3 text-muted-foreground" /><button type="button" className="rounded px-1 hover:bg-muted" onClick={() => setDir(parts.slice(0, i + 1).join("/"))}>{label(parts.slice(0, i + 1).join("/"))}</button></span>))}
@@ -118,6 +135,19 @@ export function TenantWorkspace() {
           </>)}
         </section>
       )}
+      {serverPlaybook && serverGuild && (
+        <section aria-label="Server playbook" className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center">
+          <p className="min-w-0 flex-1">
+            <span className="font-medium">{serverPlaybook.name}</span> is this server's own playbook{serverPlaybook.createdBy ? <>, made in chat by {serverPlaybook.createdBy.name}{serverPlaybook.createdAt ? ` on ${serverPlaybook.createdAt.slice(0, 10)}` : ""}</> : null}.{" "}
+            {serverPlaybook.hidden ? "A tenant or built-in playbook of the same name replaces it, so the bot does not offer it. Rename one of them to bring it back." : "Saved changes reach the bot's commands in this server right away."}
+          </p>
+          <ConfirmAction
+            trigger={<Button variant="outline" className="min-h-11 sm:min-h-9"><Trash2 /> Delete playbook</Button>}
+            title={`Delete the ${serverPlaybook.name} playbook?`}
+            description="Every file in this playbook is removed, the bot stops offering it in this server, and threads that followed it stop at their next message."
+            confirmLabel="Delete" danger onConfirm={() => void deleteServerPlaybook(serverGuild, serverPlaybook.name)} />
+        </section>
+      )}
       <div className="flex flex-col gap-4 lg:flex-row">
         <div className="min-w-0 lg:w-80 lg:shrink-0">
           {!entries ? <Skeleton className="h-24" /> : !entries.length ? <p className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">Nothing here yet.</p> : (
@@ -128,6 +158,7 @@ export function TenantWorkspace() {
                     {e.type === "dir" ? <Folder className="size-4 shrink-0 text-muted-foreground" /> : <FileText className="size-4 shrink-0 text-muted-foreground" />}
                     <span className="truncate">{label(e.path)}</span>
                   </button>
+                  {inServer && !inServer[2] && made(crumb(e.path))?.hidden && <span className="shrink-0 px-2 text-xs text-muted-foreground">Hidden</span>}
                   {e.readOnly ? (
                     (e.path === "playbooks" || e.overridden) && <span className="shrink-0 px-2 text-xs text-muted-foreground">{e.overridden ? "Overridden" : "Read-only"}</span>
                   ) : (<>

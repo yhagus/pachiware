@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { skillRegistry, listAvailabilityRules, inheritedAvailability, setAvailabilityRule, clearAvailabilityRule, listPlaybooks, AvailabilityError, type LevelKey } from "@pachiware/skills";
+import { skillRegistry, listAvailabilityRules, inheritedAvailability, setAvailabilityRule, clearAvailabilityRule, listPlaybooks, serverPlaybooks, AvailabilityError, type LevelKey } from "@pachiware/skills";
 import { guildSlashStatus } from "../discord/commands.js";
 import { repositories } from "@pachiware/db";
 import { object } from "./validation.js";
@@ -16,7 +16,9 @@ export function availabilityRoutes(app: Hono<any>, path: string, level: (c: Cont
   };
   // Commands are registered per guild, so only a guild's view says which playbooks have a slash command there.
   const slash = async (key: LevelKey) => key.level === "guild" ? { slash: await guildSlashStatus({ tenantId: key.tenantId, botId: key.botId!, guildId: key.guildId! }, await listPlaybooks(key.tenantId, key.guildId)) } : {};
-  const out = async (c: Context<any>, key: LevelKey) => c.json({ success: true, rules: await listAvailabilityRules(key), inherited: await inheritedAvailability(key, skillRegistry.getAllSkills(), await skillRegistry.getActiveSkills(key.tenantId)), ...await slash(key) });
+  // A server's own playbooks are ruled only at its guild and channels (ADR 0021); one a tenant playbook hides takes no rule.
+  const own = async (key: LevelKey) => key.guildId && (key.level === "guild" || key.level === "channel") ? { guildPlaybooks: (await serverPlaybooks(key.tenantId, key.guildId)).filter((p) => !p.hidden) } : {};
+  const out = async (c: Context<any>, key: LevelKey) => c.json({ success: true, rules: await listAvailabilityRules(key), inherited: await inheritedAvailability(key, skillRegistry.getAllSkills(), await skillRegistry.getActiveSkills(key.tenantId)), ...await slash(key), ...await own(key) });
   app.get(path, withLevel(out));
   app.put(path, withLevel(async (c, key) => {
     const body = object(await c.req.json().catch(() => null), "body");

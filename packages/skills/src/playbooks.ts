@@ -41,8 +41,9 @@ export interface Playbook {
   body: string;
   /** A `guild` playbook was made in chat for one server; it never replaces a built-in or tenant one of its name (ADR 0021). */
   source: "builtin" | "tenant" | "guild";
-  /** Who made a server's own playbook, as chat recorded it. */
+  /** Who made a server's own playbook, and when (ISO), as chat recorded it. */
   createdBy?: { id: string; name: string };
+  createdAt?: string;
 }
 
 /** `key: value` per line; a value is JSON when it parses (which keeps it valid YAML), else the bare text. */
@@ -83,6 +84,7 @@ export function parsePlaybook(name: string, text: string, source: Playbook["sour
     run: f.run === "in-place" ? "in-place" : "thread",
     ...(f.repository === "required" ? { repository: "required" as const } : {}),
     ...(guild && typeof by?.id === "string" && typeof by.name === "string" ? { createdBy: { id: by.id, name: by.name } } : {}),
+    ...(guild && typeof f.createdAt === "string" ? { createdAt: f.createdAt } : {}),
   };
 }
 

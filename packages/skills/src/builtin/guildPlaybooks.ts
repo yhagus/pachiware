@@ -228,8 +228,22 @@ export async function serverPlaybookVersion(ctx: SkillContext, name: string): Pr
   return (await workspaceStore().read(ctx.tenantId, `${dir}/${name}/${PLAYBOOK_FILE}`).catch(() => null))?.version;
 }
 
-/** Every playbook a server made, with whether a tenant or built-in playbook of its name hides it. */
-export async function serverPlaybooks(tenantId: string, guildId: string): Promise<{ playbook: Playbook; hidden: boolean }[]> {
+/** Every playbook a server made, as the console lists it, with whether a tenant or built-in playbook of its name hides it. */
+export async function serverPlaybooks(tenantId: string, guildId: string) {
   const taken = new Set((await playbookCatalogue(tenantId)).map((p) => p.name));
-  return (await guildPlaybooks(tenantId, guildId)).map((playbook) => ({ playbook, hidden: taken.has(playbook.name) }));
+  return (await guildPlaybooks(tenantId, guildId)).map((p) => ({
+    name: p.name, description: p.description, words: p.words, requires: p.requires, start: p.start,
+    ...(p.createdBy ? { createdBy: p.createdBy } : {}), ...(p.createdAt ? { createdAt: p.createdAt } : {}), hidden: taken.has(p.name),
+  }));
+}
+
+/** The servers that made a playbook of this name, by their folder label when the bot wrote one, else their id. */
+export async function serversWithPlaybook(tenantId: string, name: string): Promise<string[]> {
+  const guilds = (await workspaceStore().list(tenantId, "guilds").catch(() => [])).filter((e) => e.type === "dir");
+  const found = await Promise.all(guilds.map(async (g) => {
+    const dir = guildPlaybooksDir(g.path.split("/").pop());
+    if (!dir || !(await workspaceStore().list(tenantId, dir).catch(() => [])).some((e) => e.type === "dir" && e.path === `${dir}/${name}`)) return null;
+    return (await workspaceStore().read(tenantId, `${g.path}/.name`).catch(() => null))?.content.trim() || g.path.split("/").pop()!;
+  }));
+  return found.filter((g): g is string => !!g);
 }

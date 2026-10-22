@@ -163,6 +163,8 @@ export type GitTab = "members" | "issues" | "merge-requests" | "branches";
 export interface GitOAuthApp { id: string; provider: "github" | "gitlab"; baseUrl: string; clientId: string; hasSecret: boolean; }
 /** `readOnly` marks built-in playbook entries; `overridden` is set on a built-in playbook the tenant has its own copy of. */
 export interface WorkspaceEntry { path: string; type: "file" | "dir"; size?: number; readOnly?: boolean; overridden?: boolean }
+/** A playbook a server made in chat; `hidden` when a tenant or built-in playbook of its name replaces it. */
+export interface ServerPlaybook { name: string; description: string; words: string[]; requires: string[]; start: boolean; createdBy?: { id: string; name: string }; createdAt?: string; hidden: boolean }
 export type ToolEffect = "read" | "write" | "danger";
 /** `group` is one of the skill's `groups`; `playbook` marks a tool that only serves that playbook. */
 export interface SkillTool { name: string; description: string; effect: ToolEffect; group?: string; playbook?: string; defaultOff?: boolean; }
@@ -175,8 +177,8 @@ export type AvailabilityLevelName = "tenant" | "bot" | "guild" | "channel";
 export interface InheritedAvailability { kind: AvailabilityKind; name: string; available: boolean; off?: AvailabilityLevelName; optIn?: AvailabilityLevelName; }
 /** Whether a playbook has a slash command in a server, and if not, why. */
 export type SlashStatus = { playbook: string } & ({ status: "registered" } | { status: "not_registered"; reason: "reference" } | { status: "not_registered"; reason: "limit" } | { status: "not_registered"; reason: "off"; level: AvailabilityLevelName } | { status: "name_unusable" });
-/** `slash` comes with a server's view only: commands are registered per server. */
-export interface LevelAvailability { rules: AvailabilityRule[]; inherited: InheritedAvailability[]; slash?: SlashStatus[]; }
+/** `slash` comes with a server's view only: commands are registered per server. `guildPlaybooks`, with a server's or a channel's view: the playbooks that server made. */
+export interface LevelAvailability { rules: AvailabilityRule[]; inherited: InheritedAvailability[]; slash?: SlashStatus[]; guildPlaybooks?: ServerPlaybook[]; }
 /** Why a playbook cannot start for the tenant, as the agent resolved it when the list loaded. */
 export type PlaybookCause = { off: "playbook" } | { off: "loads"; playbook: string } | { off: "chain"; problem: string } | { off: "skills"; skills: string[] };
 /**
@@ -234,6 +236,8 @@ export const api = {
   workspaceDelete: (tenantId: string, path: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/file?path=${encodeURIComponent(path)}`, json("DELETE")),
   copyPlaybook: (tenantId: string, name: string) => fetchJSON<{ path: string }>(`/api/admin/tenants/${tenantId}/workspace/playbooks/${encodeURIComponent(name)}/override`, json("POST")),
   deletePlaybook: (tenantId: string, name: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/playbooks/${encodeURIComponent(name)}`, json("DELETE")),
+  serverPlaybooks: (tenantId: string, guildId: string) => fetchJSON<{ playbooks: ServerPlaybook[] }>(`/api/admin/tenants/${tenantId}/workspace/guilds/${encodeURIComponent(guildId)}/playbooks`),
+  deleteServerPlaybook: (tenantId: string, guildId: string, name: string) => fetchJSON<{ success: boolean }>(`/api/admin/tenants/${tenantId}/workspace/guilds/${encodeURIComponent(guildId)}/playbooks/${encodeURIComponent(name)}`, json("DELETE")),
   listSkills: (tenantId: string) => fetchJSON<{ skills: TenantSkill[]; playbooks: PlaybookSummary[] }>(`/api/admin/tenants/${tenantId}/skills`),
   setSkillEnabled: (tenantId: string, skillId: string, isEnabled: boolean) => fetchJSON<{ isEnabled: boolean }>(`/api/admin/tenants/${tenantId}/skills/${skillId}`, json("PATCH", { isEnabled })),
   listAvailability: (level: AvailabilityLevel) => fetchJSON<LevelAvailability>(availabilityPath(level)),
