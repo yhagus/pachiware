@@ -120,7 +120,7 @@ export class LLMRouter {
       dbConfig = { ...dbConfig, defaultProvider: profile.provider, defaultModel: profile.model, [`${profile.provider}ApiKey`]: key, [`${profile.provider}BaseUrl`]: profile.baseUrl, [`${profile.provider}Model`]: profile.model };
     }
     const provider = options.provider || dbConfig.defaultProvider;
-    const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature ?? DEFAULT_TEMPERATURE, maxTokens: options.maxTokens ?? dbConfig.maxTokens, language: configuredLanguage({ language: options.language }, dbConfig) };
+    const resolved = { ...options, temperature: options.temperature ?? dbConfig.temperature ?? DEFAULT_TEMPERATURE, maxTokens: options.maxTokens ?? (options.minOutputTokens ? Math.max(dbConfig.maxTokens ?? 0, options.minOutputTokens) : dbConfig.maxTokens), language: configuredLanguage({ language: options.language }, dbConfig) };
     const call = (list: ChatMessage[], opts: LLMRequestOptions = resolved) => {
       switch (provider) {
         case "anthropic": return this.callAnthropic(list, opts, dbConfig);

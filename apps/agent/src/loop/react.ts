@@ -84,6 +84,10 @@ const MAX_TOOL_RESULT = 12000;
 export const PLAYBOOK_ITERATIONS = 20;
 /** A playbook with `budget: long` (an API changelog traces dozens of endpoints) gets the loop's ceiling. */
 export const LONG_PLAYBOOK_ITERATIONS = 128;
+/** The least output a call of a `budget: long` turn gets, whatever the tenant's limit: one tool call may carry a whole document, and a reasoning model's thinking counts too (#342). */
+export const LONG_OUTPUT_TOKENS = 16_384;
+/** How many times one turn tells the model its response was cut before anything of it arrived, before it ends the turn with a summary. */
+const CUT_RETRIES = 2;
 
 /** A change as the person reads it, in the turn's language: what was done and the thing it touched. */
 function changeLine({ call, result }: Executed, t: Strings) {
@@ -158,6 +162,8 @@ const OUT_OF_TIME_CALL = "This tool call was not run: the turn ran out of time. 
 const BUDGET_SPENT = "The action budget for this turn is exhausted. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
 const TIME_SPENT = "The time for this turn ran out. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
 const CONTINUE = "Your last answer was cut off at the output limit. Continue exactly where you stopped, without repeating anything you already wrote.";
+const CUT_EMPTY = "Your last response reached the output limit before any of it arrived, so nothing was said or run. Keep your thinking short and make the next step smaller, for example by splitting the content over several calls.";
+const CUT_SPENT = "Your last responses kept reaching the output limit before any of them arrived. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
 const EMPTY_ANSWER = "Your last answer was empty. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
 const RECORD_NOW = "This turn is nearly out of time. Before anything else, record with your playbook's tools everything you have finished but not recorded yet, then go on with the rest: the next turn continues from what is recorded, not from what you read.";
 /** The share of a long playbook turn's time or model calls after which the model is told once to record what it has finished. */
@@ -171,12 +177,14 @@ async function continueCut(partial: string, sent: ChatMessage[], tools: ToolDefi
   await audit(ctx, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "text" });
   if (!partial.trim()) return { text: partial, stillCut: true };
   const rest = await llmRouter.complete([...sent, { role: "assistant", content: partial }, { role: "user", content: CONTINUE }], {
-    tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, tools, language: input.context.language, deadline,
+    tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, tools, language: input.context.language, deadline, ...outputFloor(input),
   });
   if (rest.finishReason === "error") return { text: partial, stillCut: true };
   if (rest.finishReason === "length") await audit(ctx, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "text" });
   return { text: partial + (rest.content ?? ""), stillCut: rest.finishReason === "length" };
 }
+
+const outputFloor = (input: ReActInput) => (input.context.playbook?.long ? { minOutputTokens: LONG_OUTPUT_TOKENS } : {});
 
 /** The reply to a provider failure; when changes already landed this turn it names them first, so nobody asks for them twice. */
 function failureReply(failure: string, executed: Executed[], language?: Language) {
@@ -324,7 +332,8 @@ export class AgentReActLoop {
 
     const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;
-    let outOfTime = false, stalled = false, toldToRecord = false;
+    let outOfTime = false, toldToRecord = false, cutEmpty = 0;
+    let stalled: "empty" | "cut" | null = null;
     let finalReply = "", failed = false;
     let imagesRejected = false;
 
@@ -348,6 +357,7 @@ export class AgentReActLoop {
         tools: activeTools,
         language: input.context.language,
         deadline,
+        ...outputFloor(input),
       });
 
       if (response.imagesRejected) { imagesRejected = true; turn.content = input.message; }
@@ -367,11 +377,19 @@ export class AgentReActLoop {
       // A response cut at the output limit is unfinished: its text is continued once, and its tool calls are refused below.
       const cut = response.finishReason === "length";
       const final = !response.toolCalls || response.toolCalls.length === 0;
+      // Cut before any of it arrived, such as a tool call the provider dropped unfinished: there is nothing to continue, so the model is told
+      // to make the step smaller (not stored), and past CUT_RETRIES the turn ends with a summary, which a long playbook goes on from (#342).
+      if (cut && final && !response.content?.trim()) {
+        await audit(skillContext, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "nothing" });
+        if (++cutEmpty > CUT_RETRIES) { stalled = "cut"; break; }
+        messageHistory.push({ role: "user", content: CUT_EMPTY });
+        continue;
+      }
       let answer = response.content, stillCut = false;
       if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, cacheKey, historyEnd, input, skillContext, deadline));
       // An empty answer after this turn's tool work tells the person nothing of it: it is not kept, and the answer is asked for once more
       // without tools, the way a spent budget's is, so a long playbook's work then goes on by itself (#342).
-      if (final && !stillCut && !answer?.trim() && toolCallsExecuted.length) { stalled = true; break; }
+      if (final && !stillCut && !answer?.trim() && toolCallsExecuted.length) { stalled = "empty"; break; }
 
       // The final answer gets its citations rendered and its links checked before it is stored, so later turns read real links.
       const content = final && answer ? await cite(answer, toolCallsExecuted, messageHistory, skillContext) : answer;
@@ -447,8 +465,8 @@ export class AgentReActLoop {
     if (outOfBudget) {
       // One more call with the same tools and tool_choice none, so the cached prefix holds and completed work becomes a useful answer
       // instead of an opaque failure. The instruction is not stored; the answer is, so the next turn builds on it.
-      const request = [...messageHistory, { role: "user" as const, content: outOfTime ? TIME_SPENT : stalled ? EMPTY_ANSWER : BUDGET_SPENT }];
-      const options = { tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, language: input.context.language, deadline: Date.now() + turnDeadline.summaryMs };
+      const request = [...messageHistory, { role: "user" as const, content: outOfTime ? TIME_SPENT : stalled === "cut" ? CUT_SPENT : stalled ? EMPTY_ANSWER : BUDGET_SPENT }];
+      const options = { tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, language: input.context.language, deadline: Date.now() + turnDeadline.summaryMs, ...outputFloor(input) };
       // A server that refuses tool_choice is asked once more without tools by the router, before any fallback Profile.
       const boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
       if (boundary.finishReason === "error") { finalReply = failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language); failed = true; }
@@ -457,7 +475,7 @@ export class AgentReActLoop {
         if (content) await record.add({ role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
         finalReply = redact(content || textIn(input.context.language).budgetSpent);
       }
-      await audit(skillContext, "guardrail_denied", { kind: "limit", source: outOfTime ? "deadline" : stalled ? "empty_answer" : "iterations", synthesized: true });
+      await audit(skillContext, "guardrail_denied", { kind: "limit", source: outOfTime ? "deadline" : stalled === "cut" ? "output_cut" : stalled ? "empty_answer" : "iterations", synthesized: true });
     }
 
     return {

@@ -35,6 +35,8 @@ export interface LLMRequestOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  /** The least output a call may be given, above the tenant's own limit, which it never lowers: a long playbook writes whole documents in one tool call. */
+  minOutputTokens?: number;
   cacheKey?: string;
   /** The index of the last stored-history message: on Anthropic its last block carries a cache breakpoint, so the history is cached with the prefix. */
   historyEnd?: number;

@@ -128,3 +128,39 @@ discordScenario("an empty answer after tool work in a chat is asked for once mor
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["The channel folder is empty."]);
   expect(s.model.calls).toHaveLength(3);
 });
+
+const CUT_EMPTY = "Your last response reached the output limit before any of it arrived, so nothing was said or run. Keep your thinking short and make the next step smaller, for example by splitting the content over several calls.";
+const CUT_SPENT = "Your last responses kept reaching the output limit before any of them arrived. Summarize what was completed, mention any unfinished work, and give the next concrete step. Do not call tools.";
+
+discordScenario("a response cut before any of it arrived is asked for smaller, and the turn goes on", async (s) => {
+  await s.guildSettings({ language: "en" });
+  await playbook(s, "trace", true);
+  s.model.script({ tool: "listFiles", args: { path: "channel" } }, { cut: "" }, { tool: "listFiles", args: { path: "channel" } }, "Traced GET /users.");
+  const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
+  expect(lastSent(s.model.calls[2]!)).toBe(CUT_EMPTY);
+  expect(said(started.thread)).toEqual(["Traced GET /users."]);
+});
+
+discordScenario("a response cut before any of it arrived three times ends the turn with a summary, and a long playbook goes on by itself", async (s) => {
+  await s.guildSettings({ language: "en" });
+  await playbook(s, "trace", true);
+  s.model.script({ tool: "listFiles", args: { path: "channel" } }, { cut: "" }, { cut: "" }, { cut: "" }, "Traced GET /users; POST /users is left.", "Traced POST /users.");
+  const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
+  expect(s.model.calls.slice(2, 5).map(lastSent)).toEqual([CUT_EMPTY, CUT_EMPTY, CUT_SPENT]);
+  expect(said(started.thread)).toEqual(["Traced GET /users; POST /users is left.\nNot finished yet: continuing on my own (1 of 2).", "Traced POST /users."]);
+});
+
+discordScenario("a long playbook's turn asks for at least 16,384 output tokens on every call, and a chat leaves the tenant's limit alone", async (s) => {
+  await s.guildSettings({ language: "en" });
+  await playbook(s, "trace", true);
+  const { llmRouter } = await import("../src/llm/router.ts");
+  const scripted = llmRouter.complete, floors: unknown[] = [];
+  (llmRouter as any).complete = (messages: any, options: any) => { floors.push(options?.minOutputTokens); return scripted.call(llmRouter, messages, options); };
+  try {
+    s.model.script({ tool: "listFiles", args: { path: "channel" } }, "Traced.", "Hello.");
+    await s.discord.send(`${s.discord.mention} trace: the users API`);
+    expect(floors).toEqual([16384, 16384]);
+    await s.discord.send(`${s.discord.mention} hi`, { channel: "channel-2" });
+    expect(floors).toEqual([16384, 16384, undefined]);
+  } finally { (llmRouter as any).complete = scripted; }
+});

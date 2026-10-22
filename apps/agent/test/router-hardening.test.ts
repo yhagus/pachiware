@@ -205,6 +205,24 @@ describe("Router hardening", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("a request's output floor lifts the tenant's output limit but never lowers it", () => {
+    const { code, stderr } = scenario(`
+      await useOpenAI(tenant.id);
+      reply = () => json(openai("ok"));
+      const ask = (options) => llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, ...options });
+      await ask({});
+      assert(calls[0].body.max_tokens === 4096, "tenant limit not sent: " + calls[0].body.max_tokens);
+      await ask({ minOutputTokens: 16384 });
+      assert(calls[1].body.max_tokens === 16384, "floor not applied: " + calls[1].body.max_tokens);
+      // The tenant config is cached per tenant, so a tenant with its own higher limit is another tenant.
+      const roomy = await repositories().tenants.create({ name: "Roomy", slug: "roomy" });
+      await useOpenAI(roomy.id); await repositories().agentConfig.update(roomy.id, { maxTokens: 32000 });
+      await ask({ tenantId: roomy.id, minOutputTokens: 16384 });
+      assert(calls[2].body.max_tokens === 32000, "floor lowered the tenant's limit: " + calls[2].body.max_tokens);
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("an answer cut at the output limit reads as \"length\" in every request format, keeping the cut tool call it holds", () => {
     const { code, stderr } = scenario(`
       const profile = async (body) => (await (await post("/tenants/" + tenant.id + "/profiles", { name: body.apiFormat ?? body.provider, model: "m", apiKey: "k", ...body })).json()).profile;
