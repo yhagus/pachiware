@@ -17,8 +17,8 @@ async function acmeApi(s: Scenario) {
   await s.guildSettings({ language: "en", useThreads: false });
   s.clock.set("2026-10-22T10:00:00+07:00");
   await s.git({ repos: ["acme/*"] });
-  // Until the built-in arrives, the playbook the changelog tools follow is the tenant's own.
-  await s.workspace.write("shared/playbooks/contract-diff/PLAYBOOK.md", `---\ndescription: API changelog\nrequires: ["git_repositories", "openapi"]\ntrigger: {"word": "changelog"}\n---\nWrite the changelog.\n`);
+  // Like the other repository playbooks, contract-diff starts off until the tenant turns it on.
+  await s.availability({ level: "tenant" }, { kind: "playbook", name: "contract-diff", value: "on" });
   s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
   s.http.on("GET api.github.com/repos/acme/api/commits", (req) => {
     const until = new URL(req.url).searchParams.get("until")!;

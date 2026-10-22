@@ -34,6 +34,7 @@ For a change that already exists as a branch or a pull request in a repository.
 
 - **`/code-review`** reviews a pull request, or the changes between two refs, on two axes kept apart: the repository's coding standards, and the spec the change came from.
 - **`/pr`** writes a pull request's body (summary, evidence, merge danger) and puts it on the pull request after Confirm.
+- **`/contract-diff`** records, for the frontend, every change to a backend's API contract, over the whole history or between two dates, as an OpenAPI document read from the source code (an API changelog), and can publish it as a preview page. "@bot changelog: ..." starts it too.
 
 ## Standalone
 

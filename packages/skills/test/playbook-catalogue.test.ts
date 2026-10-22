@@ -5,7 +5,7 @@ import { skillRegistry } from "../src/registry.ts";
 import { BUILTIN_PLAYBOOKS_DIR, builtinPlaybooks, builtinPlaybookFiles, playbookChain } from "../src/playbooks.ts";
 
 // Ours; every other built-in is copied from mattpocock/skills and must say so.
-const OWN = ["daily-log", "issue-draft", "making-playbooks", "minutes"];
+const OWN = ["contract-diff", "daily-log", "issue-draft", "making-playbooks", "minutes"];
 const folders = readdirSync(BUILTIN_PLAYBOOKS_DIR).filter((n) => statSync(join(BUILTIN_PLAYBOOKS_DIR, n)).isDirectory()).sort();
 const playbooks = builtinPlaybooks();
 const imported = playbooks.filter((p) => !OWN.includes(p.name));
@@ -31,6 +31,12 @@ describe("built-in playbooks", () => {
     expect(named("making-playbooks")).toMatchObject({ start: false, defaultOff: false, menu: null, words: [] });
     expect(named("making-playbooks")!.body).toContain("under 6000 characters");
     expect(named("making-playbooks")!.body).toContain("under 100 characters");
+  });
+
+  test("contract-diff starts off like the other repository playbooks, from changelog:, needs git and the OpenAPI skill and one repository, runs long, and reads its two references", () => {
+    expect(named("contract-diff")).toMatchObject({ start: true, defaultOff: true, menu: null, words: ["changelog"], requires: ["git_repositories", "openapi"], repository: "required", budget: "long", run: "thread" });
+    expect(files("contract-diff").sort()).toEqual(["PLAYBOOK.md", "checklist.md", "extensions.md"]);
+    for (const tool of ["startChangelog", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "sendFiles", "publishOpenApi"]) expect([tool, text("contract-diff").includes(`\`${tool}\``)]).toEqual([tool, true]);
   });
 
   test("minutes start from the English or the Indonesian word", () => {
