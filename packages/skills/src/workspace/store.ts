@@ -18,8 +18,11 @@ export interface WorkspaceStore {
   /** A file's bytes as stored, whatever its type, up to MAX_BLOB_BYTES; null when there is no file. */
   readBytes(tenantId: string, path: string): Promise<{ bytes: Uint8Array; version: string } | null>;
   readFrontmatter(tenantId: string, path: string): Promise<{ content: string; version: string } | null>;
-  /** Replacing an existing file needs the version last read; a file that changed since is refused (WorkspaceConflict). */
-  write(tenantId: string, path: string, content: string, expectedVersion?: string): Promise<{ version: string }>;
+  /**
+   * Replacing an existing file needs the version last read; a file that changed since is refused (WorkspaceConflict). A file is at most
+   * MAX_FILE_BYTES unless `maxBytes` allows more, up to MAX_BLOB_BYTES, for a file only the bot's own tools read back (`readBytes`).
+   */
+  write(tenantId: string, path: string, content: string, expectedVersion?: string, options?: { maxBytes?: number }): Promise<{ version: string }>;
   /** A new binary file; refuses to replace one. */
   writeBytes(tenantId: string, path: string, bytes: Uint8Array): Promise<{ version: string }>;
   list(tenantId: string, path: string): Promise<WorkspaceEntry[]>;
@@ -88,8 +91,9 @@ export class LocalWorkspaceStore implements WorkspaceStore {
     } catch (e: any) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return null; throw e; }
   }
 
-  async write(tenantId: string, path: string, content: string, expectedVersion?: string) {
-    if (Buffer.byteLength(content) > MAX_FILE_BYTES) throw new Error(`File is too large (max ${MAX_FILE_BYTES / 1024} KB)`);
+  async write(tenantId: string, path: string, content: string, expectedVersion?: string, options: { maxBytes?: number } = {}) {
+    const max = Math.min(options.maxBytes ?? MAX_FILE_BYTES, MAX_BLOB_BYTES);
+    if (Buffer.byteLength(content) > max) throw new Error(`File is too large (max ${max >= 1024 * 1024 ? `${max / 1024 / 1024} MB` : `${max / 1024} KB`})`);
     return this.serial(`${tenantId}/${path}`, () => {
       const { target } = this.locate(tenantId, path);
       let current: ReturnType<typeof statSync> | null = null;

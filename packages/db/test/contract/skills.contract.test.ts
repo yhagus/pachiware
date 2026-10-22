@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { contract } from "./engines.ts";
 
-const BUILT_IN = ["discord_management", "git_repositories", "plane", "reminders", "task_management", "workspace"];
+const BUILT_IN = ["discord_management", "git_repositories", "openapi", "plane", "reminders", "task_management", "workspace"];
 
 contract("Skills", (use) => {
   test("registering a skill again refreshes its name, description and tools, and keeps its default", async () => {
@@ -32,12 +32,12 @@ contract("Skills", (use) => {
     const { tenants, skills } = use().repos;
     const acme = await tenants.create({ name: "Acme", slug: "acme" });
     const other = await tenants.create({ name: "Other", slug: "other" });
-    expect((await skills.listEnabled(acme.id)).map((s) => s.id)).toEqual(["discord_management", "reminders", "task_management", "workspace"]);
+    expect((await skills.listEnabled(acme.id)).map((s) => s.id)).toEqual(["discord_management", "openapi", "reminders", "task_management", "workspace"]);
 
     const off = await skills.setEnabled(acme.id, "workspace", false);
     expect(off).toMatchObject({ tenantId: acme.id, skillId: "workspace", isEnabled: false });
     expect(await skills.getForTenant(acme.id, "workspace")).toEqual(off);
-    expect((await skills.listEnabled(acme.id)).map((s) => s.id)).toEqual(["discord_management", "reminders", "task_management"]);
+    expect((await skills.listEnabled(acme.id)).map((s) => s.id)).toEqual(["discord_management", "openapi", "reminders", "task_management"]);
     expect((await skills.getForTenant(other.id, "workspace"))?.isEnabled).toBe(true);
 
     expect((await skills.setEnabled(acme.id, "git_repositories", true))?.isEnabled).toBe(true);
@@ -81,7 +81,7 @@ contract("Skills", (use) => {
     await skills.seedTenant(acme.id);
     await skills.seedTenant(acme.id);
     const listed = await skills.listForTenant(acme.id);
-    expect(listed.map((l) => l.skill.id)).toEqual(["discord_management", "extra", "git_repositories", "plane", "reminders", "task_management", "workspace"]);
+    expect(listed.map((l) => l.skill.id)).toEqual(["discord_management", "extra", "git_repositories", "openapi", "plane", "reminders", "task_management", "workspace"]);
     expect(listed.find((l) => l.skill.id === "extra")?.state).toMatchObject({ isEnabled: false, config: { mode: "x" } });
     expect((await skills.getForTenant(acme.id, "workspace"))?.isEnabled).toBe(false);
   });

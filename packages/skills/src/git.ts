@@ -544,6 +544,15 @@ export async function getCommit(c: GitConn, repo: string, sha: string) {
     filesTruncated: files.length > 50,
   };
 }
+/** Git's empty tree: what a changelog compares against when nothing came before. No provider compares with it; it only names that base. */
+export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+/** The newest commit on `branch` made at or before `until` (ISO 8601), by the commit's date; null when there is none. */
+export async function lastCommitBy(c: GitConn, repo: string, branch: string, until: string): Promise<{ sha: string; date: string | null } | null> {
+  const gh = c.provider === "github";
+  const rows: any[] = (await call(c, `${repoRef(c, repo)}/${gh ? "commits" : "repository/commits"}?per_page=1&${gh ? "sha" : "ref_name"}=${encodeURIComponent(branch)}&until=${encodeURIComponent(until)}`)) ?? [];
+  const r = rows[0];
+  return r ? { sha: r.sha ?? r.id, date: (gh ? r.commit?.committer?.date ?? r.commit?.author?.date : r.committed_date ?? r.created_at) ?? null } : null;
+}
 /** A file changed between two refs: where it is in `to`, where it was in `from` when it moved, and its patch when the provider gives one. */
 type ComparedFile = { path: string; oldPath?: string; status: string; patch?: string };
 async function compared(c: GitConn, repo: string, from: string, to: string) {

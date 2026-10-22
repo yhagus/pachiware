@@ -51,7 +51,7 @@ export const markDone = (key: string) => { done.set(key, Date.now() + COOLDOWN_M
 
 export const policyOf = (skill: SkillModule, tool: string) => {
   const p = skill.toolPolicy?.[tool], effect = p?.effect ?? skill.effect ?? "read";
-  return { effect, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? effect !== "read", metered: p?.metered ?? false, requiredPermissions: p?.requiredPermissions, confirmsInternally: p?.confirmsInternally ?? skill.confirmsInternally ?? false };
+  return { effect, requiresConfirmation: p?.requiresConfirmation ?? skill.requiresConfirmation ?? effect !== "read", metered: p?.metered ?? false, requiredPermissions: p?.requiredPermissions, confirmsInternally: p?.confirmsInternally ?? skill.confirmsInternally ?? false, repeatable: p?.repeatable ?? false };
 };
 
 // Phrases that try to rewrite the rules or pull out hidden material. Matching text is flagged, never obeyed.
@@ -152,7 +152,7 @@ export const GuardrailService = {
     // A tool that confirms internally (git, savePlaybook) runs its own duplicate guard behind Confirm, so the per-tool write limit and the checks below skip it.
     if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !policy.confirmsInternally && !ctx.bulkApproved && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", t.guardRateLimit);
     if (policy.effect !== "read" && !policy.confirmsInternally) {
-      const until = done.get(actionKey(tool, args, ctx));
+      const until = policy.repeatable ? undefined : done.get(actionKey(tool, args, ctx));
       if (until && until > Date.now()) return deny("duplicate", t.guardDuplicate);
       if (policy.requiresConfirmation && !ctx.confirmed && !hasThreadConfirmation(ctx)) return this.requireConfirmation(`${tool} ${redact(JSON.stringify(args ?? {})).slice(0, 600)}`);
     }

@@ -28,7 +28,7 @@ function run(body: string, beforeSeed = "") {
 
 test("the seed stores no copy of a skill's tools, and clears the copy an older version stored", () => run(`
   const stored = await repositories().skills.list();
-  assert(stored.length === 6, "skills stored " + stored.map((s) => s.id));
+  assert(stored.length === 7, "skills stored " + stored.map((s) => s.id));
   assert(stored.every((s) => JSON.stringify(s.toolDefinitions) === "[]"), "copies kept: " + JSON.stringify(stored.filter((s) => s.toolDefinitions.length).map((s) => [s.id, s.toolDefinitions.map((d) => d.name)])));
 `, `
   // The task tools as servers before #134 stored them: a free-text assignee and three statuses.
@@ -42,7 +42,7 @@ test("GET /api/v1/skills lists each skill's name, description and tools as its m
   const res = await app.request("/api/v1/skills", { headers });
   assert(res.status === 200, "status " + res.status);
   const listed = Object.fromEntries((await res.json()).skills.map((s) => [s.id, s]));
-  const modules = [skills.taskManagementSkill, skills.discordManagementSkill, skills.gitRepositorySkill, skills.workspaceSkill, skills.remindersSkill, skills.planeSkill];
+  const modules = [skills.taskManagementSkill, skills.discordManagementSkill, skills.gitRepositorySkill, skills.workspaceSkill, skills.remindersSkill, skills.planeSkill, skills.openapiSkill];
   assert(JSON.stringify(Object.keys(listed).sort()) === JSON.stringify(modules.map((m) => m.id).sort()), "skills listed " + Object.keys(listed));
   for (const m of modules) {
     const s = listed[m.id];

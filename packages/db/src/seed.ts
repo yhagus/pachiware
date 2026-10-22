@@ -83,7 +83,18 @@ export function builtInSkills(): SkillDefinition[] {
     config: {},
   };
 
-  return [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill];
+  // On by default: its changelog tools follow the contract-diff playbook, which needs git, and publishing needs nothing else.
+  const openapiSkill = {
+    id: "openapi",
+    name: "OpenAPI",
+    description: "Write API changelogs of a repository as OpenAPI documents.",
+    defaultEnabled: true,
+    handlerType: "builtin",
+    toolDefinitions: [],
+    config: {},
+  };
+
+  return [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill, openapiSkill];
 }
 
 if (import.meta.main) runSeed().then(() => process.exit(0)).catch(() => { console.error("Seed failed."); process.exit(1); });

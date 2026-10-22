@@ -1,4 +1,4 @@
-import type { SearchableWorkspaceStore, WorkspaceStore } from "./store.js";
+import { MAX_FILE_BYTES, type SearchableWorkspaceStore, type WorkspaceStore } from "./store.js";
 import { readsThroughMarkdown } from "./extract.js";
 import type { FileMatch, FolderSearch } from "./search.js";
 import { fileWords, matchWords, type FileWords } from "./terms.js";
@@ -37,9 +37,10 @@ export class IndexedWorkspaceStore implements SearchableWorkspaceStore {
   list(tenantId: string, path: string) { return this.inner.list(tenantId, path); }
   files(tenantId: string, path: string) { return this.inner.files(tenantId, path); }
 
-  async write(tenantId: string, path: string, content: string, expectedVersion?: string) {
-    const written = await this.inner.write(tenantId, path, content, expectedVersion);
-    this.index(tenantId).set(path, { version: written.version, text: readsThroughMarkdown(path) ? "" : content });
+  async write(tenantId: string, path: string, content: string, expectedVersion?: string, options?: { maxBytes?: number }) {
+    const written = await this.inner.write(tenantId, path, content, expectedVersion, options);
+    // A file over what `read` returns is searched by its name only, as a walk that cannot read it would.
+    this.index(tenantId).set(path, { version: written.version, text: readsThroughMarkdown(path) || Buffer.byteLength(content) > MAX_FILE_BYTES ? "" : content });
     return written;
   }
   async writeBytes(tenantId: string, path: string, bytes: Uint8Array) {

@@ -11,6 +11,8 @@
   "dependencies": {
     "@mixmark-io/domino": "^2.2.0",
     "@pachiware/db": "workspace:*",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "drizzle-orm": "^0.39.3",
     "exceljs": "^4.4.0",
     "fflate": "^0.8.2",

@@ -21,8 +21,8 @@ test("admin skills catalogue lists every tool with its effect, group and playboo
     // A row holding text an older version stored; the console shows the module's.
     await repositories().skills.register({ id: "task_management", name: "Tasks (old)", description: "Old text.", defaultEnabled: true, toolDefinitions: [], handlerType: "builtin", config: {} });
     const skills = await list(alpha), byId = Object.fromEntries(skills.map((s) => [s.id, s]));
-    const { taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill } = await imp("packages/skills/src/index.ts");
-    const modules = [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill], names = (tools) => JSON.stringify(tools.map((t) => t.name));
+    const { taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill, openapiSkill } = await imp("packages/skills/src/index.ts");
+    const modules = [taskManagementSkill, discordManagementSkill, gitRepositorySkill, workspaceSkill, remindersSkill, planeSkill, openapiSkill], names = (tools) => JSON.stringify(tools.map((t) => t.name));
     assert(JSON.stringify(skills.map((s) => s.id).sort()) === JSON.stringify(modules.map((m) => m.id).sort()), "skills listed " + skills.map((s) => s.id));
     for (const m of modules) {
       assert(byId[m.id].toolCount === m.tools.length && names(byId[m.id].tools) === names(m.tools), m.id + " lists " + byId[m.id].toolCount + " tools, its module " + m.tools.length);

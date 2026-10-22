@@ -1,0 +1,109 @@
+{
+  "openapi": "3.1.2",
+  "info": {
+    "title": "Users API changes",
+    "version": "a1b2c3d",
+    "x-changelog": {
+      "date": "2026-10-22",
+      "base": { "ref": "main", "commit": "9f8e7d6" },
+      "head": { "ref": "feature/user-phone", "commit": "a1b2c3d", "dirty": false },
+      "summary": { "breaking": 3, "deprecated": 0, "non-breaking": 1 },
+      "globalChanges": [],
+      "removedOperations": [],
+      "unverified": []
+    }
+  },
+  "paths": {
+    "/api/v2/users": {
+      "post": {
+        "operationId": "createUser",
+        "summary": "Create user",
+        "x-impact": "breaking",
+        "x-changes": [
+          { "status": "CHANGED", "impact": "breaking", "in": "url", "before": "POST /api/v1/users", "after": "POST /api/v2/users" },
+          { "status": "RENAMED", "impact": "breaking", "in": "body", "field": "full_name", "from": "name" },
+          { "status": "CHANGED", "impact": "breaking", "in": "body", "field": "phone", "before": { "required": false }, "after": { "required": true, "format": "E.164" } },
+          { "status": "NEW", "impact": "non-breaking", "in": "response.409", "code": "PHONE_ALREADY_USED" }
+        ],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NewUser" },
+              "example": { "full_name": "Ani Wijaya", "phone": "+6281234567890" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The user was created.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserEnvelope" },
+                "example": { "data": { "id": 42, "full_name": "Ani Wijaya", "phone": "+6281234567890", "created_at": "2026-10-22T09:30:00+07:00" } }
+              }
+            }
+          },
+          "409": {
+            "description": "PHONE_ALREADY_USED: the phone number belongs to another user.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": { "code": "PHONE_ALREADY_USED", "message": "Phone number already used" } }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_FAILED: full_name is empty, or phone is missing or not in E.164.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": { "code": "VALIDATION_FAILED", "message": "phone is required" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
+    "schemas": {
+      "NewUser": {
+        "type": "object",
+        "required": ["full_name", "phone"],
+        "properties": {
+          "full_name": { "type": "string", "minLength": 1 },
+          "phone": { "type": "string", "pattern": "^\\+[1-9]\\d{7,14}$", "description": "E.164" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "required": ["id", "full_name", "phone", "created_at"],
+        "properties": {
+          "id": { "type": "integer" },
+          "full_name": { "type": "string" },
+          "phone": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "UserEnvelope": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "$ref": "#/components/schemas/User" } }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}

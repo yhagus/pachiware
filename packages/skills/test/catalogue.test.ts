@@ -32,9 +32,10 @@ describe("tool catalogue", () => {
     for (const name of ["repoCreateIssue", "repoLinkIssues", "repoSubIssue", "repoCreateIssues", "repoUpdateIssues"]) expect([name, tool(name).effect, tool(name).group]).toEqual([name, "write", "Issues & PRs"]);
   });
 
-  test("the brief tools belong to the issue-draft playbook and no other tool belongs to one", () => {
+  test("the brief tools belong to the issue-draft playbook, the changelog drafting tools to contract-diff, and no other tool belongs to one", () => {
     const brief = ["postBriefRound", "recordBriefAnswers", "writeIssueDraft", "describeBriefImages", "briefRepositories", "briefRead", "createBriefIssues"];
-    expect(catalogue.flatMap((s) => s.tools).filter((t) => t.playbook).map((t) => [t.name, t.playbook]).sort()).toEqual(brief.map((n) => [n, "issue-draft"]).sort());
+    const changelog = ["startChangelog", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog"];
+    expect(catalogue.flatMap((s) => s.tools).filter((t) => t.playbook).map((t) => [t.name, t.playbook]).sort()).toEqual([...brief.map((n) => [n, "issue-draft"]), ...changelog.map((n) => [n, "contract-diff"])].sort());
   });
 
   test("tools keep their descriptions, and every tool has a handler and a policy entry that name nothing else", () => {

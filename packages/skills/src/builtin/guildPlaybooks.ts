@@ -19,7 +19,7 @@ export const MAX_PLAYBOOK_BODY = 6000;
 const MAX_DESCRIPTION = 100, MAX_WORDS = 3, PREVIEW = 1500, DIFF = 1200;
 /** The skills a playbook made in chat may require, by id with the name people see; a test holds it to the registry. */
 export const PLAYBOOK_SKILLS: Record<string, string> = {
-  discord_management: "Discord Management", git_repositories: "Git Repositories", plane: "Plane", reminders: "Reminders", task_management: "Task Management", workspace: "Workspace",
+  discord_management: "Discord Management", git_repositories: "Git Repositories", openapi: "OpenAPI", plane: "Plane", reminders: "Reminders", task_management: "Task Management", workspace: "Workspace",
 };
 const WORD = /^[\p{L}\p{N}_-]{1,32}$/u;
 

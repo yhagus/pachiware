@@ -88,6 +88,13 @@ test("every guardrail refusal speaks English and Indonesian", async () => {
     rate: ["limit", "Terlalu banyak permintaan saat ini. Tunggu satu menit lalu coba lagi."],
     confirmer: ["confirmation_required", "Aksi ini perlu dikonfirmasi seseorang, dan itu hanya bisa di channel Discord."],
   });
+  // A repeatable write (a changelog draft resumed or replaced) may run again at once; it still counts toward the rate.
+  g.resetGuardrailState();
+  const repeatable: any = { ...write, toolPolicy: { save: { effect: "write", requiresConfirmation: false, repeatable: true } } };
+  g.markDone(g.actionKey("save", { n: 1 }, ctx("en")));
+  expect(G.checkTool(repeatable, "save", { n: 1 }, ctx("en"))).toMatchObject({ allow: true });
+  for (let i = 0; i < 9; i++) G.checkTool(repeatable, "save", { n: 1 }, ctx("en"));
+  expect(refusal(G.checkTool(repeatable, "save", { n: 1 }, ctx("en")))).toEqual(["limit", "Too many requests right now. Wait a minute and try again."]);
   g.resetGuardrailState();
 });
 

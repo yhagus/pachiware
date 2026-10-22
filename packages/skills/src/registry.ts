@@ -5,6 +5,7 @@ import { gitRepositorySkill } from "./builtin/git.js";
 import { workspaceSkill } from "./builtin/workspace.js";
 import { remindersSkill } from "./builtin/reminders.js";
 import { planeSkill } from "./builtin/plane.js";
+import { openapiSkill } from "./builtin/openapi.js";
 import { GuardrailService, audit, isEnforced, policyOf, actionKey, markDone, redact, guardrailMode } from "./guardrails.js";
 import { queueAction } from "./gitConfirm.js";
 import { resolveAvailability, availabilityPlace, type Availability, type Place } from "./availability.js";
@@ -32,6 +33,7 @@ export class SkillRegistry {
     this.registerSkill(workspaceSkill);
     this.registerSkill(remindersSkill);
     this.registerSkill(planeSkill);
+    this.registerSkill(openapiSkill);
   }
 
   /**
@@ -213,7 +215,7 @@ export class SkillRegistry {
     try {
       const data = await handler(args, context);
       const policy = policyOf(skill, name);
-      if (policy.effect !== "read" && !policy.confirmsInternally && guardrailMode() !== "observe") markDone(actionKey(name, args, context));
+      if (policy.effect !== "read" && !policy.confirmsInternally && !policy.repeatable && guardrailMode() !== "observe") markDone(actionKey(name, args, context));
       return {
         toolCallId,
         name,
