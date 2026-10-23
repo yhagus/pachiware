@@ -172,6 +172,10 @@ _Avoid_: Attachment (Discord's word for any file on a message), upload, Note
 An OpenAPI document the bot wrote from a repository's source code, recording every endpoint whose frontend-facing contract changed between two of its commits, or every endpoint when it covers the whole history. What it covers, the whole history or a range of days, is always the asker's answer, never the bot's choice.
 _Avoid_: Contract diff (the playbook that writes one), API docs, Swagger, release notes
 
+**Changelog draft**:
+An API changelog still being made: one repository, branch and coverage, started by one person. It stays open until the changelog is written (or published, when the asker asked for that too), the asker stops it, or every changed file was examined and none changed what the frontend sees.
+_Avoid_: Changelog run, unfinished changelog, job
+
 **OpenAPI Schema Viewer**:
 A public page showing one OpenAPI document as it was when the bot published it, which anyone with its link can open without signing in, until it is revoked in the console. Publishing again makes another; a later change to the file never reaches it.
 _Avoid_: API preview, public link, share, docs page
@@ -227,6 +231,7 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A mirrored **Document** is kept under `files/docs/` of the channel an admin chose, and refreshed only while that channel's **Git scope** allows its repository.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.
 - An **API changelog** is written in a **Playbook thread** bound to one repository the **Git scope** allows, and kept in the **Workspace** folder of the thread's channel (or the DM's).
+- A place has at most one open **Changelog draft**; it becomes an **API changelog** only when every file that changed between its two commits was examined or set aside with a reason.
 - An **OpenAPI Schema Viewer** page belongs to the **Bot** that published it and to the channel or DM it was asked in. It holds a copy of the document, never a link to the file, and it is made only from a file the asker may read there, under the rules of quoting a **Source**.
 - A **Daily log** is written by one **Bot** of the tenant, following a **Playbook** that only the schedule starts; it covers one channel and one day, with the channel's public threads; a private thread and a DM never get one. The messages stay in Discord: the Daily log links to them and keeps no copy, and what rests only on a deleted message leaves it.
 - **Minutes**, **Daily logs**, **Decisions**, **Notes** and **Documents** of a channel can be read from another channel of the same guild, or from a DM, by someone who can view that channel, unless an **Availability rule** turns the Workspace off there; only a **Public channel**'s may be quoted in a channel other than their own. **Memory** is never read this way.

@@ -90,8 +90,16 @@ export interface SeedCommit { repo: string; sha: string; message: string; date: 
 export const pullUrl = (p: Pick<SeedPullRequest, "repo" | "number">) => `https://github.com/${p.repo}/pull/${p.number}`;
 export const issueUrl = (i: Pick<SeedIssue, "repo" | "number">) => `https://github.com/${i.repo}/issues/${i.number}`;
 export const commitUrl = (repo: string, sha: string) => `https://github.com/${repo}/commit/${sha}`;
-/** A GitHub account whose Git scope opens `repos` (patterns such as "acme/*") in the guild, holding these pull requests, issues and commits. */
-export interface SeedGit { repos: string[]; pullRequests?: SeedPullRequest[]; issues?: SeedIssue[]; commits?: SeedCommit[] }
+/**
+ * Two commits of a repository's default branch and the files changed between them, for an API changelog: `before` and `after` are a file's
+ * text at base and at head (absent where it does not exist), `patch` the comparison's.
+ */
+export interface SeedChange {
+  repo: string; base: { sha: string; date: string }; head: { sha: string; date: string };
+  files: { path: string; status: "added" | "modified" | "removed"; patch?: string; before?: string; after?: string }[];
+}
+/** A GitHub account whose Git scope opens `repos` (patterns such as "acme/*") in the guild, holding these pull requests, issues, commits and changes. */
+export interface SeedGit { repos: string[]; pullRequests?: SeedPullRequest[]; issues?: SeedIssue[]; commits?: SeedCommit[]; changes?: SeedChange[] }
 /** The Rapor's areas: Minutes, Daily logs and Documents; finding what was kept; Tasks and project work; several people at once; the agent loop itself. */
 export const AREAS = ["capture", "recall", "tasks", "group", "loop"] as const;
 export type Area = (typeof AREAS)[number];
@@ -104,6 +112,8 @@ export interface AssistantFacts {
   settings?: { timezone?: string; language?: Language };
   /** Guild permissions the author holds, discord.js names. */
   grants?: string[];
+  /** Availability rules for the tenant, such as turning on a playbook that starts off. */
+  availability?: { kind: string; name: string; value: string }[];
   /** Guild members besides Alice and Bob; `name` is the display name, `username` defaults to it. */
   members?: { id: string; name: string; username?: string }[];
   /**
@@ -252,7 +262,7 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
       const zone = zoneOf(raw);
       if (!(raw.seed?.messages ?? []).some((m: SeedMessage) => !bare(m.channel) && dayIn(zone, seedTime(m.at, raw.clock)) === then.dailyLog)) throw new Error(`Fixture ${name}: then.dailyLog ${then.dailyLog} has no seeded talk in the brief's channel that day`);
     }
-    const facts: AssistantFacts = { language: raw.language, area: raw.area, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), members: raw.members, seed: raw.seed, ...(raw.corpus ? { corpus: raw.corpus } : {}), attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
+    const facts: AssistantFacts = { language: raw.language, area: raw.area, clock: raw.clock, settings: raw.settings, grants: strings(raw.grants, `${name} grants`), ...(raw.availability ? { availability: raw.availability } : {}), members: raw.members, seed: raw.seed, ...(raw.corpus ? { corpus: raw.corpus } : {}), attachments: raw.attachments, mustCover, turns: raw.turns, then: raw.then };
     return { name, messages, authors, facts };
   });
 }

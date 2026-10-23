@@ -70,7 +70,8 @@ function fitWindow<T extends StoredRow>(start: number, loaded: T[]): { offset: n
 
 // Stored tool rows are replayed on every later turn, so they keep only what names the outcome; the live turn reads the full result.
 export const STORED_TOOL_RESULT = 800;
-const KEPT_FIELD = /^(success|id|title|name|path|from|to|status|url|number|line|message|total|count|removed|pending|summary|version|level|error)$|Id$/;
+// draft: a Changelog draft's path, which a later turn goes on with (#346).
+const KEPT_FIELD = /^(success|id|title|name|path|draft|from|to|status|url|number|line|message|total|count|removed|pending|summary|version|level|error)$|Id$/;
 // An error or message can say what to do next (a refused bulk: make the same calls again after the yes), so it keeps more.
 const REASON_FIELD = /^(message|error)$/;
 const KEPT_ITEMS = 10, KEPT_TEXT = 160, KEPT_REASON = 600, KEPT_DEPTH = 3;

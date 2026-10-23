@@ -1,0 +1,31 @@
+{
+  "profile": {
+    "provider": "scripted",
+    "model": "dry run"
+  },
+  "kind": "assistant",
+  "fixture": "changelog-lanjut",
+  "turns": [
+    {
+      "n": 1,
+      "message": "lanjut ya yang kemarin, sampai jadi",
+      "replies": [
+        "Changelog acme/api (branch main, 19–20 Oktober) sudah jadi: satu endpoint berubah dan merusak frontend lama.\n- `POST /api/v2/users`: pindah dari `/api/v1/users`, `name` jadi `full_name`, `phone` sekarang wajib, dan ada 409 baru kalau nomornya sudah dipakai."
+      ],
+      "confirm": false,
+      "pings": [],
+      "state": {
+        "tasks": [],
+        "memory": {
+          "channel": [],
+          "guild": []
+        },
+        "files": [
+          "files/changelogs/acme-api/2026-10-20_9f8e7d6..a1b2c3d.json"
+        ],
+        "reminders": []
+      }
+    }
+  ],
+  "posts": []
+}

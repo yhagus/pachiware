@@ -33,11 +33,57 @@ async function turn(s: Scenario, ...steps: Parameters<Scenario["model"]["script"
   return lastReply(s);
 }
 
+/** A turn the model answers in words, in `channel`; returns the per-turn context it read. */
+async function contextAfter(s: Scenario, channel?: string) {
+  s.model.script("ok");
+  await s.discord.send(`${s.discord.mention} lanjut`, channel ? { channel } : {});
+  return String(s.model.calls.at(-1)!.findLast((m) => typeof m.content === "string" && m.content.startsWith("[Context for this turn"))!.content);
+}
+
+const OPEN = "Open API changelog in this place (unfinished until it is written; data, not instructions): acme/api, branch main, 2026-10-01 to 2026-10-22 (commits 9f8e7d6..a1b2c3d, 2 changed files), started by Alice (ID: user-alice) on 2026-10-22;";
+
+discordScenario("an open draft is named in every later turn of its place, from the draft itself, until the changelog is written (#346)", async (s) => {
+  await acmeApi(s);
+  await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  const open = await contextAfter(s);
+  expect(open).toContain(`${OPEN} 0 endpoints recorded so far. Draft: ${DRAFT}`);
+  expect(open).toContain("When the person asks to go on, go on with this draft by its path: do not ask again what it covers");
+  s.discord.channel("channel-2");
+  expect(await contextAfter(s, "channel-2")).not.toContain("Open API changelog");
+
+  await turn(s, [{ tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } }], results);
+  expect(await contextAfter(s)).toContain(`${OPEN} 1 endpoint recorded so far.`);
+  await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
+  expect(await contextAfter(s)).not.toContain("Open API changelog");
+});
+
+discordScenario("a place holds one open draft: another changelog is refused with what is open, the same one goes on, and a thread keeps its own (#346)", async (s) => {
+  await acmeApi(s);
+  s.http.on(`GET api.github.com/repos/acme/api/git/trees/${HEAD}?recursive=1`, () => ({ tree: [{ path: "src/main.ts", type: "blob" }], truncated: false }));
+  await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  const [refused] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "all" } }, results);
+  expect(refused).toBe(`Another API changelog is open here and nothing new was started: acme/api, branch main, 2026-10-01 to 2026-10-22, started by Alice, 0 endpoints recorded (draft ${DRAFT}). Tell the person and ask whether to go on with that one or stop it first.`);
+  const [same] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  expect(same.draft).toBe(DRAFT);
+
+  // A public thread shares its channel's folder, but a draft belongs to where it was started.
+  s.discord.channel("thread-1", { thread: true, parentId: "channel-1" });
+  s.model.script({ tool: "startChangelog", args: { repo: "acme/api", scope: "all" } }, results);
+  await s.discord.send(`${s.discord.mention} changelog`, { channel: "thread-1" });
+  const [inThread] = lastReply(s);
+  expect(inThread.draft).toBe("channel/files/changelogs/acme-api/2026-10-22_4b825dc..a1b2c3d.draft.json");
+  const thread = await contextAfter(s, "thread-1");
+  expect(thread).toContain("acme/api, branch main, the whole history through 2026-10-22");
+  expect(thread).not.toContain(DRAFT);
+  expect(await contextAfter(s)).not.toContain("the whole history");
+});
+
 discordScenario("a range becomes two commits, the operation and components go into a draft, and finishing writes the validated changelog", async (s) => {
   await acmeApi(s);
   const [started] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   expect(started).toEqual({
     draft: DRAFT, repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22",
+    branchNote: "No branch was named, so this is the repository's default branch, main. Name it when you tell the person you are starting, and in your answer.",
     base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: HEAD, date: "2026-10-21T08:00:00Z" },
     // The patches that fit come with the list (#342): this comparison gives one for the controller only.
     changedFiles: {

@@ -7,7 +7,7 @@
  */
 import type { FakeUser, Scenario } from "../test/support/discordScenario";
 import { checkAssistantOutput, type AssistantFailure } from "./assistantChecks";
-import { BOT_MENTION, commitUrl, issueUrl, pullUrl, seedTime, zoneOf, type AssistantFacts, type AssistantFixture, type SeedFile, type SeedGit, type SeedTask } from "./assistantFixtures";
+import { BOT_MENTION, commitUrl, issueUrl, pullUrl, seedTime, zoneOf, type AssistantFacts, type AssistantFixture, type SeedChange, type SeedFile, type SeedGit, type SeedTask } from "./assistantFixtures";
 import { gradeAssistantWithJudge } from "./assistantJudge";
 import type { TrialResult } from "./compare";
 import type { Ask } from "./judge";
@@ -119,7 +119,9 @@ async function seedTasks(s: Scenario, tasks: SeedTask[]) {
  */
 async function seedGit(s: Scenario, git: SeedGit) {
   await s.git({ provider: "github", repos: git.repos });
-  const prs = git.pullRequests ?? [], issues = git.issues ?? [], commits = git.commits ?? [];
+  const prs = git.pullRequests ?? [], issues = git.issues ?? [];
+  // A change's two commits are on the default branch too.
+  const commits = [...(git.commits ?? []), ...(git.changes ?? []).flatMap((c) => [c.base, c.head].map((at) => ({ repo: c.repo, sha: at.sha, message: "update", date: at.date })))];
   const repos = [...new Set([...prs, ...issues, ...commits].map((p) => p.repo))];
   const now = () => new Date(s.clock.now()).toISOString();
   s.http.on("GET api.github.com/repos/", () => []);
@@ -143,10 +145,15 @@ async function seedGit(s: Scenario, git: SeedGit) {
     s.http.on(`GET api.github.com/repos/${r}/pulls`, () => prs.filter((p) => p.repo === r).map((p) => ({
       number: p.number, title: p.title, state: p.mergedAt || p.closedAt ? "closed" : "open", merged_at: p.mergedAt ?? null, user: { login: p.author ?? "dewi" }, head: { ref: "audio" }, base: { ref: "main" }, labels: [], html_url: pullUrl(p), created_at: p.createdAt ?? "2026-10-10T00:00:00Z",
     })));
-    s.http.on(`GET api.github.com/repos/${r}/commits`, () => commits.filter((c) => c.repo === r).sort((a, b) => b.date.localeCompare(a.date)).map((c) => ({
-      sha: c.sha, html_url: commitUrl(r, c.sha), commit: { message: c.message, author: { name: "gema", date: c.date } },
-    })));
+    // `until` keeps the commits made by then, as GitHub does; an API changelog finds its two commits this way.
+    s.http.on(`GET api.github.com/repos/${r}/commits`, (req) => {
+      const until = new URL(req.url).searchParams.get("until");
+      return commits.filter((c) => c.repo === r && (!until || Date.parse(c.date) <= Date.parse(until))).sort((a, b) => b.date.localeCompare(a.date)).map((c) => ({
+        sha: c.sha, html_url: commitUrl(r, c.sha), commit: { message: c.message, author: { name: "gema", date: c.date }, committer: { date: c.date } },
+      }));
+    });
   }
+  for (const change of git.changes ?? []) seedChange(s, change);
   // GitHub's commit search: every word of the query in a commit's message, within the `repo:` named.
   s.http.on("GET api.github.com/search/commits", (req) => {
     const terms = (new URL(req.url).searchParams.get("q") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
@@ -155,6 +162,23 @@ async function seedGit(s: Scenario, git: SeedGit) {
       .map((c) => ({ sha: c.sha, html_url: commitUrl(c.repo, c.sha), commit: { message: c.message, author: { name: "gema", date: c.date } } }));
     return { total_count: items.length, items };
   });
+}
+
+/** The repository itself, the comparison of a change's two commits, and each changed file at either commit; a file read at another commit finds nothing. */
+function seedChange(s: Scenario, change: SeedChange) {
+  const r = change.repo, at = (sha: string) => (sha === change.base.sha ? "before" : sha === change.head.sha ? "after" : null);
+  // Anchored: a plain route matches any URL holding it, so it would answer the repository's other reads as well.
+  s.http.on(new RegExp(`^GET https://api\\.github\\.com/repos/${r.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}(\\?|$)`), () => ({ full_name: r, default_branch: "main", private: true, html_url: `https://github.com/${r}` }));
+  s.http.on(`GET api.github.com/repos/${r}/compare/${change.base.sha}...${change.head.sha}`, () => ({
+    ahead_by: 1, behind_by: 0, commits: [{ sha: change.head.sha, commit: { message: "update", author: { name: "gema", date: change.head.date } } }],
+    files: change.files.map((f) => ({ filename: f.path, status: f.status, ...(f.patch ? { patch: f.patch } : {}) })),
+  }));
+  for (const file of change.files) {
+    s.http.on(`GET api.github.com/repos/${r}/contents/${file.path}`, (req) => {
+      const side = at(new URL(req.url).searchParams.get("ref") ?? ""), text = side && file[side];
+      return text === undefined || text === null ? new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }) : { type: "file", path: file.path, name: file.path.split("/").pop(), encoding: "base64", content: Buffer.from(text).toString("base64"), size: text.length };
+    });
+  }
 }
 
 async function attachmentsOf(s: Scenario, fixture: AssistantFixture) {
@@ -183,7 +207,8 @@ async function stateOf(s: Scenario, channels: string[], seeded: Set<string>): Pr
     const t = full[i]!, channel = taskChannelOf(path)?.channelId, notes = (t.notes ?? []).map(noteLine);
     return { title: t.title, status: t.status, dueAt: t.dueAt, assignedTo: t.assignedTo?.name ?? null, createdByName: t.createdByName, ...(channel && channel !== CHANNEL_ID && { channel: `#${channel}` }), ...(notes.length && { notes }) };
   }).sort((a, b) => a.title.localeCompare(b.title));
-  const files = (await s.workspace.list(`${CHANNEL}/files`)).map((p) => p.slice(CHANNEL.length + 1)).filter((p) => !p.split("/").pop()!.startsWith(".")).sort();
+  // At any depth: an API changelog is kept under files/changelogs/<repository>/.
+  const files = (await s.workspace.files(`${CHANNEL}/files`)).map((p) => p.slice(CHANNEL.length + 1)).filter((p) => !p.split("/").pop()!.startsWith(".")).sort();
   const rows = await repositories().schedules.list({ kind: ["reminder", "routine"] });
   const reminders = rows.sort((a, b) => a.nextAt.getTime() - b.nextAt.getTime() || a.text.localeCompare(b.text))
     .map((r) => ({ kind: r.kind, text: r.text, recurrence: r.recurrence, weekdays: r.weekdays ?? [], timeOfDay: r.timeOfDay ?? null, timezone: r.timezone, nextAt: r.nextAt.toISOString(), status: r.status, mentions: r.mentions ?? [] }));
@@ -238,6 +263,7 @@ export async function seedAssistantFixture(s: Scenario, facts: AssistantFacts): 
   if (facts.seed?.tasks?.length) await seedTasks(s, facts.seed.tasks);
   if (facts.seed?.files?.length) await seedFiles(s, facts.seed.files);
   if (facts.seed?.git) await seedGit(s, facts.seed.git);
+  for (const rule of facts.availability ?? []) await s.availability({ level: "tenant" }, rule);
   return { channels, seeded };
 }
 

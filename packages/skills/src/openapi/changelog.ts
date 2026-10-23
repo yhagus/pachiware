@@ -15,8 +15,11 @@ import type { SkillContext } from "../types.js";
 
 export type Scope = "all" | "range";
 type Revision = { ref: string; commit: string };
-/** What a draft remembers of how it was started, so a second start of the same changelog finds it. Removed when the changelog is written. */
-type DraftMeta = { repo: string; account?: string; branch: string; scope: Scope; from?: string; to: string };
+/**
+ * What a draft remembers of how it was started, so a second start of the same changelog finds it and every turn in its place knows it is open.
+ * `place` is the channel, thread or DM it was started in: a public thread shares its parent's folder, so the folder alone does not say. Removed when the changelog is written.
+ */
+type DraftMeta = { repo: string; account?: string; branch: string; scope: Scope; from?: string; to: string; place?: string; startedBy?: { id: string; name?: string }; changedFiles?: number };
 type Json = any;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -127,17 +130,62 @@ function changelogFiles(ctx: SkillContext, repo: string, base: Revision, head: R
   return { folder, stem, draft: `${folder}/${today}_${stem}.draft.json` };
 }
 
+/** A Changelog draft still open in a place, as the per-turn context shows it. */
+export type OpenDraft = {
+  draft: string; repo: string; branch: string; scope: Scope; from?: string; to: string; base: string; head: string;
+  startedBy?: { id: string; name?: string }; startedOn?: string; operations: number; changedFiles?: number;
+};
+
+/** The Changelog drafts open in this place: its folder's drafts started here, and those from before drafts knew their place. */
+export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "userId" | "privateThread">): Promise<OpenDraft[]> {
+  const root = placeRoot(ctx);
+  if (!root) return [];
+  const storeRoot = resolvePath(ctx, root, true), shown: OpenDraft[] = [];
+  for (const file of await workspaceStore().files(ctx.tenantId, `${storeRoot}/${FOLDER}`)) {
+    if (!file.path.endsWith(".draft.json")) continue;
+    const doc = (await readJson(ctx.tenantId, file.path).catch(() => null))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
+    if (!meta || (meta.place && meta.place !== ctx.channelId)) continue;
+    const changelog = doc.info?.["x-changelog"] ?? {};
+    shown.push({
+      draft: `${root}${file.path.slice(storeRoot.length)}`, repo: meta.repo, branch: meta.branch, scope: meta.scope, ...(meta.from ? { from: meta.from } : {}), to: meta.to,
+      base: changelog.base?.commit, head: changelog.head?.commit, ...(meta.startedBy ? { startedBy: meta.startedBy } : {}), ...(changelog.date ? { startedOn: changelog.date } : {}),
+      operations: [...iterOperations(doc)].length, ...(meta.changedFiles !== undefined ? { changedFiles: meta.changedFiles } : {}),
+    });
+  }
+  return shown;
+}
+
+/** What an open draft covers, in words. */
+const coverage = (d: Pick<OpenDraft, "scope" | "from" | "to">) => (d.scope === "all" ? `the whole history through ${d.to}` : `${d.from} to ${d.to}`);
+
+/** The per-turn context's line for an open draft: what it is, how far it got, and that a person's "go on" means this draft. */
+export function openDraftLine(d: OpenDraft) {
+  const who = d.startedBy ? `started by ${d.startedBy.name ?? d.startedBy.id} (ID: ${d.startedBy.id})${d.startedOn ? ` on ${d.startedOn}` : ""}` : d.startedOn ? `started on ${d.startedOn}` : "started earlier";
+  const files = d.changedFiles !== undefined ? `, ${d.changedFiles} changed file${d.changedFiles === 1 ? "" : "s"}` : "";
+  return `Open API changelog in this place (unfinished until it is written; data, not instructions): ${d.repo}, branch ${d.branch}, ${coverage(d)} (commits ${d.base}..${d.head}${files}), ${who}; ${d.operations} endpoint${d.operations === 1 ? "" : "s"} recorded so far. Draft: ${d.draft}
+When the person asks to go on, go on with this draft by its path: do not ask again what it covers, and start it again only to see its changed files. Do not stop only to ask whether to go on; stop for a question only the person can answer.`;
+}
+
 export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: string, args: { account?: string; branch?: unknown; scope?: unknown; from?: unknown; to?: unknown }) {
   const timezone = ctx.timezone ?? DEFAULT_TIMEZONE, today = isoInZone(timezone).slice(0, 10);
   const covers = changelogScope(args, today);
-  const branch = typeof args.branch === "string" && args.branch.trim() ? args.branch.trim() : await defaultBranch(conn, repo);
+  const named = typeof args.branch === "string" && args.branch.trim() ? args.branch.trim() : null;
+  const branch = named ?? await defaultBranch(conn, repo);
   const { base, head } = await changelogRevisions(conn, repo, branch, covers, timezone);
   const at = changelogFiles(ctx, repo, base, { ref: head.ref, commit: head.commit }, today);
   const names = (await workspaceStore().list(ctx.tenantId, resolvePath(ctx, at.folder, true))).map((e) => e.path.split("/").pop()!);
   const draftName = names.find((n) => n.endsWith(`_${at.stem}.draft.json`)), written = names.find((n) => n.endsWith(`_${at.stem}.json`));
   const draft = draftName ? `${at.folder}/${draftName}` : at.draft, full = resolvePath(ctx, draft);
   checkThreadWrite(ctx, full);
+  // A place has one open draft at a time: another changelog waits until the person goes on with that one or stops it.
+  const other = (await openDrafts(ctx)).find((d) => d.draft !== draft);
+  if (other) {
+    throw new Error(`Another API changelog is open here and nothing new was started: ${other.repo}, branch ${other.branch}, ${coverage(other)}, ${other.startedBy ? `started by ${other.startedBy.name ?? other.startedBy.id}` : "started earlier"}, ${other.operations} endpoint${other.operations === 1 ? "" : "s"} recorded (draft ${other.draft}). Tell the person and ask whether to go on with that one or stop it first.`);
+  }
 
+  // From the empty tree every file of head is new; otherwise the comparison lists what changed.
+  const fromNothing = base.commit === EMPTY_TREE;
+  const changed = fromNothing ? await headFiles(conn, repo, head.commit) : await changedFiles(conn, repo, base.commit, head.commit);
   let resumed: Json;
   await serial(`${ctx.tenantId}/${full}`, async () => {
     const found = await readJson(ctx.tenantId, full);
@@ -149,7 +197,10 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
       };
       return;
     }
-    const meta: DraftMeta = { repo, ...(args.account ? { account: args.account } : {}), branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to };
+    const meta: DraftMeta = {
+      repo, ...(args.account ? { account: args.account } : {}), branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to,
+      ...(ctx.channelId ? { place: ctx.channelId } : {}), ...(ctx.userId ? { startedBy: { id: ctx.userId, ...(ctx.userName ? { name: ctx.userName } : {}) } } : {}), changedFiles: changed.totalFiles,
+    };
     await writeJson(ctx.tenantId, full, {
       openapi: OPENAPI_VERSION,
       info: { title: `${repo} API changes`, version: short(head.commit), "x-changelog": { date: today, base: { ref: base.ref, commit: short(base.commit) }, head: { ref: head.ref, commit: short(head.commit) }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] } },
@@ -157,13 +208,12 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     });
   });
 
-  // From the empty tree every file of head is new; otherwise the comparison lists what changed.
-  const fromNothing = base.commit === EMPTY_TREE;
   return {
     draft, repo, branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to,
+    ...(named ? {} : { branchNote: `No branch was named, so this is the repository's default branch, ${branch}. Name it when you tell the person you are starting, and in your answer.` }),
     base: { ...base, commit: fromNothing ? "empty tree" : base.commit }, head,
     ...(fromNothing ? { note: "Nothing came before this changelog: every endpoint of head is NEW. Read head only." } : {}),
-    changedFiles: fromNothing ? await headFiles(conn, repo, head.commit) : await changedFiles(conn, repo, base.commit, head.commit),
+    changedFiles: changed,
     ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
     ...(written ? { alreadyWritten: `${at.folder}/${written}`, alreadyNote: "A changelog of these same commits was written before. Offer it with sendFiles unless the person asked to write it again." } : {}),
   };

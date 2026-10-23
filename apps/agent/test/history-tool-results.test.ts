@@ -10,6 +10,13 @@ test("a result that reports nothing was changed is stored as not successful, wit
   expect(stored.omitted ?? []).not.toContain("success");
 });
 
+test("a started changelog's short form keeps its draft path, so a later turn can go on with it (#346)", () => {
+  const draft = "channel/files/changelogs/velodiva-1-backend-crm-internal-velodiva/2026-10-23_19efe29..8fdccc4.draft.json";
+  const stored = JSON.parse(storedToolResult({ success: true, data: { draft, repo: "velodiva-1/backend-crm-internal-velodiva", branch: "develop", scope: "range", from: "2026-10-22", to: "2026-10-23", changedFiles: { totalFiles: 295 } } }));
+  expect(stored.draft).toBe(draft);
+  expect(stored.omitted).not.toContain("draft");
+});
+
 discordScenario("the turn that calls a tool sees its full result; later turns see a short form of it", async (s) => {
   const text = (m: { content: any }) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content));
   await s.guildSettings({ useThreads: false });

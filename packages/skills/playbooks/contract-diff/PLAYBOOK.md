@@ -24,6 +24,8 @@ Produce an OpenAPI document that holds only the endpoints whose frontend-facing 
 
 **Record as you go.** An endpoint you traced but did not record is lost when the turn runs out: the next turn starts from the draft, not from what you read.
 
+**Keep going until it is written.** While the changelog is open, the turn's context names its draft. Go on with that draft when the person says to; never ask again what it covers. Do not stop only to ask whether to continue: stop for a question only the person can answer, such as a branch that does not exist or access that was refused.
+
 ## 1. Pin what the changelog covers
 
 What the changelog covers is the person's choice, never yours:
@@ -37,7 +39,8 @@ The repository is this thread's. When the prompt does not name it, call `playboo
 
 Then call `startChangelog` with the repository, the scope, and for a range from and to. It turns the days into two commits on the branch (head: the last commit through the last day; base: the last commit before the first day) and returns the draft path, both commits, and the first page of changed files.
 
-- When it refuses, say why in one line and stop.
+- When it refuses, say why in one line and stop. When another changelog is open here, say which and ask whether to go on with it or stop it first.
+- When no branch was named, it uses the default branch: name it when you say you are starting, and in your answer.
 - When it says resumed, an earlier run recorded the operations it lists: go on with the endpoints not yet recorded.
 - When it says alreadyWritten, a changelog of the same commits exists: offer it with `sendFiles`, unless the person asked to write it again.
 
