@@ -45,6 +45,11 @@ export interface ReActInput {
    * as `serviceFailed`, for the host to say.
    */
   failedForGood?: (executed: { call: ToolCall; result: ToolResult }) => Promise<FailedForGood | null>;
+  /**
+   * The run is a worker's (ADR 0024): it has `steps` model calls and `ms`, whatever the turn's budgets would be, and ends without a closing
+   * answer when either runs out, since nobody reads one. It runs no workers itself.
+   */
+  worker?: { steps: number; ms: number };
 }
 
 /** A conversation row as the store keeps it. */
@@ -183,6 +188,7 @@ const CUT_TOOL_CALL = "This tool call was cut off at the output limit and was no
 const OUT_OF_TIME_CALL = "This tool call was not run: the turn ran out of time. Say it was not done.";
 const STOPPED_CALL = "This tool call was not run: the person stopped the turn.";
 const SERVICE_FAILED_CALL = "This tool call was not run: a service the work reads failed, so the work paused.";
+const MODEL_FAILED_CALL = "This tool call was not run: the model could not be reached.";
 // What a turn that stops early tells the person: progress toward what they asked, in plain words, never the machinery (#345).
 const PLAIN = "Tell the person in one to three short, plain sentences how far the work is toward what they asked and what happens next. Do not name files, folders, tools, functions, schemas, commit hashes or other internal details. Do not call tools.";
 const BUDGET_SPENT = `This turn has used all its steps. ${PLAIN}`;
@@ -228,9 +234,9 @@ export class AgentReActLoop {
    */
   async run(input: ReActInput): Promise<ReActOutput> {
     const long = !!input.context.playbook?.long;
-    const startedAt = Date.now(), deadline = startedAt + (long ? longTurnDeadline.ms : turnDeadline.ms);
+    const startedAt = Date.now(), deadline = startedAt + (input.worker ? input.worker.ms : long ? longTurnDeadline.ms : turnDeadline.ms);
     const requestedIterations = Number(input.maxIterations) || DEFAULT_REACT_ITERATIONS;
-    const maxIterations = Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, long ? LONG_PLAYBOOK_ITERATIONS : PLAYBOOK_ITERATIONS) : requestedIterations));
+    const maxIterations = input.worker ? input.worker.steps : Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, long ? LONG_PLAYBOOK_ITERATIONS : PLAYBOOK_ITERATIONS) : requestedIterations));
     // A long playbook's work survives a turn that runs out only as far as it was recorded: once, late in the turn, the model is told to record (#342).
     const recordAt = { time: startedAt + RECORD_AT * (deadline - startedAt), iterations: Math.floor(RECORD_AT * maxIterations) };
     const toolCallsExecuted: Executed[] = [];
@@ -368,6 +374,31 @@ export class AgentReActLoop {
     let serviceFailed: FailedForGood | null = null;
     let imagesRejected = false;
 
+    // A worker this turn runs that could not reach the model ends the turn as if its own model call had failed (#343, #358), and one that
+    // a service failed for good ends it as the turn's own read would (#359).
+    const workerFailed: { model?: true; failure?: ModelFailure } = {};
+    if (!input.worker) skillContext.workers = {
+      timeLeft: () => deadline - Date.now(),
+      run: async (run) => {
+        const ends = Date.now() + Math.max(0, Math.min(run.ms, deadline - Date.now()));
+        // The call running workers is given until the last of them can have ended, past its own ceiling.
+        if (running) running.until = running.cap = Math.max(running.cap, ends + toolTimeout.ms);
+        const repository = input.context.playbook?.repository;
+        const out = await this.run({
+          tenantId: input.tenantId, botId: input.botId, message: run.brief, replyLanguage: input.replyLanguage, stopRequested: input.stopRequested, failedForGood: input.failedForGood,
+          context: { ...input.context, playbook: { name: run.playbook, body: run.rules, tools: run.tools, long: true, ...(repository ? { repository } : {}) } },
+          ephemeral: { history: [], cacheKey: run.cacheKey }, worker: { steps: run.steps, ms: Math.max(0, ends - Date.now()) },
+        });
+        if (out.failed && !workerFailed.model) Object.assign(workerFailed, { model: true }, out.failure ? { failure: out.failure } : {});
+        if (out.serviceFailed) serviceFailed ??= out.serviceFailed;
+        const ranOut = !out.outOfBudget || out.stopped ? null : out.iterations >= run.steps ? "steps" : Date.now() >= ends ? "time" : null;
+        return {
+          calls: out.toolCallsExecuted.map(({ call, result }) => ({ name: call.name, arguments: call.arguments, success: result.success, data: result.data })), answer: out.reply,
+          ...(out.failed ? { modelFailed: true as const } : {}), ...(out.serviceFailed ? { serviceFailed: true as const } : {}), ...(out.stopped ? { stopped: true as const } : {}), ...(ranOut ? { ranOut } : {}),
+        };
+      },
+    };
+
     // 7. ReAct execution cycle
     while (iterations < maxIterations) {
       if (Date.now() >= deadline) { outOfTime = true; break; }
@@ -465,7 +496,7 @@ export class AgentReActLoop {
         const late = !cut && Date.now() >= deadline, halted = !cut && !late && !!input.stopRequested?.();
         if (late) outOfTime = true;
         if (halted) stopped = true;
-        const refusal = cut ? CUT_TOOL_CALL : late ? OUT_OF_TIME_CALL : halted ? STOPPED_CALL : serviceFailed ? SERVICE_FAILED_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
+        const refusal = cut ? CUT_TOOL_CALL : late ? OUT_OF_TIME_CALL : halted ? STOPPED_CALL : serviceFailed ? SERVICE_FAILED_CALL : workerFailed.model ? MODEL_FAILED_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
         const approved = bulkDecision.allow && bulkDecision.approved.has(toolCall.id);
         const result = await executeCall(toolCall, skillContext, { refusal, approved, running: setRunning });
         toolCallsExecuted.push({ call: toolCall, result });
@@ -495,10 +526,17 @@ export class AgentReActLoop {
         });
       }
       if (serviceFailed) break;
+      if (workerFailed.model) {
+        finalReply = failureReply("", toolCallsExecuted, input.context.language);
+        failed = true;
+        failure = workerFailed.failure;
+        break;
+      }
     }
 
     const outOfBudget = !serviceFailed && (iterations >= maxIterations || outOfTime || stopped || stalled) && !finalReply;
-    if (outOfBudget) {
+    // A worker's run ends without a closing answer: nobody reads it, and what it did is in the draft.
+    if (outOfBudget && !input.worker) {
       // One more call with the same tools and tool_choice none, so the cached prefix holds and completed work becomes a useful answer
       // instead of an opaque failure. The instruction is not stored; the answer is, so the next turn builds on it.
       const request = [...messageHistory, { role: "user" as const, content: stopped ? STOPPED : outOfTime ? TIME_SPENT : stalled === "cut" ? CUT_SPENT : stalled ? EMPTY_ANSWER : BUDGET_SPENT }];

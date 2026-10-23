@@ -1,4 +1,5 @@
 import { textIn, type Language } from "./language.js";
+import type { OpenDraft } from "./openapi/changelog.js";
 
 /**
  * How a long turn's progress reads to a person (#345): each step as a fixed phrase with what it touched, never a tool's name, and for a
@@ -45,8 +46,9 @@ export function stepLine(kind: StepKind, subjects: (string | undefined)[], langu
 const STAGES: Record<string, { stage: string; tools: string[] }[]> = {
   "contract-diff": [
     { stage: "range", tools: ["startChangelog"] },
+    { stage: "conventions", tools: ["readPlaybookFile"] },
     { stage: "reading", tools: ["repoCompare", "repoFileDiff", "repoReadFile", "repoTree"] },
-    { stage: "tracing", tools: ["repoSearchCode", "repoFindDefinition", "putChangelogOperation", "putChangelogComponents"] },
+    { stage: "tracing", tools: ["repoSearchCode", "repoFindDefinition", "traceEndpoints", "putChangelogOperation", "putChangelogComponents"] },
     { stage: "checking", tools: ["finishChangelog"] },
     { stage: "publishing", tools: ["publishOpenApi"] },
   ],
@@ -71,4 +73,23 @@ export function stageLine(playbook: string | undefined, index: number, recorded:
 export function elapsed(ms: number, language?: Language): string {
   const t = textIn(language).progress, s = Math.max(1, Math.round(ms / 1000));
   return s < 60 ? t.seconds(s) : t.minutes(Math.floor(s / 60));
+}
+
+/** The most of a failed endpoint's reason its progress line shows. */
+const REASON_SHOWN = 100;
+
+/**
+ * An open Changelog draft's lines in its progress message: how many changed files are done, and how far its candidate endpoints are
+ * traced, with the latest results as their workers recorded them (#343). Null when it has neither.
+ */
+export function draftProgress(d: Pick<OpenDraft, "changedFiles" | "examined" | "setAside" | "left" | "candidates">, language?: Language): string | null {
+  const t = textIn(language).progress, lines: string[] = [];
+  if (d.left !== undefined && d.changedFiles !== undefined) lines.push(t.files(d.examined! + d.setAside!, d.changedFiles));
+  const c = d.candidates;
+  if (c) {
+    lines.push(t.endpoints(c.traced + c.failed, c.traced + c.failed + c.waiting, c.failed));
+    const reason = (text: string) => (text.length > REASON_SHOWN ? `${text.slice(0, REASON_SHOWN - 1)}…` : text);
+    for (const r of c.latest) lines.push(`-# ${r.endpoint} · ${"failed" in r ? t.unverified(reason(r.failed)) : "unchanged" in r ? t.unchanged : t.traced(r.impact, r.changes)}`);
+  }
+  return lines.length ? lines.join("\n") : null;
 }

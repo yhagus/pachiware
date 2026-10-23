@@ -232,8 +232,28 @@ export interface SkillContext {
    * The git skill's reads then skip the per-person limit; the tenant's still holds (#352).
    */
   longWork?: boolean;
+  /** Set by the host for a turn, never for a worker's own run: runs workers (ADR 0024). */
+  workers?: Workers;
   metadata?: Record<string, any>;
 }
+
+/**
+ * A worker is an unstored loop run of the bot's own model, with its Profile and fallbacks, in the turn's place (ADR 0024): it follows
+ * `rules`, starts from `brief`, and is offered only `tools`, for at most `steps` model calls and `ms`. It ends without a closing answer
+ * when either runs out, and the call running it is given until it ends.
+ */
+export type WorkerRun = { playbook: string; rules: string; brief: string; tools: string[]; steps: number; ms: number; cacheKey: string };
+/**
+ * What a worker did, never what it read: its tool calls with their results, and its last answer. `modelFailed`: it could not reach the
+ * model, and the turn running it ends as if its own model call had failed (#358). `serviceFailed`: a service it read failed for good, which
+ * ends that turn too (#359). `stopped`: the asker pressed Stop. `ranOut`: its steps or its time ran out first.
+ */
+export type WorkerOutcome = {
+  calls: { name: string; arguments: Record<string, any>; success: boolean; data?: any }[]; answer: string;
+  modelFailed?: true; serviceFailed?: true; stopped?: true; ranOut?: "steps" | "time";
+};
+/** `timeLeft`: how long the turn running workers has left (ms); a worker started now gets no more. */
+export type Workers = { timeLeft(): number; run(run: WorkerRun): Promise<WorkerOutcome> };
 
 /** `deadline` (epoch ms) is the caller's own cut, before the turn's when it is earlier: a call made past it gets null without reaching the provider, and one in flight is cut there. */
 export type Completion = (request: { system: string; user: string; deadline?: number }) => Promise<string | null>;

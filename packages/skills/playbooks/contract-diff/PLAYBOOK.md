@@ -4,7 +4,7 @@ category: Git, code & APIs
 trigger: {"word": ["changelog"]}
 default: off
 requires: ["git_repositories", "openapi"]
-tools: ["playbookRepositories", "startChangelog", "stopChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]
+tools: ["playbookRepositories", "startChangelog", "stopChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "traceEndpoints", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]
 repository: required
 budget: long
 ---
@@ -22,7 +22,7 @@ Produce an OpenAPI document that holds only the endpoints whose frontend-facing 
 
 **Ask for reads together.** Every step you take costs the person time. When reads do not depend on each other, such as the diffs of all the changed files, or one file at base and at head, call them all in one response.
 
-**Record as you go.** An endpoint you traced but did not record is lost when the turn runs out: the next turn starts from the draft, not from what you read.
+**Record as you go.** What you found but did not record is lost when the turn runs out: the next turn starts from the draft, not from what you read. Hand candidates to `traceEndpoints` as soon as you have them, and record removed endpoints and files set aside with `putChangelogNotes`.
 
 **Keep going until it is written.** While the changelog is open, the turn's context names its draft. Go on with that draft when the person says to; never ask again what it covers. Ending a turn that works on the changelog stops nothing: the work goes on by itself until it is written, so never ask whether to continue. When only the person who started it can answer something, such as which branch to read or whether a folder is set aside, ask them with `askChangelogAsker`: it is the only way you pause the work, and the question is your whole answer. When the person who started the changelog asks to stop it, in any words, call `stopChangelog` and say what was dropped; a message that only pauses stops nothing. When a turn ends before the changelog is written, answer in at most three short lines: how far it is (changed files done of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them.
 
@@ -52,7 +52,7 @@ Before touching individual endpoints, find out how this codebase shapes every re
 
 Read a convention's files at base too only when they are among the changed files: a file the range did not change is the same at both commits. If a global convention differs between base and head (envelope shape, error format, a header every request now needs, CORS, naming strategy), record it once as a global change with `putChangelogNotes` instead of repeating it on every endpoint.
 
-Then write what you learned into the draft with `putChangelogNotes` conventions, in at most about 1,500 tokens: how routes are declared, prefixed and versioned, the envelope, the error format, validation, serialization and auth, each with the files that hold it. The turns that go on by themselves start from the draft, not from what you read, so this summary is all they know of the repository's conventions.
+Then write what you learned into the draft with `putChangelogNotes` conventions, in at most about 1,500 tokens: how routes are declared, prefixed and versioned, the envelope, the error format, validation, serialization (field names, and how null and absent fields come out) and auth, each with the files that hold it. The turns that go on by themselves start from the draft, not from what you read, and the workers of step 4 get this summary instead of checklist.md, so it is all they know of the repository's conventions.
 
 ## 3. Find the affected endpoints
 
@@ -62,74 +62,24 @@ Then write what you learned into the draft with `putChangelogNotes` conventions,
 
 You now have candidate endpoints (method and path), plus any endpoints that exist only in base or only in head.
 
-## 4. Trace each candidate, record it, then deepen
+## 4. Hand the candidates to workers
 
-An endpoint's request goes through the code like this, at head and at base:
+Call `traceEndpoints` with the draft and every candidate: its method, its full path as the frontend calls it, and in note where its route is declared and what changed that reaches it, so its worker starts from there. Endpoints that exist only in head are candidates too (they are NEW). Those that exist only in base are not: record them in the removed operations with `putChangelogNotes`.
 
-route registration (with prefixes and versioning) → middleware (global, group, route) → auth → input parsing and validation (declarative rules and manual checks inside the handler) → handler → services and the exceptions they throw → exception-to-status mapping → response building (serializer, resource, transformer) → envelope wrapping → serialization settings.
+Each candidate gets a worker of its own, which follows tracing.md: it reads the code at both commits, records its endpoint in the draft with `putChangelogOperation` and `putChangelogComponents`, marking what it could not prove as unverified, and says what it recorded. You never read what it read, so do not trace or record endpoints yourself. The result gives each endpoint's outcome: what was recorded, with its impact and number of changes, or why its worker failed.
 
-Trace it in two passes, so every endpoint is recorded before any of them is followed deep:
+- The draft keeps every candidate. A traced one is never traced again, and one whose worker failed is listed as unverified in the notes and is not traced again either.
+- Workers run while the turn has time. When endpoints wait, the next turn goes on with them: call `traceEndpoints` with the draft alone. A turn that goes on by itself sees in the draft which endpoints wait.
+- Candidates you find later, such as on the next page of changed files, go to `traceEndpoints` too; those already kept keep their state.
+- What the code could not settle for the whole changelog goes in the notes as unverified, with `putChangelogNotes`.
 
-1. **For every candidate, first:** trace what changed to its end, and the rest of the contract as far as the route, the handler's signature, its DTOs, the validation and the global conventions show it: parameters, body, security, the success response, and the errors the changed code produces. Record it then. A response path the change did not touch and you have not traced, such as how a service's errors from another system map to statuses, goes in the operation's `x-unverified` by name (`"in": "operation"`, the reason saying what is left to trace) instead of being followed now.
-2. **Once every candidate is recorded:** trace those named paths, and record each operation again with what you learned, its `x-unverified` entries removed as they are settled.
-
-Read what changed in a file from the patch `startChangelog` gave, or with `repoFileDiff` from base to head; a function, method, class or constant at a commit with `repoFindDefinition`, which brings its decorators and whole body; and any other part of a file with `repoReadFile`, which reads about 9,000 characters at a time from the line you name and says where the next part starts.
-
-From that, write down the contract for each revision: method and path; every path, query, header and cookie parameter (type, required, constraints, default); request content type and body schema; security; and every response the code can produce (status, body schema, error codes). Compare the two contracts. Each difference becomes one x-changes entry. If there are no differences, drop the endpoint.
-
-**Presence versus null.** Decide this from how the serializer actually behaves (see checklist.md), not from the type annotation alone:
-
-| Behavior | OpenAPI |
-|---|---|
-| always present, never null | listed in `required`, type without `"null"` |
-| may be absent | not in `required` |
-| always present, may be null | listed in `required`, type includes `"null"` |
-| may be absent or null | not in `required`, type includes `"null"` |
-
-Whenever a field is nullable or conditional, state the condition in its description (for example "null until the order ships"), because that is what decides how the frontend renders the empty state.
-
-Record each endpoint as soon as it is traced, before you trace the next one, with `putChangelogOperation`: the whole operation, written as step 6 says. Put schemas that several operations share, and the security schemes, in `putChangelogComponents`, and $ref them. Fix every problem it returns before going on. An endpoint that exists only in base goes in the removed operations, through `putChangelogNotes`; what the code could not settle for the whole changelog goes there too, as unverified.
-
-## 5. Classify impact
-
-- **breaking**: frontend code that was correct against the old contract can fail or misbehave against the new one.
-- **deprecated**: still works today, but is scheduled to go away.
-- **non-breaking**: everything else.
-
-| Usually breaking | Usually non-breaking |
-|---|---|
-| URL or method changed (old one gone) | new endpoint |
-| request field, param, or header becomes required, or a new required one appears | new optional request field or param |
-| validation tightened (shorter max, stricter format, enum value removed from accepted input) | validation relaxed |
-| response field removed, renamed, or its type changed | new response field |
-| response field becomes nullable or may be absent | response field becomes always present / non-null |
-| new enum value in a response field | new error response for a new failure case |
-| status code or error code of an existing case changed | |
-| auth now required, envelope or content type changed | |
-
-RENAMED is always breaking and DEPRECATED is always deprecated; the validator enforces both. A moved endpoint whose old URL still works is a CHANGED entry with `in: url`, impact deprecated, and a removal date or version. The tools set each operation's x-impact and the summary counts: never count them yourself.
-
-## 6. Write each operation
-
-The draft is OpenAPI 3.1.2: use 3.1 features only. Read extensions.md with `readPlaybookFile` before you record the first operation: it holds the extension reference and an example operation.
-
-- **Only changed endpoints, each one complete.** Include every parameter, the full body, and every response the code can produce, unchanged parts included; what the first pass of step 4 left untraced is named in `x-unverified` until the second pass settles it. Viewers and type generators need the whole shape, and unchanged fields give context.
-- **Self-contained.** No external $refs, and no servers. Components no path reaches are left out when the changelog is written.
-- **Explicit security on every operation**, with `[]` for public endpoints, so auth is part of the recorded contract.
-- **Examples.** Every JSON request body, every 2xx response, and every response named in x-changes gets an example: a realistic full payload exactly as received when hitting the endpoint, envelope included. Take values from the code where possible (enum members, constants, values matching the regex, fixtures, seeds, tests). When the null case of a field matters, give two named examples (one with the value, one with null) instead of a single one.
-- **Error codes.** For each error status, name the application error codes it can carry and when, in the response description and the example.
-- **Deprecation.** Set `deprecated: true` on deprecated operations, parameters, and schema properties in addition to the x-changes entry, so generated types flag them.
-- **Keep schemas free of `x-` keys.** All change metadata lives on the operation and in the changelog notes. Generated types stay clean, and the viewer reads one list per operation.
-- **Human-readable text** (descriptions, notes, reasons) follows the language the person writes in.
-- Use the handler's name as the operation id when it is meaningful.
-
-## 7. Validate and write
+## 5. Validate and write
 
 Every changed file is examined or set aside before the changelog is written. A file counts as examined when you read its whole patch with `repoFileDiff`, or the whole file with `repoReadFile` at base or head (every page of it); the patches `startChangelog` gave count too. Files that cannot change what the frontend sees (tests, docs, CI, lockfiles) you may set aside in the setAside list of `putChangelogNotes`, by pattern, each with its reason; never set aside a file only because there are many. `finishChangelog` refuses while any file is neither and names them: read or set those aside, then call it again.
 
-Call `finishChangelog`. It validates the whole document (the contract-diff checks and the OpenAPI 3.1 schema), counts the summary, and writes the changelog's .json beside the draft. With errors nothing is written: fix each with `putChangelogOperation` or `putChangelogNotes` and call it again, until it writes the file. Read its warnings too: an unused component or an unverifiable field path usually means something is off.
+Call `finishChangelog`. It validates the whole document (the contract-diff checks and the OpenAPI 3.1 schema), counts the summary, and writes the changelog's .json beside the draft. With errors nothing is written: fix each (with `putChangelogNotes`, `putChangelogComponents`, or `putChangelogOperation` given the whole operation) and call it again, until it writes the file. Read its warnings too: an unused component or an unverifiable field path usually means something is off.
 
-## 8. Report
+## 6. Report
 
 The file holds the details; the report says in plain words what changed for the frontend, as a list. Send the file with `sendFiles`, and write:
 

@@ -33,7 +33,7 @@ discordScenario("changelog: opens a contract-diff thread whose turns carry the p
   // The thread offers only the tools the playbook names (ADR 0023), not every tool of the place.
   expect([...s.model.tools[0]!].sort()).toEqual([
     "askChangelogAsker", "finishChangelog", "playbookRepositories", "publishOpenApi", "putChangelogComponents", "putChangelogNotes", "putChangelogOperation", "readPlaybookFile",
-    "repoCommit", "repoCompare", "repoFileDiff", "repoFindDefinition", "repoReadFile", "repoSearchCode", "repoTree", "sendFiles", "startChangelog", "stopChangelog",
+    "repoCommit", "repoCompare", "repoFileDiff", "repoFindDefinition", "repoReadFile", "repoSearchCode", "repoTree", "sendFiles", "startChangelog", "stopChangelog", "traceEndpoints",
   ]);
   expect(started.thread!.messages.filter((m) => m.author.bot).map((m) => m.content)).toEqual(["Should the changelog cover the whole history, or a range of days (from which day to which day)?"]);
 });

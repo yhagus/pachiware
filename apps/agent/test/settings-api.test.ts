@@ -84,6 +84,21 @@ describe("time zone and language settings", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("an API changelog traces its endpoints with 3 workers at once unless the tenant sets 1 to 5 (#343)", () => {
+    const { code, stderr } = scenario(`
+      const path = "/api/admin/tenants/" + tenant.id + "/settings";
+      assert((await read("GET", path)).settings.playbookWorkers === 3, "default not 3");
+      const changed = await read("PUT", path, { playbookWorkers: 1 });
+      assert(changed.settings.playbookWorkers === 1 && changed.settings.modelRetryWaitSeconds === 60 && changed.settings.conversationIdleHours === 24, "update: " + JSON.stringify(changed));
+      assert((await read("PUT", path, { playbookWorkers: 5 })).settings.playbookWorkers === 5, "5 refused");
+      for (const bad of [0, 6, 2.5, "3", null]) assert(await status("PUT", path, { playbookWorkers: bad }) === 400, JSON.stringify(bad) + " accepted");
+      await read("PUT", path, { modelRetryWaitSeconds: 30 });
+      const row = await repositories().agentConfig.get(tenant.id);
+      assert(row.settings.playbookWorkers === 5 && row.settings.modelRetryWaitSeconds === 30 && row.settings.maxReActIterations === 32, "settings not merged: " + JSON.stringify(row.settings));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("the tenant API carries both settings on the config resource with the same validation", () => {
     const { code, stderr } = scenario(`
       const key = await repositories().tenants.issueApiKey("one");

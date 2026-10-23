@@ -41,6 +41,15 @@ export function modelRetryWaitSeconds(body: Record<string, any>): number | undef
   return seconds;
 }
 
+export const MAX_PLAYBOOK_WORKERS = 5;
+/** `playbookWorkers` from a tenant settings body: how many workers trace an API changelog's endpoints at once, 1 to MAX_PLAYBOOK_WORKERS; undefined when left out. */
+export function playbookWorkers(body: Record<string, any>): number | undefined {
+  const workers = body.playbookWorkers;
+  if (workers === undefined) return undefined;
+  if (!Number.isInteger(workers) || workers < 1 || workers > MAX_PLAYBOOK_WORKERS) throw new HTTPException(400, { message: `playbookWorkers must be a whole number from 1 to ${MAX_PLAYBOOK_WORKERS}` });
+  return workers;
+}
+
 export const MAX_DIGEST_CHANNELS = 50;
 /** `digestChannels` from a guild settings body: `{ channelId, hour }` entries, the hour a whole number from 0 to 23, one entry per channel. */
 export function digestChannels(value: unknown): DigestChannel[] {

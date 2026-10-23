@@ -13,6 +13,8 @@ const MAX_IDLE_HOURS = 720;
 const validHours = (h: number) => Number.isInteger(h) && h >= 0 && h <= MAX_IDLE_HOURS;
 const MAX_RETRY_WAIT_SECONDS = 600;
 const validWait = (s: number) => Number.isInteger(s) && s >= 0 && s <= MAX_RETRY_WAIT_SECONDS;
+const MAX_WORKERS = 5;
+const validWorkers = (n: number) => Number.isInteger(n) && n >= 1 && n <= MAX_WORKERS;
 
 export function TenantSettings() {
   const tenant = useOutletContext<Tenant>();
@@ -85,7 +87,16 @@ export function TenantSettings() {
             </div>
             <p className="text-xs text-muted-foreground">When an API changelog the bot is working on by itself cannot reach the model, the bot tries once more after this wait. If that fails too, the changelog pauses and its asker is told. 0 pauses at once; at most {MAX_RETRY_WAIT_SECONDS}.</p>
           </div>
-          <Button size="sm" disabled={saving || !settings.timezone || !validHours(settings.conversationIdleHours) || !validWait(settings.modelRetryWaitSeconds)}>{saving ? "Saving" : "Save settings"}</Button>
+          <div className="space-y-2">
+            <Label htmlFor="tenant-workers">Changelog workers</Label>
+            <div className="flex items-center gap-2">
+              <Input id="tenant-workers" type="number" inputMode="numeric" min={1} max={MAX_WORKERS} step={1} className="w-24" aria-invalid={!validWorkers(settings.playbookWorkers)}
+                value={Number.isNaN(settings.playbookWorkers) ? "" : settings.playbookWorkers} onChange={(e) => setSettings({ ...settings, playbookWorkers: e.target.valueAsNumber })} />
+              <span className="text-sm text-muted-foreground">at once</span>
+            </div>
+            <p className="text-xs text-muted-foreground">How many endpoints of an API changelog the bot traces at the same time, each with its own model calls. More finishes sooner but sends more requests at once to the model provider, whose rate limit the tenant's bots share. From 1 to {MAX_WORKERS}.</p>
+          </div>
+          <Button size="sm" disabled={saving || !settings.timezone || !validHours(settings.conversationIdleHours) || !validWait(settings.modelRetryWaitSeconds) || !validWorkers(settings.playbookWorkers)}>{saving ? "Saving" : "Save settings"}</Button>
         </form>
       )}
     </div>

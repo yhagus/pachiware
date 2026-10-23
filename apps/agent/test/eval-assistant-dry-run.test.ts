@@ -132,7 +132,7 @@ discordScenario("dry run: rutinitas-tanya-dulu asks morning or evening and how o
   expect(output.turns[0].replies).toEqual(["Maksudnya jam 09:00 (pagi) atau 21:00 (malam)? Sekali saja, atau berulang: setiap hari, Senin–Jumat, atau hari tertentu?"]);
 });
 
-discordScenario("dry run: changelog-lanjut goes on with yesterday's open draft from the turn's context and writes the changelog, going on by itself past a turn that ends asking whether to go on (#346, #356)", async (s) => {
+discordScenario("dry run: changelog-lanjut goes on with yesterday's open draft from the turn's context and writes the changelog, going on by itself past a turn that ends asking whether to go on, its endpoint traced by a worker (#346, #356, #343)", async (s) => {
   const { readFileSync } = await import("node:fs");
   const example = JSON.parse(readFileSync(`${process.cwd()}/packages/skills/test/fixtures/contract-diff/create-user.json`, "utf8"));
   const draft = "channel/files/changelogs/acme-api/2026-10-20_9f8e7d6..a1b2c3d.draft.json";
@@ -145,7 +145,10 @@ discordScenario("dry run: changelog-lanjut goes on with yesterday's open draft f
     [{ tool: "repoReadFile", args: { repo: "acme/api", ref: "9f8e7d6000000000000000000000000000000000", path: "src/users/users.controller.ts" } }, { tool: "repoReadFile", args: { repo: "acme/api", ref: "a1b2c3d000000000000000000000000000000000", path: "src/users/users.controller.ts" } }],
     // The habit #354 met: a status report and "go on?" halfway, with no askChangelogAsker. It is not posted, and the work goes on by itself.
     "Sudah saya baca users.controller.ts di kedua commit. Mau saya lanjutkan?",
+    // The endpoint goes to a worker of its own, which records it (#343).
+    { tool: "traceEndpoints", args: { draft, candidates: [{ method: "post", path: "/api/v2/users", note: "src/users/users.controller.ts: the controller moved to api/v2" }] } },
     { tool: "putChangelogOperation", args: { draft, method: "post", path: "/api/v2/users", operation: example.paths["/api/v2/users"].post, components: example.components } },
+    "Recorded POST /api/v2/users.",
     { tool: "finishChangelog", args: { draft } },
     "Changelog acme/api (branch main, 19–20 Oktober) sudah jadi: satu endpoint berubah dan merusak frontend lama.\n- `POST /api/v2/users`: pindah dari `/api/v1/users`, `name` jadi `full_name`, `phone` sekarang wajib, dan ada 409 baru kalau nomornya sudah dipakai.",
   );
@@ -154,7 +157,9 @@ discordScenario("dry run: changelog-lanjut goes on with yesterday's open draft f
   // What keeps the model from stopping to ask: the work goes on by itself, and askChangelogAsker, offered, is for a question only Alice can answer.
   expect(seen[1]).toContain("Ending a turn that works on it stops nothing: the work goes on by itself until it is written, so never ask whether to go on. To ask its starter something only they can answer, such as which branch or whether a folder is set aside, call askChangelogAsker, the only way you pause it.");
   expect([...s.model.tools[0]!]).toContain("askChangelogAsker");
-  expect(s.model.calls).toHaveLength(6);
+  expect([...s.model.tools[3]!]).toContain("traceEndpoints");
+  expect([...s.model.tools[4]!].sort()).toEqual(["putChangelogComponents", "putChangelogOperation", "repoFileDiff", "repoReadFile", "repoSearchCode", "repoTree"]);
+  expect(s.model.calls).toHaveLength(8);
   expect(output.turns[0].replies).toHaveLength(1);
   expect(output.turns[0].pings).toEqual(["user-alice"]);
   expect(output.turns[0].state.files).toEqual(["files/changelogs/acme-api/2026-10-20_9f8e7d6..a1b2c3d.json"]);

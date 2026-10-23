@@ -23,7 +23,7 @@ import { botCompletion } from "../llm/completion.js";
 import { TurnProgress } from "./progress.js";
 import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, NOT_A_CORRECTION, type MinutesBrief } from "./minutes.js";
 import { DEFAULT_MODEL_RETRY_WAIT_SECONDS } from "@pachiware/db";
-import { atClock, awaitModelRetry, modelAnswered, retryTime } from "@pachiware/skills";
+import { atClock, awaitModelRetry, modelAnswered, retryTime, draftProgress } from "@pachiware/skills";
 import type { ModelFailure } from "../llm/types.js";
 import { workedOnPlaces } from "@pachiware/skills";
 
@@ -897,10 +897,10 @@ export class DiscordBotManager {
         return posted;
       };
       const turnProgress = progress = opts.progress ?? new TurnProgress(post, progressLanguage, opts.playbook?.name);
-      // How far an open Changelog draft of this place is, read from the draft itself.
+      // How far an open Changelog draft of this place is, read from the draft itself: its files, and its endpoints as workers trace them (#343).
       progress.detail ??= async () => {
         const open = (await openDrafts(draftPlace))[0];
-        return open?.left !== undefined && open.changedFiles !== undefined ? textIn(progressLanguage).progress.files(open.examined! + open.setAside!, open.changedFiles) : null;
+        return open ? draftProgress(open, progressLanguage) : null;
       };
       if (woken && before?.progressMessage) progress.showNow();
       // A turn that goes on with a paused draft has it worked on again from its first call for it, so a pause later in the turn stands (#361).
