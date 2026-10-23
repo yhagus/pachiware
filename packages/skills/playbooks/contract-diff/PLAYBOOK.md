@@ -123,6 +123,8 @@ The draft is OpenAPI 3.1.2: use 3.1 features only. Read extensions.md with `read
 
 ## 7. Validate and write
 
+Every changed file is examined or set aside before the changelog is written. A file counts as examined when you read its whole patch with `repoFileDiff`, or the whole file with `repoReadFile` at base or head (every page of it); the patches `startChangelog` gave count too. Files that cannot change what the frontend sees (tests, docs, CI, lockfiles) you may set aside in the setAside list of `putChangelogNotes`, by pattern, each with its reason; never set aside a file only because there are many. `finishChangelog` refuses while any file is neither and names them: read or set those aside, then call it again.
+
 Call `finishChangelog`. It validates the whole document (the contract-diff checks and the OpenAPI 3.1 schema), counts the summary, and writes the changelog's .json beside the draft. With errors nothing is written: fix each with `putChangelogOperation` or `putChangelogNotes` and call it again, until it writes the file. Read its warnings too: an unused component or an unverifiable field path usually means something is off.
 
 ## 8. Report
@@ -132,6 +134,7 @@ The file holds the details; the report says in plain words what changed for the 
 1. One sentence: the changelog for the range is ready, how many endpoints changed, and how many of them break existing frontend code.
 2. One bullet per endpoint: its method and path in code format, then what changed in everyday words. The request and response fields the frontend uses may be named, in code format; nothing else of the code is (no file paths, schema or class names, commit hashes).
 3. What the code could not settle, as a count in one line, such as "Two things could not be confirmed from the code; the file marks them."
+   What was set aside unread, in one line with the reasons, such as "Not read: tests and CI configuration."
 4. When the request also asked to show, preview or share the changelog, publish it with `publishOpenApi`, give the link it returns on its own line, and pass on its warning as written.
 
 - When nothing frontend-visible changed, `finishChangelog` writes no file: say so in one sentence, with how many changed files were examined.

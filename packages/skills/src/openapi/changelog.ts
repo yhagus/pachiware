@@ -1,7 +1,7 @@
 import { workspaceStore, MAX_BLOB_BYTES, WorkspaceConflict } from "../workspace/store.js";
 import { placeRoot, resolvePath } from "../workspace/paths.js";
 import { checkThreadWrite } from "../workspace/threads.js";
-import { browseTree, compareRefs, defaultBranch, EMPTY_TREE, lastCommitBy, type GitConn } from "../git.js";
+import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, lastCommitBy, type GitConn } from "../git.js";
 import { DEFAULT_TIMEZONE, isoInZone, zonedTime } from "../clock.js";
 import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, changeCounts, escapePointer, iterOperations, mostSevere, recordsNothing, resolveLocal, validateChangelog, validateOperation } from "./validate.js";
 import { textIn } from "../language.js";
@@ -19,7 +19,15 @@ type Revision = { ref: string; commit: string };
  * What a draft remembers of how it was started, so a second start of the same changelog finds it and every turn in its place knows it is open.
  * `place` is the channel, thread or DM it was started in: a public thread shares its parent's folder, so the folder alone does not say. Removed when the changelog is written.
  */
-type DraftMeta = { repo: string; account?: string; branch: string; scope: Scope; from?: string; to: string; place?: string; startedBy?: { id: string; name?: string }; changedFiles?: number };
+type DraftMeta = {
+  repo: string; account?: string; branch: string; scope: Scope; from?: string; to: string; place?: string; startedBy?: { id: string; name?: string }; changedFiles?: number;
+  /** A range's two commits in full and every file changed between them, with those examined so far and the lines read of the rest (#347). */
+  base?: string; head?: string; files?: ChangedFile[]; examined?: string[]; reads?: Record<string, Partial<Record<Side, { total: number; read: [number, number][] }>>>;
+};
+type ChangedFile = { path: string; oldPath?: string; status: string };
+type Side = "base" | "head";
+/** Files set aside unexamined, each pattern with why; kept in the written changelog, so a reader sees what was not read. */
+type SetAside = { pattern: string; reason: string };
 type Json = any;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -119,6 +127,90 @@ function mergeComponents(doc: Json, components: Json) {
   }
 }
 
+/** A set-aside pattern as a test of a changed file: `**` crosses folders, `*` and `?` stay in one, and a pattern without a slash names a file at any depth. */
+function globTest(pattern: string) {
+  const p = pattern.trim().replace(/^\.?\/+/, "");
+  const body = p.split(/(\*\*\/?|\*|\?)/).map((part) => (part === "**/" ? "(?:.*/)?" : part === "**" ? ".*" : part === "*" ? "[^/]*" : part === "?" ? "[^/]" : part.replace(/[.+^${}()|[\]\\]/g, "\\$&"))).join("");
+  const re = new RegExp(`^${p.includes("/") ? "" : "(?:.*/)?"}${body}$`);
+  return (f: ChangedFile) => re.test(f.path) || (!!f.oldPath && re.test(f.oldPath));
+}
+
+/** What a range's draft has done with its changed files: how many it examined, how many it set aside unexamined, and the files left. */
+function accounting(meta: DraftMeta, setAside: SetAside[] = []) {
+  const files = meta.files ?? [], examined = new Set(meta.examined ?? []), tests = setAside.map((s) => globTest(s.pattern));
+  const open = files.filter((f) => !examined.has(f.path)), left = open.filter((f) => !tests.some((t) => t(f)));
+  return { files: files.length, examined: files.length - open.length, setAside: open.length - left.length, left };
+}
+
+/**
+ * A set-aside list as putChangelogNotes takes it. A pattern covering two or more files skips the work instead of naming files that need
+ * none, and is refused, when it covers every changed file, or every file not yet examined while those are still most of them; a remainder
+ * of tests or lockfiles at the end may still go in one pattern.
+ */
+function checkSetAside(meta: DraftMeta, list: unknown[]): SetAside[] {
+  const files = meta.files ?? [], examined = new Set(meta.examined ?? []), open = files.filter((f) => !examined.has(f.path));
+  return list.map((item: Json) => {
+    if (typeof item?.pattern !== "string" || !item.pattern.trim() || typeof item?.reason !== "string" || !item.reason.trim()) throw new Error('Each setAside entry is {"pattern": "**/*.spec.ts", "reason": "tests, not served"}: a pattern and why those files cannot change what the frontend sees.');
+    const test = globTest(item.pattern), hits = files.filter(test);
+    if (hits.length >= 2 && (hits.length === files.length || (open.length * 2 > files.length && open.every(test)))) {
+      throw new Error(`setAside "${item.pattern.trim()}" covers every ${hits.length === files.length ? "changed file" : "file not yet examined"}. Set aside only files that cannot change what the frontend sees (tests, docs, CI, lockfiles), each with its reason, and read the rest.`);
+    }
+    return { pattern: item.pattern.trim(), reason: item.reason.trim() };
+  });
+}
+
+/** Which of a draft's commits `ref` names (a full or abbreviated sha), if either. */
+function sideOf(meta: DraftMeta, ref: unknown): Side | null {
+  const r = typeof ref === "string" ? ref.trim().toLowerCase() : "";
+  return r.length < 7 ? null : meta.base?.startsWith(r) ? "base" : meta.head?.startsWith(r) ? "head" : null;
+}
+
+/** Marks a changed file examined, by its path at either commit; true when that is news. */
+function examine(meta: DraftMeta, path: unknown) {
+  const file = typeof path === "string" ? meta.files?.find((f) => f.path === path || f.oldPath === path) : undefined;
+  if (!file || meta.examined?.includes(file.path)) return false;
+  (meta.examined ??= []).push(file.path);
+  return true;
+}
+
+/** Adds the lines one read of a changed file gave at one commit; once every line of that side is read, the file is examined. True when the draft changed. */
+function readLines(meta: DraftMeta, side: Side, path: unknown, from: unknown, to: unknown, total: unknown) {
+  const file = typeof path === "string" ? meta.files?.find((f) => f.path === path || f.oldPath === path) : undefined;
+  if (!file || meta.examined?.includes(file.path) || typeof from !== "number" || typeof to !== "number" || typeof total !== "number") return false;
+  const reads = (meta.reads ??= {}), entry = (reads[file.path] ??= {});
+  const kept = entry[side]?.total === total ? entry[side]! : { total, read: [] as [number, number][] };
+  const merged: [number, number][] = [];
+  for (const [a, b] of [...kept.read, [from, to] as [number, number]].sort((x, y) => x[0] - y[0])) {
+    const last = merged.at(-1);
+    if (last && a <= last[1] + 1) last[1] = Math.max(last[1], b); else merged.push([a, b]);
+  }
+  entry[side] = { total, read: merged };
+  if (merged.length === 1 && merged[0]![0] <= 1 && merged[0]![1] >= total) { delete reads[file.path]; examine(meta, file.path); }
+  return true;
+}
+
+/**
+ * Notes a git read of a changed file against the place's open drafts of that repository (the openapi skill observes repoFileDiff and
+ * repoReadFile): a whole patch between the draft's two commits, or every line of the file at one of them, examines it.
+ */
+export async function noteRead(ctx: SkillContext, tool: string, args: Json, data: Json) {
+  const repo = typeof args?.repo === "string" ? args.repo.trim().toLowerCase() : "";
+  if (!repo || !data || typeof data !== "object") return;
+  for (const open of await openDrafts(ctx)) {
+    if (open.repo.toLowerCase() !== repo) continue;
+    const full = resolvePath(ctx, open.draft);
+    await serial(`${ctx.tenantId}/${full}`, async () => {
+      const found = await readJson(ctx.tenantId, full), meta: DraftMeta | undefined = found?.doc["x-draft"];
+      if (!found || !meta?.files) return;
+      const side = sideOf(meta, args.ref);
+      const changed = tool === "repoFileDiff"
+        ? sideOf(meta, args.from) === "base" && sideOf(meta, args.to) === "head" && typeof data.patch === "string" && !data.note && examine(meta, data.path)
+        : data.type === "file" && side !== null && readLines(meta, side, data.path, data.fromLine, data.toLine, data.totalLines);
+      if (changed) await writeJson(ctx.tenantId, full, found.doc, found.version);
+    });
+  }
+}
+
 /** "GET /users (breaking)" for each operation a draft holds. */
 const operationsOf = (doc: Json) => [...iterOperations(doc)].map((o) => `${o.method.toUpperCase()} ${o.path} (${o.op["x-impact"] ?? "no changes yet"})`);
 
@@ -134,6 +226,8 @@ function changelogFiles(ctx: SkillContext, repo: string, base: Revision, head: R
 export type OpenDraft = {
   draft: string; repo: string; branch: string; scope: Scope; from?: string; to: string; base: string; head: string;
   startedBy?: { id: string; name?: string }; startedOn?: string; operations: number; changedFiles?: number;
+  /** For a range whose changed files the draft lists: how many were examined, set aside, and are left. */
+  examined?: number; setAside?: number; left?: number;
 };
 
 /** The Changelog drafts open in this place: its folder's drafts started here, and those from before drafts knew their place. */
@@ -145,11 +239,12 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "guildId" 
     if (!file.path.endsWith(".draft.json")) continue;
     const doc = (await readJson(ctx.tenantId, file.path).catch(() => null))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
     if (!meta || (meta.place && meta.place !== ctx.channelId)) continue;
-    const changelog = doc.info?.["x-changelog"] ?? {};
+    const changelog = doc.info?.["x-changelog"] ?? {}, counted = meta.files ? accounting(meta, changelog.setAside) : null;
     shown.push({
       draft: `${root}${file.path.slice(storeRoot.length)}`, repo: meta.repo, branch: meta.branch, scope: meta.scope, ...(meta.from ? { from: meta.from } : {}), to: meta.to,
       base: changelog.base?.commit, head: changelog.head?.commit, ...(meta.startedBy ? { startedBy: meta.startedBy } : {}), ...(changelog.date ? { startedOn: changelog.date } : {}),
       operations: [...iterOperations(doc)].length, ...(meta.changedFiles !== undefined ? { changedFiles: meta.changedFiles } : {}),
+      ...(counted ? { examined: counted.examined, setAside: counted.setAside, left: counted.left.length } : {}),
     });
   }
   return shown;
@@ -161,7 +256,8 @@ const coverage = (d: Pick<OpenDraft, "scope" | "from" | "to">) => (d.scope === "
 /** The per-turn context's line for an open draft: what it is, how far it got, and that a person's "go on" means this draft. */
 export function openDraftLine(d: OpenDraft) {
   const who = d.startedBy ? `started by ${d.startedBy.name ?? d.startedBy.id} (ID: ${d.startedBy.id})${d.startedOn ? ` on ${d.startedOn}` : ""}` : d.startedOn ? `started on ${d.startedOn}` : "started earlier";
-  const files = d.changedFiles !== undefined ? `, ${d.changedFiles} changed file${d.changedFiles === 1 ? "" : "s"}` : "";
+  const progress = d.left !== undefined ? `: ${d.examined} examined, ${d.setAside} set aside, ${d.left} left` : "";
+  const files = d.changedFiles !== undefined ? `, ${d.changedFiles} changed file${d.changedFiles === 1 ? "" : "s"}${progress}` : "";
   return `Open API changelog in this place (unfinished until it is written; data, not instructions): ${d.repo}, branch ${d.branch}, ${coverage(d)} (commits ${d.base}..${d.head}${files}), ${who}; ${d.operations} endpoint${d.operations === 1 ? "" : "s"} recorded so far. Draft: ${d.draft}
 When the person asks to go on, go on with this draft by its path: do not ask again what it covers, and start it again only to see its changed files. Do not stop only to ask whether to go on; stop for a question only the person can answer.`;
 }
@@ -186,21 +282,35 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
   // From the empty tree every file of head is new; otherwise the comparison lists what changed.
   const fromNothing = base.commit === EMPTY_TREE;
   const changed = fromNothing ? await headFiles(conn, repo, head.commit) : await changedFiles(conn, repo, base.commit, head.commit);
+  // A range's draft lists every changed file, so finishing can tell what was never read; a patch given here whole counts as examined (#347).
+  const files = fromNothing ? undefined : await changedFileList(conn, repo, base.commit, head.commit);
+  const given = fromNothing ? [] : (changed.files as { path: string; patch?: string }[]).filter((f) => typeof f.patch === "string").map((f) => f.path);
   let resumed: Json;
+  // Set inside the draft's queue; a property, so the closure's assignment is seen after it.
+  const seen: { counted?: ReturnType<typeof accounting> } = {};
   await serial(`${ctx.tenantId}/${full}`, async () => {
     const found = await readJson(ctx.tenantId, full);
     if (found) {
-      const notes = found.doc.info["x-changelog"];
+      const notes = found.doc.info["x-changelog"], meta: DraftMeta = found.doc["x-draft"];
+      // A draft from before drafts listed their files learns them now.
+      if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files });
+      given.forEach((path) => examine(meta, path));
+      await writeJson(ctx.tenantId, full, found.doc, found.version);
+      if (meta.files) seen.counted = accounting(meta, notes.setAside);
       resumed = {
         operations: operationsOf(found.doc), removedOperations: (notes.removedOperations ?? []).map((r: Json) => `${String(r.method).toUpperCase()} ${r.path}`),
         globalChanges: (notes.globalChanges ?? []).length, unverified: (notes.unverified ?? []).length,
+        ...(seen.counted ? { examined: seen.counted.examined, setAside: seen.counted.setAside, left: seen.counted.left.length } : {}),
       };
       return;
     }
     const meta: DraftMeta = {
       repo, ...(args.account ? { account: args.account } : {}), branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to,
       ...(ctx.channelId ? { place: ctx.channelId } : {}), ...(ctx.userId ? { startedBy: { id: ctx.userId, ...(ctx.userName ? { name: ctx.userName } : {}) } } : {}), changedFiles: changed.totalFiles,
+      ...(files ? { base: base.commit, head: head.commit, files } : {}),
     };
+    given.forEach((path) => examine(meta, path));
+    if (meta.files) seen.counted = accounting(meta);
     await writeJson(ctx.tenantId, full, {
       openapi: OPENAPI_VERSION,
       info: { title: `${repo} API changes`, version: short(head.commit), "x-changelog": { date: today, base: { ref: base.ref, commit: short(base.commit) }, head: { ref: head.ref, commit: short(head.commit) }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] } },
@@ -214,6 +324,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     base: { ...base, commit: fromNothing ? "empty tree" : base.commit }, head,
     ...(fromNothing ? { note: "Nothing came before this changelog: every endpoint of head is NEW. Read head only." } : {}),
     changedFiles: changed,
+    ...(seen.counted ? { examinedNote: `Before it is written, every changed file must be examined, its whole patch read with repoFileDiff or the whole file with repoReadFile at either commit, or set aside with a reason (putChangelogNotes setAside). Examined so far: ${seen.counted.examined} of ${seen.counted.files}; the patches given here count.` } : {}),
     ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
     ...(written ? { alreadyWritten: `${at.folder}/${written}`, alreadyNote: "A changelog of these same commits was written before. Offer it with sendFiles unless the person asked to write it again." } : {}),
   };
@@ -282,15 +393,26 @@ export async function putComponents(ctx: SkillContext, args: { draft?: unknown; 
   });
 }
 
-/** Sets what a changelog says beyond its operations: changes to every endpoint, removed endpoints, what the code could not settle, and its title. */
-export async function putNotes(ctx: SkillContext, args: { draft?: unknown; globalChanges?: unknown; removedOperations?: unknown; unverified?: unknown; title?: unknown; description?: unknown }) {
-  for (const key of ["globalChanges", "removedOperations", "unverified"] as const) if (args[key] !== undefined && !Array.isArray(args[key])) throw new Error(`${key} must be a list.`);
+/**
+ * Sets what a changelog says beyond its operations: changes to every endpoint, removed endpoints, what the code could not settle, the files
+ * set aside unexamined with why, and its title.
+ */
+export async function putNotes(ctx: SkillContext, args: { draft?: unknown; globalChanges?: unknown; removedOperations?: unknown; unverified?: unknown; setAside?: unknown; title?: unknown; description?: unknown }) {
+  for (const key of ["globalChanges", "removedOperations", "unverified", "setAside"] as const) if (args[key] !== undefined && !Array.isArray(args[key])) throw new Error(`${key} must be a list.`);
   return withDraft(ctx, args.draft, (doc) => {
-    const changelog = doc.info["x-changelog"];
+    const changelog = doc.info["x-changelog"], meta: DraftMeta = doc["x-draft"];
     for (const key of ["globalChanges", "removedOperations", "unverified"] as const) if (args[key] !== undefined) changelog[key] = args[key];
+    if (args.setAside !== undefined) {
+      const list = checkSetAside(meta, args.setAside as unknown[]);
+      if (list.length) changelog.setAside = list; else delete changelog.setAside;
+    }
     if (typeof args.title === "string" && args.title.trim()) doc.info.title = args.title.trim();
     if (typeof args.description === "string") { if (args.description.trim()) doc.info.description = args.description.trim(); else delete doc.info.description; }
-    return { saved: true, globalChanges: changelog.globalChanges.length, removedOperations: changelog.removedOperations.length, unverified: changelog.unverified.length };
+    const counted = meta.files ? accounting(meta, changelog.setAside) : null;
+    return {
+      saved: true, globalChanges: changelog.globalChanges.length, removedOperations: changelog.removedOperations.length, unverified: changelog.unverified.length,
+      ...(counted ? { files: { examined: counted.examined, setAside: counted.setAside, left: counted.left.length } } : {}),
+    };
   });
 }
 
@@ -333,10 +455,18 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
   return serial(`${ctx.tenantId}/${full}`, async () => {
     const found = await readJson(ctx.tenantId, full);
     if (!found) throw new Error("No such draft: start it with startChangelog.");
-    const { "x-draft": _, ...doc } = found.doc, changelog = doc.info["x-changelog"];
+    const { "x-draft": meta, ...doc } = found.doc, changelog = doc.info["x-changelog"];
+    // Every changed file read or set aside first, even when nothing was recorded: a turn cut short must not end the changelog (#347).
+    const left = meta?.files ? accounting(meta, changelog.setAside).left : [];
+    if (left.length) {
+      return {
+        written: false, unexamined: left.length, files: left.slice(0, 10).map((f) => f.path),
+        fix: "Read each one's whole patch with repoFileDiff (or the whole file with repoReadFile at either commit), or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.",
+      };
+    }
     if (recordsNothing(doc)) {
       await workspaceStore().remove(ctx.tenantId, full);
-      return { written: false, note: "The draft records no frontend-visible change, so no changelog was written; the draft is gone. Say so, with what was examined." };
+      return { written: false, note: "The draft records no frontend-visible change, so no changelog was written; the draft is gone. Say so, with what was examined.", ...(changelog.setAside?.length ? { setAside: changelog.setAside } : {}) };
     }
     const operations = [...iterOperations(doc)];
     for (const o of operations) setImpact(o.op);
@@ -359,6 +489,7 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     await workspaceStore().remove(ctx.tenantId, full);
     return {
       written: true, path, summary, breaking: breakingLines(doc), unverified: [...(changelog.unverified ?? []), ...operations.flatMap((o) => (o.op["x-unverified"] ?? []).map((u: Json) => ({ operation: `${o.method.toUpperCase()} ${o.path}`, ...u })))],
+      ...(changelog.setAside?.length ? { setAside: changelog.setAside } : {}),
       ...(report.warnings.length ? { warnings: report.warnings } : {}),
       validation: "0 errors: the contract-diff checks and the OpenAPI 3.1 schema.",
     };

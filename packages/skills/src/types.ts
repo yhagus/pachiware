@@ -263,6 +263,11 @@ export interface SkillModule {
   hiddenTools?: (ctx: SkillContext) => Promise<string[]>;
   /** What the refusal of a hidden tool says, so the model can tell the person who can open it. */
   hiddenReason?: (ctx: SkillContext, tool: string) => Promise<string>;
+  /**
+   * Other skills' tools whose successful results this skill takes note of, by tool name: the openapi skill notes which changed files a
+   * changelog's reads covered. Called after the tool succeeded; a failure here never changes the tool's result.
+   */
+  observes?: Record<string, (args: any, data: unknown, ctx: SkillContext) => Promise<void>>;
 }
 
 export interface CatalogueTool { name: string; description: string; effect?: Effect; group?: string; playbook?: string; defaultOff?: true }

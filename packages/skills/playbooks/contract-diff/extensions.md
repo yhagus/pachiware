@@ -14,11 +14,13 @@ The validator behind `finishChangelog` holds the JSON Schema for these extension
   "summary": { "breaking": 4, "deprecated": 1, "non-breaking": 2 },
   "globalChanges": [],
   "removedOperations": [],
-  "unverified": []
+  "unverified": [],
+  "setAside": [{ "pattern": "**/*.spec.ts", "reason": "Tests; they are not served" }]
 }
 ```
 
 - The summary counts every change entry (each operation's x-changes plus `x-changelog.globalChanges`), and each item of `x-changelog.removedOperations` counts as breaking.
+- `x-changelog.setAside` names the changed files left unexamined, by pattern, each with why they cannot change what the frontend sees (tests, docs, CI, lockfiles). `**` crosses folders, `*` and `?` stay in one, and a pattern without a slash matches a file name at any depth. It is optional and stays in the written changelog, so a reader sees what was not read. A pattern covering every changed file, or every file not yet examined while those are most of them, is refused.
 - A removed operation is `{ "method": "delete", "path": "/api/v1/sessions", "replacedBy": "POST /api/v2/sessions/revoke", "note": "..." }`; replacedBy and note are optional. Endpoints that exist only in base go there. A moved endpoint (same behavior, new URL or method) is recorded once, on its new operation as an `in: url` change, not there as well.
 
 ## On each operation

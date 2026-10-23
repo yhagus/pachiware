@@ -50,6 +50,11 @@ export const EXTENSIONS_SCHEMA = {
       properties: { in: { type: "string", pattern: IN_PATTERN }, field: { type: "string", minLength: 1 }, reason: { type: "string", minLength: 1 } },
       additionalProperties: false,
     },
+    setAside: {
+      type: "object", required: ["pattern", "reason"],
+      properties: { pattern: { type: "string", minLength: 1 }, reason: { type: "string", minLength: 1 } },
+      additionalProperties: false,
+    },
     removedOperation: {
       type: "object", required: ["method", "path"],
       properties: { method: { type: "string", pattern: "^[a-z]+$" }, path: { type: "string", pattern: "^/" }, replacedBy: { type: "string", minLength: 1 }, note: { type: "string", minLength: 1 } },
@@ -64,6 +69,7 @@ export const EXTENSIONS_SCHEMA = {
         globalChanges: { type: "array", items: { $ref: "#/$defs/change" } },
         removedOperations: { type: "array", items: { $ref: "#/$defs/removedOperation" } },
         unverified: { type: "array", items: { $ref: "#/$defs/unverified" } },
+        setAside: { type: "array", items: { $ref: "#/$defs/setAside" } },
         openapiVersionNote: { type: "string", minLength: 1 },
       },
       additionalProperties: false,

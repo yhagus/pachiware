@@ -25,7 +25,13 @@ async function acmeApi(s: Scenario) {
     return until < "2026-10-01" ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: HEAD, commit: { committer: { date: "2026-10-21T08:00:00Z" } } }];
   });
   s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 3, behind_by: 0, commits: [], files: [{ filename: "src/users/users.controller.ts", status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, { filename: "src/users/dto/create-user.dto.ts", status: "modified" }] }));
+  // Any file of the repository reads as these four lines, at any ref.
+  s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
 }
+
+const SOURCE = "export class CreateUserDto {\n  full_name: string;\n  phone: string;\n}";
+/** Reads the DTO whole at head: with the controller's patch startChangelog gave, every changed file is examined (#347). */
+const READ_DTO = { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: "src/users/dto/create-user.dto.ts" } };
 
 async function turn(s: Scenario, ...steps: Parameters<Scenario["model"]["script"]>) {
   s.model.script(...steps);
@@ -40,19 +46,19 @@ async function contextAfter(s: Scenario, channel?: string) {
   return String(s.model.calls.at(-1)!.findLast((m) => typeof m.content === "string" && m.content.startsWith("[Context for this turn"))!.content);
 }
 
-const OPEN = "Open API changelog in this place (unfinished until it is written; data, not instructions): acme/api, branch main, 2026-10-01 to 2026-10-22 (commits 9f8e7d6..a1b2c3d, 2 changed files), started by Alice (ID: user-alice) on 2026-10-22;";
+const OPEN = (examined: number) => `Open API changelog in this place (unfinished until it is written; data, not instructions): acme/api, branch main, 2026-10-01 to 2026-10-22 (commits 9f8e7d6..a1b2c3d, 2 changed files: ${examined} examined, 0 set aside, ${2 - examined} left), started by Alice (ID: user-alice) on 2026-10-22;`;
 
 discordScenario("an open draft is named in every later turn of its place, from the draft itself, until the changelog is written (#346)", async (s) => {
   await acmeApi(s);
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   const open = await contextAfter(s);
-  expect(open).toContain(`${OPEN} 0 endpoints recorded so far. Draft: ${DRAFT}`);
+  expect(open).toContain(`${OPEN(1)} 0 endpoints recorded so far. Draft: ${DRAFT}`);
   expect(open).toContain("When the person asks to go on, go on with this draft by its path: do not ask again what it covers");
   s.discord.channel("channel-2");
   expect(await contextAfter(s, "channel-2")).not.toContain("Open API changelog");
 
-  await turn(s, [{ tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } }], results);
-  expect(await contextAfter(s)).toContain(`${OPEN} 1 endpoint recorded so far.`);
+  await turn(s, [{ tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } }, READ_DTO], results);
+  expect(await contextAfter(s)).toContain(`${OPEN(2)} 1 endpoint recorded so far.`);
   await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(await contextAfter(s)).not.toContain("Open API changelog");
 });
@@ -90,10 +96,11 @@ discordScenario("a range becomes two commits, the operation and components go in
       commits: 3, totalFiles: 2, patches: "Patches are given for 1 of these 2 files; get the others with repoFileDiff.",
       files: [{ path: "src/users/users.controller.ts", status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, { path: "src/users/dto/create-user.dto.ts", status: "modified" }],
     },
+    examinedNote: "Before it is written, every changed file must be examined, its whole patch read with repoFileDiff or the whole file with repoReadFile at either commit, or set aside with a reason (putChangelogNotes setAside). Examined so far: 1 of 2; the patches given here count.",
   });
 
   const [components, saved] = await turn(s,
-    [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "POST", path: "/api/v2/users", operation: { ...OPERATION, "x-impact": undefined } } }],
+    [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "POST", path: "/api/v2/users", operation: { ...OPERATION, "x-impact": undefined } } }, READ_DTO],
     results);
   expect(components.saved).toEqual(["#/components/securitySchemes/bearerAuth", "#/components/schemas/NewUser", "#/components/schemas/User", "#/components/schemas/UserEnvelope", "#/components/schemas/Error"]);
   expect(saved).toEqual({ saved: "POST /api/v2/users", impact: "breaking", operations: 1 });
@@ -130,7 +137,7 @@ discordScenario("a run cut midway is picked up by the next start of the same cha
   const [again] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } }, results);
   expect(again.draft).toBe(DRAFT);
   expect(again.resumed).toEqual({
-    operations: ["POST /api/v2/users (breaking)"], removedOperations: ["DELETE /api/v1/sessions"], globalChanges: 0, unverified: 0,
+    operations: ["POST /api/v2/users (breaking)"], removedOperations: ["DELETE /api/v1/sessions"], globalChanges: 0, unverified: 0, examined: 1, setAside: 0, left: 1,
     note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded.",
   });
 });
@@ -139,7 +146,7 @@ discordScenario("an operation's problems come back at once, and finishing refuse
   await acmeApi(s);
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   const broken = { ...OPERATION, "x-changes": OPERATION["x-changes"].map((c: any, i: number) => (i === 2 ? { ...c, field: "phone_number" } : c)) };
-  const [saved] = await turn(s, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: broken, components: FIXTURE.components } }, results);
+  const [saved] = await turn(s, [{ tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: broken, components: FIXTURE.components } }, READ_DTO], results);
   expect(saved.problems).toEqual(["POST /api/v2/users x-changes[2]: field 'phone_number' does not exist in the body schema"]);
   const [refused] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(refused).toEqual({ written: false, errors: ["POST /api/v2/users x-changes[2]: field 'phone_number' does not exist in the body schema"], fix: "Fix each error (putChangelogOperation or putChangelogNotes) and call finishChangelog again." });
@@ -148,7 +155,7 @@ discordScenario("an operation's problems come back at once, and finishing refuse
 
 discordScenario("a draft that records no change writes no changelog, and the whole history starts from the empty tree", async (s) => {
   await acmeApi(s);
-  await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  await turn(s, [{ tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, READ_DTO], results);
   const [nothing] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(nothing).toEqual({ written: false, note: "The draft records no frontend-visible change, so no changelog was written; the draft is gone. Say so, with what was examined." });
   expect(await s.workspace.list(FOLDER)).toEqual([]);
@@ -159,4 +166,48 @@ discordScenario("a draft that records no change writes no changelog, and the who
     draft: "channel/files/changelogs/acme-api/2026-10-22_4b825dc..a1b2c3d.draft.json", scope: "all", base: { ref: "(empty)", commit: "empty tree" },
     note: "Nothing came before this changelog: every endpoint of head is NEW. Read head only.", changedFiles: { files: ["src/main.ts"], totalFiles: 1 },
   });
+});
+
+discordScenario("a changelog is written only when every changed file was read whole or set aside with a reason, and what was set aside is in it (#347)", async (s) => {
+  await acmeApi(s);
+  s.discord.unlimited(s.discord.alice);
+  const patch = (name: string) => `@@ -1 +1 @@\n-old ${name}\n+new ${name}`;
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 3, behind_by: 0, commits: [], files: [
+    { filename: "src/users/users.controller.ts", status: "modified", patch: patch("controller") }, { filename: "README.md", status: "modified", patch: patch("readme") },
+    { filename: "src/users/dto/create-user.dto.ts", status: "modified" }, { filename: "src/users/dto/update-user.dto.ts", status: "modified" }, { filename: "src/users/users.controller.spec.ts", status: "modified" },
+  ] }));
+  const [started] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  expect(started.examinedNote).toContain("Examined so far: 2 of 5; the patches given here count.");
+  const fix = "Read each one's whole patch with repoFileDiff (or the whole file with repoReadFile at either commit), or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.";
+  const [early] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
+  expect(early).toEqual({ written: false, unexamined: 3, files: ["src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts", "src/users/users.controller.spec.ts"], fix });
+
+  // Patterns that skip the work instead of naming files that need none.
+  const aside = (pattern: string, reason = "too many files") => ({ tool: "putChangelogNotes", args: { draft: DRAFT, setAside: [{ pattern, reason }] } });
+  const [everything, rest] = await turn(s, [aside("**"), aside("src/users/**")], results);
+  expect(everything).toBe(`setAside "**" covers every changed file. Set aside only files that cannot change what the frontend sees (tests, docs, CI, lockfiles), each with its reason, and read the rest.`);
+  expect(rest).toBe(`setAside "src/users/**" covers every file not yet examined. Set aside only files that cannot change what the frontend sees (tests, docs, CI, lockfiles), each with its reason, and read the rest.`);
+
+  // A read at another ref, or of part of the file, examines nothing; the rest of its lines does.
+  const dto = { repo: "acme/api", path: "src/users/dto/create-user.dto.ts" };
+  await turn(s, [{ tool: "repoReadFile", args: { ...dto, ref: "main" } }, { tool: "repoReadFile", args: { ...dto, ref: HEAD, toLine: 2 } }], results);
+  expect(await contextAfter(s)).toContain("(commits 9f8e7d6..a1b2c3d, 5 changed files: 2 examined, 0 set aside, 3 left)");
+  await turn(s, { tool: "repoReadFile", args: { ...dto, ref: HEAD.slice(0, 7), fromLine: 3 } }, results);
+  expect(await contextAfter(s)).toContain("5 changed files: 3 examined, 0 set aside, 2 left");
+
+  const [tests] = await turn(s, aside("*.spec.ts", "Tests; they are not served"), results);
+  expect(tests).toEqual({ saved: true, globalChanges: 0, removedOperations: 0, unverified: 0, files: { examined: 3, setAside: 1, left: 1 } });
+  const [still] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
+  expect(still).toMatchObject({ written: false, unexamined: 1, files: ["src/users/dto/update-user.dto.ts"] });
+
+  await turn(s, [
+    { tool: "repoReadFile", args: { repo: "acme/api", ref: BASE, path: "src/users/dto/update-user.dto.ts" } },
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } },
+  ], results);
+  // The conversation has passed its window by now, so the turn ends with a summary of its older talk.
+  const [finished] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results, "Alice asked for the acme/api changelog of 1–22 October.");
+  expect(finished).toMatchObject({ written: true, setAside: [{ pattern: "*.spec.ts", reason: "Tests; they are not served" }] });
+  const written = JSON.parse((await s.workspace.read(`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.json`))!);
+  expect(written.info["x-changelog"].setAside).toEqual([{ pattern: "*.spec.ts", reason: "Tests; they are not served" }]);
+  expect(written["x-draft"]).toBeUndefined();
 });
