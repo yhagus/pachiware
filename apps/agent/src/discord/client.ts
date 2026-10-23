@@ -615,7 +615,7 @@ export class DiscordBotManager {
   /**
    * What a turn left of its place's Changelog draft (#361): whether the draft is worked on, so the work goes on by itself, and whether the
    * turn went on with it, paused it or ended it. A Stop its asker pressed pauses a draft still worked on, such as one the turn started after
-   * its Stop button went up.
+   * its Stop button went up. `asked` is the question the turn paused it with, through askChangelogAsker (#356).
    */
   private async draftWork(place: DraftPlace, before: OpenDraft | undefined, output: { toolCallsExecuted: { call: { name: string; arguments?: unknown } }[] }, stop: StopEntry, resuming?: Promise<unknown>) {
     await resuming;
@@ -623,7 +623,9 @@ export class DiscordBotManager {
     if (after && stop.stopped && isWorkedOn(after) && await pauseDraft(place, after.draft, { reason: "stopped" }).catch(() => false)) after = (await openDrafts(place).catch(() => []))[0];
     const draft = after ?? before, workedOn = !!after && isWorkedOn(after);
     const wentOn = !!draft && output.toolCallsExecuted.some(({ call }) => goesOnWith(draft, call));
-    return { draft, wentOn, workedOn, ended: !!before && after?.name !== before.name, pausedNow: !!after && !workedOn && (wentOn || stop.stopped) };
+    const pausedNow = !!after && !workedOn && (wentOn || stop.stopped), paused = after?.work?.state === "paused" ? after.work : undefined;
+    const asked = pausedNow && paused?.reason === "question" && output.toolCallsExecuted.some(({ call }) => call.name === "askChangelogAsker") ? paused.question : undefined;
+    return { draft, wentOn, workedOn, ended: !!before && after?.name !== before.name, pausedNow, asked };
   }
   /** Forgets the Stop buttons of work that ended. */
   private dropStop(stop: StopEntry | undefined) {
@@ -765,6 +767,8 @@ export class DiscordBotManager {
       if (plan.messages.length || direct) plan = withNotes(plan, notes);
       if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
       const work = await this.draftWork(draftPlace, before, output, stopping, resuming);
+      // A turn that asked the draft's asker something answers with the question alone (#356).
+      if (work.asked) plan = { messages: [work.asked] };
       // A progress message put up before the turn started its draft names the draft from now on, and the draft keeps where it is (#361).
       const up = work.workedOn && work.draft ? await progress.posted() : null;
       if (up?.id && up.channelId && work.draft && work.draft.progressMessage?.messageId !== up.id) {

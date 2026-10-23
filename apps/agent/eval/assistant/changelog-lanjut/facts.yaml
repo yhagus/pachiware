@@ -1,5 +1,7 @@
 # An API changelog started yesterday was cut off with nothing recorded. "lanjut" goes on with the open draft and writes the changelog,
 # never asking again what it covers and never saying the earlier work did not happen. Issue #346, from Velodiva Assitant on 2026-10-23.
+# Nothing here needs Alice's answer, so the work never stops to ask whether to go on, nor pauses with askChangelogAsker: a turn that ends
+# halfway goes on by itself, and its final answer then pings Alice, the changelog's asker (#356).
 language: id
 area: loop
 clock: 2026-10-21T02:00:00Z   # Wednesday 21 October 2026, 09:00 Asia/Jakarta
@@ -112,7 +114,9 @@ mustCover:
   - Bot meneruskan changelog acme/api (branch main, 19–20 Oktober) yang sudah dimulai kemarin, tanpa menanyakan lagi cakupan atau rentang tanggalnya
   - Bot tidak mengatakan pekerjaan sebelumnya tidak pernah terjadi atau tidak berasal dari hasil alat
   - Changelog selesai ditulis, dengan POST /api/v2/users sebagai endpoint yang berubah dan perubahannya merusak frontend lama (breaking)
+  - Bot tidak berhenti untuk menanyakan apakah boleh lanjut, dan tidak bertanya apa pun yang bisa ia jawab sendiri dari kodenya
 turns:
   - files: [files/changelogs/acme-api/2026-10-20_9f8e7d6..a1b2c3d.json]
     replyContains: [/api/v2/users]
-    replyLacks: [seluruh riwayat, tidak pernah memanggil, tidak berasal dari hasil alat]
+    replyLacks: [seluruh riwayat, tidak pernah memanggil, tidak berasal dari hasil alat, lanjutkan?, mau saya lanjut]
+    mayPing: [user-alice]
