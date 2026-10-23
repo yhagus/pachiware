@@ -10,10 +10,12 @@
       "n": 1,
       "message": "lanjut ya yang kemarin, sampai jadi",
       "replies": [
-        "Changelog acme/api (branch main, 19–20 Oktober) sudah jadi: satu endpoint berubah dan merusak frontend lama.\n- `POST /api/v2/users`: pindah dari `/api/v1/users`, `name` jadi `full_name`, `phone` sekarang wajib, dan ada 409 baru kalau nomornya sudah dipakai."
+        "<@user-alice> Changelog acme/api (branch main, 19–20 Oktober) sudah jadi: satu endpoint berubah dan merusak frontend lama.\n- `POST /api/v2/users`: pindah dari `/api/v1/users`, `name` jadi `full_name`, `phone` sekarang wajib, dan ada 409 baru kalau nomornya sudah dipakai."
       ],
       "confirm": false,
-      "pings": [],
+      "pings": [
+        "user-alice"
+      ],
       "state": {
         "tasks": [],
         "memory": {

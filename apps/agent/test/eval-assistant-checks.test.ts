@@ -71,6 +71,12 @@ describe("code checks on one run", () => {
     expect(checks(withTurn(1, { pings: ["user-bob"] }))).toEqual(["1 pings: The reply pinged user-bob; only a Reminder post, or the one ping an Assignee gets, pings."]);
   });
 
+  test("a turn whose facts name who may be pinged, such as an API changelog's asker, passes with that ping and fails with any other", () => {
+    const asker: AssistantFixture = { ...fixture, facts: { ...fixture.facts, turns: [{ ...fixture.facts.turns[0]!, mayPing: ["user-alice"] }, fixture.facts.turns[1]!] } };
+    expect(checks(withTurn(1, { pings: ["user-alice"] }), asker)).toEqual([]);
+    expect(checks(withTurn(1, { pings: ["user-alice", "user-bob"] }), asker)).toEqual(["1 pings: The reply pinged user-bob; only a Reminder post, the one ping an Assignee gets, or user-alice pings."]);
+  });
+
   test("a quiet turn must post nothing, and a turn naming reactions must leave one of them", () => {
     const quiet: AssistantFixture = { ...fixture, facts: { ...fixture.facts, turns: [fixture.facts.turns[0]!, { quiet: true, reaction: ["👍", "✅"], tasks: [{ title: "venue" }] }] } };
     expect(checks(withTurn(2, { replies: [], reactions: ["✅"] }), quiet)).toEqual([]);

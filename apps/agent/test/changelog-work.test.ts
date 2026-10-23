@@ -370,3 +370,65 @@ discordScenario("a draft paused for no progress that a lanjut goes on with count
   ]);
   expect((await pauses(s)).map((p: any) => p.reason)).toEqual(["no-progress", "no-progress"]);
 });
+
+const QUESTION = "Is src/users/dto/f.dto.ts still served, or can it be set aside?";
+const ASK = { tool: "askChangelogAsker", args: { draft: DRAFT, question: QUESTION } };
+
+discordScenario("a turn the model ends with a question in its answer goes on; askChangelogAsker pauses the draft with its question as the answer, pinging the asker, and anyone's reply that goes on with it sends it to the end (#356)", async (s) => {
+  await acmeApi(s);
+  await fastProgress();
+  await agentLog();
+  s.model.script(
+    START, "Started the acme/api changelog. Shall I go on?",
+    async () => { await pause(300); return read(0); }, ASK, "I asked Alice about the last DTO.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(s.model.calls).toHaveLength(5);
+  const [progress, answer, ...rest] = s.discord.botMessages;
+  expect(rest).toEqual([]);
+  expect(progress).toMatchObject({ content: expect.stringMatching(/^-# ⏸️ Paused after /), components: [] });
+  expect(answer).toMatchObject({ content: `<@user-alice> ${QUESTION}`, allowedMentions: { users: ["user-alice"] } });
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
+  expect(await pauses(s)).toEqual([expect.objectContaining({ reason: "question", repo: "acme/api", draft: "2026-10-22_9f8e7d6..a1b2c3d" })]);
+  expect(await warnings(s)).toEqual([expect.stringMatching(/: question$/)]);
+
+  // Bob answers for Alice: his turn goes on with the draft, so the work goes on by itself to the end.
+  s.model.script(
+    { tool: "putChangelogNotes", args: { draft: DRAFT, setAside: [{ pattern: DTOS[5], reason: "no longer served" }] } }, "Set it aside; going on.",
+    [1, 2, 3, 4].map(read), RECORD, FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} set it aside, it is not served any more`, { author: s.discord.bob });
+
+  expect(s.model.calls).toHaveLength(5 + 2 + 4);
+  expect(s.discord.botMessages.slice(2).map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: `<@user-alice> The acme/api changelog is written: ${WRITTEN}`, pinged: ["user-alice"] },
+  ]);
+  expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
+});
+
+discordScenario("a question longer than three short lines is refused and asks nothing; asked in the asker's own turn, the question answers her message without a ping (#356)", async (s) => {
+  await acmeApi(s);
+  const long = { tool: "askChangelogAsker", args: { draft: DRAFT, question: "I read the controller.\nI read the first DTO.\nThe last DTO looks unused.\nIs it still served, or can it be set aside?" } };
+  s.model.script(START, long, ASK, "Asked.");
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(String(s.model.calls[2]!.findLast((m: any) => m.role === "tool")!.content)).toContain("Ask in at most 3 short lines");
+  expect(s.model.calls).toHaveLength(4);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([{ content: QUESTION, pinged: [] }]);
+  expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "question", question: QUESTION });
+  expect(await pauses(s)).toHaveLength(1);
+});
+
+discordScenario("a turn going on by itself that asks after a turn without progress posts its question, not the no-progress line (#356, #357)", async (s) => {
+  await acmeApi(s);
+  s.model.script(START, "Started the acme/api changelog.", "Next I will read the DTOs.", ASK, "Asked.");
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(s.model.calls).toHaveLength(5);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: `<@user-alice> ${QUESTION}`, pinged: ["user-alice"] },
+  ]);
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
+  expect((await pauses(s)).map((p: any) => p.reason)).toEqual(["question"]);
+});

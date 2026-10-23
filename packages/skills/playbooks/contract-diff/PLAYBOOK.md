@@ -4,7 +4,7 @@ category: Git, code & APIs
 trigger: {"word": ["changelog"]}
 default: off
 requires: ["git_repositories", "openapi"]
-tools: ["playbookRepositories", "startChangelog", "stopChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "sendFiles", "publishOpenApi"]
+tools: ["playbookRepositories", "startChangelog", "stopChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]
 repository: required
 budget: long
 ---
@@ -24,7 +24,7 @@ Produce an OpenAPI document that holds only the endpoints whose frontend-facing 
 
 **Record as you go.** An endpoint you traced but did not record is lost when the turn runs out: the next turn starts from the draft, not from what you read.
 
-**Keep going until it is written.** While the changelog is open, the turn's context names its draft. Go on with that draft when the person says to; never ask again what it covers. Do not stop only to ask whether to continue: stop for a question only the person can answer, such as a branch that does not exist or access that was refused. When the person who started the changelog asks to stop it, in any words, call `stopChangelog` and say what was dropped; a message that only pauses stops nothing. When a turn ends before the changelog is written, answer in at most three short lines: how far it is (changed files done of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them.
+**Keep going until it is written.** While the changelog is open, the turn's context names its draft. Go on with that draft when the person says to; never ask again what it covers. Ending a turn that works on the changelog stops nothing: the work goes on by itself until it is written, so never ask whether to continue. When only the person who started it can answer something, such as which branch to read or whether a folder is set aside, ask them with `askChangelogAsker`: it is the only way you pause the work, and the question is your whole answer. When the person who started the changelog asks to stop it, in any words, call `stopChangelog` and say what was dropped; a message that only pauses stops nothing. When a turn ends before the changelog is written, answer in at most three short lines: how far it is (changed files done of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them.
 
 ## 1. Pin what the changelog covers
 

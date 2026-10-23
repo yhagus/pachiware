@@ -47,6 +47,8 @@ export interface TurnFacts {
   quiet?: true;
   /** The bot leaves one of these reactions on the message, such as 👍 for a thanks. */
   reaction?: string[];
+  /** Who the reply may ping besides an Assignee, by id: the asker of an API changelog, whose final answer pings them after work that went on by itself (#356). */
+  mayPing?: string[];
   /**
    * Tasks that must exist after this turn among any others, each matched as in `tasks`; the count is not compared. For a brief seeded
    * with a corpus, whose dozens of tasks `tasks` would have to list one by one.
@@ -245,7 +247,7 @@ export function loadAssistantFixtures(dir = join(EVAL_DIR, "assistant")): Assist
     const mustCover = strings(raw.mustCover, `${name} mustCover`) ?? [];
     if (!mustCover.length) throw new Error(`Fixture ${name} names no must-cover fact`);
     for (const [i, t] of (raw.turns as any[]).entries()) {
-      for (const key of ["replyContains", "replyLacks", "files", "kept", "reaction"]) strings(t[key], `${name} turn ${i + 1} ${key}`);
+      for (const key of ["replyContains", "replyLacks", "files", "kept", "reaction", "mayPing"]) strings(t[key], `${name} turn ${i + 1} ${key}`);
       if (t.quiet !== undefined && t.quiet !== true) throw new Error(`Fixture ${name}: turn ${i + 1} quiet is true or left out`);
       if (t.quiet && (t.replyContains || t.cites || t.taskList || t.ambiguous)) throw new Error(`Fixture ${name}: turn ${i + 1} is quiet, so it asks nothing of a reply`);
       for (const c of t.cites ?? []) if (!Number.isInteger(c) || !raw.seed?.messages?.[c]) throw new Error(`Fixture ${name}: turn ${i + 1} cites ${c}, which is no seeded message`);

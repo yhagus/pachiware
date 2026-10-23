@@ -1,6 +1,6 @@
 import type { SkillModule, ToolPolicy } from "../types.js";
 import { acct, repoP, useRepo } from "./gitShared.js";
-import { finishChangelog, noteRead, putComponents, putNotes, putOperation, startChangelog, stopChangelog } from "../openapi/changelog.js";
+import { askAsker, finishChangelog, noteRead, putComponents, putNotes, putOperation, startChangelog, stopChangelog } from "../openapi/changelog.js";
 import { listPreviews, publishPreview } from "../openapi/previews.js";
 import { readablePath } from "./workspace.js";
 
@@ -23,7 +23,7 @@ export const openapiSkill: SkillModule = {
   capabilities: ["openapi"],
   allowedScopes: ["tenant"],
   // Publishing goes without a Write confirmation, as the user decided (#285); the console revokes a link.
-  toolPolicy: { startChangelog: drafting, putChangelogOperation: drafting, putChangelogComponents: drafting, putChangelogNotes: drafting, finishChangelog: drafting, stopChangelog: drafting, publishOpenApi: { effect: "write", requiresConfirmation: false }, listOpenApiPreviews: { effect: "read" } },
+  toolPolicy: { startChangelog: drafting, putChangelogOperation: drafting, putChangelogComponents: drafting, putChangelogNotes: drafting, finishChangelog: drafting, stopChangelog: drafting, askChangelogAsker: drafting, publishOpenApi: { effect: "write", requiresConfirmation: false }, listOpenApiPreviews: { effect: "read" } },
   tools: [
     { name: "startChangelog", description: "Starts an API changelog of a repository as an OpenAPI draft, or finds the one already started for the same commits. scope is the person's answer, never your choice: all is the whole history (every endpoint is NEW), range covers from one day to another (YYYY-MM-DD in this place's time zone; to is today when left out). It turns the days into commits on the branch (head: the last commit through to; base: the last commit before from) and returns the draft path, both commits, and the first changed files with how to list the rest. resumed lists the operations an earlier, unfinished run recorded.",
       parameters: { type: "object", properties: { account: acct, repo: repoP, branch: { type: "string", description: "Default: the default branch" }, scope: { type: "string", enum: ["all", "range"], description: "The person's answer: the whole history, or a range of days" }, from: { type: "string", description: "First day of a range, YYYY-MM-DD" }, to: { type: "string", description: "Last day, YYYY-MM-DD; default today" }, publish: { type: "boolean", description: "True when the person also asked to publish, show, preview or share it: finishChangelog then publishes it as it writes it" } }, required: ["repo", "scope"] } },
@@ -37,6 +37,8 @@ export const openapiSkill: SkillModule = {
       parameters: { type: "object", properties: { draft: draftP }, required: ["draft"] } },
     { name: "stopChangelog", description: "Stops the API changelog open in this place when the person who started it asks to stop it, in any words (\"hentikan bikin changelog\", \"stop the changelog\"): its draft is removed with what it recorded and nothing is written. Only the person who started it may stop it. A message that only pauses or asks to wait is not a stop.",
       parameters: { type: "object", properties: { draft: { type: "string", description: "The draft to stop; needed only when several are open here" } } } },
+    { name: "askChangelogAsker", description: "Asks the person who started the API changelog something only they can answer, such as which branch to read or whether a folder is set aside, and pauses the changelog until someone here answers; an answer that goes on with it has the work go on to the end. It is the only way to stop while the changelog is open: a turn you end without it goes on by itself. Never use it to ask whether to go on, or what you can find out from the code. The question, in their language and at most three short lines, is your whole answer, and they are pinged.",
+      parameters: { type: "object", properties: { draft: draftP, question: { type: "string", description: "The question alone, at most three short lines" } }, required: ["draft", "question"] } },
     { name: "publishOpenApi", description: "Publishes an OpenAPI JSON from the Workspace as an OpenAPI Schema Viewer page: a public page anyone with its link can open without signing in, showing the document (an API changelog's changes as badges and tables). It shows the file as it is now: later changes to the file do not reach it, and publishing again makes a new link. Use it when the person asks to show, preview or share an OpenAPI document or a changelog. The path is as readFile takes it. Returns the link; give it to the person, with any warning.",
       parameters: { type: "object", properties: { path: { type: "string", description: 'The .json file, e.g. "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json"' }, title: { type: "string", description: "Default: the document's info.title" } }, required: ["path"] } },
     { name: "listOpenApiPreviews", description: "Lists the OpenAPI Schema Viewer pages this bot published in this channel (with its threads) or this DM, newest first, with their links.",
@@ -49,6 +51,7 @@ export const openapiSkill: SkillModule = {
     putChangelogNotes: (args, ctx) => putNotes(ctx, args),
     finishChangelog: (args, ctx) => finishChangelog(ctx, args),
     stopChangelog: (args, ctx) => stopChangelog(ctx, args),
+    askChangelogAsker: (args, ctx) => askAsker(ctx, args),
     publishOpenApi: async (args, ctx) => publishPreview(ctx, { full: await readablePath(ctx, args.path), shown: String(args.path).trim() }, args.title),
     listOpenApiPreviews: (_args, ctx) => listPreviews(ctx),
   },
