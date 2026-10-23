@@ -276,13 +276,13 @@ discordScenario("a turn that goes on by itself and only settles candidates made 
     START, "Started the acme/api changelog.",
     trace(candidate("post", "/api/v2/users")), "Its route is built at runtime.", "One endpoint could not be traced.",
     trace(EXPORT), "Its handler comes from another service.", "Another endpoint could not be traced.",
-    FINISH, "Nothing frontend-visible could be recorded.",
+    FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   expect(await pauses(s)).toEqual([]);
   expect(s.model.calls).toHaveLength(10);
-  expect(s.discord.botMessages.map((m) => m.content)).toEqual(["<@user-alice> Nothing frontend-visible could be recorded."]);
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual([`<@user-alice> The acme/api changelog is written: ${WRITTEN}`]);
 });
 
 discordScenario("a worker that GitHub refuses leaves its endpoint waiting and pauses the draft, naming only GitHub, as the turn's own read would (#343, #359)", async (s) => {
@@ -322,4 +322,30 @@ discordScenario("the open-draft line of a person's turn says how many candidate 
   await s.discord.send(`${s.discord.mention} how far is the changelog?`);
 
   expect(line).toContain("; 0 endpoints recorded so far, 2 candidate endpoints waiting to be traced with traceEndpoints. Draft: ");
+});
+
+discordScenario("a changelog whose every candidate endpoint failed is written with those endpoints listed as unverified, never finished as one that changed nothing (#343)", async (s) => {
+  await acmeApi(s);
+  let finished: any;
+  s.model.script(
+    START,
+    trace(candidate("post", "/api/v2/users"), EXPORT),
+    // Neither worker records its endpoint.
+    "Its route is registered from config at runtime.",
+    "Its handler comes from another service.",
+    FINISH,
+    (turn) => { finished = turn.toolResults.at(-1); return written(turn); },
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  const unverified = [
+    { in: "operation", reason: "POST /api/v2/users could not be traced: Its route is registered from config at runtime." },
+    { in: "operation", reason: "GET /api/v2/users/export could not be traced: Its handler comes from another service." },
+  ];
+  expect(finished).toMatchObject({ written: true, path: WRITTEN, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, unverified });
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
+  const changelog = JSON.parse((await s.workspace.read(WRITTEN_FILE))!);
+  expect(changelog.paths).toEqual({});
+  expect(changelog.info["x-changelog"].unverified).toEqual(unverified);
+  expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
 });

@@ -861,7 +861,8 @@ function breakingLines(doc: Json) {
 /**
  * Writes the changelog when the draft is a valid one: counts the summary, sets each operation's x-impact, leaves out the components no
  * path reaches, and runs the whole validator. With errors the draft stays and they come back to fix; with none the `.json` is written
- * beside it and the draft goes. A draft that records no change writes nothing.
+ * beside it and the draft goes. A draft that records no change and nothing unverified writes nothing; one whose only entries are
+ * unverified, such as endpoints whose workers all failed, is written with them, so they are never reported as no change (#343).
  */
 export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown }) {
   const full = draftPath(ctx, args.draft), shown = String(args.draft).trim();
@@ -879,7 +880,8 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     }
     // A candidate that failed is listed as unverified, even when the notes were set again since (#343).
     for (const c of meta?.candidates ?? []) if (c.state === "failed") listUnverified(changelog, c);
-    if (recordsNothing(doc)) {
+    const unsettled = recordsNothing(doc) ? (changelog.unverified ?? []).length : 0;
+    if (recordsNothing(doc) && !unsettled) {
       await workspaceStore().remove(ctx.tenantId, full);
       return { written: false, note: "The draft records no frontend-visible change, so no changelog was written; the draft is gone. Say so, with what was examined.", ...(changelog.setAside?.length ? { setAside: changelog.setAside } : {}) };
     }
@@ -910,6 +912,7 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
       ...(changelog.setAside?.length ? { setAside: changelog.setAside } : {}),
       ...(report.warnings.length ? { warnings: report.warnings } : {}),
       validation: "0 errors: the contract-diff checks and the OpenAPI 3.1 schema.",
+      ...(unsettled ? { note: `No endpoint was recorded as changed, but ${unsettled} thing${unsettled === 1 ? "" : "s"} could not be verified, listed in it as unverified. Say so and name them; never say nothing changed.` } : {}),
     };
   });
 }
