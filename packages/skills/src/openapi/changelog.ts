@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { workspaceStore, MAX_BLOB_BYTES, WorkspaceConflict } from "../workspace/store.js";
 import { placeRoot, resolvePath } from "../workspace/paths.js";
 import { checkThreadWrite } from "../workspace/threads.js";
-import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, lastCommitBy, type GitConn } from "../git.js";
+import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, goneFrom, lastCommitBy, type GitConn } from "../git.js";
 import { DEFAULT_TIMEZONE, isoInZone, now, zonedTime } from "../clock.js";
 import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, changeCounts, escapePointer, iterOperations, mostSevere, recordsNothing, resolveLocal, validateChangelog, validateOperation } from "./validate.js";
 import { textIn } from "../language.js";
@@ -100,7 +100,8 @@ export function changelogScope(args: { scope?: unknown; from?: unknown; to?: unk
 export async function changelogRevisions(conn: GitConn, repo: string, branch: string, covers: { scope: Scope; from?: string; to: string }, timezone: string) {
   const at = (wall: string, shift = 0) => isoInZone(timezone, zonedTime(timezone, wall)! + shift);
   const head = await lastCommitBy(conn, repo, branch, at(`${covers.to}T23:59:59`));
-  if (!head) throw new Error(`${branch} has no commit on or before ${covers.to}.`);
+  // A branch with no commit is either gone, which pauses the draft (#359), or younger than the range.
+  if (!head) throw (await goneFrom(conn, repo, branch)) ?? new Error(`${branch} has no commit on or before ${covers.to}.`);
   const before = covers.scope === "range" ? await lastCommitBy(conn, repo, branch, at(`${covers.from}T00:00:00`, -1000)) : null;
   if (before?.sha === head.sha) throw new Error(`No commit on ${branch} from ${covers.from} to ${covers.to}: nothing changed, so there is no changelog to write.`);
   const base: Revision = before ? { ref: `${branch} before ${covers.from}`, commit: before.sha } : { ref: "(empty)", commit: EMPTY_TREE };
@@ -327,7 +328,7 @@ export const isWorkedOn = (d: Pick<OpenDraft, "work">) => d.work?.state === "wor
  */
 const DRAFT_TOOLS = new Set(["putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "askChangelogAsker"]);
 /** The repository reads of contract-diff, which go on with a draft of the repository they read; startChangelog names it the same way. */
-const REPOSITORY_TOOLS = new Set(["startChangelog", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff"]);
+export const REPOSITORY_TOOLS = new Set(["startChangelog", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff"]);
 
 /** Whether a tool call goes on with the draft: a changelog tool given its path, or a repository read of its repository (#361). */
 export function goesOnWith(d: Pick<OpenDraft, "draft" | "repo">, call: { name: string; arguments?: unknown }) {
