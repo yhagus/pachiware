@@ -145,7 +145,7 @@ export interface Scenario {
     addBot(options?: { name?: string }): Promise<FakeBot>;
   };
   settle(): Promise<void>;
-  /** Stops and starts the bot again, as a process restart would; Workspace and database state stay. */
+  /** Stops and starts the bot again, as a process restart would, forgetting the turns it ran; Workspace and database state stay. */
   restart(): Promise<void>;
 }
 
@@ -642,7 +642,14 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       },
     },
     settle,
-    restart: async () => { await manager.restartBot(bot.id); client = clientOf(BOT_USER.id); await settle(); },
+    restart: async () => {
+      await manager.stopBot(bot.id);
+      // A new process remembers none of the old one's turns: neither the Stop buttons they put up nor how many turns people started (#362).
+      for (const memory of ["stops", "heard"]) (manager as any)[memory].clear();
+      await manager.startBot(bot.id);
+      client = clientOf(BOT_USER.id);
+      await settle();
+    },
     close: async () => { for (const id of [bot.id, ...extraBots]) await manager.stopBot(id); },
   };
 }

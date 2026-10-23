@@ -59,3 +59,4 @@ export { forViewer } from "./openapi/viewer.js";
 export { previewUrl } from "./openapi/previews.js";
 export { publicUrl } from "./publicUrl.js";
 export { awaitModelRetry, modelAnswered, retryTime } from "./openapi/changelog.js";
+export { workedOnPlaces } from "./openapi/changelog.js";

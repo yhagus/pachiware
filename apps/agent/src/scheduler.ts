@@ -37,6 +37,8 @@ export function startScheduler(manager: DiscordBotManager, everyMs = SCHEDULER_I
 async function pass(manager: DiscordBotManager, at: number) {
   const due = await repositories().schedules.due(new Date(at));
   for (const row of due) await fire(manager, row, at).catch(() => {});
+  // A Changelog draft keeps whether it is worked on, so no schedule row stands for it: its work goes on from here when it stopped (#362).
+  await manager.wakeDrafts().catch(() => {});
 }
 
 async function fire(manager: DiscordBotManager, row: Schedule, at: number) {

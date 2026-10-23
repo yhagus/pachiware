@@ -25,6 +25,7 @@ import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileO
 import { DEFAULT_MODEL_RETRY_WAIT_SECONDS } from "@pachiware/db";
 import { atClock, awaitModelRetry, modelAnswered, retryTime } from "@pachiware/skills";
 import type { ModelFailure } from "../llm/types.js";
+import { workedOnPlaces } from "@pachiware/skills";
 
 const BURST_MS = 2500;
 /** How many messages before a line `followsBot` reads, looking for the bot's reply behind a burst. */
@@ -203,6 +204,13 @@ export class DiscordBotManager {
   private stops = new Map<string, StopEntry>();
   /** How many turns a person started per conversation; a turn going on by itself gives way when it changed since it was queued. */
   private heard = new Map<string, number>();
+  /**
+   * The worked-on Changelog drafts this process works on, by tenant and place, with the bot that works each: found when a bot starts, and
+   * kept by every turn that leaves one worked on, so a scheduler pass finds one whose work stopped going on (#362).
+   */
+  private working = new Map<string, { botId: string; channelId: string }>();
+  /** Turns of this process waiting on a model retry, by conversation; a bot that stops leaves them to its next start (#358, #362). */
+  private retries = new Map<string, { leave(): void }>();
   constructor(private burstMs = BURST_MS, private commandsMs = COMMANDS_MS) {
     onPlaybooksChanged((tenantId) => this.refreshCommands(tenantId));
     onAvailabilityChanged((tenantId) => this.refreshCommands(tenantId));
@@ -258,6 +266,7 @@ export class DiscordBotManager {
   private async stop(id: string) {
     const runtime = this.clients.get(id);
     this.clients.delete(id);
+    this.forgetWork(id);
     if (runtime) await runtime.client.destroy();
     await repositories().bots.update(id, { connectionStatus: "disconnected" });
     return { success: true, message: "Bot stopped." };
@@ -282,6 +291,7 @@ export class DiscordBotManager {
       this.scheduleCommands(id);
       this.track(this.moveOldThreadFiles(runtime));
       this.track(catchUpDailyLogs(this, id));
+      this.track(this.wakeOnStart(runtime, id));
     });
     client.on(Events.GuildCreate, () => { if (runtime.connected) this.scheduleCommands(id); });
     client.on(Events.GuildDelete, (guild) => { runtime.sentCommands.delete(guild.id); });
@@ -320,6 +330,64 @@ export class DiscordBotManager {
       const report = await moveOldThreadFiles(runtime.tenantId, guildId, kindOf).catch(() => null);
       for (const { from, to } of report?.taken ?? []) console.warn(`[discord] Kept in place, "${to}" is taken: ${from}`);
     }
+  }
+  /**
+   * When a bot is ready, every worked-on Changelog draft in the guilds it serves goes on by itself (#362): the drafts say they are worked
+   * on, so a restart costs their askers no "lanjut".
+   */
+  private async wakeOnStart(runtime: BotRuntime, botId: string) {
+    const served = [...runtime.client.guilds.cache.keys()].filter((g) => !runtime.guildIds.length || runtime.guildIds.includes(g));
+    for (const guildId of served) {
+      for (const channelId of await workedOnPlaces(runtime.tenantId, guildId).catch(() => [])) await this.wake(runtime, botId, channelId).catch(() => {});
+    }
+  }
+  /**
+   * A scheduler pass's part in the work on Changelog drafts (#362): each draft this process works on goes on when no turn of its place
+   * runs or waits, and one waiting on a model retry goes on once its time came.
+   */
+  async wakeDrafts() {
+    for (const { botId, channelId } of [...this.working.values()]) {
+      const runtime = this.clients.get(botId);
+      if (runtime?.connected) await this.wake(runtime, botId, channelId).catch(() => {});
+    }
+  }
+  /** A bot that stops works on no draft of this process: its turns waiting on a retry go, and its next start finds its drafts again (#362). */
+  private forgetWork(botId: string) {
+    for (const [key, waiting] of [...this.retries]) if (key.startsWith(`conv:${botId}:`)) waiting.leave();
+    for (const [key, work] of [...this.working]) if (work.botId === botId) this.working.delete(key);
+  }
+  /** Whether a turn of the place runs or waits, any bot's, a turn of this process waiting on a model retry included. */
+  private busy(channelId: string) {
+    const ofPlace = (key: string) => key.startsWith("conv:") && key.endsWith(`:${channelId}`);
+    return [...this.operations.keys()].some(ofPlace) || [...this.retries.keys()].some(ofPlace);
+  }
+  /**
+   * Has the worked-on Changelog draft of a place go on by itself, with a turn addressed by its place and asker (#362). It waits while a turn
+   * of the place runs or waits, which goes on with the draft already, and until a pending model retry's time; a paused or ended draft is
+   * not woken, nor one without an asker to act as. Reading the place drops a draft left untouched too long, so that one is never woken.
+   * A playbook thread's draft goes on only with the thread's bot, any other with the bot of the tenant that found it first.
+   */
+  private async wake(runtime: BotRuntime, botId: string, channelId: string) {
+    const key = `${runtime.tenantId}:${channelId}`, claimed = this.working.get(key);
+    if (claimed && claimed.botId !== botId) return;
+    const fetched = await runtime.client.channels.fetch(channelId).catch(() => null);
+    const channel = fetched?.isSendable() ? fetched : null;
+    if (!channel) return;
+    const thread = channel.isThread() ? channel : null;
+    const bound = thread?.parentId ? await boundPlaybook(runtime.tenantId, { guildId: thread.guildId, channelId: thread.parentId, threadId: thread.id }).catch(() => null) : null;
+    if (bound?.binding.botId && bound.binding.botId !== botId) return;
+    const draft = (await openDrafts(draftPlaceOf(runtime, botId, channel, runtime.client.user?.id ?? "")).catch(() => []))[0];
+    if (!draft || !isWorkedOn(draft) || !draft.startedBy) {
+      if (claimed) this.working.delete(key);
+      return;
+    }
+    this.working.set(key, { botId, channelId });
+    const retryAt = retryTime(draft);
+    if ((retryAt !== undefined && retryAt > now()) || this.busy(channelId)) return;
+    const convKey = `conv:${botId}:${channelId}`, heard = this.heard.get(convKey) ?? 0;
+    const asker = { id: draft.startedBy.id, name: draft.startedBy.name ?? draft.startedBy.id };
+    const opts: ReplyOptions = { continued: 1, draft: draft.name, ...(bound?.playbook ? { playbook: bound.playbook, binding: bound.binding } : {}) };
+    void this.serialize(convKey, () => this.goOn(runtime, botId, { channelId, asker }, opts, heard)).catch(() => {});
   }
   /** Re-registers the commands of every running bot of the tenant, so an edited playbook or rule needs no restart. */
   refreshCommands(tenantId: string) {
@@ -691,16 +759,22 @@ export class DiscordBotManager {
    * pauses the draft there and then, whatever turn runs in its place (#361).
    */
   private async pressStop(runtime: BotRuntime, botId: string, i: ButtonLike & { channel?: Message["channel"] | null }) {
-    const entry = this.stops.get(i.customId), t = textIn(entry?.language).progress;
+    const name = i.customId.startsWith(`${DRAFT_STOP_PREFIX}:`) ? i.customId.slice(DRAFT_STOP_PREFIX.length + 1) : null;
+    const place = name && i.channel ? draftPlaceOf(runtime, botId, i.channel, i.user.id) : null;
+    const open = place ? (await openDrafts(place).catch(() => [])).find((d) => d.name === name) : undefined;
+    // No turn of this process may hold the button yet, as after a restart: the worked-on draft it names says whose work it is (#362).
+    const entry = this.stops.get(i.customId) ?? (open?.startedBy && isWorkedOn(open) ? await this.draftStop(runtime, botId, i, open.startedBy) : undefined);
+    const t = textIn(entry?.language).progress;
     if (!entry) { await i.reply({ content: t.stopEnded, ephemeral: true }); return; }
     if (i.user.id !== entry.askerId) { await i.reply({ content: t.stopOnlyAsker(entry.askerName), ephemeral: true }); return; }
     entry.stopped = true;
-    const name = i.customId.startsWith(`${DRAFT_STOP_PREFIX}:`) ? i.customId.slice(DRAFT_STOP_PREFIX.length + 1) : null;
-    if (name && i.channel) {
-      const place = draftPlaceOf(runtime, botId, i.channel, i.user.id), open = (await openDrafts(place).catch(() => [])).find((d) => d.name === name);
-      if (open) await pauseDraft(place, open.draft, { reason: "stopped" }).catch(() => {});
-    }
+    if (place && open) await pauseDraft(place, open.draft, { reason: "stopped" }).catch(() => {});
     await i.update({ components: [] });
+  }
+  /** Who may stop a draft's work that no turn of this process holds: its asker, told off in the place's language. */
+  private async draftStop(runtime: BotRuntime, botId: string, i: ButtonLike, asker: { id: string; name?: string }): Promise<StopEntry> {
+    const guild = i.guildId ? await loadGuildSettings(runtime.tenantId, botId, i.guildId) : null;
+    return { askerId: asker.id, askerName: asker.name ?? asker.id, stopped: false, language: configuredLanguage(guild, await repositories().agentConfig.get(runtime.tenantId)) };
   }
   /**
    * A turn that goes on by itself, queued behind what people sent meanwhile: when one of them was answered first, or one is still being
@@ -708,6 +782,12 @@ export class DiscordBotManager {
    * message that started the work (#355): it speaks in that thread, or as a new message in that channel, as its asker.
    */
   private async goOn(runtime: BotRuntime, botId: string, at: { channelId: string; asker: Asker }, opts: ReplyOptions, heard: number) {
+    // Work queued before its bot restarted gives way, its progress message left as it is: the restarted bot takes it up (#362).
+    if (this.clients.get(botId) !== runtime) {
+      this.dropStop(opts.stop);
+      opts.progress?.leave();
+      return;
+    }
     const gathering = [...this.bursts.keys()].some((k) => k.startsWith(`${botId}:${at.channelId}:`));
     // Work on a Changelog draft goes on only while the draft is worked on (#361). Its asker's Stop, pressed in between, still gets the turn,
     // which stops at once and says how far the work got, even after someone else's turn.
@@ -799,13 +879,18 @@ export class DiscordBotManager {
       const asked = before?.startedBy;
       const stopping = stop = opts.stop ?? { askerId: asked?.id ?? actor.id, askerName: asked ? asked.name ?? asked.id : actor.name, stopped: false, language: progressLanguage };
       const stopButton = (id: string) => [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(id).setLabel(textIn(progressLanguage).progress.stop).setStyle(ButtonStyle.Secondary))];
+      // Work this process woke, going on from before it (#362), shows at once in the progress message it showed before, or in a new one when
+      // that is gone.
+      const woken = fromDraft && !opts.progress;
       // The Stop button names the place's open Changelog draft, which keeps where the message is, so the work on it can find both again (#355).
       const post = async (content: string) => {
         const open = (await openDrafts(draftPlace).catch(() => []))[0];
         const id = open ? `${DRAFT_STOP_PREFIX}:${open.name}` : `${STOP_PREFIX}:${crypto.randomUUID()}`;
         this.stops.set(id, stopping);
-        const posted = await (thread ? thread.send({ content, components: stopButton(id), allowedMentions: { parse: [] } }) : msg.reply({ content, components: stopButton(id), allowedMentions: { parse: [] } }));
-        if (open) await keepProgressMessage(draftPlace, open.draft, { channelId: posted.channelId, messageId: posted.id }).catch(() => {});
+        const shown = woken && open?.progressMessage?.channelId === target.id && "messages" in target ? await target.messages.fetch(open.progressMessage.messageId).catch(() => null) : null;
+        const kept = shown && shown.author.id === botUserId ? await shown.edit({ content, components: stopButton(id) }).catch(() => null) : null;
+        const posted = kept ?? await (thread ? thread.send({ content, components: stopButton(id), allowedMentions: { parse: [] } }) : msg.reply({ content, components: stopButton(id), allowedMentions: { parse: [] } }));
+        if (open && !kept) await keepProgressMessage(draftPlace, open.draft, { channelId: posted.channelId, messageId: posted.id }).catch(() => {});
         return posted;
       };
       const turnProgress = progress = opts.progress ?? new TurnProgress(post, progressLanguage, opts.playbook?.name);
@@ -814,6 +899,7 @@ export class DiscordBotManager {
         const open = (await openDrafts(draftPlace))[0];
         return open?.left !== undefined && open.changedFiles !== undefined ? textIn(progressLanguage).progress.files(open.examined! + open.setAside!, open.changedFiles) : null;
       };
+      if (woken && before?.progressMessage) progress.showNow();
       // A turn that goes on with a paused draft has it worked on again from its first call for it, so a pause later in the turn stands (#361).
       let resuming: Promise<unknown> | undefined;
       const onStep: typeof turnProgress.step = (step) => {
@@ -854,6 +940,11 @@ export class DiscordBotManager {
       if (outage.paused) {
         Object.assign(work, { workedOn: false, pausedNow: true });
         plan = { messages: [textIn(progressLanguage).modelPaused] };
+      }
+      // The process keeps the drafts it works on, for the scheduler pass (#362).
+      if (work.draft) {
+        if (work.workedOn) this.working.set(`${runtime.tenantId}:${channelId}`, { botId, channelId });
+        else this.working.delete(`${runtime.tenantId}:${channelId}`);
       }
       // A worked-on Changelog draft goes on after any turn (#361). Other long work goes on by itself when its turn ran out,
       // LONG_CONTINUATIONS times; after that a reply continues it (#289). A turn its asker stopped waits for them.
@@ -905,9 +996,13 @@ export class DiscordBotManager {
         const next = { ...opts, continued: continued + 1, answerIn: shown ?? undefined, progress, stop, draft: work.workedOn ? work.draft?.name : undefined }, heard = this.heard.get(convKey) ?? 0;
         const asker = work.draft?.startedBy ? { id: work.draft.startedBy.id, name: work.draft.startedBy.name ?? work.draft.startedBy.id } : { id: actor.id, name: actor.name };
         const goOn = () => { void this.serialize(convKey, () => this.goOn(runtime, botId, { channelId, asker }, next, heard)).catch(() => {}); };
-        // A pending model retry runs when its time comes, unless the bot was restarted meanwhile (#358).
-        if (outage.retryAt !== undefined && outage.retryAt > now()) atClock(outage.retryAt, () => { if (this.clients.get(botId) === runtime) goOn(); });
-        else goOn();
+        // A pending model retry runs when its time comes (#358). A bot that stops first leaves it, and after its start a scheduler pass
+        // runs it, the time kept in the draft (#362).
+        if (outage.retryAt !== undefined && outage.retryAt > now()) {
+          const waiting = { leave: () => { cancel(); this.retries.delete(convKey); this.dropStop(stop); progress?.leave(); } };
+          this.retries.set(convKey, waiting);
+          const cancel = atClock(outage.retryAt, () => { if (this.retries.get(convKey) !== waiting) return; this.retries.delete(convKey); goOn(); });
+        } else goOn();
       }
     } catch (error) {
       const failure = failureOf(error);

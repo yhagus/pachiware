@@ -65,7 +65,7 @@ export class TurnProgress {
   }
 
   private show() {
-    if (this.ended) return;
+    if (this.ended || this.posting) return;
     const text = this.render();
     this.posting = this.post(text).then((m) => { this.message = m; this.shown = text; }, () => {});
     this.refreshDetail();
@@ -75,6 +75,22 @@ export class TurnProgress {
       const next = this.render();
       if (next !== this.shown) { this.shown = next; void this.message.edit(next).catch(() => {}); }
     }, progressTiming.everyMs);
+  }
+
+  /** Puts the message up now rather than after `showAfterMs`: for work that was already going on when this process started (#362). */
+  showNow() {
+    clearTimeout(this.first);
+    this.show();
+  }
+
+  /**
+   * Stops keeping the message up to date and leaves it as it is: the work goes on from the bot's next start, which takes the message over
+   * (#362).
+   */
+  leave() {
+    this.ended = true;
+    clearTimeout(this.first);
+    clearInterval(this.ticks);
   }
 
   /** The message once it is up, or null while it is not. */

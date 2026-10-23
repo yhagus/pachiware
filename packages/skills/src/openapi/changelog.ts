@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { workspaceStore, MAX_BLOB_BYTES, WorkspaceConflict } from "../workspace/store.js";
-import { placeRoot, resolvePath } from "../workspace/paths.js";
+import { placeRoot, resolvePath, safeId } from "../workspace/paths.js";
 import { checkThreadWrite } from "../workspace/threads.js";
 import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, lastCommitBy, type GitConn } from "../git.js";
 import { DEFAULT_TIMEZONE, isoInZone, now, zonedTime } from "../clock.js";
@@ -376,6 +376,22 @@ export async function modelAnswered(ctx: DraftPlace, draft: string) {
 
 /** When a worked-on draft's pending model retry runs (ms), or undefined when none is pending. */
 export const retryTime = (d: Pick<OpenDraft, "work">) => (d.work?.state === "worked-on" && d.work.retryAt ? Date.parse(d.work.retryAt) : undefined);
+
+/**
+ * The places of a guild whose Changelog draft is worked on, as the drafts themselves say (#362): what the agent wakes when it starts. How
+ * long a draft was left untouched is not judged here; reading its place drops one left too long.
+ */
+export async function workedOnPlaces(tenantId: string, guildId: string): Promise<string[]> {
+  const guild = safeId(guildId);
+  if (!guild) return [];
+  const places = new Set<string>();
+  for (const file of await workspaceStore().files(tenantId, `guilds/${guild}/channels`)) {
+    if (!/\/files\/changelogs\/[^/]+\/[^/]+\.draft\.json$/.test(file.path)) continue;
+    const meta: DraftMeta | undefined = (await readJson(tenantId, file.path).catch(() => null))?.doc?.["x-draft"];
+    if (meta?.place && meta.work?.state === "worked-on") places.add(meta.place);
+  }
+  return [...places];
+}
 
 /**
  * Pauses a draft that is worked on, for `pause.reason`. Every pause writes an Agent log warn line and the audit event changelog_draft_paused,
