@@ -253,6 +253,48 @@ discordScenario("a person's message during the work is answered first and the wo
   ]);
 });
 
+discordScenario("a person's message mid-work leaves the work's progress message in place: the message is answered, and the work goes on under that same progress message to the end (#361)", async (s) => {
+  await acmeApi(s);
+  await fastProgress();
+  const asked: Promise<unknown>[] = [];
+  s.model.script(
+    START, "Started the acme/api changelog.",
+    // Bob asks once the work's progress message is up.
+    async () => { await pause(300); asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read the first DTO.",
+    "Masih ada 5 file lagi.",
+    READ_REST, RECORD, FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+  await Promise.all(asked);
+
+  const [progress, answer, final, ...rest] = s.discord.botMessages;
+  expect(rest).toEqual([]);
+  expect(progress).toMatchObject({ content: expect.stringMatching(/^-# 🧠 Done in /), components: [] });
+  expect(answer!.content).toBe("Masih ada 5 file lagi.");
+  expect(final).toMatchObject({ content: `<@user-alice> The acme/api changelog is written: ${WRITTEN}`, allowedMentions: { users: ["user-alice"] } });
+  expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
+});
+
+discordScenario("a person's turn that fails mid-work is answered with the failure line as before, and the work still goes on after it to the end (#361)", async (s) => {
+  await acmeApi(s);
+  const asked: Promise<unknown>[] = [];
+  s.model.script(
+    START, "Started the acme/api changelog.",
+    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read the first DTO.",
+    // Bob's turn breaks before the model answers.
+    () => { throw new Error("socket hang up"); },
+    READ_REST, RECORD, FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+  await Promise.all(asked);
+
+  expect(s.model.calls).toHaveLength(9);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: "Sorry, I couldn't process this. Try again in a moment; if it keeps failing, ask an admin to check the bot's settings.", pinged: [] },
+    { content: `<@user-alice> The acme/api changelog is written: ${WRITTEN}`, pinged: ["user-alice"] },
+  ]);
+});
+
 discordScenario("a paused draft stays paused through a turn that only talks, and anyone's turn that goes on with it has it worked on again to the end (#361)", async (s) => {
   await acmeApi(s);
   await fastProgress();
