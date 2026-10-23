@@ -176,7 +176,7 @@ discordScenario("one request whose work spans many turns, cut by their budget or
 
   // Seven turns, six of them going on by themselves: no cap of five, and each a host line, never a person's.
   expect(s.model.calls).toHaveLength(16);
-  expect(s.model.calls[2]!.at(-2)!.content).toBe(DRAFT_TURN);
+  expect(s.model.calls[2]!.at(-2)!.content).toStartWith(DRAFT_TURN);
   expect(link).toMatch(new RegExp(`^https://pachi\\.example\\.com/open-api/${UUID}$`));
   expect(s.discord.botMessages).toEqual([expect.objectContaining({ content: `<@user-alice> The acme/api changelog is written and published: ${link}`, allowedMentions: { users: ["user-alice"] } })]);
   expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
@@ -420,7 +420,7 @@ discordScenario("a question longer than three short lines is refused and asks no
   expect(await pauses(s)).toHaveLength(1);
 });
 
-discordScenario("a turn going on by itself that asks after a turn without progress posts its question, not the no-progress line (#356, #357)", async (s) => {
+discordScenario("a turn going on by itself that asks after a turn without progress posts its question, not the no-progress line, and ends with it: the draft and the conversation keep the question as its closing summary (#356, #357, #360)", async (s) => {
   await acmeApi(s);
   s.model.script(START, "Started the acme/api changelog.", "Next I will read the DTOs.", ASK, "Asked.");
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
@@ -431,4 +431,108 @@ discordScenario("a turn going on by itself that asks after a turn without progre
   ]);
   expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
   expect((await pauses(s)).map((p: any) => p.reason)).toEqual(["question"]);
+  expect((await draftMeta(s)).closingSummary).toBe(QUESTION);
+
+  // A person's later turn reads the question the reply answers, not the model's own last words.
+  s.model.script("It is still served.");
+  await s.discord.send(`${s.discord.mention} f.dto.ts is still served`, { author: s.discord.bob });
+  expect(s.model.calls[5]!.filter((m) => m.role === "assistant" && !m.toolCalls?.length).map((m) => m.content)).toEqual([
+    "Started the acme/api changelog.", "Next I will read the DTOs.", QUESTION,
+  ]);
+});
+
+/** What the model may learn of acme/api's global conventions in step 2, about 60 tokens. */
+const CONVENTIONS = "NestJS: routes from @Controller and @Post, under the global prefix /api with URI versioning (v1, v2). Every success is wrapped as { data }; errors are { statusCode, message } from the global HttpExceptionFilter. Bodies are validated by class-validator; every route but /auth needs a Bearer JWT.";
+const NOTE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: CONVENTIONS } };
+/** Alice's request worked through in four turns of two steps each: hers, then three that go on by themselves. */
+function fourTurns(s: Scenario) {
+  s.model.script(
+    START, NOTE_CONVENTIONS, "Started the acme/api changelog and noted its conventions.",
+    read(0), "Read the first DTO.",
+    READ_REST, RECORD, "Recorded POST /api/v2/users.",
+    FINISH, written,
+  );
+}
+const toolsIn = (call: any[]) => call.filter((m) => m.role === "tool").map((m) => /source="tool:(\w+)/.exec(String(m.content))![1]);
+
+discordScenario("a turn that goes on by itself starts from the draft alone: the draft's state, the repository's conventions and the last turn's closing summary, none of the earlier turns' steps (#360)", async (s) => {
+  await acmeApi(s);
+  await twoSteps(s);
+  await agentLog();
+  fourTurns(s);
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(s.model.calls).toHaveLength(10);
+  // The second turn: the system prompt, the draft's state and the per-turn context, nothing of Alice's turn.
+  const second = s.model.calls[3]!;
+  expect(second.map((m) => m.role)).toEqual(["system", "user", "user"]);
+  expect(second[1]!.content).toBe(`${DRAFT_TURN}
+This turn starts from the draft alone: what earlier turns read is not here, only what they recorded in it.
+<untrusted_data source="changelog draft">
+Draft: ${DRAFT} (acme/api, branch main, 2026-10-01 to 2026-10-22, commits 9f8e7d6..a1b2c3d)
+Changed files: 7: 1 examined, 0 set aside, 6 left.
+Examined: src/users/users.controller.ts
+Left:
+${DTOS.map((p) => `- ${p} (modified)`).join("\n")}
+Endpoints recorded: none yet.
+Repository conventions: ${CONVENTIONS}
+How the last turn ended: Started the acme/api changelog and noted its conventions.
+</untrusted_data>`);
+  expect(String(second[2]!.content)).toContain(`Draft: ${DRAFT}`);
+
+  // The third turn knows the second's reads only as files examined, and its closing summary replaced the one before.
+  const third = String(s.model.calls[5]![1]!.content);
+  expect(s.model.calls[5]!.map((m) => m.role)).toEqual(["system", "user", "user"]);
+  expect(third).toContain("Changed files: 7: 2 examined, 0 set aside, 5 left.\nExamined: src/users/users.controller.ts, src/users/dto/a.dto.ts\n");
+  expect(third).toContain("How the last turn ended: Read the first DTO.\n");
+  expect(third).not.toContain("full_name");
+
+  // The fourth turn sees what the third recorded.
+  const fourth = String(s.model.calls[8]![1]!.content);
+  expect(fourth).toContain("Changed files: 7: 7 examined, 0 set aside, 0 left.\n");
+  expect(fourth).toContain("Endpoints recorded (1):\n- POST /api/v2/users (breaking)\nComponents recorded: securitySchemes/bearerAuth, schemas/NewUser, schemas/User, schemas/UserEnvelope, schemas/Error\n");
+  expect(fourth).toContain("How the last turn ended: Recorded POST /api/v2/users.\n");
+
+  // Their steps are in the Agent log, one line a turn.
+  const steps = (await s.admin("GET", "/api/admin/logs?level=info&source=changelog")).body.entries.map((e: any) => e.text);
+  expect(steps).toEqual([
+    "Went on with acme/api (branch main, draft 2026-10-22_9f8e7d6..a1b2c3d) in channel channel-1: repoReadFile ×1",
+    "Went on with acme/api (branch main, draft 2026-10-22_9f8e7d6..a1b2c3d) in channel channel-1: repoReadFile ×5, putChangelogComponents ×1, putChangelogOperation ×1",
+    "Went on with acme/api (branch main, draft 2026-10-22_9f8e7d6..a1b2c3d) in channel channel-1: finishChangelog ×1",
+  ]);
+});
+
+discordScenario("the conversation keeps one closing-summary row per turn that went on by itself, and a person's later turn reads those rows, not their steps (#360)", async (s) => {
+  await acmeApi(s);
+  await twoSteps(s);
+  fourTurns(s);
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+  s.model.script("Yes, it is written.");
+  await s.discord.send(`${s.discord.mention} is the changelog done?`, { author: s.discord.bob });
+
+  const bobs = s.model.calls[10]!;
+  // Alice's own turn is read as it was stored, steps and all; each turn after it left only what it concluded.
+  expect(toolsIn(bobs)).toEqual(["startChangelog", "putChangelogNotes"]);
+  expect(bobs.filter((m) => m.role === "assistant" && !m.toolCalls?.length).map((m) => m.content)).toEqual([
+    "Started the acme/api changelog and noted its conventions.", "Read the first DTO.", "Recorded POST /api/v2/users.", `The acme/api changelog is written: ${WRITTEN}`,
+  ]);
+  expect(bobs.some((m) => String(m.content).startsWith(DRAFT_TURN))).toBe(false);
+  expect(s.discord.botMessages.at(-1)!.content).toBe("Yes, it is written.");
+});
+
+discordScenario("putChangelogNotes keeps the repository's conventions summary in the draft, refused past about 1,500 tokens (#360)", async (s) => {
+  await acmeApi(s);
+  let refusal = "", kept: unknown;
+  s.model.script(
+    START, { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: `${CONVENTIONS} `.repeat(25) } },
+    (turn) => { refusal = turn.toolResults.at(-1).error; return NOTE_CONVENTIONS; },
+    async () => { kept = (await draftMeta(s)).conventions; return [read(0), ...READ_REST]; },
+    RECORD, FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(refusal).toMatch(/^conventions is about 1,8\d\d tokens; keep it to about 1,500/);
+  expect(kept).toBe(CONVENTIONS);
+  // Kept for the draft's turns only: the written changelog has none of it.
+  expect(await s.workspace.read(WRITTEN_FILE)).not.toContain("class-validator");
 });
