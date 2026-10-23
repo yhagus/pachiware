@@ -305,3 +305,68 @@ discordScenario("a progress message put up before its turn started the draft the
   expect(seen).toEqual({ buttons: ["changelogstop:2026-10-22_9f8e7d6..a1b2c3d"], kept: { channelId: "channel-1", messageId: progress!.id } });
   expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "stopped" });
 });
+
+const NO_PROGRESS = 'The changelog made no progress, so I paused it; type "go on" to continue.';
+
+discordScenario("a model that answers every turn without calling a tool pauses the draft after two such turns: they post nothing, and one line pings the asker to go on (#357)", async (s) => {
+  await acmeApi(s);
+  await fastProgress();
+  s.model.script(
+    START, "Started the acme/api changelog.",
+    async () => { await pause(300); return "Next I will read the DTOs."; },
+    "Going on with the DTOs.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(s.model.calls).toHaveLength(4);
+  const [progress, answer, ...rest] = s.discord.botMessages;
+  expect(rest).toEqual([]);
+  expect(progress).toMatchObject({ content: expect.stringMatching(/^-# ⏸️ Paused after /), components: [] });
+  expect(answer).toMatchObject({ content: `<@user-alice> ${NO_PROGRESS}`, allowedMentions: { users: ["user-alice"] } });
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "no-progress", since: "2026-10-22T03:00:00.000Z" });
+  expect(await pauses(s)).toEqual([expect.objectContaining({ reason: "no-progress", repo: "acme/api", branch: "main", draft: "2026-10-22_9f8e7d6..a1b2c3d", channelId: "channel-1" })]);
+});
+
+discordScenario("only the turns that go on by themselves count: a file examined starts the count again, and a person's chat in between neither counts nor resets it (#357)", async (s) => {
+  await acmeApi(s);
+  const asked: Promise<unknown>[] = [];
+  s.model.script(
+    START, "Started the acme/api changelog.",
+    "Next I will read the DTOs.",
+    read(0), "Read the first DTO.",
+    // Bob asks while the work reads the first DTO again, which adds nothing.
+    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read it again.",
+    "Masih ada 5 file lagi.",
+    "Going on with the DTOs.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+  await Promise.all(asked);
+
+  expect(s.model.calls).toHaveLength(9);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: "Masih ada 5 file lagi.", pinged: [] },
+    { content: `<@user-alice> ${NO_PROGRESS}`, pinged: ["user-alice"] },
+  ]);
+  expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "no-progress" });
+});
+
+discordScenario("a draft paused for no progress that a lanjut goes on with counts afresh: it pauses again only after two more turns without progress (#357)", async (s) => {
+  await acmeApi(s);
+  s.model.script(START, "Started the acme/api changelog.", "Next I will read the DTOs.", "Going on with the DTOs.");
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+  expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "no-progress" });
+
+  s.model.script(
+    read(0), "Read the first DTO.",
+    "Next I will read the rest.",
+    "Still on the DTOs.",
+  );
+  await s.discord.send(`${s.discord.mention} lanjut`);
+
+  expect(s.model.calls).toHaveLength(4 + 4);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: `<@user-alice> ${NO_PROGRESS}`, pinged: ["user-alice"] },
+    { content: `<@user-alice> ${NO_PROGRESS}`, pinged: ["user-alice"] },
+  ]);
+  expect((await pauses(s)).map((p: any) => p.reason)).toEqual(["no-progress", "no-progress"]);
+});

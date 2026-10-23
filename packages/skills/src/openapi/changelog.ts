@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { workspaceStore, MAX_BLOB_BYTES, WorkspaceConflict } from "../workspace/store.js";
 import { placeRoot, resolvePath } from "../workspace/paths.js";
 import { checkThreadWrite } from "../workspace/threads.js";
@@ -44,6 +45,7 @@ export type PauseReason = "question" | "stopped" | "model" | "service" | "no-pro
  */
 export type WorkState = {
   state: "worked-on";
+  withoutProgress?: number;
   /** A turn that went on by itself could not reach the model: the same continuation runs once more at this time (#358). */
   retryAt?: string;
 } | { state: "paused"; reason: PauseReason; since: string; service?: string; question?: string };
@@ -326,11 +328,11 @@ export function goesOnWith(d: Pick<OpenDraft, "draft" | "repo">, call: { name: s
 }
 
 /** Changes an open draft's work state when `change` returns one; like the progress message, it is no work on the draft and leaves its touch time alone. */
-async function changeWork(ctx: DraftPlace, draft: string, change: (meta: DraftMeta) => WorkState | null) {
+async function changeWork(ctx: DraftPlace, draft: string, change: (meta: DraftMeta, doc: Json) => WorkState | null) {
   const full = draftPath(ctx, draft);
   return serial(`${ctx.tenantId}/${full}`, async () => {
     const found = await readJson(ctx.tenantId, full), meta: DraftMeta | undefined = found?.doc["x-draft"];
-    const next = meta ? change(meta) : null;
+    const next = meta ? change(meta, found!.doc) : null;
     if (!found || !meta || !next) return null;
     meta.work = next;
     await writeJson(ctx.tenantId, full, found.doc, found.version);
@@ -377,6 +379,38 @@ export async function pauseDraft(ctx: DraftPlace, draft: string, pause: { reason
   console.warn(`[changelog] Paused ${paused.repo} (branch ${paused.branch}, draft ${name}) in channel ${ctx.channelId}: ${pause.reason}${pause.service ? `, ${pause.service}` : ""}${Object.keys(detail).length ? ` ${JSON.stringify(detail)}` : ""}`);
   await audit(ctx, "changelog_draft_paused", { reason: pause.reason, ...(pause.service ? { service: pause.service } : {}), repo: paused.repo, branch: paused.branch, draft: name, channelId: ctx.channelId, ...detail });
   return true;
+}
+
+/** How many turns in a row that went on by themselves may add nothing to a draft before it pauses (#357). */
+const NO_PROGRESS_TURNS = 2;
+
+/**
+ * What a turn must change to have added something to the draft (#357): a file examined or set aside, an operation recorded, changed or
+ * listed as removed, a component recorded or changed. The one place a later kind of progress joins, such as a candidate's state (#343).
+ */
+const progressOf = (doc: Json) => {
+  const changelog = doc.info?.["x-changelog"] ?? {};
+  const held = [doc["x-draft"]?.examined ?? [], changelog.setAside ?? [], changelog.removedOperations ?? [], doc.paths ?? {}, doc.components ?? {}];
+  return createHash("sha256").update(JSON.stringify(held)).digest("base64");
+};
+
+/**
+ * Starts measuring a turn that goes on by itself with a worked-on draft (#357); a person's turn is never measured. What it returns, called
+ * when the turn ends, counts the turn: progress starts the count again, and the NO_PROGRESS_TURNS-th turn in a row without any pauses the
+ * draft for "no-progress", which it then returns true for. A pause clears the count, so a draft worked on again counts afresh.
+ */
+export async function measureTurn(ctx: DraftPlace, draft: string) {
+  const found = await readJson(ctx.tenantId, draftPath(ctx, draft)), mark = found ? progressOf(found.doc) : null;
+  return async () => {
+    let turns = 0;
+    await changeWork(ctx, draft, (meta, doc) => {
+      if (meta.work?.state !== "worked-on") return null;
+      const was = meta.work.withoutProgress ?? 0;
+      turns = progressOf(doc) === mark ? was + 1 : 0;
+      return turns === was ? null : turns ? { state: "worked-on", withoutProgress: turns } : { state: "worked-on" };
+    });
+    return turns >= NO_PROGRESS_TURNS && pauseDraft(ctx, draft, { reason: "no-progress" });
+  };
 }
 
 /** What an open draft covers, in words. */
