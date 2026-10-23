@@ -1,6 +1,6 @@
 import { repositories, DEFAULT_REACT_ITERATIONS } from "@pachiware/db";
 import { historyWindow, storedToolResult, windowOf } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, textIn, stepOf, stepLine, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, openDrafts, textIn, stepOf, stepLine, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
 import type { ChatMessage, ImagePart } from "../llm/types.js";
@@ -305,9 +305,12 @@ export class AgentReActLoop {
     if (input.readOnly) for (const t of available.tools) if (skillRegistry.effectOf(t.name) !== "read") closed.set(t.name, input.readOnly);
 
     // 6. Build execution context for tools
+    // A long playbook, or a changelog still open here, reads many files: the git skill's reads skip the per-person limit (#352).
+    const longWork = long || (await openDrafts({ tenantId: input.tenantId, botId: input.botId, guildId: input.context.guildId, channelId: input.context.channelId, parentChannelId: input.context.skillContext?.parentChannelId, privateThread: input.context.skillContext?.privateThread, userId: input.context.userId }).catch(() => [])).length > 0;
     const skillContext: SkillContext = {
       tenantId: input.tenantId,
       botId: input.botId,
+      longWork,
       discord: input.context.skillContext?.discord,
       guildId: input.context.guildId,
       channelId: input.context.channelId,

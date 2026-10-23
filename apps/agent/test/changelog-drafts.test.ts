@@ -264,3 +264,18 @@ discordScenario("when publishing a changelog asked for from the start fails, the
   expect(lastReply(s)).toEqual([{ written: true, path: "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json", publishFailed: "That file is 2.1 MB; an OpenAPI Schema Viewer page holds at most 2 MB." }]);
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.json`]);
 });
+
+/** Each tool result of the turn as "ok" or its refusal, short enough for one message. */
+const outcomes = (turn: any) => JSON.stringify(turn.toolResults.map((r: any) => r.error ?? "ok"));
+const LIMITED = "Too many requests right now. Wait a minute and try again.";
+
+discordScenario("with a Changelog draft open, a turn's git reads are not held to the per-person limit (#352)", async (s) => {
+  await acmeApi(s);
+  await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  expect(await turn(s, Array.from({ length: 32 }, () => READ_DTO), outcomes)).toEqual(Array(32).fill("ok"));
+});
+
+discordScenario("without long work, the 31st tool call of a person within a minute is refused as before (#352)", async (s) => {
+  await acmeApi(s);
+  expect(await turn(s, Array.from({ length: 32 }, () => READ_DTO), outcomes)).toEqual([...Array(30).fill("ok"), LIMITED, LIMITED]);
+});

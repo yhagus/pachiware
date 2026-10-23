@@ -149,8 +149,10 @@ export const GuardrailService = {
     const needs = policy.requiredPermissions ?? skill.requiredPermissions;
     if (policy.effect !== "read" && needs?.length && !hasPermission(ctx, ...needs)) return this.denyUnauthorized(t.guardPermission(needs.join(", ")));
     const who = ctx.userId ?? "anon";
+    // A changelog reads every changed file, more than a person's limit allows in a minute; the tenant's limit still holds (#352).
+    const freeRead = !!ctx.longWork && policy.effect === "read" && skill.id === "git_repositories";
     // A tool that confirms internally (git, savePlaybook) runs its own duplicate guard behind Confirm, so the per-tool write limit and the checks below skip it.
-    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !policy.confirmsInternally && !policy.metered && !ctx.bulkApproved && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", t.guardRateLimit);
+    if (!hit(`t:${ctx.tenantId}`, LIMITS.tenant) || (!policy.metered && !freeRead && !hit(`u:${ctx.tenantId}:${who}`, LIMITS.user)) || (policy.effect !== "read" && !policy.confirmsInternally && !policy.metered && !ctx.bulkApproved && !hit(`w:${ctx.tenantId}:${who}:${tool}`, LIMITS.writeTool))) return deny("limit", t.guardRateLimit);
     if (policy.effect !== "read" && !policy.confirmsInternally) {
       const until = policy.repeatable ? undefined : done.get(actionKey(tool, args, ctx));
       if (until && until > Date.now()) return deny("duplicate", t.guardDuplicate);

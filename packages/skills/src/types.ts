@@ -224,6 +224,11 @@ export interface SkillContext {
    * A tool that combines others (`recall`) reaches only what they reach.
    */
   tools?: { here: ReadonlySet<string>; run(name: string, args: Record<string, unknown>): Promise<ToolResult> };
+  /**
+   * Set by the host for a turn of a `budget: long` playbook, or one with an open Changelog draft in its place: work that reads many files.
+   * The git skill's reads then skip the per-person limit; the tenant's still holds (#352).
+   */
+  longWork?: boolean;
   metadata?: Record<string, any>;
 }
 
