@@ -13,7 +13,7 @@ export async function useRepo(a: any, ctx: SkillContext) {
   const access = pickAccess(await loadGitAccess(ctx), a?.account);
   const repo = str(a?.repo, "repo");
   if (!repoAllowed(access, repo)) throw new Error(`Repository ${repo} is not enabled for account "${access.account.name}" in this channel`);
-  return { access, repo, conn: await connectionOf(access) };
+  return { access, repo, conn: { ...(await connectionOf(access)), ...(ctx.callDeadline ? { deadline: ctx.callDeadline } : {}) } };
 }
 export const KINDS = ["issue", "merge_request"];
 export const kindOf = (v: unknown): ItemKind => { if (!KINDS.includes(v as string)) throw new Error("kind must be issue or merge_request"); return v as ItemKind; };
@@ -25,7 +25,7 @@ export type Scope = "repo" | "org" | "account";
 export async function useScope(a: any, ctx: SkillContext, scope: Scope) {
   if (scope === "repo") { const { access, repo, conn } = await useRepo(a, ctx); return { access, conn, target: repo }; }
   const access = pickAccess(await loadGitAccess(ctx), a?.account);
-  const conn = await connectionOf(access);
+  const conn = { ...(await connectionOf(access)), ...(ctx.callDeadline ? { deadline: ctx.callDeadline } : {}) };
   if (scope === "account") return { access, conn, target: "" };
   const org = str(a?.org, "org");
   if (!orgAllowed(access, org)) throw new Error(`Organization/group ${org} is not enabled for account "${access.account.name}" in this channel`);

@@ -29,16 +29,39 @@ export async function fetchGitUsername(provider: GitProvider, baseUrl: string | 
   return name;
 }
 
-export interface GitConn { provider: GitProvider; baseUrl: string | null; token: string; oauth?: boolean }
+/** `deadline`: when the tool call using it must have answered (epoch ms), so a wait for the provider's rate limit never runs past it. */
+export interface GitConn { provider: GitProvider; baseUrl: string | null; token: string; oauth?: boolean; deadline?: () => number }
 export interface GitRepo { repo: string; defaultBranch: string; private: boolean; description: string | null }
 
+/** The longest a request waits out a provider's rate limit before trying once more; a wait without a time named is RATE_WAIT_UNNAMED_S. */
+const MAX_RATE_WAIT_S = 60, RATE_WAIT_UNNAMED_S = 5, REQUEST_MS = 15000;
+
+/** Seconds the provider asks to wait when it refused for its rate limit (429, or GitHub's 403 with no requests left), or null when it did not. */
+function rateLimitWait(res: Response): number | null {
+  const h = res.headers;
+  if (res.status !== 429 && !(res.status === 403 && (h.get("x-ratelimit-remaining") === "0" || h.has("retry-after")))) return null;
+  const after = Number(h.get("retry-after") ?? NaN);
+  if (Number.isFinite(after) && after >= 0) return Math.ceil(after);
+  // GitHub's x-ratelimit-reset and GitLab's ratelimit-reset are epoch seconds.
+  const reset = Number(h.get("x-ratelimit-reset") ?? h.get("ratelimit-reset") ?? NaN);
+  if (Number.isFinite(reset) && reset > 0) return Math.max(0, Math.ceil(reset - Date.now() / 1000));
+  return RATE_WAIT_UNNAMED_S;
+}
+
 export async function call(c: GitConn, path: string, init: { method?: string; body?: unknown; text?: boolean } = {}): Promise<any> {
-  const res = await fetch(path.startsWith("http") ? path : `${apiRoot(c.provider, c.baseUrl)}${path}`, {
+  const send = () => fetch(path.startsWith("http") ? path : `${apiRoot(c.provider, c.baseUrl)}${path}`, {
     method: init.method ?? "GET",
     headers: { ...authHeaders(c.provider, c.token, c.oauth), ...(init.body ? { "Content-Type": "application/json" } : {}) },
     body: init.body ? JSON.stringify(init.body) : undefined,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(REQUEST_MS),
   });
+  let res = await send();
+  // A rate limit is waited out once, when the wait is short and the call still has time for it and another request (#350).
+  const wait = rateLimitWait(res);
+  if (wait !== null && wait <= MAX_RATE_WAIT_S && Date.now() + wait * 1000 + REQUEST_MS <= (c.deadline?.() ?? Infinity)) {
+    await new Promise((r) => setTimeout(r, wait * 1000));
+    res = await send();
+  }
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`${c.provider} returned ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res.status === 204 ? {} : init.text ? res.text() : res.json();
