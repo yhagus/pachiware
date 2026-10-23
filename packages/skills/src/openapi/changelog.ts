@@ -29,7 +29,10 @@ type DraftMeta = {
   touchedAt?: string;
   /** The person asked to publish it too: finishing publishes it as it writes it (#349). */
   publish?: boolean;
+  /** Where the progress message of the work on it is, so that message can be found again (#355). */
+  progressMessage?: ProgressMessage;
 };
+type ProgressMessage = { channelId: string; messageId: string };
 type ChangedFile = { path: string; oldPath?: string; status: string };
 type Side = "base" | "head";
 /** Files set aside unexamined, each pattern with why; kept in the written changelog, so a reader sees what was not read. */
@@ -107,8 +110,11 @@ const writeDraft = (tenantId: string, full: string, doc: Json, version?: string)
 /** A Changelog draft nobody touched for this long is dropped, unannounced, the next time its place is read (#348). */
 export const DRAFT_IDLE_MS = 7 * 24 * 3600_000;
 
+/** What finds a place's drafts: who asks where. */
+type DraftPlace = Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "privateThread" | "userId" | "language">;
+
 /** A draft the place's own folder holds, by the path the tools gave: its store path, refused anywhere else. */
-function draftPath(ctx: SkillContext, draft: unknown) {
+function draftPath(ctx: DraftPlace, draft: unknown) {
   if (typeof draft !== "string" || !DRAFT.test(draft.trim())) throw new Error('draft must be the path startChangelog returned, e.g. "channel/files/changelogs/acme-api/2026-10-22_1a2b3c4..5d6e7f8.draft.json".');
   const full = resolvePath(ctx, draft.trim());
   checkThreadWrite(ctx, full);
@@ -237,10 +243,12 @@ function changelogFiles(ctx: SkillContext, repo: string, base: Revision, head: R
 
 /** A Changelog draft still open in a place, as the per-turn context shows it. */
 export type OpenDraft = {
-  draft: string; repo: string; branch: string; scope: Scope; from?: string; to: string; base: string; head: string;
+  /** `name` is the draft's file name without `.draft.json`, which tells it from any other draft of its place. */
+  draft: string; name: string; repo: string; branch: string; scope: Scope; from?: string; to: string; base: string; head: string;
   startedBy?: { id: string; name?: string }; startedOn?: string; operations: number; changedFiles?: number;
   /** For a range whose changed files the draft lists: how many were examined, set aside, and are left. */
   examined?: number; setAside?: number; left?: number;
+  progressMessage?: ProgressMessage;
 };
 
 /**
@@ -262,13 +270,28 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "botId" | 
     }
     const changelog = doc.info?.["x-changelog"] ?? {}, counted = meta.files ? accounting(meta, changelog.setAside) : null;
     shown.push({
-      draft: `${root}${file.path.slice(storeRoot.length)}`, repo: meta.repo, branch: meta.branch, scope: meta.scope, ...(meta.from ? { from: meta.from } : {}), to: meta.to,
+      draft: `${root}${file.path.slice(storeRoot.length)}`, name: file.path.split("/").pop()!.replace(/\.draft\.json$/, ""), repo: meta.repo, branch: meta.branch, scope: meta.scope, ...(meta.from ? { from: meta.from } : {}), to: meta.to,
       base: changelog.base?.commit, head: changelog.head?.commit, ...(meta.startedBy ? { startedBy: meta.startedBy } : {}), ...(changelog.date ? { startedOn: changelog.date } : {}),
       operations: [...iterOperations(doc)].length, ...(meta.changedFiles !== undefined ? { changedFiles: meta.changedFiles } : {}),
       ...(counted ? { examined: counted.examined, setAside: counted.setAside, left: counted.left.length } : {}),
+      ...(meta.progressMessage ? { progressMessage: meta.progressMessage } : {}),
     });
   }
   return shown;
+}
+
+/**
+ * Keeps where the progress message of the work on an open draft (its path as openDrafts gives it) was posted. It leaves the draft's
+ * touch time alone: a progress message is no work on it.
+ */
+export async function keepProgressMessage(ctx: DraftPlace, draft: string, at: ProgressMessage) {
+  const full = draftPath(ctx, draft);
+  await serial(`${ctx.tenantId}/${full}`, async () => {
+    const found = await readJson(ctx.tenantId, full);
+    if (!found?.doc["x-draft"]) return;
+    found.doc["x-draft"].progressMessage = { channelId: at.channelId, messageId: at.messageId };
+    await writeJson(ctx.tenantId, full, found.doc, found.version);
+  });
 }
 
 /** What an open draft covers, in words. */

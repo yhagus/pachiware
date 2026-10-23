@@ -28,8 +28,8 @@ export class TurnProgress {
   /** A line under the stage, read again on every edit, such as how many of a changelog's changed files are done. */
   detail?: () => Promise<string | null>;
 
-  /** `controls` go on the message while the turn runs (the Stop button) and come off when it ends. */
-  constructor(private readonly post: (content: string, controls: unknown[]) => Promise<Posted>, private readonly language: Language | undefined, private readonly playbook?: string, private readonly controls: unknown[] = []) {
+  /** `post` puts the message up with its controls (the Stop button), which come off when the turn ends. */
+  constructor(private readonly post: (content: string) => Promise<Posted>, private readonly language: Language | undefined, private readonly playbook?: string) {
     this.first = setTimeout(() => this.show(), progressTiming.showAfterMs);
   }
 
@@ -67,7 +67,7 @@ export class TurnProgress {
   private show() {
     if (this.ended) return;
     const text = this.render();
-    this.posting = this.post(text, this.controls).then((m) => { this.message = m; this.shown = text; }, () => {});
+    this.posting = this.post(text).then((m) => { this.message = m; this.shown = text; }, () => {});
     this.refreshDetail();
     this.ticks = setInterval(() => {
       if (!this.message || this.ended) return;

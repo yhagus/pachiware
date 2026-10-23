@@ -205,7 +205,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   const makeGuild = (id: string, name: string, list?: FakeUser[]) => {
     // Discord gives a guild's @everyone role the guild's own id.
     const guild: any = { id, name, roles: { everyone: { id } } }, known = new Map<string, FakeUser>((list ?? [alice, bob]).map((u) => [u.id, u]));
-    const member = (u: FakeUser) => ({ id: u.id, user: { id: u.id, username: u.username ?? u.name }, guild, displayName: u.name, roles: { cache: new Collection() } });
+    // Like a message's member, with the guild permissions `grant` gave.
+    const member = (u: FakeUser) => ({ id: u.id, user: { id: u.id, username: u.username ?? u.name }, guild, displayName: u.name, roles: { cache: new Collection() }, permissions: { toArray: () => granted.get(u.id) ?? [] } });
     guild.members = {
       fetch: async (userId: string) => { const u = known.get(userId); if (!u && list) throw new Error("Unknown Member"); return member(u ?? { id: userId, name: userId }); },
       search: async ({ query, limit = 1 }: { query: string; limit?: number }) => new Collection([...known.values()].filter((u) => [u.name, u.username ?? u.name].some((n) => n.toLowerCase().startsWith(query.toLowerCase()))).slice(0, limit).map((u) => [u.id, member(u)] as [string, any])),
@@ -270,6 +271,11 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     return channel;
   };
 
+  /** Like Discord's, a reply to a deleted message is refused (discord.js fails when the message it answers is gone). */
+  const replyable = (message: any, payload: string | Payload) => {
+    if (message.deleted) throw new Error("Invalid Form Body\nmessage_reference[MESSAGE_REFERENCE_UNKNOWN_MESSAGE]: Unknown message");
+    return payload;
+  };
   const post = (channel: any, author: FakeUser & { bot: boolean }, payload: string | Payload, extra: { reference?: string; attachments?: any[]; at?: number } = {}) => {
     const body = normalize(payload);
     const mentioned = new Collection<string, any>([...body.content.matchAll(/<@!?(\w[\w-]*)>/g)].map(([, id]) => [id, { id }]));
@@ -288,8 +294,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         return { users: { remove: async () => { const at = message.reactions.lastIndexOf(emoji); if (at >= 0) message.reactions.splice(at, 1); } } };
       },
       pin: async () => { message.pinned = true; },
-      delete: async () => { for (const list of [channel.messages, postedBy.get(author.id)]) { const at = list?.indexOf(message) ?? -1; if (at >= 0) list!.splice(at, 1); } return message; },
-      reply: async (p: string | Payload) => post(channel, BOT_USER, p, { reference: message.id }),
+      delete: async () => { message.deleted = true; for (const list of [channel.messages, postedBy.get(author.id)]) { const at = list?.indexOf(message) ?? -1; if (at >= 0) list!.splice(at, 1); } return message; },
+      reply: async (p: string | Payload) => post(channel, BOT_USER, replyable(message, p), { reference: message.id }),
       edit: async (p: string | Payload) => { const next = normalize(p); message.edits.push(next); Object.assign(message, typeof p === "string" ? { content: p } : Object.fromEntries(Object.entries(next).filter(([k]) => k in (p as object)))); return message; },
       fetchReference: async () => { const ref = message.reference && channel.messages.find((m: FakeMessage) => m.id === message.reference.messageId); if (!ref) throw new Error("Unknown Message"); return ref; },
       startThread: async ({ name }: { name: string }) => openThread(message, name, BOT_USER.id),
@@ -319,7 +325,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
     const overrides: Record<string, () => unknown> = "author" in target ? {
       channel: () => as(user, target.channel),
       thread: () => as(user, target.thread),
-      reply: () => async (p: string | Payload) => as(user, post(target.channel, user, p, { reference: target.id })),
+      reply: () => async (p: string | Payload) => as(user, post(target.channel, user, replyable(target, p), { reference: target.id })),
       startThread: () => async ({ name }: { name: string }) => as(user, openThread(target, name, user.id)),
       fetchReference: () => async () => as(user, await target.fetchReference()),
       edit: () => async (p: string | Payload) => as(user, await target.edit(p)),
