@@ -10,7 +10,7 @@ import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton, type ButtonLike } from "./gitConfirm.js";
 import { outgoingFiles, type OutgoingDiscordFile } from "./outgoingFiles.js";
-import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, openDrafts, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, pauseDraft, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding, type OpenDraft } from "@pachiware/skills";
+import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, openDrafts, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, pauseDraft, measureTurn, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding, type OpenDraft } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { causeText, playbookReport } from "./serverPlaybooks.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
@@ -615,15 +615,19 @@ export class DiscordBotManager {
   /**
    * What a turn left of its place's Changelog draft (#361): whether the draft is worked on, so the work goes on by itself, and whether the
    * turn went on with it, paused it or ended it. A Stop its asker pressed pauses a draft still worked on, such as one the turn started after
-   * its Stop button went up.
+   * its Stop button went up. A turn that went on by itself is counted (`countTurn`), and its draft pauses when it is the second in a row to
+   * add nothing (`stalled`, #357).
    */
-  private async draftWork(place: DraftPlace, before: OpenDraft | undefined, output: { toolCallsExecuted: { call: { name: string; arguments?: unknown } }[] }, stop: StopEntry, resuming?: Promise<unknown>) {
+  private async draftWork(place: DraftPlace, before: OpenDraft | undefined, output: { toolCallsExecuted: { call: { name: string; arguments?: unknown } }[] }, stop: StopEntry, resuming?: Promise<unknown>, countTurn?: (() => Promise<boolean>) | null) {
     await resuming;
     let after = (await openDrafts(place).catch(() => []))[0];
     if (after && stop.stopped && isWorkedOn(after) && await pauseDraft(place, after.draft, { reason: "stopped" }).catch(() => false)) after = (await openDrafts(place).catch(() => []))[0];
+    const ended = !!before && after?.name !== before.name;
+    const stalled = !!after && !ended && isWorkedOn(after) && !!countTurn && await countTurn().catch(() => false);
+    if (stalled) after = (await openDrafts(place).catch(() => []))[0];
     const draft = after ?? before, workedOn = !!after && isWorkedOn(after);
     const wentOn = !!draft && output.toolCallsExecuted.some(({ call }) => goesOnWith(draft, call));
-    return { draft, wentOn, workedOn, ended: !!before && after?.name !== before.name, pausedNow: !!after && !workedOn && (wentOn || stop.stopped) };
+    return { draft, wentOn, workedOn, ended, stalled, pausedNow: !!after && !workedOn && (wentOn || stop.stopped || stalled) };
   }
   /** Forgets the Stop buttons of work that ended. */
   private dropStop(stop: StopEntry | undefined) {
@@ -731,6 +735,8 @@ export class DiscordBotManager {
       const draftPlace = { tenantId: runtime.tenantId, botId, guildId: msg.guildId ?? undefined, channelId, parentChannelId: projectChannelId, userId: actor.id, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined };
       // The place's open Changelog draft as the turn finds it: what the turn does to it decides what follows (#361).
       const before = (await openDrafts(draftPlace).catch(() => []))[0];
+      // A turn that goes on by itself is measured for the progress it makes; a person's turn never is (#357).
+      const countTurn = opts.draft && before?.name === opts.draft ? await measureTurn(draftPlace, before.draft).catch(() => null) : null;
       // Kept across a chain of turns, so a press between two of them still stops the next. Only the asker may press it: the asker of the
       // place's open Changelog draft, else this turn's (#355).
       const asked = before?.startedBy;
@@ -764,7 +770,8 @@ export class DiscordBotManager {
       let plan: ReplyPlan = briefed?.plan ?? prepareReply(output.reply, { addressed: direct, language });
       if (plan.messages.length || direct) plan = withNotes(plan, notes);
       if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
-      const work = await this.draftWork(draftPlace, before, output, stopping, resuming);
+      // A turn whose model could not be reached is no turn without progress: the model's own rule takes it (#358).
+      const work = await this.draftWork(draftPlace, before, output, stopping, resuming, output.failed ? null : countTurn);
       // A progress message put up before the turn started its draft names the draft from now on, and the draft keeps where it is (#361).
       const up = work.workedOn && work.draft ? await progress.posted() : null;
       if (up?.id && up.channelId && work.draft && work.draft.progressMessage?.messageId !== up.id) {
@@ -773,14 +780,17 @@ export class DiscordBotManager {
         await up.edit({ components: stopButton(id) }).catch(() => {});
         await keepProgressMessage(draftPlace, work.draft.draft, { channelId: up.channelId, messageId: up.id }).catch(() => {});
       }
+      // A draft paused for making no progress says only that, and how to go on (#357).
+      if (work.stalled) plan = { messages: [textIn(progressLanguage).changelogNoProgress] };
       const continued = opts.continued ?? 0;
       // A worked-on Changelog draft goes on after any turn, unless the model could not be reached (#361). Other long work goes on by itself
       // when its turn ran out, LONG_CONTINUATIONS times; after that a reply continues it (#289). A turn its asker stopped waits for them.
       const cut = output.outOfBudget === true && !output.stopped && !!playbook && "long" in playbook && !work.ended && !work.pausedNow;
       const again = (work.workedOn && !output.failed) || (cut && continued < LONG_CONTINUATIONS);
       // The turns of the work post no answer: what they did is stored for the next, and the progress message carries on (#351). A person's
-      // turn that did not go on with a worked-on draft, such as a side question, is answered as usual, and the work goes on after it (#361).
-      if (again && (work.wentOn || !work.workedOn)) plan = { messages: [] };
+      // turn that did not go on with a worked-on draft, such as a side question, is answered as usual, and the work goes on after it (#361);
+      // a turn that went on by itself is never answered while the work goes on, even one that called no tool (#357).
+      if (again && (work.wentOn || !work.workedOn || !!opts.draft)) plan = { messages: [] };
       else if (!again) {
         if (cut) plan = withNotes(plan, [t.continueByReply]);
         // The progress message shrinks before the answer goes, so the answer is the newest message and notifies; a pause keeps it, saying so.
