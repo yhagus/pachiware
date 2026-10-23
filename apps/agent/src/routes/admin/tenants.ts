@@ -1,12 +1,16 @@
 import { Hono } from "hono";
-import { repositories, DEFAULT_CONVERSATION_IDLE_HOURS, type AgentConfig, type AgentConfigUpdate } from "@pachiware/db";
+import { repositories, DEFAULT_CONVERSATION_IDLE_HOURS, DEFAULT_MODEL_RETRY_WAIT_SECONDS, type AgentConfig, type AgentConfigUpdate } from "@pachiware/db";
 import { discordBotManager } from "../../discord/client.js";
 import { CacheService, tenantKey } from "../../cache/redis.js";
 import { syncTenantSchedules } from "../../scheduler.js";
-import { object, string, placeSettings, conversationIdleHours } from "../validation.js";
+import { object, string, placeSettings, conversationIdleHours, modelRetryWaitSeconds } from "../validation.js";
 export const tenantAdminRoutes = new Hono();
-// The tenant's default time zone and language, which a guild may override on its own config, and the quiet hours after which a conversation starts fresh.
-const settingsOut = (row: AgentConfig) => ({ timezone: row.timezone, language: row.language, conversationIdleHours: row.settings?.conversationIdleHours ?? DEFAULT_CONVERSATION_IDLE_HOURS });
+// The tenant's default time zone and language, which a guild may override on its own config, the quiet hours after which a conversation
+// starts fresh, and how long a worked-on Changelog draft waits to try the model once more (#358).
+const settingsOut = (row: AgentConfig) => ({
+  timezone: row.timezone, language: row.language, conversationIdleHours: row.settings?.conversationIdleHours ?? DEFAULT_CONVERSATION_IDLE_HOURS,
+  modelRetryWaitSeconds: row.settings?.modelRetryWaitSeconds ?? DEFAULT_MODEL_RETRY_WAIT_SECONDS,
+});
 tenantAdminRoutes.get("/:id/settings", async (c) => {
   const row = await repositories().agentConfig.get(c.req.param("id"));
   return row && await repositories().tenants.get(c.req.param("id")) ? c.json({ success: true, settings: settingsOut(row) }) : c.json({ error: "Tenant not found" }, 404);
@@ -15,9 +19,11 @@ tenantAdminRoutes.put("/:id/settings", async (c) => {
   const tenantId = c.req.param("id");
   if (!await repositories().tenants.get(tenantId)) return c.json({ error: "Tenant not found" }, 404);
   const body = object(await c.req.json(), "body");
-  const values: AgentConfigUpdate = placeSettings(body) as AgentConfigUpdate, hours = conversationIdleHours(body);
-  // settings is one JSON value, so the hours go in beside what it already holds.
-  if (hours !== undefined) values.settings = { ...(await repositories().agentConfig.get(tenantId))?.settings, conversationIdleHours: hours };
+  const values: AgentConfigUpdate = placeSettings(body) as AgentConfigUpdate, hours = conversationIdleHours(body), wait = modelRetryWaitSeconds(body);
+  // settings is one JSON value, so the hours and the wait go in beside what it already holds.
+  if (hours !== undefined || wait !== undefined) {
+    values.settings = { ...(await repositories().agentConfig.get(tenantId))?.settings, ...(hours !== undefined ? { conversationIdleHours: hours } : {}), ...(wait !== undefined ? { modelRetryWaitSeconds: wait } : {}) };
+  }
   const row = await repositories().agentConfig.update(tenantId, values);
   await CacheService.del(tenantKey(tenantId, "agent:config"));
   if (row && values.timezone) await syncTenantSchedules(tenantId, row.timezone);

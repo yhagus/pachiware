@@ -49,7 +49,12 @@ export type PauseReason = "question" | "stopped" | "model" | "service" | "no-pro
  * failure also names the service, and a question keeps the question. What the work needs only while it runs belongs with `worked-on`, so
  * a pause clears it and a resume starts it afresh.
  */
-export type WorkState = { state: "worked-on"; withoutProgress?: number } | { state: "paused"; reason: PauseReason; since: string; service?: string; question?: string };
+export type WorkState = {
+  state: "worked-on";
+  withoutProgress?: number;
+  /** A turn that went on by itself could not reach the model: the same continuation runs once more at this time (#358). */
+  retryAt?: string;
+} | { state: "paused"; reason: PauseReason; since: string; service?: string; question?: string };
 type ChangedFile = { path: string; oldPath?: string; status: string };
 type Side = "base" | "head";
 /** Files set aside unexamined, each pattern with why; kept in the written changelog, so a reader sees what was not read. */
@@ -353,6 +358,26 @@ export async function resumeDraft(ctx: DraftPlace, draft: string, from: WorkStat
 }
 
 /**
+ * A turn that went on by itself with a worked-on draft could not reach the model (#358): the same continuation runs once more at `at` (ms).
+ * The draft keeps the time, so whatever wakes it finds the retry pending. False unless the draft is worked on.
+ */
+export async function awaitModelRetry(ctx: DraftPlace, draft: string, at: number) {
+  return !!await changeWork(ctx, draft, (meta) => (meta.work?.state === "worked-on" ? { ...meta.work, retryAt: new Date(at).toISOString() } : null));
+}
+
+/** The model answered a turn in the place again: a worked-on draft forgets its pending retry, so a later failure gets one of its own. */
+export async function modelAnswered(ctx: DraftPlace, draft: string) {
+  await changeWork(ctx, draft, (meta) => {
+    if (meta.work?.state !== "worked-on" || meta.work.retryAt === undefined) return null;
+    const { retryAt: _answered, ...work } = meta.work;
+    return work;
+  });
+}
+
+/** When a worked-on draft's pending model retry runs (ms), or undefined when none is pending. */
+export const retryTime = (d: Pick<OpenDraft, "work">) => (d.work?.state === "worked-on" && d.work.retryAt ? Date.parse(d.work.retryAt) : undefined);
+
+/**
  * Pauses a draft that is worked on, for `pause.reason`. Every pause writes an Agent log warn line and the audit event changelog_draft_paused,
  * with `detail` (host, status, error, tool, file) for the console; what a person reads names none of it.
  */
@@ -381,7 +406,8 @@ const progressOf = (doc: Json) => {
 /**
  * Starts measuring a turn that goes on by itself with a worked-on draft (#357); a person's turn is never measured. What it returns, called
  * when the turn ends, counts the turn: progress starts the count again, and the NO_PROGRESS_TURNS-th turn in a row without any pauses the
- * draft for "no-progress", which it then returns true for. A pause clears the count, so a draft worked on again counts afresh.
+ * draft for "no-progress", which it then returns true for. A pause clears the count, so a draft worked on again counts afresh. It changes
+ * only the count: a pending model retry is the model's to clear (#358).
  */
 export async function measureTurn(ctx: DraftPlace, draft: string) {
   const found = await readJson(ctx.tenantId, draftPath(ctx, draft)), mark = found ? progressOf(found.doc) : null;
@@ -389,9 +415,9 @@ export async function measureTurn(ctx: DraftPlace, draft: string) {
     let turns = 0;
     await changeWork(ctx, draft, (meta, doc) => {
       if (meta.work?.state !== "worked-on") return null;
-      const was = meta.work.withoutProgress ?? 0;
+      const { withoutProgress: was = 0, ...work } = meta.work;
       turns = progressOf(doc) === mark ? was + 1 : 0;
-      return turns === was ? null : turns ? { state: "worked-on", withoutProgress: turns } : { state: "worked-on" };
+      return turns === was ? null : turns ? { ...work, withoutProgress: turns } : work;
     });
     return turns >= NO_PROGRESS_TURNS && pauseDraft(ctx, draft, { reason: "no-progress" });
   };

@@ -32,6 +32,15 @@ export function conversationIdleHours(body: Record<string, any>): number | undef
   return hours;
 }
 
+export const MAX_MODEL_RETRY_WAIT_SECONDS = 600;
+/** `modelRetryWaitSeconds` from a tenant settings body: whole seconds from 0 (pause at once) to MAX_MODEL_RETRY_WAIT_SECONDS; undefined when left out. */
+export function modelRetryWaitSeconds(body: Record<string, any>): number | undefined {
+  const seconds = body.modelRetryWaitSeconds;
+  if (seconds === undefined) return undefined;
+  if (!Number.isInteger(seconds) || seconds < 0 || seconds > MAX_MODEL_RETRY_WAIT_SECONDS) throw new HTTPException(400, { message: `modelRetryWaitSeconds must be a whole number of seconds from 0 (pause at once) to ${MAX_MODEL_RETRY_WAIT_SECONDS}` });
+  return seconds;
+}
+
 export const MAX_DIGEST_CHANNELS = 50;
 /** `digestChannels` from a guild settings body: `{ channelId, hour }` entries, the hour a whole number from 0 to 23, one entry per channel. */
 export function digestChannels(value: unknown): DigestChannel[] {

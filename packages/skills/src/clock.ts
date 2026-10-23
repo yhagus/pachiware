@@ -7,8 +7,34 @@ let source: () => number = () => Date.now();
 /** Milliseconds since the epoch. */
 export const now = () => source();
 export const today = () => new Date(now());
-/** Tests only: `null` returns to the real clock. */
-export function setClock(fn: (() => number) | null) { source = fn ?? (() => Date.now()); }
+/** Tests only: `null` returns to the real clock. Alarms whose time the clock now reached go off. */
+export function setClock(fn: (() => number) | null) {
+  source = fn ?? (() => Date.now());
+  for (const alarm of [...alarms]) alarm.check();
+}
+
+// setTimeout's longest wait; a later alarm checks again then.
+const LONGEST_TIMEOUT = 2 ** 31 - 1;
+const alarms = new Set<{ check(): void }>();
+/**
+ * Runs `run` once this clock reaches `at` (ms): on a real timer, which a pinned clock's `setClock` overtakes, so a test moves the alarm
+ * with its clock. The timer holds no process open. Returns a function that cancels the alarm.
+ */
+export function atClock(at: number, run: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const alarm = {
+    check() {
+      if (!alarms.has(alarm)) return;
+      clearTimeout(timer);
+      if (now() >= at) { alarms.delete(alarm); run(); return; }
+      timer = setTimeout(() => alarm.check(), Math.min(at - now(), LONGEST_TIMEOUT));
+      (timer as { unref?: () => void }).unref?.();
+    },
+  };
+  alarms.add(alarm);
+  alarm.check();
+  return () => { alarms.delete(alarm); clearTimeout(timer); };
+}
 
 export const DEFAULT_TIMEZONE = "Asia/Jakarta";
 

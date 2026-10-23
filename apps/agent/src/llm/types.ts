@@ -21,6 +21,8 @@ export interface LLMResponse {
   httpStatus?: number;
   /** The provider refused the request's images, and this answer came from a retry without them. */
   imagesRejected?: boolean;
+  /** Why no model answered (`finishReason` "error"), for the console and never the person: what went wrong and, after the Profile's fallbacks, the provider and model asked last. */
+  failure?: ModelFailure;
   usage?: {
     promptTokens: number;
     completionTokens: number;
@@ -28,6 +30,8 @@ export interface LLMResponse {
     cachedTokens?: number;
   };
 }
+
+export type ModelFailure = { provider?: string; model?: string; error: string };
 
 export interface LLMRequestOptions {
   tenantId: string;

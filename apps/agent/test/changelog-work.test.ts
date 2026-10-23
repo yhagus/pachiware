@@ -441,6 +441,24 @@ discordScenario("a turn going on by itself that asks after a turn without progre
   ]);
 });
 
+discordScenario("a turn going on by itself whose model fails after it asked still posts the question and keeps it as its closing summary, and waits for an answer, not a model retry (#356, #358, #360)", async (s) => {
+  await acmeApi(s);
+  s.model.script(START, "Started the acme/api changelog.", ASK, { error: "I can't reach the AI service right now. Try again in a moment." });
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(s.model.calls).toHaveLength(4);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: `<@user-alice> ${QUESTION}`, pinged: ["user-alice"] },
+  ]);
+  const meta = await draftMeta(s);
+  expect(meta.work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
+  expect(meta.closingSummary).toBe(QUESTION);
+
+  s.clock.advance(60_000);
+  await s.scheduler.tick();
+  expect(s.model.calls).toHaveLength(4);
+});
+
 /** What the model may learn of acme/api's global conventions in step 2, about 60 tokens. */
 const CONVENTIONS = "NestJS: routes from @Controller and @Post, under the global prefix /api with URI versioning (v1, v2). Every success is wrapped as { data }; errors are { statusCode, message } from the global HttpExceptionFilter. Bodies are validated by class-validator; every route but /auth needs a Bearer JWT.";
 const NOTE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: CONVENTIONS } };
