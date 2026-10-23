@@ -5,6 +5,7 @@
  */
 import { assertHostAllowed, isListedHost } from "@pachiware/db";
 import { parseRelease, type PlaneVersion } from "./versions.js";
+import { ServiceError, failedAt } from "../serviceFailure.js";
 
 /** Plane's cloud API. A Plane account with no base URL uses it. */
 export const PLANE_CLOUD_URL = "https://api.plane.so";
@@ -18,9 +19,12 @@ export type PlaneConn = { baseUrl: string | null; workspaceSlug: string; apiKey:
 /** A connection to a Plane server as the key's user, before a Plane workspace is chosen: enough for `users/me/`. */
 export type PlaneServerConn = Omit<PlaneConn, "workspaceSlug">;
 
-/** Plane refused a request, or could not be reached; `status` is 0 when no answer came. The message is safe to show. */
-export class PlaneError extends Error {
-  constructor(message: string, readonly status: number) { super(message); this.name = "PlaneError"; }
+/**
+ * Plane refused a request, or could not be reached; `status` is 0 when no answer came. The message is safe to show. Given Plane's `host`, a
+ * refusal of the key, a 5xx or no answer says it failed for good (#359).
+ */
+export class PlaneError extends ServiceError {
+  constructor(message: string, readonly status: number, host?: string) { super(message, host ? failedAt("Plane", host, status || null, message) : undefined); this.name = "PlaneError"; }
 }
 
 /** Plane's rate limit is still closed after the one wait the helper allows. */
@@ -95,7 +99,7 @@ export async function planeRequest<T = any>(conn: PlaneServerConn, path: string,
   }
   if (res.status >= 300 && res.status < 400) throw redirected(url);
   const text = await res.text();
-  if (!res.ok) throw new PlaneError(refusal(res.status, text), res.status);
+  if (!res.ok) throw new PlaneError(refusal(res.status, text), res.status, url.host);
   if (!text) return null as T;
   try { return JSON.parse(text) as T; } catch { throw new PlaneError("Plane answered with something other than JSON; check the base URL", res.status); }
 }
@@ -107,7 +111,7 @@ async function sendOnce(conn: PlaneServerConn, url: URL, req: PlaneRequest): Pro
     return await fetch(url, { method: req.method ?? "GET", headers, redirect: "error", signal: AbortSignal.timeout(TIMEOUT_MS), ...(req.body !== undefined ? { body: JSON.stringify(req.body) } : {}) });
   } catch (e) {
     if (/redirect/i.test(String((e as Error)?.message))) throw redirected(url);
-    throw new PlaneError(`Could not reach Plane at ${url.host}: ${(e as Error)?.message ?? e}`, 0);
+    throw new PlaneError(`Could not reach Plane at ${url.host}: ${(e as Error)?.message ?? e}`, 0, url.host);
   }
 }
 

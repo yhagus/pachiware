@@ -1,5 +1,5 @@
 import type { SkillModule, ToolPolicy } from "../types.js";
-import { acct, repoP, useRepo } from "./gitShared.js";
+import { acct, readRepo, repoP } from "./gitShared.js";
 import { finishChangelog, noteRead, putComponents, putNotes, putOperation, startChangelog, stopChangelog } from "../openapi/changelog.js";
 import { listPreviews, publishPreview } from "../openapi/previews.js";
 import { readablePath } from "./workspace.js";
@@ -43,7 +43,7 @@ export const openapiSkill: SkillModule = {
       parameters: { type: "object", properties: {} } },
   ],
   handlers: {
-    startChangelog: async (args, ctx) => { const { conn, repo } = await useRepo(args, ctx); return startChangelog(ctx, conn, repo, args); },
+    startChangelog: (args, ctx) => readRepo(args, ctx, (conn, repo) => startChangelog(ctx, conn, repo, args)),
     putChangelogOperation: (args, ctx) => putOperation(ctx, args),
     putChangelogComponents: (args, ctx) => putComponents(ctx, args),
     putChangelogNotes: (args, ctx) => putNotes(ctx, args),

@@ -1,7 +1,7 @@
 import type { SkillModule, SkillContext, ToolDefinition } from "../types.js";
 import { browseRepos, browseMembers, browseIssues, browseMergeRequests, browseBranches, browseCommits, browseTree, fileDiff, getMergeRequest, readFilePage, findDefinition, writeFile, openPullRequest, commentOn, createIssue, linkIssues, subIssue, mergeMergeRequest, closeItem, browsePipelines, pipelineJobs, jobLog, retryPipeline, createBranch, browseTags, browseReleases, getCommit, compareRefs, getIssue, itemComments, searchCode, searchWork, rankWork, type WorkHit, updateMergeRequest, reopenItem, reviewMergeRequest, requestReviewers, mergeRequestDiff, repoChecks, rebaseMergeRequest, updateIssue, assignItem, listLabels, setLabels, lockItem, editComment, deleteComment, createRepo, updateRepoSettings, renameRepo, archiveRepo, deleteRepo, forkRepo, transferRepo, deleteBranch, protectBranch, getBranchProtection, createTag, deleteTag, createRelease, deleteRelease, deleteFile, moveFile, commitFiles, commitToDefaultBranch, runPipeline, cancelPipeline, listArtifacts, downloadArtifact, schedules, variables, secrets, runners, member, invitations, deployKeys, webhooks, securityAlerts, orgList, orgMembers, orgTeams, createGroup, manageTeam, wiki, snippets, packages, notifications, stats, type GitState, type GitConn, type ItemKind } from "../git.js";
 import { GIT_NOT_ENABLED, loadGitAccess, pickAccess, connectionOf, repoAllowed, type GitAccess } from "../gitScope.js";
-import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, page, state, num, str, kindOf, clip, confirmable, guard, labelsP, labelsOf } from "./gitShared.js";
+import { acct, repoP, pageP, stateP, numberP, kindP, CONFIRM, useRepo, readRepo, page, state, num, str, kindOf, clip, confirmable, guard, labelsP, labelsOf } from "./gitShared.js";
 import { briefGroundingTools, briefGroundingHandlers } from "./briefGrounding.js";
 import { briefIssuesTools, briefIssuesHandlers } from "./briefIssues.js";
 import { playbookRepositoryTools, playbookRepositoryHandlers } from "./playbookRepository.js";
@@ -180,17 +180,17 @@ export const gitRepositorySkill: SkillModule = {
       return browseCommits(conn, repo, page(a.page), typeof a.branch === "string" ? a.branch : undefined, { since: when(a.since), until: when(a.until) });
     },
     repoMembers: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseMembers(conn, repo, page(a.page)); },
-    repoReadFile: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx), line = (v: unknown) => (typeof v === "number" ? v : undefined); return readFilePage(conn, repo, str(a.path, "path"), a.ref, line(a.fromLine), line(a.toLine)); },
-    repoFindDefinition: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return findDefinition(conn, repo, str(a.ref, "ref"), str(a.name, "name"), typeof a.path === "string" && a.path.trim() ? a.path : undefined); },
+    repoReadFile: (a, ctx) => { const line = (v: unknown) => (typeof v === "number" ? v : undefined); return readRepo(a, ctx, (conn, repo) => readFilePage(conn, repo, str(a.path, "path"), a.ref, line(a.fromLine), line(a.toLine))); },
+    repoFindDefinition: (a, ctx) => readRepo(a, ctx, (conn, repo) => findDefinition(conn, repo, str(a.ref, "ref"), str(a.name, "name"), typeof a.path === "string" && a.path.trim() ? a.path : undefined)),
     repoPipelines: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browsePipelines(conn, repo, page(a.page), typeof a.branch === "string" ? a.branch : undefined); },
     repoPipelineJobs: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return pipelineJobs(conn, repo, num(a.id)); },
     repoJobLog: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return jobLog(conn, repo, num(a.jobId)); },
     repoTags: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseTags(conn, repo, page(a.page)); },
     repoReleases: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseReleases(conn, repo, page(a.page)); },
-    repoCommit: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return getCommit(conn, repo, str(a.sha, "sha")); },
-    repoCompare: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return compareRefs(conn, repo, str(a.from, "from"), str(a.to, "to"), page(a.page)); },
-    repoFileDiff: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return fileDiff(conn, repo, str(a.from, "from"), str(a.to, "to"), str(a.path, "path")); },
-    repoTree: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return browseTree(conn, repo, str(a.ref, "ref"), typeof a.path === "string" ? a.path : undefined, page(a.page)); },
+    repoCommit: (a, ctx) => readRepo(a, ctx, (conn, repo) => getCommit(conn, repo, str(a.sha, "sha"))),
+    repoCompare: (a, ctx) => readRepo(a, ctx, (conn, repo) => compareRefs(conn, repo, str(a.from, "from"), str(a.to, "to"), page(a.page))),
+    repoFileDiff: (a, ctx) => readRepo(a, ctx, (conn, repo) => fileDiff(conn, repo, str(a.from, "from"), str(a.to, "to"), str(a.path, "path"))),
+    repoTree: (a, ctx) => readRepo(a, ctx, (conn, repo) => browseTree(conn, repo, str(a.ref, "ref"), typeof a.path === "string" ? a.path : undefined, page(a.page))),
     repoIssue: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return getIssue(conn, repo, num(a.number)); },
     repoComments: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return itemComments(conn, repo, num(a.number), kindOf(a.kind), page(a.page)); },
     repoSearchWork: async (a, ctx) => {
@@ -225,7 +225,7 @@ export const gitRepositorySkill: SkillModule = {
       const left = open - targets.length;
       return { searched: targets.map((t) => t.repo), items, ...(left > 0 ? { notSearched: `${left} more repositories open here were not searched; pass repo to search one of them.` } : {}) };
     },
-    repoSearchCode: async (a, ctx) => { const { conn, repo } = await useRepo(a, ctx); return searchCode(conn, repo, str(a.query, "query"), page(a.page)); },
+    repoSearchCode: (a, ctx) => readRepo(a, ctx, (conn, repo) => searchCode(conn, repo, str(a.query, "query"), page(a.page))),
     repoCreateBranch: (a, ctx) => confirmable("repoCreateBranch", a, ctx, (repo, account) => {
       const branch = str(a.branch, "branch"), from = typeof a.from === "string" && a.from.trim() ? a.from.trim() : undefined;
       return { summary: `Create branch ${branch} in ${repo} from ${from ?? "the default branch"} [account ${account}]`, run: (c) => createBranch(c, repo, branch, from) };
