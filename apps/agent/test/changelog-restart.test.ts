@@ -212,3 +212,25 @@ discordScenario("neither a paused draft nor a worked-on one untouched for seven 
   const expired = (await repositories().usage.list({ tenantId: s.tenant.id, type: "changelog_draft_expired" })).map((e: any) => e.metadata);
   expect(expired).toEqual([expect.objectContaining({ repo: "acme/api", branch: "main", touchedAt: "2026-10-15T02:59:00.000Z" })]);
 });
+
+discordScenario("a turn that goes on by itself and fails posts nothing and counts as a turn without progress: the second in a row pauses the draft with one line pinging the asker, and no scheduler pass wakes it again (#357, #362)", async (s) => {
+  await acmeApi(s);
+  const progress = await leftWorkedOn(s);
+  const broken = () => { throw new Error("socket hang up"); };
+  s.model.script(broken, broken);
+  await s.restart();
+  s.clock.advance(60_000);
+  await s.scheduler.tick();
+
+  expect(s.model.calls).toHaveLength(2);
+  const [shown, answer, ...rest] = s.discord.botMessages;
+  expect(rest).toEqual([]);
+  expect(shown!.id).toBe(progress.id);
+  expect(shown).toMatchObject({ content: expect.stringMatching(/^-# ⏸️ Paused after /), components: [] });
+  expect(answer).toMatchObject({ content: '<@user-alice> The changelog made no progress, so I paused it; type "go on" to continue.', allowedMentions: { users: ["user-alice"] } });
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "no-progress", since: "2026-10-22T03:00:00.000Z" });
+  // What failed is the console's: each failed turn's audit row.
+  const { repositories } = await import("@pachiware/db");
+  const failed = (await repositories().usage.list({ tenantId: s.tenant.id, type: "turn_failed" })).map((e: any) => e.metadata);
+  expect(failed).toEqual([expect.objectContaining({ channelId: "channel-1", message: "socket hang up" }), expect.objectContaining({ channelId: "channel-1", message: "socket hang up" })]);
+});
