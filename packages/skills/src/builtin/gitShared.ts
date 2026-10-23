@@ -1,5 +1,5 @@
 import type { SkillContext } from "../types.js";
-import type { GitConn, GitState, ItemKind } from "../git.js";
+import { readOf, type GitConn, type GitState, type ItemKind } from "../git.js";
 import { confirmWrite, DANGER_PREFIX } from "../writeConfirmation.js";
 import { loadGitAccess, pickAccess, connectionOf, repoAllowed, orgAllowed } from "../gitScope.js";
 
@@ -14,6 +14,11 @@ export async function useRepo(a: any, ctx: SkillContext) {
   const repo = str(a?.repo, "repo");
   if (!repoAllowed(access, repo)) throw new Error(`Repository ${repo} is not enabled for account "${access.account.name}" in this channel`);
   return { access, repo, conn: { ...(await connectionOf(access)), ...(ctx.callDeadline ? { deadline: ctx.callDeadline } : {}) } };
+}
+/** A read of the repository the call names, which says when the repository itself is gone (see `readOf`, #359). */
+export async function readRepo<T>(a: any, ctx: SkillContext, read: (conn: GitConn, repo: string) => Promise<T>): Promise<T> {
+  const { conn, repo } = await useRepo(a, ctx);
+  return readOf(conn, repo, () => read(conn, repo));
 }
 export const KINDS = ["issue", "merge_request"];
 export const kindOf = (v: unknown): ItemKind => { if (!KINDS.includes(v as string)) throw new Error("kind must be issue or merge_request"); return v as ItemKind; };

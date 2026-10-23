@@ -11,6 +11,7 @@ import { GuardrailService, audit, isEnforced, policyOf, actionKey, markDone, red
 import { queueAction } from "./gitConfirm.js";
 import { resolveAvailability, availabilityPlace, type Availability, type Place } from "./availability.js";
 import { listPlaybooks, type Playbook } from "./playbooks.js";
+import { ServiceError } from "./serviceFailure.js";
 import type {
   SkillModule,
   ToolDefinition,
@@ -230,6 +231,7 @@ export class SkillRegistry {
         name,
         success: false,
         error: error?.message || String(error),
+        ...(error instanceof ServiceError && error.failed ? { failure: error.failed } : {}),
       };
     }
   }

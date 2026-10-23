@@ -1,5 +1,6 @@
 import type { Language } from "./language.js";
 import type { SkillCategory } from "./categories.js";
+import type { ServiceFailed } from "./serviceFailure.js";
 
 export interface ToolPropertySchema {
   type: string;
@@ -34,6 +35,8 @@ export interface ToolResult {
   success: boolean;
   data?: any;
   error?: string;
+  /** For the host, never the model: a service the call read that failed for good, and how (#359). */
+  failure?: ServiceFailed;
 }
 
 export interface DiscordChannelInfo {

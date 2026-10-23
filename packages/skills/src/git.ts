@@ -1,4 +1,5 @@
 import { fileWords, holdsQuery, isFiller, matchWords, queriesTerms, scoreOf } from "./workspace/terms.js";
+import { ServiceError, failedAt } from "./serviceFailure.js";
 
 export type GitProvider = "github" | "gitlab";
 export const GIT_PROVIDERS: GitProvider[] = ["github", "gitlab"];
@@ -48,12 +49,28 @@ function rateLimitWait(res: Response): number | null {
   return RATE_WAIT_UNNAMED_S;
 }
 
+/** The provider as people know it, which is all a pause names of it (#359). */
+export const gitServiceName = (provider: GitProvider) => (provider === "github" ? "GitHub" : "GitLab");
+/** Connections whose request found nothing (404): only a read that failed after one asks whether its repository is gone (see `readOf`). */
+const foundNothing = new WeakSet<GitConn>();
+
+/**
+ * One request to the provider. A 404 is null, for the caller to say what was not found. A refusal (401, or a 403 that is no rate limit), a
+ * 5xx or no answer in time throws a ServiceError saying it failed for good (#359); any other refusal throws one that does not.
+ */
 export async function call(c: GitConn, path: string, init: { method?: string; body?: unknown; text?: boolean } = {}): Promise<any> {
-  const send = () => fetch(path.startsWith("http") ? path : `${apiRoot(c.provider, c.baseUrl)}${path}`, {
+  const url = path.startsWith("http") ? path : `${apiRoot(c.provider, c.baseUrl)}${path}`;
+  const failure = (status: number | null, error: string, rateLimited = false) => new ServiceError(error, failedAt(gitServiceName(c.provider), new URL(url).host, status, error, rateLimited));
+  const send = () => fetch(url, {
     method: init.method ?? "GET",
     headers: { ...authHeaders(c.provider, c.token, c.oauth), ...(init.body ? { "Content-Type": "application/json" } : {}) },
     body: init.body ? JSON.stringify(init.body) : undefined,
     signal: AbortSignal.timeout(REQUEST_MS),
+  }).catch((e) => {
+    // Named as fetch named it (TimeoutError, TypeError), as audits of failures record it.
+    const unanswered = failure(null, String((e as Error)?.message ?? e));
+    if (e instanceof Error) unanswered.name = e.name;
+    throw unanswered;
   });
   let res = await send();
   // A rate limit is waited out once, when the wait is short and the call still has time for it and another request (#350).
@@ -62,10 +79,36 @@ export async function call(c: GitConn, path: string, init: { method?: string; bo
     await new Promise((r) => setTimeout(r, wait * 1000));
     res = await send();
   }
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`${c.provider} returned ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (res.status === 404) { foundNothing.add(c); return null; }
+  if (!res.ok) throw failure(res.status, `${c.provider} returned ${res.status}: ${(await res.text()).slice(0, 200)}`, rateLimitWait(res) !== null);
   return res.status === 204 ? {} : init.text ? res.text() : res.json();
 }
+/**
+ * Whether the repository, or `branch` in it, is gone (#359): the failure for good saying which, or null when both are there or the provider
+ * could not be asked.
+ */
+export async function goneFrom(c: GitConn, repo: string, branch?: string): Promise<ServiceError | null> {
+  const gone = (error: string) => new ServiceError(error, { kind: "gone", service: gitServiceName(c.provider), host: new URL(apiRoot(c.provider, c.baseUrl)).host, status: 404, error });
+  try {
+    if (await call(c, repoRef(c, repo)) === null) return gone(`Repository ${repo} not found or not accessible`);
+    if (branch !== undefined && await call(c, `${repoRef(c, repo)}/${c.provider === "github" ? "branches" : "repository/branches"}/${encodeURIComponent(branch)}`) === null) return gone(`Branch ${branch} not found in ${repo}`);
+  } catch { /* the read's own error stands */ }
+  return null;
+}
+/**
+ * Runs a read of `repo`. One that failed after something was not found asks once whether the repository itself is gone, a failure for good
+ * (#359): the provider answers 404 alike for a repository, a file or a commit. A file or commit not found stays the read's own error.
+ */
+export async function readOf<T>(c: GitConn, repo: string, read: () => Promise<T>): Promise<T> {
+  foundNothing.delete(c);
+  try { return await read(); }
+  catch (error) {
+    if (error instanceof ServiceError && error.failed) throw error;
+    throw (foundNothing.has(c) ? await goneFrom(c, repo) : null) ?? error;
+  }
+}
+/** A failure for good goes on; anything else a read could do without is nothing. */
+const unlessForGood = (error: unknown) => { if (error instanceof ServiceError && error.failed) throw error; return null; };
 // "owner/name" for GitHub; GitLab takes the url-encoded full path as project id.
 export const repoRef = (c: GitConn, repo: string) => {
   if (!/^[\w.-]+(\/[\w.-]+)+$/.test(repo)) throw new Error(`Invalid repo "${repo}"; use owner/name`);
@@ -198,7 +241,7 @@ export async function findDefinition(c: GitConn, repo: string, ref: string, name
   if (!path) {
     const search = (at?: string) => call(c, c.provider === "github"
       ? `/search/code?per_page=20&q=${encodeURIComponent(`${name} repo:${repo}`)}`
-      : `${repoRef(c, repo)}/search?scope=blobs&per_page=20&search=${encodeURIComponent(name)}${at ? `&ref=${encodeURIComponent(at)}` : ""}`).catch(() => null);
+      : `${repoRef(c, repo)}/search?scope=blobs&per_page=20&search=${encodeURIComponent(name)}${at ? `&ref=${encodeURIComponent(at)}` : ""}`).catch(unlessForGood);
     // GitLab's ref is a branch or tag: a commit is searched on the default branch instead.
     const rows = (c.provider === "github" ? (await search())?.items : (/^[0-9a-f]{7,40}$/i.test(ref) ? null : await search(ref)) ?? await search()) ?? [];
     candidates = [...new Set<string>(rows.map((r: any) => r.path))].sort((a, b) => Number(TEST_OR_DOC.test(a)) - Number(TEST_OR_DOC.test(b)));
@@ -207,7 +250,7 @@ export async function findDefinition(c: GitConn, repo: string, ref: string, name
   for (const p of candidates.slice(0, 6)) {
     // Tests and docs are read only while no source file has given a definition.
     if (definitions.length && TEST_OR_DOC.test(p)) break;
-    const file = await readRaw(c, repo, p, ref).catch(() => null);
+    const file = await readRaw(c, repo, p, ref).catch(unlessForGood);
     if (file?.type === "file") definitions.push(...definitionsIn(file.text, name).map((d) => ({ path: p, ...d })));
     if (definitions.length >= 2) break;
   }

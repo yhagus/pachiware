@@ -1,6 +1,6 @@
 import { repositories, DEFAULT_REACT_ITERATIONS } from "@pachiware/db";
 import { historyWindow, storedToolResult, windowOf } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, openDrafts, textIn, stepOf, stepLine, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, openDrafts, textIn, stepOf, stepLine, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type FailedForGood, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
 import type { ChatMessage, ImagePart, ModelFailure } from "../llm/types.js";
@@ -39,6 +39,12 @@ export interface ReActInput {
    * further tool call and ends with a short report of how far it got, and it is `stopped`, so the host does not go on with it by itself.
    */
   stopRequested?: () => boolean;
+  /**
+   * Judges each tool call's result as it comes: a failure it returns, of a service the work reads that failed in a way that does not heal
+   * (#359), ends the turn there. The calls left in that response are not run, the model is asked for no answer, and the failure comes back
+   * as `serviceFailed`, for the host to say.
+   */
+  failedForGood?: (executed: { call: ToolCall; result: ToolResult }) => Promise<FailedForGood | null>;
 }
 
 /** A conversation row as the store keeps it. */
@@ -67,6 +73,8 @@ export interface ReActOutput {
   outOfBudget?: true;
   /** The asker stopped it; `outOfBudget` is set too, since `reply` summarizes unfinished work. */
   stopped?: true;
+  /** A service failed for good, as `failedForGood` judged, so the turn ended there with no `reply`. */
+  serviceFailed?: FailedForGood;
 }
 
 /** Where a turn's conversation rows are read from and written to: the conversation store, or rows the caller holds. */
@@ -174,6 +182,7 @@ async function cite(reply: string, executed: Executed[], sent: ChatMessage[], ct
 const CUT_TOOL_CALL = "This tool call was cut off at the output limit and was not run. Make it smaller, for example by splitting the content over several calls.";
 const OUT_OF_TIME_CALL = "This tool call was not run: the turn ran out of time. Say it was not done.";
 const STOPPED_CALL = "This tool call was not run: the person stopped the turn.";
+const SERVICE_FAILED_CALL = "This tool call was not run: a service the work reads failed, so the work paused.";
 // What a turn that stops early tells the person: progress toward what they asked, in plain words, never the machinery (#345).
 const PLAIN = "Tell the person in one to three short, plain sentences how far the work is toward what they asked and what happens next. Do not name files, folders, tools, functions, schemas, commit hashes or other internal details. Do not call tools.";
 const BUDGET_SPENT = `This turn has used all its steps. ${PLAIN}`;
@@ -356,6 +365,7 @@ export class AgentReActLoop {
     let outOfTime = false, stopped = false, toldToRecord = false, cutEmpty = 0;
     let stalled: "empty" | "cut" | null = null;
     let finalReply = "", failed = false, failure: ModelFailure | undefined;
+    let serviceFailed: FailedForGood | null = null;
     let imagesRejected = false;
 
     // 7. ReAct execution cycle
@@ -455,12 +465,13 @@ export class AgentReActLoop {
         const late = !cut && Date.now() >= deadline, halted = !cut && !late && !!input.stopRequested?.();
         if (late) outOfTime = true;
         if (halted) stopped = true;
-        const refusal = cut ? CUT_TOOL_CALL : late ? OUT_OF_TIME_CALL : halted ? STOPPED_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
+        const refusal = cut ? CUT_TOOL_CALL : late ? OUT_OF_TIME_CALL : halted ? STOPPED_CALL : serviceFailed ? SERVICE_FAILED_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
         const approved = bulkDecision.allow && bulkDecision.approved.has(toolCall.id);
         const result = await executeCall(toolCall, skillContext, { refusal, approved, running: setRunning });
         toolCallsExecuted.push({ call: toolCall, result });
 
         input.onStep?.({ type: "tool_result", payload: result });
+        if (!refusal) serviceFailed ??= await input.failedForGood?.({ call: toolCall, result }).catch(() => null) ?? null;
 
         // Tool output is data: clean of secrets and paths, flagged if it tries to give orders, and wrapped so the model reads it as data.
         const cleaned = redact(JSON.stringify(result.data || { error: result.error }));
@@ -483,9 +494,10 @@ export class AgentReActLoop {
           toolCallId: toolCall.id,
         });
       }
+      if (serviceFailed) break;
     }
 
-    const outOfBudget = (iterations >= maxIterations || outOfTime || stopped || stalled) && !finalReply;
+    const outOfBudget = !serviceFailed && (iterations >= maxIterations || outOfTime || stopped || stalled) && !finalReply;
     if (outOfBudget) {
       // One more call with the same tools and tool_choice none, so the cached prefix holds and completed work becomes a useful answer
       // instead of an opaque failure. The instruction is not stored; the answer is, so the next turn builds on it.
@@ -514,6 +526,7 @@ export class AgentReActLoop {
       ...(failed ? { failed: true as const, ...(failure ? { failure: { ...failure, error: redact(failure.error).slice(0, 200) } } : {}) } : {}),
       ...(outOfBudget && !failed ? { outOfBudget: true as const } : {}),
       ...(outOfBudget && stopped && !failed ? { stopped: true as const } : {}),
+      ...(serviceFailed ? { serviceFailed } : {}),
     };
   }
 }

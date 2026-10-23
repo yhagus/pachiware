@@ -10,7 +10,7 @@ import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton, type ButtonLike } from "./gitConfirm.js";
 import { outgoingFiles, type OutgoingDiscordFile } from "./outgoingFiles.js";
-import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, openDrafts, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, pauseDraft, measureTurn, draftState, keepClosingSummary, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding, type OpenDraft } from "@pachiware/skills";
+import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, openDrafts, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, pauseDraft, serviceFailures, measureTurn, draftState, keepClosingSummary, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding, type OpenDraft, type FailedForGood } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { causeText, playbookReport } from "./serverPlaybooks.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
@@ -716,10 +716,13 @@ export class DiscordBotManager {
    * add nothing (`stalled`, #357). `asked` is the question the turn paused it with, through askChangelogAsker (#356); a draft so paused is
    * no longer worked on, so that turn is not counted.
    */
-  private async draftWork(place: DraftPlace, before: OpenDraft | undefined, output: { toolCallsExecuted: { call: { name: string; arguments?: unknown } }[] }, stop: StopEntry, resuming?: Promise<unknown>, countTurn?: (() => Promise<boolean>) | null) {
+  private async draftWork(place: DraftPlace, before: OpenDraft | undefined, output: { toolCallsExecuted: { call: { name: string; arguments?: unknown } }[]; serviceFailed?: FailedForGood }, stop: StopEntry, resuming?: Promise<unknown>, countTurn?: (() => Promise<boolean>) | null) {
     await resuming;
     let after = (await openDrafts(place).catch(() => []))[0];
     if (after && stop.stopped && isWorkedOn(after) && await pauseDraft(place, after.draft, { reason: "stopped" }).catch(() => false)) after = (await openDrafts(place).catch(() => []))[0];
+    // A service it reads that failed for good pauses it, naming the service; the host, status, error, tool and file are the console's (#359).
+    const failed = output.serviceFailed;
+    if (after && failed && isWorkedOn(after) && await pauseDraft(place, after.draft, { reason: "service", service: failed.service }, { host: failed.host, ...(failed.status ? { status: failed.status } : {}), error: failed.error, tool: failed.tool, ...(failed.file ? { file: failed.file } : {}) }).catch(() => false)) after = (await openDrafts(place).catch(() => []))[0];
     const ended = !!before && after?.name !== before.name;
     const stalled = !!after && !ended && isWorkedOn(after) && !!countTurn && await countTurn().catch(() => false);
     if (stalled) after = (await openDrafts(place).catch(() => []))[0];
@@ -906,7 +909,9 @@ export class DiscordBotManager {
         turnProgress.step(step);
         if (step.type === "tool_call" && before && !isWorkedOn(before) && !stopping.stopped && goesOnWith(before, step.payload)) resuming ??= resumeDraft(draftPlace, before.draft, before.work).catch(() => {});
       };
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, onStep, stopRequested: () => stopping.stopped, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, ...(fromDraft ? { ephemeral: { history: [], cacheKey: `changelog:${channelId}:${opts.draft}` } } : {}), context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
+      // A service the place's draft reads that fails for good ends the turn and pauses the draft (#359).
+      const failedForGood = serviceFailures(async () => (await openDrafts(draftPlace).catch(() => []))[0]);
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, onStep, stopRequested: () => stopping.stopped, failedForGood, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, ...(fromDraft ? { ephemeral: { history: [], cacheKey: `changelog:${channelId}:${opts.draft}` } } : {}), context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       const briefed = briefTurn(output.toolCallsExecuted);
@@ -915,6 +920,8 @@ export class DiscordBotManager {
       if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
       // A turn whose model could not be reached is no turn without progress: the model's own rule takes it (#358).
       const work = await this.draftWork(draftPlace, before, output, stopping, resuming, output.failed ? null : countTurn);
+      // The turn a service ended has no answer of the model's: the pause names only the service (#359).
+      if (output.serviceFailed) plan = { messages: [t.changelogServicePaused(output.serviceFailed.service)] };
       // A turn that asked the draft's asker something answers with the question alone (#356).
       if (work.asked) plan = { messages: [work.asked] };
       // A progress message put up before the turn started its draft names the draft from now on, and the draft keeps where it is (#361).
@@ -927,10 +934,10 @@ export class DiscordBotManager {
       }
       // A draft paused for making no progress says only that, and how to go on (#357).
       if (work.stalled) plan = { messages: [textIn(progressLanguage).changelogNoProgress] };
-      // How the turn ended, never the host's failure text: the draft keeps it for its next turn, and a turn that went on by itself leaves
-      // only that in the conversation, its steps in the Agent log (#360). A turn that asked ended with its question, which is what it posted
-      // and what the reply to it answers (#356), even when the model failed after it.
-      const closing = work.asked ?? (output.failed ? null : fromDraft ? closingOf(output.recorded ?? []) : output.reply);
+      // How the turn ended, never the host's failure text nor a turn a service ended (#359): the draft keeps it for its next turn, and a turn
+      // that went on by itself leaves only that in the conversation, its steps in the Agent log (#360). A turn that asked ended with its
+      // question, which is what it posted and what the reply to it answers (#356), even when the model or a service failed after it.
+      const closing = work.asked ?? (output.failed || output.serviceFailed ? null : fromDraft ? closingOf(output.recorded ?? []) : output.reply);
       if (closing && work.draft && !work.ended && (fromDraft || work.wentOn)) await keepClosingSummary(draftPlace, work.draft.draft, closing).catch(() => {});
       const closedIn = fromDraft && closing ? await keepClosingRow(runtime.tenantId, botId, conversation, { channelId, userId: actor.id, parentChannelId: projectChannelId }, closing).catch(() => null) : null;
       if (fromDraft && work.draft) console.info(`[changelog] Went on with ${work.draft.repo} (branch ${work.draft.branch}, draft ${work.draft.name}) in channel ${channelId}: ${stepsOf(output.toolCallsExecuted)}`);

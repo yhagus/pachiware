@@ -301,6 +301,8 @@ const en = {
   sendOnlyInDiscord: "Files can be sent only in Discord, not here.",
   // API changelogs and OpenAPI Schema Viewer pages
   changelogNoPlace: "A changelog is kept in a channel's, a thread's or a DM's folder, and this place has none.",
+  /** A Changelog draft paused because GitLab, GitHub or Plane failed for good: it names only the service (#359). */
+  changelogServicePaused: (service: string) => `Changelog paused: ${service} could not be reached. Type "go on" to continue.`,
   /** The answer when a Changelog draft paused because two turns that went on by themselves added nothing to it (#357). */
   changelogNoProgress: 'The changelog made no progress, so I paused it; type "go on" to continue.',
   previewNotHere: "An OpenAPI Schema Viewer page is published by a bot in Discord, not here.",
@@ -596,6 +598,7 @@ const id: typeof en = {
   sendTooLarge: (size, max) => `Setelah di-zip ukurannya ${size} MB, lebih dari ${max} MB yang diterima Discord sekali unggah. Sebutkan lebih sedikit file.`,
   sendOnlyInDiscord: "File hanya bisa dikirim di Discord, tidak di sini.",
   changelogNoPlace: "Changelog disimpan di folder channel, thread, atau DM, dan tempat ini tidak punya folder.",
+  changelogServicePaused: (service) => `Changelog dijeda: ${service} gagal dihubungi. Ketik lanjut untuk meneruskan.`,
   changelogNoProgress: 'Changelog-nya tidak ada kemajuan, jadi saya jeda; ketik "lanjut" untuk meneruskan.',
   previewNotHere: "Halaman OpenAPI Schema Viewer dipublikasikan oleh bot di Discord, tidak di sini.",
   previewDraft: "Itu draft changelog yang belum selesai. Selesaikan dengan finishChangelog, lalu publikasikan .json yang ditulisnya.",
