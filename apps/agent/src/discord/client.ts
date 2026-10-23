@@ -616,7 +616,8 @@ export class DiscordBotManager {
    * What a turn left of its place's Changelog draft (#361): whether the draft is worked on, so the work goes on by itself, and whether the
    * turn went on with it, paused it or ended it. A Stop its asker pressed pauses a draft still worked on, such as one the turn started after
    * its Stop button went up. A turn that went on by itself is counted (`countTurn`), and its draft pauses when it is the second in a row to
-   * add nothing (`stalled`, #357).
+   * add nothing (`stalled`, #357). `asked` is the question the turn paused it with, through askChangelogAsker (#356); a draft so paused is
+   * no longer worked on, so that turn is not counted.
    */
   private async draftWork(place: DraftPlace, before: OpenDraft | undefined, output: { toolCallsExecuted: { call: { name: string; arguments?: unknown } }[] }, stop: StopEntry, resuming?: Promise<unknown>, countTurn?: (() => Promise<boolean>) | null) {
     await resuming;
@@ -627,7 +628,9 @@ export class DiscordBotManager {
     if (stalled) after = (await openDrafts(place).catch(() => []))[0];
     const draft = after ?? before, workedOn = !!after && isWorkedOn(after);
     const wentOn = !!draft && output.toolCallsExecuted.some(({ call }) => goesOnWith(draft, call));
-    return { draft, wentOn, workedOn, ended, stalled, pausedNow: !!after && !workedOn && (wentOn || stop.stopped || stalled) };
+    const pausedNow = !!after && !workedOn && (wentOn || stop.stopped || stalled), paused = after?.work?.state === "paused" ? after.work : undefined;
+    const asked = pausedNow && paused?.reason === "question" && output.toolCallsExecuted.some(({ call }) => call.name === "askChangelogAsker") ? paused.question : undefined;
+    return { draft, wentOn, workedOn, ended, stalled, pausedNow, asked };
   }
   /** Forgets the Stop buttons of work that ended. */
   private dropStop(stop: StopEntry | undefined) {
@@ -772,6 +775,8 @@ export class DiscordBotManager {
       if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
       // A turn whose model could not be reached is no turn without progress: the model's own rule takes it (#358).
       const work = await this.draftWork(draftPlace, before, output, stopping, resuming, output.failed ? null : countTurn);
+      // A turn that asked the draft's asker something answers with the question alone (#356).
+      if (work.asked) plan = { messages: [work.asked] };
       // A progress message put up before the turn started its draft names the draft from now on, and the draft keeps where it is (#361).
       const up = work.workedOn && work.draft ? await progress.posted() : null;
       if (up?.id && up.channelId && work.draft && work.draft.progressMessage?.messageId !== up.id) {

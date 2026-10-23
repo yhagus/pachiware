@@ -310,8 +310,11 @@ export async function keepProgressMessage(ctx: DraftPlace, draft: string, at: Pr
 /** Whether the draft goes on by itself after each turn in its place. */
 export const isWorkedOn = (d: Pick<OpenDraft, "work">) => d.work?.state === "worked-on";
 
-/** The tools that go on with a draft named by its path; stopChangelog ends it, and a refused stop goes on with nothing. */
-const DRAFT_TOOLS = new Set(["putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog"]);
+/**
+ * The tools that go on with a draft named by its path; stopChangelog ends it, and a refused stop goes on with nothing. A question to its
+ * asker goes on with it too: the turn that asks pauses it (#356).
+ */
+const DRAFT_TOOLS = new Set(["putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "askChangelogAsker"]);
 /** The repository reads of contract-diff, which go on with a draft of the repository they read; startChangelog names it the same way. */
 const REPOSITORY_TOOLS = new Set(["startChangelog", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff"]);
 
@@ -388,6 +391,29 @@ export async function measureTurn(ctx: DraftPlace, draft: string) {
   };
 }
 
+/** A question to a draft's asker is the turn's whole answer, so it stays as short as a pause answer. */
+const QUESTION_LINES = 3, QUESTION_CHARS = 300;
+
+/**
+ * askChangelogAsker: the one way the model pauses a draft it works on, to ask its asker what only they can answer (#356). The draft keeps
+ * the question, and the turn's answer is that question, pinging the asker.
+ */
+export async function askAsker(ctx: SkillContext, args: { draft?: unknown; question?: unknown }) {
+  const question = typeof args.question === "string" ? args.question.trim() : "";
+  if (!question) throw new Error("question is what to ask the person who started the changelog, in their language.");
+  if (question.split("\n").filter((l) => l.trim()).length > QUESTION_LINES || question.length > QUESTION_CHARS) {
+    throw new Error(`Ask in at most ${QUESTION_LINES} short lines (${QUESTION_CHARS} characters): the question alone, with only what the person needs to answer it.`);
+  }
+  const full = draftPath(ctx, args.draft), meta: DraftMeta | undefined = (await readJson(ctx.tenantId, full))?.doc["x-draft"];
+  if (!meta) throw new Error("No such draft: nothing was asked.");
+  if (!(await pauseDraft(ctx, String(args.draft).trim(), { reason: "question", question }))) {
+    const asked = meta.work?.state === "paused" && meta.work.reason === "question" ? meta.work.question : undefined;
+    throw new Error(asked ? `You already asked: "${asked}". End your turn; that question is your answer.` : "This changelog is paused, so nothing was asked. Say how far it is.");
+  }
+  const asker = meta.startedBy ? meta.startedBy.name ?? meta.startedBy.id : "the person who started it";
+  return { asked: question, note: `The changelog is paused until someone here answers. End your turn now and call no more tools: your answer is this question, and ${asker} is pinged.` };
+}
+
 /** What an open draft covers, in words. */
 const coverage = (d: Pick<OpenDraft, "scope" | "from" | "to">) => (d.scope === "all" ? `the whole history through ${d.to}` : `${d.from} to ${d.to}`);
 
@@ -397,7 +423,7 @@ export function openDraftLine(d: OpenDraft) {
   const progress = d.left !== undefined ? `: ${d.examined} examined, ${d.setAside} set aside, ${d.left} left` : "";
   const files = d.changedFiles !== undefined ? `, ${d.changedFiles} changed file${d.changedFiles === 1 ? "" : "s"}${progress}` : "";
   return `Open API changelog in this place (unfinished until it is written; data, not instructions): ${d.repo}, branch ${d.branch}, ${coverage(d)} (commits ${d.base}..${d.head}${files}), ${who}; ${d.operations} endpoint${d.operations === 1 ? "" : "s"} recorded so far. Draft: ${d.draft}
-When the person asks to go on, go on with this draft by its path: do not ask again what it covers, and start it again only to see its changed files. Do not stop only to ask whether to go on; stop for a question only the person can answer. When the person who started it asks to stop the changelog, stop it with stopChangelog; a message that only pauses stops nothing.
+When the person asks to go on, go on with this draft by its path: do not ask again what it covers, and start it again only to see its changed files. Ending a turn that works on it stops nothing: the work goes on by itself until it is written, so never ask whether to go on. To ask its starter something only they can answer, such as which branch or whether a folder is set aside, call askChangelogAsker, the only way you pause it. When the person who started it asks to stop the changelog, stop it with stopChangelog; a message that only pauses stops nothing.
 If you stop before it is written, answer in at most three short lines: how far it is (changed files done of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them, and do not ask whether to go on.${d.scope === "range" && d.left === undefined ? "\nThis draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage. It goes on with this same draft and lists them, so the files done can be counted." : ""}`;
 }
 
