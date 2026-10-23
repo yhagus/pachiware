@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type SendableChannels, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, GatewayIntentBits, Partials, Events, ChannelType, type Attachment, type SendableChannels, type ChatInputCommandInteraction, type Message, type ThreadChannel, type MessageContextMenuCommandInteraction } from "discord.js";
 import { repositories, DEFAULT_CONVERSATION_IDLE_HOURS } from "@pachiware/db";
 import { DiscordJSAdapter } from "./adapter.js";
 import { catchUpDailyLogs } from "./dailyLogDays.js";
@@ -8,9 +8,9 @@ import { continuesConversation, patchConversationMetadata } from "../loop/conver
 import { respondReason, addressed, isNoise, threadName, speakerTurn, speakerName, keepableId, withoutMention, placeOfChannel, replyLine, requestedWord, asksForTasks, askerLines } from "./routing.js";
 import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
-import { pendingOf, confirmMessage, handleConfirmButton } from "./gitConfirm.js";
+import { pendingOf, confirmMessage, handleConfirmButton, type ButtonLike } from "./gitConfirm.js";
 import { outgoingFiles, type OutgoingDiscordFile } from "./outgoingFiles.js";
-import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, openDrafts, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { causeText, playbookReport } from "./serverPlaybooks.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
@@ -104,9 +104,12 @@ async function tellAssigneesWhereTasksAre(runtime: BotRuntime, botId: string, tu
 export const memberAuth = (m: any) => ({ roleIds: Array.isArray(m?.roles) ? m.roles : m?.roles?.cache ? [...m.roles.cache.keys()] : [], permissions: m?.permissions?.toArray?.() ?? [] });
 const TRIGGER = /^([\p{L}\p{N}_-]{1,32})\s*(?::|\n)\s*([\s\S]*)$/u;
 const WORD_ONLY = /^([\p{L}\p{N}_-]{1,32})[.!?]?$/u;
-/** How many turns a long playbook's work goes on by itself after a turn ran out, and what the model is told for each (#289). */
-const LONG_CONTINUATIONS = 2;
+/** How many turns a long playbook's work goes on by itself after a turn ran out, and what the model is told for each (#289); with a Changelog draft open, more (#351). */
+const LONG_CONTINUATIONS = 2, CHANGELOG_CONTINUATIONS = 5;
+/** The Stop button on a turn's progress message: `turnstop:<id>` (#351). */
+const STOP_PREFIX = "turnstop";
 const CONTINUE_TURN = "[No one wrote this: the last turn ran out of its budget before the work was done. Continue from where it stopped, building on what is already recorded; do not start over or repeat finished steps.]";
+type ReplyOptions = { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean; continued?: number; answerIn?: Language; progress?: TurnProgress; stopId?: string };
 /** Where something was asked: a message, or the channel a command was run in. */
 type Where = Pick<Message, "guildId" | "channelId" | "channel">;
 /** How an in-place playbook was started: `message` is the menu target, the mention, or a slash stand-in; `about` is the message a mention replies to. */
@@ -142,6 +145,10 @@ export class DiscordBotManager {
   private bursts = new Map<string, { items: TurnItem[]; timer: ReturnType<typeof setTimeout> }>();
   private inflight = new Set<Promise<unknown>>();
   private commandTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** The turns a person can stop now, by the id on their Stop button, and who may press it. */
+  private stops = new Map<string, { askerId: string; askerName: string; stopped: boolean; language?: Language }>();
+  /** How many turns a person started per conversation; a turn going on by itself gives way when it changed since it was queued. */
+  private heard = new Map<string, number>();
   constructor(private burstMs = BURST_MS, private commandsMs = COMMANDS_MS) {
     onPlaybooksChanged((tenantId) => this.refreshCommands(tenantId));
     onAvailabilityChanged((tenantId) => this.refreshCommands(tenantId));
@@ -228,7 +235,8 @@ export class DiscordBotManager {
     client.on(Events.ShardResume, () => { runtime.connected = true; void repositories().bots.update(id, { connectionStatus: "connected" }).catch(() => {}); });
     client.on(Events.Error, () => { void repositories().bots.update(id, { lastError: "Discord gateway error" }).catch(() => {}); });
     client.on(Events.InteractionCreate, (i) => {
-      if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), async (action, result) => (await afterBriefConfirm(runtime.client, runtime.tenantId, action, result)) ?? issueBatchReport(action.tool, result) ?? await playbookReport(action, result)));
+      if (i.isButton() && i.customId.startsWith(`${STOP_PREFIX}:`)) this.track(this.pressStop(i as any));
+      else if (i.isButton()) this.track(handleConfirmButton(i as any, id, (guildId) => new DiscordJSAdapter(client, guildId), async (action, result) => (await afterBriefConfirm(runtime.client, runtime.tenantId, action, result)) ?? issueBatchReport(action.tool, result) ?? await playbookReport(action, result)));
       else if (i.isMessageContextMenuCommand()) this.track(this.handleCommand(id, i));
       else if (i.isChatInputCommand()) this.track(this.handleSlash(id, i));
     });
@@ -579,8 +587,32 @@ export class DiscordBotManager {
     const answered = o.from === "slash" ? about ?? at : at;
     await this.serialize(`conv:${botId}:${at.channelId}`, () => this.reply(runtime, botId, answered, items, at.channelId, null, { actor: o.actor, playbook }));
   }
-  /** `continued` counts the turns a long playbook's work went on by itself; such a turn has no items and answers in `answerIn`. */
-  private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean; continued?: number; answerIn?: Language } = {}) {
+  /** Stops the turn its Stop button belongs to, when the asker presses it: no further tool call runs (#351). */
+  private async pressStop(i: ButtonLike) {
+    const entry = this.stops.get(i.customId.slice(STOP_PREFIX.length + 1)), t = textIn(entry?.language).progress;
+    if (!entry) { await i.reply({ content: t.stopEnded, ephemeral: true }); return; }
+    if (i.user.id !== entry.askerId) { await i.reply({ content: t.stopOnlyAsker(entry.askerName), ephemeral: true }); return; }
+    entry.stopped = true;
+    await i.update({ components: [] });
+  }
+  /**
+   * A turn that goes on by itself, queued behind what people sent meanwhile: when one of them was answered first, or one is still being
+   * gathered, the work gives way to them and its progress message goes (#351).
+   */
+  private async goOn(runtime: BotRuntime, botId: string, msg: Message, channelId: string, thread: ThreadChannel | null, opts: ReplyOptions, heard: number) {
+    const gathering = [...this.bursts.keys()].some((k) => k.startsWith(`${botId}:${channelId}:`));
+    if (gathering || (this.heard.get(`conv:${botId}:${channelId}`) ?? 0) !== heard) {
+      if (opts.stopId) this.stops.delete(opts.stopId);
+      await opts.progress?.finish(false);
+      return;
+    }
+    await this.reply(runtime, botId, msg, [], channelId, thread, opts);
+  }
+  /**
+   * `continued` counts the turns a long playbook's work went on by itself; such a turn has no items, answers in `answerIn`, and carries on
+   * the `progress` message and the Stop button (`stopId`) of the turn before it.
+   */
+  private async reply(runtime: BotRuntime, botId: string, msg: Message, items: TurnItem[], channelId: string, thread: ThreadChannel | null, opts: ReplyOptions = {}) {
     const target = thread ?? msg.channel;
     const typing = async () => { try { if ("sendTyping" in target) await target.sendTyping(); } catch {} };
     await typing();
@@ -591,8 +623,10 @@ export class DiscordBotManager {
     const send = (content: string, files: OutgoingDiscordFile[] = []) => thread ? thread.send({ content, files, allowedMentions: { parse: [] } }) : msg.reply({ content, files, allowedMentions: { parse: [] } });
     // The language to answer in is judged on the people's own words, not the quotes and framing around them (#257).
     const shown = opts.answerIn ?? shownLanguage(items.map((i) => i.text).join("\n")), language: Language = shown ?? "en", t = textIn(language);
-    let progress: TurnProgress | undefined;
+    let progress: TurnProgress | undefined, handedOver = false;
     const projectChannelId = (msg.channel.isThread() ? msg.channel.parentId : msg.channelId) ?? undefined;
+    const convKey = `conv:${botId}:${channelId}`, stopId = opts.stopId ?? crypto.randomUUID();
+    if (!opts.continued) this.heard.set(convKey, (this.heard.get(convKey) ?? 0) + 1);
     try {
       const agent = await repositories().agentConfig.get(runtime.tenantId);
       const guild = msg.guildId ? await loadGuildSettings(runtime.tenantId, botId, msg.guildId) : null;
@@ -628,20 +662,39 @@ export class DiscordBotManager {
         ...items.filter((i) => i.msg.author.id === actor.id).map((i) => i.text),
         ...(conversation ? askerLines(await repositories().conversations.latestMessages(runtime.tenantId, conversation.id, { limit: ASKER_ROWS, chatOnly: true }), { guildId: msg.guildId, userId: actor.id }) : []),
       ];
-      // In the asker's language when their words show it, else the place's.
-      progress = new TurnProgress((content) => send(content), shown ?? configuredLanguage(guild, agent), opts.playbook?.name);
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, onStep: progress.step, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
+      // In the asker's language when their words show it, else the place's. Its Stop button lets the asker cut the turn short (#351).
+      const progressLanguage = shown ?? configuredLanguage(guild, agent);
+      // Kept across a chain of turns, so a press between two of them still stops the next.
+      if (!this.stops.has(stopId)) this.stops.set(stopId, { askerId: actor.id, askerName: actor.name, stopped: false, language: progressLanguage });
+      const stop = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`${STOP_PREFIX}:${stopId}`).setLabel(textIn(progressLanguage).progress.stop).setStyle(ButtonStyle.Secondary));
+      const post = (content: string, components: any[]) => thread ? thread.send({ content, components, allowedMentions: { parse: [] } }) : msg.reply({ content, components, allowedMentions: { parse: [] } });
+      progress = opts.progress ?? new TurnProgress(post, progressLanguage, opts.playbook?.name, [stop]);
+      // How far an open Changelog draft of this place is, read from the draft itself.
+      const draftPlace = { tenantId: runtime.tenantId, botId, guildId: msg.guildId ?? undefined, channelId, parentChannelId: projectChannelId, userId: actor.id, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined };
+      progress.detail ??= async () => {
+        const open = (await openDrafts(draftPlace))[0];
+        return open?.left !== undefined && open.changedFiles !== undefined ? textIn(progressLanguage).progress.files(open.examined! + open.setAside!, open.changedFiles) : null;
+      };
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, onStep: progress.step, stopRequested: () => this.stops.get(stopId)?.stopped === true, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       const briefed = briefTurn(output.toolCallsExecuted);
       let plan: ReplyPlan = briefed?.plan ?? prepareReply(output.reply, { addressed: direct, language });
       if (plan.messages.length || direct) plan = withNotes(plan, notes);
       if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
-      // A long playbook's turn that ran out goes on by itself LONG_CONTINUATIONS times; after that, a reply in the thread continues it.
-      const continued = opts.continued ?? 0, cut = !!playbook && "long" in playbook && output.outOfBudget === true, again = cut && continued < LONG_CONTINUATIONS;
-      if (cut) plan = withNotes(plan, [again ? t.continuingAlone : t.continueByReply]);
-      // The progress message shrinks before the answer goes, so the answer is the newest message and notifies.
-      await progress.finish(plan.messages.length > 0);
+      // A turn that ran out goes on by itself when a long playbook or an open Changelog draft is behind it: LONG_CONTINUATIONS times, or
+      // CHANGELOG_CONTINUATIONS with a draft open; after that a reply continues it. A turn its asker stopped waits for them.
+      const ranOut = output.outOfBudget === true && !output.stopped;
+      const draftOpen = ranOut && (await openDrafts(draftPlace).catch(() => [])).length > 0;
+      const continued = opts.continued ?? 0, cut = ranOut && (draftOpen || (!!playbook && "long" in playbook));
+      const again = cut && continued < (draftOpen ? CHANGELOG_CONTINUATIONS : LONG_CONTINUATIONS);
+      // Turns in between post no answer: what they did is stored for the next, and the progress message carries on (#351).
+      if (again) plan = { messages: [] };
+      else {
+        if (cut) plan = withNotes(plan, [t.continueByReply]);
+        // The progress message shrinks before the answer goes, so the answer is the newest message and notifies.
+        await progress.finish(plan.messages.length > 0);
+      }
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       // A file sendFiles built goes with the reply's last message; several go one a message after it, so no upload holds two files' worth.
       const files = outgoingFiles(output.toolCallsExecuted), withLast = files.length === 1 && plan.messages.length ? files.splice(0) : [];
@@ -668,7 +721,12 @@ export class DiscordBotManager {
       // Still inside this conversation's serialized job, so the next turn reads the rewritten summary and when this one ran.
       await patchConversationMetadata(runtime.tenantId, output.conversationId, { lastTurnAt: new Date(now()).toISOString() }).catch(() => {});
       if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});
-      if (again) await this.reply(runtime, botId, msg, [], channelId, thread, { ...opts, continued: continued + 1, answerIn: shown ?? undefined });
+      if (again) {
+        handedOver = true;
+        // Taken now, so a person's turn that runs before this one is seen as having come between.
+        const next = { ...opts, continued: continued + 1, answerIn: shown ?? undefined, progress, stopId }, heard = this.heard.get(convKey) ?? 0;
+        void this.serialize(convKey, () => this.goOn(runtime, botId, msg, channelId, thread, next, heard)).catch(() => {});
+      }
     } catch (error) {
       const failure = failureOf(error);
       console.error(`[turn] tenant ${runtime.tenantId} bot ${botId} channel ${channelId} failed: ${failure.error}: ${failure.message}`);
@@ -676,7 +734,7 @@ export class DiscordBotManager {
       await progress?.finish(true);
       await send(t.failed).catch(() => {});
     } finally {
-      await progress?.finish(false);
+      if (!handedOver) { await progress?.finish(false); this.stops.delete(stopId); }
       clearInterval(interval);
       await Promise.all(working.map((r) => r?.users.remove().catch(() => {})));
     }

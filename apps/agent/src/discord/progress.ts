@@ -5,7 +5,7 @@ export const progressTiming = { showAfterMs: 10_000, everyMs: 3_000 };
 /** How many step lines the message shows: the latest ones. */
 const SHOWN_STEPS = 5;
 
-type Posted = { edit(content: string): Promise<unknown>; delete?(): Promise<unknown> };
+type Posted = { edit(content: string | { content: string; components: [] }): Promise<unknown>; delete?(): Promise<unknown> };
 type Line = { kind: StepKind; subjects: (string | undefined)[]; running: number };
 
 /**
@@ -24,8 +24,12 @@ export class TurnProgress {
   private ended = false;
   private readonly first: ReturnType<typeof setTimeout>;
   private ticks?: ReturnType<typeof setInterval>;
+  private detailText: string | null = null;
+  /** A line under the stage, read again on every edit, such as how many of a changelog's changed files are done. */
+  detail?: () => Promise<string | null>;
 
-  constructor(private readonly post: (content: string) => Promise<Posted>, private readonly language: Language | undefined, private readonly playbook?: string) {
+  /** `controls` go on the message while the turn runs (the Stop button) and come off when it ends. */
+  constructor(private readonly post: (content: string, controls: unknown[]) => Promise<Posted>, private readonly language: Language | undefined, private readonly playbook?: string, private readonly controls: unknown[] = []) {
     this.first = setTimeout(() => this.show(), progressTiming.showAfterMs);
   }
 
@@ -53,15 +57,21 @@ export class TurnProgress {
     const head = ms >= 60_000 ? `${t.working} · ${elapsed(ms, this.language)}` : t.working;
     const stage = stageLine(this.playbook, this.stage, this.recorded.size, this.language);
     const steps = this.lines.slice(-SHOWN_STEPS).map((l) => `-# ${l.running > 0 ? "›" : "✓"} ${stepLine(l.kind, l.subjects, this.language)}`);
-    return [head, ...(stage ? [stage] : []), ...steps].join("\n");
+    return [head, ...(stage ? [stage] : []), ...(this.detailText ? [this.detailText] : []), ...steps].join("\n");
+  }
+
+  private refreshDetail() {
+    if (this.detail) void this.detail().then((text) => { this.detailText = text; }, () => {});
   }
 
   private show() {
     if (this.ended) return;
     const text = this.render();
-    this.posting = this.post(text).then((m) => { this.message = m; this.shown = text; }, () => {});
+    this.posting = this.post(text, this.controls).then((m) => { this.message = m; this.shown = text; }, () => {});
+    this.refreshDetail();
     this.ticks = setInterval(() => {
       if (!this.message || this.ended) return;
+      this.refreshDetail();
       const next = this.render();
       if (next !== this.shown) { this.shown = next; void this.message.edit(next).catch(() => {}); }
     }, progressTiming.everyMs);
@@ -76,6 +86,6 @@ export class TurnProgress {
     await this.posting;
     if (!this.message) return;
     if (!answered && this.message.delete) await this.message.delete().catch(() => {});
-    else await this.message.edit(`-# ${textIn(this.language).progress.workedFor(elapsed(Date.now() - this.started, this.language))}`).catch(() => {});
+    else await this.message.edit({ content: `-# ${textIn(this.language).progress.workedFor(elapsed(Date.now() - this.started, this.language))}`, components: [] }).catch(() => {});
   }
 }

@@ -34,6 +34,11 @@ export interface ReActInput {
    * Playground and Routines run this way, each saying why.
    */
   readOnly?: string;
+  /**
+   * Set by the host while the asker can stop the turn (the Stop button on its progress message, #351). Once it is true the turn runs no
+   * further tool call and ends with a short report of how far it got, and it is `stopped`, so the host does not go on with it by itself.
+   */
+  stopRequested?: () => boolean;
 }
 
 /** A conversation row as the store keeps it. */
@@ -58,6 +63,8 @@ export interface ReActOutput {
   failed?: true;
   /** The turn stopped because its model calls or its time ran out, so `reply` summarizes work that is not finished. */
   outOfBudget?: true;
+  /** The asker stopped it; `outOfBudget` is set too, since `reply` summarizes unfinished work. */
+  stopped?: true;
 }
 
 /** Where a turn's conversation rows are read from and written to: the conversation store, or rows the caller holds. */
@@ -164,10 +171,12 @@ async function cite(reply: string, executed: Executed[], sent: ChatMessage[], ct
 
 const CUT_TOOL_CALL = "This tool call was cut off at the output limit and was not run. Make it smaller, for example by splitting the content over several calls.";
 const OUT_OF_TIME_CALL = "This tool call was not run: the turn ran out of time. Say it was not done.";
+const STOPPED_CALL = "This tool call was not run: the person stopped the turn.";
 // What a turn that stops early tells the person: progress toward what they asked, in plain words, never the machinery (#345).
 const PLAIN = "Tell the person in one to three short, plain sentences how far the work is toward what they asked and what happens next. Do not name files, folders, tools, functions, schemas, commit hashes or other internal details. Do not call tools.";
 const BUDGET_SPENT = `This turn has used all its steps. ${PLAIN}`;
 const TIME_SPENT = `The time for this turn ran out. ${PLAIN}`;
+const STOPPED = `The person pressed Stop, so the work pauses here. ${PLAIN} Say they can tell you to go on, or to drop it.`;
 const CONTINUE = "Your last answer was cut off at the output limit. Continue exactly where you stopped, without repeating anything you already wrote.";
 const CUT_EMPTY = "Your last response reached the output limit before any of it arrived, so nothing was said or run. Keep your thinking short and make the next step smaller, for example by splitting the content over several calls.";
 const CUT_SPENT = `Your last responses kept reaching the output limit before any of them arrived. ${PLAIN}`;
@@ -339,7 +348,7 @@ export class AgentReActLoop {
 
     const bulk = bulkTaskTurn(approvedBulk);
     let iterations = 0;
-    let outOfTime = false, toldToRecord = false, cutEmpty = 0;
+    let outOfTime = false, stopped = false, toldToRecord = false, cutEmpty = 0;
     let stalled: "empty" | "cut" | null = null;
     let finalReply = "", failed = false;
     let imagesRejected = false;
@@ -347,6 +356,7 @@ export class AgentReActLoop {
     // 7. ReAct execution cycle
     while (iterations < maxIterations) {
       if (Date.now() >= deadline) { outOfTime = true; break; }
+      if (input.stopRequested?.()) { stopped = true; break; }
       // Not stored, like the budget's instructions: it steers this turn only.
       if (long && !toldToRecord && (Date.now() >= recordAt.time || iterations >= recordAt.iterations)) {
         toldToRecord = true;
@@ -436,9 +446,10 @@ export class AgentReActLoop {
         input.onStep?.({ type: "tool_call", payload: toolCall });
 
         if (cut) await audit(skillContext, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "tool_call", tool: toolCall.name });
-        const late = !cut && Date.now() >= deadline;
+        const late = !cut && Date.now() >= deadline, halted = !cut && !late && !!input.stopRequested?.();
         if (late) outOfTime = true;
-        const refusal = cut ? CUT_TOOL_CALL : late ? OUT_OF_TIME_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
+        if (halted) stopped = true;
+        const refusal = cut ? CUT_TOOL_CALL : late ? OUT_OF_TIME_CALL : halted ? STOPPED_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);
         const approved = bulkDecision.allow && bulkDecision.approved.has(toolCall.id);
         const result = await executeCall(toolCall, skillContext, { refusal, approved, running: setRunning });
         toolCallsExecuted.push({ call: toolCall, result });
@@ -468,11 +479,11 @@ export class AgentReActLoop {
       }
     }
 
-    const outOfBudget = (iterations >= maxIterations || outOfTime || stalled) && !finalReply;
+    const outOfBudget = (iterations >= maxIterations || outOfTime || stopped || stalled) && !finalReply;
     if (outOfBudget) {
       // One more call with the same tools and tool_choice none, so the cached prefix holds and completed work becomes a useful answer
       // instead of an opaque failure. The instruction is not stored; the answer is, so the next turn builds on it.
-      const request = [...messageHistory, { role: "user" as const, content: outOfTime ? TIME_SPENT : stalled === "cut" ? CUT_SPENT : stalled ? EMPTY_ANSWER : BUDGET_SPENT }];
+      const request = [...messageHistory, { role: "user" as const, content: stopped ? STOPPED : outOfTime ? TIME_SPENT : stalled === "cut" ? CUT_SPENT : stalled ? EMPTY_ANSWER : BUDGET_SPENT }];
       const options = { tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, language: input.context.language, deadline: Date.now() + turnDeadline.summaryMs, ...outputFloor(input) };
       // A server that refuses tool_choice is asked once more without tools by the router, before any fallback Profile.
       const boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
@@ -482,7 +493,7 @@ export class AgentReActLoop {
         if (content) await record.add({ role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
         finalReply = redact(content || textIn(input.context.language).budgetSpent);
       }
-      await audit(skillContext, "guardrail_denied", { kind: "limit", source: outOfTime ? "deadline" : stalled === "cut" ? "output_cut" : stalled ? "empty_answer" : "iterations", synthesized: true });
+      await audit(skillContext, "guardrail_denied", { kind: "limit", source: stopped ? "stopped" : outOfTime ? "deadline" : stalled === "cut" ? "output_cut" : stalled ? "empty_answer" : "iterations", synthesized: true });
     }
 
     return {
@@ -496,6 +507,7 @@ export class AgentReActLoop {
       ...(input.ephemeral ? { recorded } : {}),
       ...(failed ? { failed: true as const } : {}),
       ...(outOfBudget && !failed ? { outOfBudget: true as const } : {}),
+      ...(outOfBudget && stopped && !failed ? { stopped: true as const } : {}),
     };
   }
 }

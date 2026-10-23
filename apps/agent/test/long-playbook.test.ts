@@ -40,18 +40,15 @@ afterEach(async () => {
 });
 const slowLookup = async () => { await new Promise((resolve) => setTimeout(resolve, 900)); return { tool: "listFiles", args: { path: "channel" } }; };
 
-discordScenario("a long playbook's turn that runs out goes on by itself twice, then waits for a reply in the thread", async (s) => {
+discordScenario("a long playbook's turn that runs out goes on by itself twice without a word in between, then waits for a reply in the thread", async (s) => {
   await s.guildSettings({ language: "en" });
   await playbook(s, "trace", true);
   await longDeadline(600);
   s.model.script(slowLookup, "Traced GET /users.", slowLookup, "Traced POST /users.", slowLookup, "Traced DELETE /users/{id}.");
   const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
 
-  expect(said(started.thread)).toEqual([
-    "Traced GET /users.\nStill working on it; I'll carry on by myself.",
-    "Traced POST /users.\nStill working on it; I'll carry on by myself.",
-    "Traced DELETE /users/{id}.\nNot finished yet. Reply here if you want me to carry on.",
-  ]);
+  // The turns in between post nothing (#351): only the last one answers.
+  expect(said(started.thread)).toEqual(["Traced DELETE /users/{id}.\nNot finished yet. Reply here if you want me to carry on."]);
   // Each turn that went on by itself was the host's line, not a person's.
   const continued = "[No one wrote this: the last turn ran out of its budget before the work was done. Continue from where it stopped, building on what is already recorded; do not start over or repeat finished steps.]";
   expect([2, 4].map((i) => s.model.calls[i]!.at(-2)!.content)).toEqual([continued, continued]);
@@ -64,13 +61,13 @@ discordScenario("a long playbook's turn that runs out goes on by itself twice, t
   expect(s.model.calls).toHaveLength(7);
 });
 
-discordScenario("the notes about going on are in the asker's language", async (s) => {
+discordScenario("the note about going on is in the asker's language", async (s) => {
   await s.guildSettings({ language: "id" });
   await playbook(s, "trace", true);
   await longDeadline(600);
-  s.model.script(slowLookup, "GET /users sudah.", "Semua endpoint sudah dilacak.");
+  s.model.script(slowLookup, "GET /users sudah.", slowLookup, "POST /users sudah.", slowLookup, "DELETE /users sudah.");
   const started = await s.discord.send(`${s.discord.mention} trace: tolong lacak semua endpoint users yang berubah`);
-  expect(said(started.thread)).toEqual(["GET /users sudah.\nMasih saya kerjakan, saya lanjutkan sendiri.", "Semua endpoint sudah dilacak."]);
+  expect(said(started.thread)).toEqual(["DELETE /users sudah.\nBelum selesai. Balas di sini kalau mau saya lanjutkan."]);
 });
 
 const RECORD_NOW = "This turn is nearly out of time. Before anything else, record with your playbook's tools everything you have finished but not recorded yet, then go on with the rest: the next turn continues from what is recorded, not from what you read.";
@@ -113,7 +110,7 @@ discordScenario("an empty answer after a long playbook's tool work is asked for 
   const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
 
   expect(lastSent(s.model.calls[2]!)).toBe(EMPTY_ANSWER);
-  expect(said(started.thread)).toEqual(["Traced GET /users; POST /users is left.\nStill working on it; I'll carry on by myself.", "Traced POST /users."]);
+  expect(said(started.thread)).toEqual(["Traced POST /users."]);
   // The empty answer is not kept: the turn that goes on reads the summary as the bot's last word.
   const history = s.model.calls[3]!.filter((m: any) => m.role === "assistant").map((m: any) => m.content);
   expect(history).not.toContain("");
@@ -147,7 +144,7 @@ discordScenario("a response cut before any of it arrived three times ends the tu
   s.model.script({ tool: "listFiles", args: { path: "channel" } }, { cut: "" }, { cut: "" }, { cut: "" }, "Traced GET /users; POST /users is left.", "Traced POST /users.");
   const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
   expect(s.model.calls.slice(2, 5).map(lastSent)).toEqual([CUT_EMPTY, CUT_EMPTY, CUT_SPENT]);
-  expect(said(started.thread)).toEqual(["Traced GET /users; POST /users is left.\nStill working on it; I'll carry on by myself.", "Traced POST /users."]);
+  expect(said(started.thread)).toEqual(["Traced POST /users."]);
 });
 
 discordScenario("a long playbook's turn asks for at least 16,384 output tokens on every call, and a chat leaves the tenant's limit alone", async (s) => {
@@ -163,4 +160,107 @@ discordScenario("a long playbook's turn asks for at least 16,384 output tokens o
     await s.discord.send(`${s.discord.mention} hi`, { channel: "channel-2" });
     expect(floors).toEqual([16384, 16384, undefined]);
   } finally { (llmRouter as any).complete = scripted; }
+});
+
+// The progress message's wait is shortened, so a slow turn shows it with its Stop button.
+let shippedProgress: { showAfterMs: number; everyMs: number } | undefined;
+async function fastProgress() {
+  const { progressTiming } = await import("../src/discord/progress.ts");
+  shippedProgress ??= { ...progressTiming };
+  Object.assign(progressTiming, { showAfterMs: 150, everyMs: 40 });
+}
+afterEach(async () => {
+  if (!shippedProgress) return;
+  Object.assign((await import("../src/discord/progress.ts")).progressTiming, shippedProgress);
+  shippedProgress = undefined;
+});
+/** An open Changelog draft of this channel's folder from before drafts knew their place, so every thread of the channel has it open. */
+async function openDraft(s: Scenario) {
+  const changelog = { date: "2026-10-22", base: { ref: "main before 2026-10-01", commit: "9f8e7d6" }, head: { ref: "main through 2026-10-22", commit: "a1b2c3d" }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] };
+  await s.workspace.write("guilds/guild-1/channels/channel-1/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.draft.json", JSON.stringify({
+    openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog }, paths: {}, components: {},
+    "x-draft": { repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", changedFiles: 3, base: "9f8e7d6".padEnd(40, "0"), head: "a1b2c3d".padEnd(40, "0"), files: [{ path: "a.ts", status: "modified" }, { path: "b.ts", status: "modified" }, { path: "c.ts", status: "modified" }], examined: ["a.ts"], touchedAt: new Date().toISOString() },
+  }));
+}
+
+discordScenario("with a Changelog draft open, a turn that runs out goes on by itself up to 5 times, under one progress message that counts the files (#351)", async (s) => {
+  await s.guildSettings({ language: "en" });
+  await playbook(s, "trace", true);
+  await openDraft(s);
+  await longDeadline(600);
+  await fastProgress();
+  s.model.script(...Array.from({ length: 6 }, (_, i) => [slowLookup, `Part ${i + 1} done.`]).flat());
+  const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
+
+  expect(s.model.calls).toHaveLength(12);
+  const [progress, answer, ...rest] = started.thread!.messages.filter((m: any) => m.author.bot);
+  expect(rest).toEqual([]);
+  expect(answer!.content).toBe("Part 6 done.\nNot finished yet. Reply here if you want me to carry on.");
+  expect(progress!.edits.map((e: any) => e.content).join("\n")).toContain("1 of 3 changed files done");
+  expect(progress!.content).toMatch(/^-# 🧠 Done in /);
+  expect(progress!.components).toEqual([]);
+});
+
+// A chat turn's deadline is shortened too, for work that goes on by itself with only a Changelog draft open.
+let shippedTurn: number | undefined;
+async function turnDeadline(ms: number) {
+  const { turnDeadline } = await import("../src/loop/react.ts");
+  shippedTurn ??= turnDeadline.ms;
+  turnDeadline.ms = ms;
+}
+afterEach(async () => {
+  if (shippedTurn === undefined) return;
+  (await import("../src/loop/react.ts")).turnDeadline.ms = shippedTurn;
+  shippedTurn = undefined;
+});
+
+discordScenario("a person's message sent while the work goes on by itself is answered first, and the work waits for them (#351)", async (s) => {
+  await s.guildSettings({ language: "en", useThreads: false });
+  await openDraft(s);
+  await turnDeadline(600);
+  let sent: Promise<unknown> | undefined;
+  s.model.script(
+    // Bob writes while the first turn still works; his send settles only once the bot is idle again.
+    async () => { sent = s.discord.send(`${s.discord.mention} hold on, wait for me`, { author: s.discord.bob }); return slowLookup(); },
+    "Traced GET /users.",
+    "Sure, I'll hold off.",
+  );
+  await s.discord.send(`${s.discord.mention} lanjut changelog-nya`);
+  await sent;
+
+  expect(s.model.calls).toHaveLength(3);
+  expect(String(s.model.calls[2]!.at(-2)!.content)).toContain("hold on, wait for me");
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Sure, I'll hold off."]);
+});
+
+discordScenario("the asker's Stop on the progress message cuts the turn before its next step; nobody else can press it, and the work waits (#351)", async (s) => {
+  await s.guildSettings({ language: "en" });
+  await playbook(s, "trace", true);
+  await openDraft(s);
+  await fastProgress();
+  const clicks: Promise<any>[] = [];
+  s.model.script(
+    async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const progress = s.discord.botMessages.find((m) => m.components.length)!;
+      clicks.push(s.discord.click(progress, "Stop", { user: s.discord.bob }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      clicks.push(s.discord.click(progress, "Stop"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { tool: "listFiles", args: { path: "channel" } };
+    },
+    "Paused after the first files; say go on when you want the rest.",
+  );
+  const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
+  const [bob, alice] = await Promise.all(clicks);
+
+  expect(bob.responses).toEqual([{ kind: "reply", payload: expect.objectContaining({ content: "Only Alice can stop this.", ephemeral: true }) }]);
+  expect(alice.responses.map((r: any) => r.kind)).toEqual(["update"]);
+  expect(s.model.calls).toHaveLength(2);
+  const tool = s.model.calls[1]!.find((m: any) => m.role === "tool")!;
+  expect(String(tool.content)).toContain("This tool call was not run: the person stopped the turn.");
+  expect(String(s.model.calls[1]!.at(-1)!.content)).toStartWith("The person pressed Stop, so the work pauses here.");
+  const [, answer, ...rest] = started.thread!.messages.filter((m: any) => m.author.bot);
+  expect(rest).toEqual([]);
+  expect(answer!.content).toBe("Paused after the first files; say go on when you want the rest.");
 });

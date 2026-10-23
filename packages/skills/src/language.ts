@@ -335,7 +335,6 @@ const en = {
   emptyAnswer: "Done.",
   budgetSpent: "Part of it is done. Reply here if you want me to finish the rest.",
   // A long turn's progress message (#345): what a person sees while the work goes on, never a tool's name.
-  continuingAlone: "Still working on it; I'll carry on by myself.",
   continueByReply: "Not finished yet. Reply here if you want me to carry on.",
   progress: {
     working: "🧠 Working…",
@@ -343,6 +342,10 @@ const en = {
     seconds: (n: number) => `${n} s`,
     minutes: (n: number) => `${n} min`,
     recorded: (n: number) => `${n} endpoint${n === 1 ? "" : "s"} recorded`,
+    files: (done: number, total: number) => `${done} of ${total} changed file${total === 1 ? "" : "s"} done`,
+    stop: "Stop",
+    stopOnlyAsker: (who: string) => `Only ${who} can stop this.`,
+    stopEnded: "This work has already ended.",
     stages: { range: "Pinning which changes to cover", reading: "Reading the changes", tracing: "Tracing the endpoints", checking: "Checking the changelog", publishing: "Publishing the preview" },
     steps: {
       repository: { one: (s?: string) => (s ? `Opening the repository ${s}` : "Looking over the repositories"), many: (_n: number) => "Looking over the repositories" },
@@ -617,7 +620,6 @@ const id: typeof en = {
   briefNeedsThread: "Membuat issue perlu dikonfirmasi penulis brief, dan itu hanya bisa di thread Discord.",
   emptyAnswer: "Selesai.",
   budgetSpent: "Sebagian sudah selesai. Balas di sini kalau mau saya selesaikan sisanya.",
-  continuingAlone: "Masih saya kerjakan, saya lanjutkan sendiri.",
   continueByReply: "Belum selesai. Balas di sini kalau mau saya lanjutkan.",
   progress: {
     working: "🧠 Sedang mengerjakan…",
@@ -625,6 +627,10 @@ const id: typeof en = {
     seconds: (n) => `${n} detik`,
     minutes: (n) => `${n} menit`,
     recorded: (n) => `${n} endpoint tercatat`,
+    files: (done, total) => `${done} dari ${total} file berubah selesai`,
+    stop: "Hentikan",
+    stopOnlyAsker: (who) => `Hanya ${who} yang bisa menghentikan ini.`,
+    stopEnded: "Pekerjaan ini sudah selesai.",
     stages: { range: "Menentukan rentang perubahan", reading: "Membaca perubahan", tracing: "Menelusuri endpoint", checking: "Memeriksa changelog", publishing: "Menerbitkan preview" },
     steps: {
       repository: { one: (s) => (s ? `Membuka repository ${s}` : "Melihat daftar repository"), many: () => "Melihat daftar repository" },
