@@ -43,7 +43,7 @@ describe("built-in playbooks", () => {
   test("contract-diff starts off like the other repository playbooks, from changelog:, needs git and the OpenAPI skill and one repository, runs long, and reads its two references", () => {
     expect(named("contract-diff")).toMatchObject({ start: true, defaultOff: true, menu: null, words: ["changelog"], requires: ["git_repositories", "openapi"], repository: "required", budget: "long", run: "thread" });
     expect(files("contract-diff").sort()).toEqual(["PLAYBOOK.md", "checklist.md", "extensions.md"]);
-    for (const tool of ["startChangelog", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "sendFiles", "publishOpenApi"]) expect([tool, text("contract-diff").includes(`\`${tool}\``)]).toEqual([tool, true]);
+    for (const tool of ["startChangelog", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]) expect([tool, text("contract-diff").includes(`\`${tool}\``)]).toEqual([tool, true]);
   });
 
   test("minutes start from the English or the Indonesian word", () => {

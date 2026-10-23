@@ -54,7 +54,7 @@ const pauses = async (s: Scenario) => {
   return (await repositories().usage.list({ tenantId: s.tenant.id, type: "changelog_draft_paused" })).map((e: any) => e.metadata);
 };
 /** What the asker reads when GitLab failed for good: the service and how to go on, never its host, status or error. */
-const PAUSED = "<@user-alice> Changelog paused: GitLab could not be reached. Say go on to continue.";
+const PAUSED = '<@user-alice> Changelog paused: GitLab could not be reached. Type "go on" to continue.';
 
 discordScenario("GitLab failing with a 502 three times in a row pauses the draft, naming only GitLab; the console has the host, status, error, tool and file (#359)", async (s) => {
   await acmeOnGitLab(s);

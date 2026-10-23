@@ -305,3 +305,130 @@ discordScenario("a progress message put up before its turn started the draft the
   expect(seen).toEqual({ buttons: ["changelogstop:2026-10-22_9f8e7d6..a1b2c3d"], kept: { channelId: "channel-1", messageId: progress!.id } });
   expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "stopped" });
 });
+
+const NO_PROGRESS = 'The changelog made no progress, so I paused it; type "go on" to continue.';
+
+discordScenario("a model that answers every turn without calling a tool pauses the draft after two such turns: they post nothing, and one line pings the asker to go on (#357)", async (s) => {
+  await acmeApi(s);
+  await fastProgress();
+  s.model.script(
+    START, "Started the acme/api changelog.",
+    async () => { await pause(300); return "Next I will read the DTOs."; },
+    "Going on with the DTOs.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(s.model.calls).toHaveLength(4);
+  const [progress, answer, ...rest] = s.discord.botMessages;
+  expect(rest).toEqual([]);
+  expect(progress).toMatchObject({ content: expect.stringMatching(/^-# ⏸️ Paused after /), components: [] });
+  expect(answer).toMatchObject({ content: `<@user-alice> ${NO_PROGRESS}`, allowedMentions: { users: ["user-alice"] } });
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "no-progress", since: "2026-10-22T03:00:00.000Z" });
+  expect(await pauses(s)).toEqual([expect.objectContaining({ reason: "no-progress", repo: "acme/api", branch: "main", draft: "2026-10-22_9f8e7d6..a1b2c3d", channelId: "channel-1" })]);
+});
+
+discordScenario("only the turns that go on by themselves count: a file examined starts the count again, and a person's chat in between neither counts nor resets it (#357)", async (s) => {
+  await acmeApi(s);
+  const asked: Promise<unknown>[] = [];
+  s.model.script(
+    START, "Started the acme/api changelog.",
+    "Next I will read the DTOs.",
+    read(0), "Read the first DTO.",
+    // Bob asks while the work reads the first DTO again, which adds nothing.
+    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read it again.",
+    "Masih ada 5 file lagi.",
+    "Going on with the DTOs.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+  await Promise.all(asked);
+
+  expect(s.model.calls).toHaveLength(9);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: "Masih ada 5 file lagi.", pinged: [] },
+    { content: `<@user-alice> ${NO_PROGRESS}`, pinged: ["user-alice"] },
+  ]);
+  expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "no-progress" });
+});
+
+discordScenario("a draft paused for no progress that a lanjut goes on with counts afresh: it pauses again only after two more turns without progress (#357)", async (s) => {
+  await acmeApi(s);
+  s.model.script(START, "Started the acme/api changelog.", "Next I will read the DTOs.", "Going on with the DTOs.");
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+  expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "no-progress" });
+
+  s.model.script(
+    read(0), "Read the first DTO.",
+    "Next I will read the rest.",
+    "Still on the DTOs.",
+  );
+  await s.discord.send(`${s.discord.mention} lanjut`);
+
+  expect(s.model.calls).toHaveLength(4 + 4);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: `<@user-alice> ${NO_PROGRESS}`, pinged: ["user-alice"] },
+    { content: `<@user-alice> ${NO_PROGRESS}`, pinged: ["user-alice"] },
+  ]);
+  expect((await pauses(s)).map((p: any) => p.reason)).toEqual(["no-progress", "no-progress"]);
+});
+
+const QUESTION = "Is src/users/dto/f.dto.ts still served, or can it be set aside?";
+const ASK = { tool: "askChangelogAsker", args: { draft: DRAFT, question: QUESTION } };
+
+discordScenario("a turn the model ends with a question in its answer goes on; askChangelogAsker pauses the draft with its question as the answer, pinging the asker, and anyone's reply that goes on with it sends it to the end (#356)", async (s) => {
+  await acmeApi(s);
+  await fastProgress();
+  await agentLog();
+  s.model.script(
+    START, "Started the acme/api changelog. Shall I go on?",
+    async () => { await pause(300); return read(0); }, ASK, "I asked Alice about the last DTO.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(s.model.calls).toHaveLength(5);
+  const [progress, answer, ...rest] = s.discord.botMessages;
+  expect(rest).toEqual([]);
+  expect(progress).toMatchObject({ content: expect.stringMatching(/^-# ⏸️ Paused after /), components: [] });
+  expect(answer).toMatchObject({ content: `<@user-alice> ${QUESTION}`, allowedMentions: { users: ["user-alice"] } });
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
+  expect(await pauses(s)).toEqual([expect.objectContaining({ reason: "question", repo: "acme/api", draft: "2026-10-22_9f8e7d6..a1b2c3d" })]);
+  expect(await warnings(s)).toEqual([expect.stringMatching(/: question$/)]);
+
+  // Bob answers for Alice: his turn goes on with the draft, so the work goes on by itself to the end.
+  s.model.script(
+    { tool: "putChangelogNotes", args: { draft: DRAFT, setAside: [{ pattern: DTOS[5], reason: "no longer served" }] } }, "Set it aside; going on.",
+    [1, 2, 3, 4].map(read), RECORD, FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} set it aside, it is not served any more`, { author: s.discord.bob });
+
+  expect(s.model.calls).toHaveLength(5 + 2 + 4);
+  expect(s.discord.botMessages.slice(2).map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: `<@user-alice> The acme/api changelog is written: ${WRITTEN}`, pinged: ["user-alice"] },
+  ]);
+  expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
+});
+
+discordScenario("a question longer than three short lines is refused and asks nothing; asked in the asker's own turn, the question answers her message without a ping (#356)", async (s) => {
+  await acmeApi(s);
+  const long = { tool: "askChangelogAsker", args: { draft: DRAFT, question: "I read the controller.\nI read the first DTO.\nThe last DTO looks unused.\nIs it still served, or can it be set aside?" } };
+  s.model.script(START, long, ASK, "Asked.");
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(String(s.model.calls[2]!.findLast((m: any) => m.role === "tool")!.content)).toContain("Ask in at most 3 short lines");
+  expect(s.model.calls).toHaveLength(4);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([{ content: QUESTION, pinged: [] }]);
+  expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "question", question: QUESTION });
+  expect(await pauses(s)).toHaveLength(1);
+});
+
+discordScenario("a turn going on by itself that asks after a turn without progress posts its question, not the no-progress line (#356, #357)", async (s) => {
+  await acmeApi(s);
+  s.model.script(START, "Started the acme/api changelog.", "Next I will read the DTOs.", ASK, "Asked.");
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(s.model.calls).toHaveLength(5);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: `<@user-alice> ${QUESTION}`, pinged: ["user-alice"] },
+  ]);
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
+  expect((await pauses(s)).map((p: any) => p.reason)).toEqual(["question"]);
+});
