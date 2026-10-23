@@ -1,6 +1,6 @@
 import type { SkillModule, ToolPolicy } from "../types.js";
 import { acct, repoP, useRepo } from "./gitShared.js";
-import { finishChangelog, noteRead, putComponents, putNotes, putOperation, startChangelog } from "../openapi/changelog.js";
+import { finishChangelog, noteRead, putComponents, putNotes, putOperation, startChangelog, stopChangelog } from "../openapi/changelog.js";
 import { listPreviews, publishPreview } from "../openapi/previews.js";
 import { readablePath } from "./workspace.js";
 
@@ -23,7 +23,7 @@ export const openapiSkill: SkillModule = {
   capabilities: ["openapi"],
   allowedScopes: ["tenant"],
   // Publishing goes without a Write confirmation, as the user decided (#285); the console revokes a link.
-  toolPolicy: { startChangelog: drafting, putChangelogOperation: drafting, putChangelogComponents: drafting, putChangelogNotes: drafting, finishChangelog: drafting, publishOpenApi: { effect: "write", requiresConfirmation: false }, listOpenApiPreviews: { effect: "read" } },
+  toolPolicy: { startChangelog: drafting, putChangelogOperation: drafting, putChangelogComponents: drafting, putChangelogNotes: drafting, finishChangelog: drafting, stopChangelog: drafting, publishOpenApi: { effect: "write", requiresConfirmation: false }, listOpenApiPreviews: { effect: "read" } },
   tools: [
     { name: "startChangelog", description: "Starts an API changelog of a repository as an OpenAPI draft, or finds the one already started for the same commits. scope is the person's answer, never your choice: all is the whole history (every endpoint is NEW), range covers from one day to another (YYYY-MM-DD in this place's time zone; to is today when left out). It turns the days into commits on the branch (head: the last commit through to; base: the last commit before from) and returns the draft path, both commits, and the first changed files with how to list the rest. resumed lists the operations an earlier, unfinished run recorded.",
       parameters: { type: "object", properties: { account: acct, repo: repoP, branch: { type: "string", description: "Default: the default branch" }, scope: { type: "string", enum: ["all", "range"], description: "The person's answer: the whole history, or a range of days" }, from: { type: "string", description: "First day of a range, YYYY-MM-DD" }, to: { type: "string", description: "Last day, YYYY-MM-DD; default today" } }, required: ["repo", "scope"] } },
@@ -35,6 +35,8 @@ export const openapiSkill: SkillModule = {
       parameters: { type: "object", properties: { draft: draftP, globalChanges: { type: "array", items: { type: "object" }, description: "Change entries" }, removedOperations: { type: "array", items: { type: "object" }, description: '{"method": "delete", "path": "/api/v1/sessions", "replacedBy": "POST /api/v2/sessions/revoke"}' }, unverified: { type: "array", items: { type: "object" }, description: '{"in": "response.200", "field": "data.meta", "reason": "..."}' }, setAside: { type: "array", items: { type: "object" }, description: '{"pattern": "**/*.spec.ts", "reason": "tests, not served"}; ** crosses folders, a pattern without a slash matches a file name anywhere' }, title: { type: "string" }, description: { type: "string" } }, required: ["draft"] } },
     { name: "finishChangelog", description: "Validates the whole draft (the contract-diff checks and the OpenAPI 3.1 schema), counts the summary, and when there are no errors writes the changelog .json beside it and removes the draft. It refuses while a changed file is neither examined (its whole patch read with repoFileDiff, or the whole file with repoReadFile at either commit) nor set aside, and names them. With errors nothing is written: fix each and call it again. A draft that records no change writes nothing. Returns the file path, the summary, one line per breaking change, the unverified items and what was set aside, for your report.",
       parameters: { type: "object", properties: { draft: draftP }, required: ["draft"] } },
+    { name: "stopChangelog", description: "Stops the API changelog open in this place when the person who started it asks to stop it, in any words (\"hentikan bikin changelog\", \"stop the changelog\"): its draft is removed with what it recorded and nothing is written. Only the person who started it may stop it. A message that only pauses or asks to wait is not a stop.",
+      parameters: { type: "object", properties: { draft: { type: "string", description: "The draft to stop; needed only when several are open here" } } } },
     { name: "publishOpenApi", description: "Publishes an OpenAPI JSON from the Workspace as an OpenAPI Schema Viewer page: a public page anyone with its link can open without signing in, showing the document (an API changelog's changes as badges and tables). It shows the file as it is now: later changes to the file do not reach it, and publishing again makes a new link. Use it when the person asks to show, preview or share an OpenAPI document or a changelog. The path is as readFile takes it. Returns the link; give it to the person, with any warning.",
       parameters: { type: "object", properties: { path: { type: "string", description: 'The .json file, e.g. "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json"' }, title: { type: "string", description: "Default: the document's info.title" } }, required: ["path"] } },
     { name: "listOpenApiPreviews", description: "Lists the OpenAPI Schema Viewer pages this bot published in this channel (with its threads) or this DM, newest first, with their links.",
@@ -46,6 +48,7 @@ export const openapiSkill: SkillModule = {
     putChangelogComponents: (args, ctx) => putComponents(ctx, args),
     putChangelogNotes: (args, ctx) => putNotes(ctx, args),
     finishChangelog: (args, ctx) => finishChangelog(ctx, args),
+    stopChangelog: (args, ctx) => stopChangelog(ctx, args),
     publishOpenApi: async (args, ctx) => publishPreview(ctx, { full: await readablePath(ctx, args.path), shown: String(args.path).trim() }, args.title),
     listOpenApiPreviews: (_args, ctx) => listPreviews(ctx),
   },

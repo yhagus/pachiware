@@ -4,7 +4,7 @@ category: Git, code & APIs
 trigger: {"word": ["changelog"]}
 default: off
 requires: ["git_repositories", "openapi"]
-tools: ["playbookRepositories", "startChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "sendFiles", "publishOpenApi"]
+tools: ["playbookRepositories", "startChangelog", "stopChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "sendFiles", "publishOpenApi"]
 repository: required
 budget: long
 ---
@@ -24,7 +24,7 @@ Produce an OpenAPI document that holds only the endpoints whose frontend-facing 
 
 **Record as you go.** An endpoint you traced but did not record is lost when the turn runs out: the next turn starts from the draft, not from what you read.
 
-**Keep going until it is written.** While the changelog is open, the turn's context names its draft. Go on with that draft when the person says to; never ask again what it covers. Do not stop only to ask whether to continue: stop for a question only the person can answer, such as a branch that does not exist or access that was refused.
+**Keep going until it is written.** While the changelog is open, the turn's context names its draft. Go on with that draft when the person says to; never ask again what it covers. Do not stop only to ask whether to continue: stop for a question only the person can answer, such as a branch that does not exist or access that was refused. When the person who started the changelog asks to stop it, in any words, call `stopChangelog` and say what was dropped; a message that only pauses stops nothing.
 
 ## 1. Pin what the changelog covers
 

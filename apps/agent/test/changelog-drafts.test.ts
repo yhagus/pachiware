@@ -211,3 +211,39 @@ discordScenario("a changelog is written only when every changed file was read wh
   expect(written.info["x-changelog"].setAside).toEqual([{ pattern: "*.spec.ts", reason: "Tests; they are not served" }]);
   expect(written["x-draft"]).toBeUndefined();
 });
+
+discordScenario("the person who started a changelog stops it from chat: the draft goes with what it recorded, and nobody else can (#348)", async (s) => {
+  await acmeApi(s);
+  await turn(s, [{ tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } }], results);
+
+  s.model.script({ tool: "stopChangelog", args: {} }, results);
+  await s.discord.send(`${s.discord.mention} hentikan bikin changelog`, { author: s.discord.bob });
+  expect(lastReply(s)).toEqual(["Only Alice, who started this changelog, can stop it; nothing was stopped. Tell the person whose it is."]);
+  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
+
+  const [stopped] = await turn(s, { tool: "stopChangelog", args: {} }, results);
+  expect(stopped).toEqual({
+    stopped: true, repo: "acme/api", branch: "main", covers: "2026-10-01 to 2026-10-22", operations: 1, files: { examined: 1, setAside: 0, left: 1 },
+    note: "The draft is gone and nothing was written. Say the changelog is stopped and what it had recorded; asking for it again starts anew.",
+  });
+  expect(await s.workspace.list(FOLDER)).toEqual([]);
+  expect(await contextAfter(s)).not.toContain("Open API changelog");
+  const [nothing] = await turn(s, { tool: "stopChangelog", args: {} }, results);
+  expect(nothing).toBe("No API changelog is open here, so there is nothing to stop.");
+});
+
+discordScenario("a draft nobody touched for 7 days is dropped unannounced the next time its place is read, and audited (#348)", async (s) => {
+  await acmeApi(s);
+  await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  s.clock.advance(6 * 24 * 3600_000);
+  expect(await contextAfter(s)).toContain("Open API changelog in this place");
+  await turn(s, READ_DTO, results);
+  // Reading a changed file touched it: 7 days from now on, not from the start.
+  s.clock.advance(6 * 24 * 3600_000);
+  expect(await contextAfter(s)).toContain("2 changed files: 2 examined, 0 set aside, 0 left");
+  s.clock.advance(2 * 24 * 3600_000);
+  expect(await contextAfter(s)).not.toContain("Open API changelog");
+  expect(await s.workspace.list(FOLDER)).toEqual([]);
+  const { repositories } = await import("@pachiware/db");
+  expect((await repositories().usage.list({ tenantId: s.tenant.id, type: "changelog_draft_expired" })).map((e: any) => e.metadata)).toEqual([expect.objectContaining({ repo: "acme/api", branch: "main", operations: 0 })]);
+});

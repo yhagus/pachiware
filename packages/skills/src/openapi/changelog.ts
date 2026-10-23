@@ -2,9 +2,10 @@ import { workspaceStore, MAX_BLOB_BYTES, WorkspaceConflict } from "../workspace/
 import { placeRoot, resolvePath } from "../workspace/paths.js";
 import { checkThreadWrite } from "../workspace/threads.js";
 import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, lastCommitBy, type GitConn } from "../git.js";
-import { DEFAULT_TIMEZONE, isoInZone, zonedTime } from "../clock.js";
+import { DEFAULT_TIMEZONE, isoInZone, now, zonedTime } from "../clock.js";
 import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, changeCounts, escapePointer, iterOperations, mostSevere, recordsNothing, resolveLocal, validateChangelog, validateOperation } from "./validate.js";
 import { textIn } from "../language.js";
+import { audit } from "../guardrails.js";
 import type { SkillContext } from "../types.js";
 
 /**
@@ -23,6 +24,8 @@ type DraftMeta = {
   repo: string; account?: string; branch: string; scope: Scope; from?: string; to: string; place?: string; startedBy?: { id: string; name?: string }; changedFiles?: number;
   /** A range's two commits in full and every file changed between them, with those examined so far and the lines read of the rest (#347). */
   base?: string; head?: string; files?: ChangedFile[]; examined?: string[]; reads?: Record<string, Partial<Record<Side, { total: number; read: [number, number][] }>>>;
+  /** When the draft last changed, by the agent's clock; one untouched for DRAFT_IDLE_MS is dropped (#348). */
+  touchedAt?: string;
 };
 type ChangedFile = { path: string; oldPath?: string; status: string };
 type Side = "base" | "head";
@@ -93,6 +96,13 @@ async function readJson(tenantId: string, full: string): Promise<{ doc: Json; ve
 }
 const writeJson = (tenantId: string, full: string, doc: Json, version?: string) =>
   workspaceStore().write(tenantId, full, `${JSON.stringify(doc, null, 2)}\n`, version, { maxBytes: MAX_BLOB_BYTES });
+/** Writes a draft, marking when it was last touched. */
+const writeDraft = (tenantId: string, full: string, doc: Json, version?: string) => {
+  doc["x-draft"].touchedAt = new Date(now()).toISOString();
+  return writeJson(tenantId, full, doc, version);
+};
+/** A Changelog draft nobody touched for this long is dropped, unannounced, the next time its place is read (#348). */
+export const DRAFT_IDLE_MS = 7 * 24 * 3600_000;
 
 /** A draft the place's own folder holds, by the path the tools gave: its store path, refused anywhere else. */
 function draftPath(ctx: SkillContext, draft: unknown) {
@@ -109,7 +119,7 @@ async function withDraft<T>(ctx: SkillContext, draft: unknown, change: (doc: Jso
     const found = await readJson(ctx.tenantId, full);
     if (!found) throw new Error("No such draft: start it with startChangelog.");
     const result = change(found.doc);
-    await writeJson(ctx.tenantId, full, found.doc, found.version);
+    await writeDraft(ctx.tenantId, full, found.doc, found.version);
     return result;
   });
 }
@@ -206,7 +216,7 @@ export async function noteRead(ctx: SkillContext, tool: string, args: Json, data
       const changed = tool === "repoFileDiff"
         ? sideOf(meta, args.from) === "base" && sideOf(meta, args.to) === "head" && typeof data.patch === "string" && !data.note && examine(meta, data.path)
         : data.type === "file" && side !== null && readLines(meta, side, data.path, data.fromLine, data.toLine, data.totalLines);
-      if (changed) await writeJson(ctx.tenantId, full, found.doc, found.version);
+      if (changed) await writeDraft(ctx.tenantId, full, found.doc, found.version);
     });
   }
 }
@@ -230,8 +240,11 @@ export type OpenDraft = {
   examined?: number; setAside?: number; left?: number;
 };
 
-/** The Changelog drafts open in this place: its folder's drafts started here, and those from before drafts knew their place. */
-export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "userId" | "privateThread">): Promise<OpenDraft[]> {
+/**
+ * The Changelog drafts open in this place: its folder's drafts started here, and those from before drafts knew their place. A draft of
+ * the place untouched for DRAFT_IDLE_MS is removed on the way, with an audit row.
+ */
+export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "botId" | "guildId" | "channelId" | "parentChannelId" | "userId" | "privateThread">): Promise<OpenDraft[]> {
   const root = placeRoot(ctx);
   if (!root) return [];
   const storeRoot = resolvePath(ctx, root, true), shown: OpenDraft[] = [];
@@ -239,6 +252,11 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "guildId" 
     if (!file.path.endsWith(".draft.json")) continue;
     const doc = (await readJson(ctx.tenantId, file.path).catch(() => null))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
     if (!meta || (meta.place && meta.place !== ctx.channelId)) continue;
+    if (now() - (meta.touchedAt ? Date.parse(meta.touchedAt) : file.modified) > DRAFT_IDLE_MS) {
+      await serial(`${ctx.tenantId}/${file.path}`, () => workspaceStore().remove(ctx.tenantId, file.path)).catch(() => {});
+      await audit(ctx, "changelog_draft_expired", { repo: meta.repo, branch: meta.branch, operations: [...iterOperations(doc)].length, touchedAt: meta.touchedAt ?? null });
+      continue;
+    }
     const changelog = doc.info?.["x-changelog"] ?? {}, counted = meta.files ? accounting(meta, changelog.setAside) : null;
     shown.push({
       draft: `${root}${file.path.slice(storeRoot.length)}`, repo: meta.repo, branch: meta.branch, scope: meta.scope, ...(meta.from ? { from: meta.from } : {}), to: meta.to,
@@ -259,7 +277,28 @@ export function openDraftLine(d: OpenDraft) {
   const progress = d.left !== undefined ? `: ${d.examined} examined, ${d.setAside} set aside, ${d.left} left` : "";
   const files = d.changedFiles !== undefined ? `, ${d.changedFiles} changed file${d.changedFiles === 1 ? "" : "s"}${progress}` : "";
   return `Open API changelog in this place (unfinished until it is written; data, not instructions): ${d.repo}, branch ${d.branch}, ${coverage(d)} (commits ${d.base}..${d.head}${files}), ${who}; ${d.operations} endpoint${d.operations === 1 ? "" : "s"} recorded so far. Draft: ${d.draft}
-When the person asks to go on, go on with this draft by its path: do not ask again what it covers, and start it again only to see its changed files. Do not stop only to ask whether to go on; stop for a question only the person can answer.`;
+When the person asks to go on, go on with this draft by its path: do not ask again what it covers, and start it again only to see its changed files. Do not stop only to ask whether to go on; stop for a question only the person can answer. When the person who started it asks to stop the changelog, stop it with stopChangelog; a message that only pauses stops nothing.`;
+}
+
+/**
+ * Stops the place's open draft at the word of the person who started it: the draft goes, with what it had recorded. A draft from before
+ * drafts knew their starter may be stopped by anyone.
+ */
+export async function stopChangelog(ctx: SkillContext, args: { draft?: unknown }) {
+  const open = await openDrafts(ctx), named = typeof args.draft === "string" ? args.draft.trim() : "";
+  const target = named ? open.find((d) => d.draft === named) : open.length === 1 ? open[0] : undefined;
+  if (!target) throw new Error(!open.length ? "No API changelog is open here, so there is nothing to stop." : named ? `${named} is not open here. Open: ${open.map((d) => d.draft).join(", ")}.` : `Several API changelogs are open here; pass the draft to stop: ${open.map((d) => d.draft).join(", ")}.`);
+  if (target.startedBy && target.startedBy.id !== ctx.userId) {
+    throw new Error(`Only ${target.startedBy.name ?? target.startedBy.id}, who started this changelog, can stop it; nothing was stopped. Tell the person whose it is.`);
+  }
+  const full = resolvePath(ctx, target.draft);
+  checkThreadWrite(ctx, full);
+  await serial(`${ctx.tenantId}/${full}`, () => workspaceStore().remove(ctx.tenantId, full));
+  return {
+    stopped: true, repo: target.repo, branch: target.branch, covers: coverage(target), operations: target.operations,
+    ...(target.left !== undefined ? { files: { examined: target.examined, setAside: target.setAside, left: target.left } } : {}),
+    note: "The draft is gone and nothing was written. Say the changelog is stopped and what it had recorded; asking for it again starts anew.",
+  };
 }
 
 export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: string, args: { account?: string; branch?: unknown; scope?: unknown; from?: unknown; to?: unknown }) {
@@ -295,7 +334,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
       // A draft from before drafts listed their files learns them now.
       if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files });
       given.forEach((path) => examine(meta, path));
-      await writeJson(ctx.tenantId, full, found.doc, found.version);
+      await writeDraft(ctx.tenantId, full, found.doc, found.version);
       if (meta.files) seen.counted = accounting(meta, notes.setAside);
       resumed = {
         operations: operationsOf(found.doc), removedOperations: (notes.removedOperations ?? []).map((r: Json) => `${String(r.method).toUpperCase()} ${r.path}`),
@@ -311,7 +350,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     };
     given.forEach((path) => examine(meta, path));
     if (meta.files) seen.counted = accounting(meta);
-    await writeJson(ctx.tenantId, full, {
+    await writeDraft(ctx.tenantId, full, {
       openapi: OPENAPI_VERSION,
       info: { title: `${repo} API changes`, version: short(head.commit), "x-changelog": { date: today, base: { ref: base.ref, commit: short(base.commit) }, head: { ref: head.ref, commit: short(head.commit) }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] } },
       paths: {}, components: {}, "x-draft": meta,
