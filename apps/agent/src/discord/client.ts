@@ -10,7 +10,7 @@ import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton, type ButtonLike } from "./gitConfirm.js";
 import { outgoingFiles, type OutgoingDiscordFile } from "./outgoingFiles.js";
-import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, openDrafts, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, pauseDraft, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding, type OpenDraft } from "@pachiware/skills";
+import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, openDrafts, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, pauseDraft, draftState, keepClosingSummary, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding, type OpenDraft } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { causeText, playbookReport } from "./serverPlaybooks.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
@@ -129,6 +129,32 @@ const isStopButton = (id: string) => id.startsWith(`${STOP_PREFIX}:`) || id.star
 type StopEntry = { askerId: string; askerName: string; stopped: boolean; language?: Language };
 const CONTINUE_TURN = "[No one wrote this: the last turn ran out of its budget before the work was done. Continue from where it stopped, building on what is already recorded; do not start over or repeat finished steps.]";
 const DRAFT_TURN = "[No one wrote this: the API changelog is not written yet, so the work on it goes on by itself. Continue from where it stopped, building on what is already recorded; do not start over or repeat finished steps.]";
+/**
+ * A turn's tool calls by name, in the order first called, with how many failed: "repoReadFile ×5 (1 failed), putChangelogOperation ×1".
+ */
+function stepsOf(executed: { call: { name: string }; result: { success: boolean } }[]) {
+  const byName = new Map<string, { calls: number; failed: number }>();
+  for (const { call, result } of executed) {
+    const seen = byName.get(call.name) ?? { calls: 0, failed: 0 };
+    byName.set(call.name, { calls: seen.calls + 1, failed: seen.failed + (result.success ? 0 : 1) });
+  }
+  return byName.size ? [...byName].map(([name, n]) => `${name} ×${n.calls}${n.failed ? ` (${n.failed} failed)` : ""}`).join(", ") : "no steps";
+}
+/** What an ephemeral turn concluded, as a stored turn would keep it: its last row, when that is an answer. */
+const closingOf = (recorded: { role: string; content: string | null; toolCalls?: unknown[] | null }[]) => {
+  const last = recorded.at(-1);
+  return last?.role === "assistant" && !last.toolCalls?.length && last.content?.trim() ? last.content : null;
+};
+/**
+ * Leaves a turn that went on by itself in its place's conversation as one row, its closing summary; its steps stay out, so the place's
+ * later turns read what it concluded, not what it read (#360). A place whose conversation ended gets a new one, as a person's turn would.
+ */
+async function keepClosingRow(tenantId: string, botId: string, conversation: { id: string } | null, at: { channelId: string; userId: string; parentChannelId?: string }, content: string) {
+  const { conversations } = repositories();
+  const id = conversation?.id ?? (await conversations.create({ tenantId, botId, platform: "discord", channelId: at.channelId, userId: at.userId, metadata: { parentChannelId: at.parentChannelId ?? null } })).id;
+  await conversations.addMessage({ tenantId, conversationId: id, role: "assistant", content, toolCalls: null });
+  return id;
+}
 /** `draft` names the worked-on Changelog draft a turn that goes on by itself goes on with (#361). */
 type ReplyOptions = { actor?: Actor; playbook?: Playbook; binding?: PlaybookBinding; direct?: boolean; continued?: number; answerIn?: Language; progress?: TurnProgress; stop?: StopEntry; draft?: string };
 /** Who asks where, as a place's Changelog drafts are found: the channel or thread, and the person. */
@@ -731,6 +757,10 @@ export class DiscordBotManager {
       const draftPlace = { tenantId: runtime.tenantId, botId, guildId: msg.guildId ?? undefined, channelId, parentChannelId: projectChannelId, userId: actor.id, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined };
       // The place's open Changelog draft as the turn finds it: what the turn does to it decides what follows (#361).
       const before = (await openDrafts(draftPlace).catch(() => []))[0];
+      // A turn that goes on by itself starts from the draft alone, not from the conversation, so turn 30 costs about what turn 2 did (#360).
+      const fromDraft = !!opts.continued && !!opts.draft;
+      const state = fromDraft && before?.name === opts.draft ? await draftState(draftPlace, before.draft).catch(() => null) : null;
+      if (state) turn = `${DRAFT_TURN}\n${state}`;
       // Kept across a chain of turns, so a press between two of them still stops the next. Only the asker may press it: the asker of the
       // place's open Changelog draft, else this turn's (#355).
       const asked = before?.startedBy;
@@ -757,7 +787,7 @@ export class DiscordBotManager {
         turnProgress.step(step);
         if (step.type === "tool_call" && before && !isWorkedOn(before) && !stopping.stopped && goesOnWith(before, step.payload)) resuming ??= resumeDraft(draftPlace, before.draft, before.work).catch(() => {});
       };
-      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, onStep, stopRequested: () => stopping.stopped, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
+      const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, onStep, stopRequested: () => stopping.stopped, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, ...(fromDraft ? { ephemeral: { history: [], cacheKey: `changelog:${channelId}:${opts.draft}` } } : {}), context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
       const briefed = briefTurn(output.toolCallsExecuted);
@@ -773,6 +803,12 @@ export class DiscordBotManager {
         await up.edit({ components: stopButton(id) }).catch(() => {});
         await keepProgressMessage(draftPlace, work.draft.draft, { channelId: up.channelId, messageId: up.id }).catch(() => {});
       }
+      // How the turn ended, never the host's failure text: the draft keeps it for its next turn, and a turn that went on by itself leaves
+      // only that in the conversation, its steps in the Agent log (#360).
+      const closing = output.failed ? null : fromDraft ? closingOf(output.recorded ?? []) : output.reply;
+      if (closing && work.draft && !work.ended && (fromDraft || work.wentOn)) await keepClosingSummary(draftPlace, work.draft.draft, closing).catch(() => {});
+      const closedIn = fromDraft && closing ? await keepClosingRow(runtime.tenantId, botId, conversation, { channelId, userId: actor.id, parentChannelId: projectChannelId }, closing).catch(() => null) : null;
+      if (fromDraft && work.draft) console.info(`[changelog] Went on with ${work.draft.repo} (branch ${work.draft.branch}, draft ${work.draft.name}) in channel ${channelId}: ${stepsOf(output.toolCallsExecuted)}`);
       const continued = opts.continued ?? 0;
       // A worked-on Changelog draft goes on after any turn, unless the model could not be reached (#361). Other long work goes on by itself
       // when its turn ran out, LONG_CONTINUATIONS times; after that a reply continues it (#289). A turn its asker stopped waits for them.
@@ -813,8 +849,9 @@ export class DiscordBotManager {
         if (seen) await describeImageInto(runtime.tenantId, f.where, f.path, seen, { complete: botCompletion({ tenantId: runtime.tenantId, botId, language }) }).catch(() => null);
       }
       // Still inside this conversation's serialized job, so the next turn reads the rewritten summary and when this one ran.
-      await patchConversationMetadata(runtime.tenantId, output.conversationId, { lastTurnAt: new Date(now()).toISOString() }).catch(() => {});
-      if (!playbook) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});
+      const conversationId = output.conversationId || closedIn;
+      if (conversationId) await patchConversationMetadata(runtime.tenantId, conversationId, { lastTurnAt: new Date(now()).toISOString() }).catch(() => {});
+      if (!playbook && output.conversationId) await rollSummary({ tenantId: runtime.tenantId, botId, conversationId: output.conversationId, windowOffset: output.historyOffset }).catch(() => {});
       if (again) {
         handedOver = true;
         // Taken now, so a person's turn that runs before this one is seen as having come between.

@@ -5,7 +5,7 @@ import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, la
 import { DEFAULT_TIMEZONE, isoInZone, now, zonedTime } from "../clock.js";
 import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, changeCounts, escapePointer, iterOperations, mostSevere, recordsNothing, resolveLocal, validateChangelog, validateOperation } from "./validate.js";
 import { textIn } from "../language.js";
-import { audit } from "../guardrails.js";
+import { asUntrusted, audit } from "../guardrails.js";
 import { publishPreview } from "./previews.js";
 import type { SkillContext } from "../types.js";
 
@@ -33,6 +33,12 @@ type DraftMeta = {
   progressMessage?: ProgressMessage;
   /** Whether it is worked on or paused (#361). A draft from before work states is paused until a turn goes on with it. */
   work?: WorkState;
+  /**
+   * The repository's global conventions in the model's words (putChangelogNotes, playbook step 2), and how the last turn on the draft
+   * ended: a turn that goes on by itself starts from these and the draft, not from the conversation (#360).
+   */
+  conventions?: string;
+  closingSummary?: string;
 };
 type ProgressMessage = { channelId: string; messageId: string };
 /** Why a Changelog draft paused: its question to the asker, the asker's Stop, the model or a service failing, or turns adding nothing (#354). */
@@ -368,6 +374,54 @@ When the person asks to go on, go on with this draft by its path: do not ask aga
 If you stop before it is written, answer in at most three short lines: how far it is (changed files done of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them, and do not ask whether to go on.${d.scope === "range" && d.left === undefined ? "\nThis draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage. It goes on with this same draft and lists them, so the files done can be counted." : ""}`;
 }
 
+/** The most of each list the draft's state shows, so a turn that goes on by itself costs about the same however far the work is. */
+const STATE_ITEMS = 200;
+/** The longest closing summary a draft keeps. */
+const CLOSING_CHARS = 4_000;
+const upTo = (items: string[]) => (items.length > STATE_ITEMS ? [...items.slice(0, STATE_ITEMS), `… and ${items.length - STATE_ITEMS} more`] : items);
+
+/**
+ * What a turn that goes on by itself starts from instead of the conversation (#360): the draft's state in one message. It holds the files
+ * examined, set aside and left, the endpoints and components recorded, the notes, the repository's conventions summary and how the last
+ * turn ended. Null when the draft is gone.
+ */
+export async function draftState(ctx: DraftPlace, draft: string) {
+  const doc = (await readJson(ctx.tenantId, resolvePath(ctx, draft)).catch(() => null))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
+  if (!meta) return null;
+  const changelog = doc.info?.["x-changelog"] ?? {}, lines = [`Draft: ${draft} (${meta.repo}, branch ${meta.branch}, ${coverage(meta)}, commits ${changelog.base?.commit}..${changelog.head?.commit})`];
+  if (meta.files) {
+    const counted = accounting(meta, changelog.setAside);
+    lines.push(`Changed files: ${counted.files}: ${counted.examined} examined, ${counted.setAside} set aside, ${counted.left.length} left.`);
+    if (meta.examined?.length) lines.push(`Examined: ${upTo(meta.examined).join(", ")}`);
+    if (changelog.setAside?.length) lines.push(`Set aside: ${changelog.setAside.map((a: SetAside) => `${a.pattern} (${a.reason})`).join("; ")}`);
+    if (counted.left.length) lines.push("Left:", ...upTo(counted.left.map((f) => `- ${f.path} (${f.status}${f.oldPath ? `, was ${f.oldPath}` : ""})`)));
+    const partly = Object.entries(meta.reads ?? {}).flatMap(([path, sides]) => Object.entries(sides).map(([side, r]) => `${path} at ${side}: lines ${r!.read.map(([a, b]) => `${a}-${b}`).join(", ")} of ${r!.total}`));
+    if (partly.length) lines.push(`Partly read: ${upTo(partly).join("; ")}`);
+  } else if (meta.changedFiles !== undefined) lines.push(`Changed files: ${meta.changedFiles}; the draft does not list which were examined.`);
+  const operations = operationsOf(doc), components = Object.entries<Json>(doc.components ?? {}).flatMap(([section, entries]) => Object.keys(entries ?? {}).map((name) => `${section}/${name}`));
+  lines.push(...(operations.length ? [`Endpoints recorded (${operations.length}):`, ...upTo(operations).map((o) => `- ${o}`)] : ["Endpoints recorded: none yet."]));
+  if (components.length) lines.push(`Components recorded: ${upTo(components).join(", ")}`);
+  for (const [key, label] of [["globalChanges", "Global changes"], ["removedOperations", "Removed endpoints"], ["unverified", "Unverified"]] as const) {
+    const list: Json[] = changelog[key] ?? [];
+    if (list.length) lines.push(`${label}: ${JSON.stringify(list.slice(0, STATE_ITEMS))}${list.length > STATE_ITEMS ? ` and ${list.length - STATE_ITEMS} more` : ""}`);
+  }
+  if (meta.conventions) lines.push(`Repository conventions: ${meta.conventions}`);
+  if (meta.closingSummary) lines.push(`How the last turn ended: ${meta.closingSummary}`);
+  return `This turn starts from the draft alone: what earlier turns read is not here, only what they recorded in it.\n${asUntrusted("changelog draft", lines.join("\n"))}`;
+}
+
+/** Keeps how a turn on an open draft ended, for the next turn that goes on by itself; like the work state, it leaves the touch time alone. */
+export async function keepClosingSummary(ctx: DraftPlace, draft: string, text: string) {
+  const full = draftPath(ctx, draft), kept = text.trim().length > CLOSING_CHARS ? `${text.trim().slice(0, CLOSING_CHARS)}…` : text.trim();
+  if (!kept) return;
+  await serial(`${ctx.tenantId}/${full}`, async () => {
+    const found = await readJson(ctx.tenantId, full);
+    if (!found?.doc["x-draft"]) return;
+    found.doc["x-draft"].closingSummary = kept;
+    await writeJson(ctx.tenantId, full, found.doc, found.version);
+  });
+}
+
 /**
  * Stops the place's open draft at the word of the person who started it: the draft goes, with what it had recorded. A draft from before
  * drafts knew their starter may be stopped by anyone.
@@ -534,14 +588,22 @@ export async function putComponents(ctx: SkillContext, args: { draft?: unknown; 
   });
 }
 
+/** The longest conventions summary a draft keeps, about 1,500 tokens at four characters a token (#360). */
+const CONVENTIONS_CHARS = 6_000;
+
 /**
  * Sets what a changelog says beyond its operations: changes to every endpoint, removed endpoints, what the code could not settle, the files
- * set aside unexamined with why, and its title.
+ * set aside unexamined with why, and its title. It also keeps the repository's conventions summary, which only the draft's turns read.
  */
-export async function putNotes(ctx: SkillContext, sent: { draft?: unknown; globalChanges?: unknown; removedOperations?: unknown; unverified?: unknown; setAside?: unknown; title?: unknown; description?: unknown }) {
+export async function putNotes(ctx: SkillContext, sent: { draft?: unknown; globalChanges?: unknown; removedOperations?: unknown; unverified?: unknown; setAside?: unknown; title?: unknown; description?: unknown; conventions?: unknown }) {
   const args = { ...sent };
   for (const key of ["globalChanges", "removedOperations", "unverified", "setAside"] as const) args[key] = fromText(sent[key], key);
   for (const key of ["globalChanges", "removedOperations", "unverified", "setAside"] as const) if (args[key] !== undefined && !Array.isArray(args[key])) throw new Error(`${key} must be a list.`);
+  if (args.conventions !== undefined && typeof args.conventions !== "string") throw new Error("conventions must be text.");
+  const conventions = typeof args.conventions === "string" ? args.conventions.trim() : undefined;
+  if (conventions && conventions.length > CONVENTIONS_CHARS) {
+    throw new Error(`conventions is about ${Math.ceil(conventions.length / 4).toLocaleString("en")} tokens; keep it to about 1,500 (${CONVENTIONS_CHARS.toLocaleString("en")} characters): what every endpoint shares and where it is declared, not each endpoint. Nothing was saved.`);
+  }
   return withDraft(ctx, args.draft, (doc) => {
     const changelog = doc.info["x-changelog"], meta: DraftMeta = doc["x-draft"];
     for (const key of ["globalChanges", "removedOperations", "unverified"] as const) if (args[key] !== undefined) changelog[key] = args[key];
@@ -551,6 +613,7 @@ export async function putNotes(ctx: SkillContext, sent: { draft?: unknown; globa
     }
     if (typeof args.title === "string" && args.title.trim()) doc.info.title = args.title.trim();
     if (typeof args.description === "string") { if (args.description.trim()) doc.info.description = args.description.trim(); else delete doc.info.description; }
+    if (conventions !== undefined) { if (conventions) meta.conventions = conventions; else delete meta.conventions; }
     const counted = meta.files ? accounting(meta, changelog.setAside) : null;
     return {
       saved: true, globalChanges: changelog.globalChanges.length, removedOperations: changelog.removedOperations.length, unverified: changelog.unverified.length,
