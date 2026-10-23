@@ -175,3 +175,41 @@ discordScenario("two 502s then a read that succeeds, and a file that does not ex
   expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
   expect(await pauses(s)).toEqual([]);
 });
+
+discordScenario("Plane refusing the bot's key pauses the draft in a turn that goes on by itself, naming only Plane; a person's side question reading Plane meanwhile leaves the draft worked on (#359)", async (s) => {
+  await acmeOnGitLab(s);
+  const { fakePlane } = await import("./support/fakePlane");
+  const P1 = "11111111-1111-4111-8111-111111111111";
+  await s.plane({ projects: [P1] });
+  const plane = fakePlane(s);
+  plane.user({ id: "u-bot", first_name: "Plane", last_name: "Bot", display_name: "pachibot", email: "bot@acme.test" });
+  plane.project({ id: P1, name: "Engineering", identifier: "ENG" }, ["u-bot"]);
+  plane.item({ project: P1, sequence_id: 42, name: "Users API v2" });
+  const readItem = { tool: "workItemGet", args: { item: "ENG-42" } };
+  const asked: Promise<unknown>[] = [];
+  s.model.script(
+    START, "Started the acme/api changelog.",
+    // Plane starts refusing the bot's key, and Bob asks about a work item while the work reads a DTO.
+    async () => {
+      s.http.on(/^GET https:\/\/api\.plane\.so\//, () => Response.json({ detail: "Invalid API key" }, { status: 401 }));
+      asked.push(s.discord.send(`${s.discord.mention} what does ENG-42 say?`, { author: s.discord.bob }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return read(0);
+    },
+    "Read the first DTO.",
+    // Bob's side question: Plane's refusal is the model's to handle.
+    readItem, "Plane refused my key, so I can't read ENG-42.",
+    // The work's own turn reads the work item behind an endpoint, and Plane refuses it.
+    readItem,
+  );
+  await s.discord.send(`${s.discord.mention} ${ASK}`);
+  await Promise.all(asked);
+
+  expect(s.model.calls).toHaveLength(7);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: "Plane refused my key, so I can't read ENG-42.", pinged: [] },
+    { content: '<@user-alice> Changelog paused: Plane could not be reached. Type "go on" to continue.', pinged: ["user-alice"] },
+  ]);
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "service", service: "Plane", since: "2026-10-22T03:00:00.000Z" });
+  expect(await pauses(s)).toEqual([expect.objectContaining({ reason: "service", service: "Plane", repo: "acme/api", host: "api.plane.so", status: 401, tool: "workItemGet" })]);
+});

@@ -732,20 +732,26 @@ export class DiscordBotManager {
    */
   private async draftWork(place: DraftPlace, before: OpenDraft | undefined, output: { toolCallsExecuted: { call: { name: string; arguments?: unknown }; result: { success: boolean } }[]; serviceFailed?: FailedForGood }, stop: StopEntry, ownWork: boolean, resuming?: Promise<unknown>, countTurn?: (() => Promise<boolean>) | null) {
     await resuming;
-    let after = (await openDrafts(place).catch(() => []))[0];
-    if (after && stop.stopped && isWorkedOn(after) && await pauseDraft(place, after.draft, { reason: "stopped" }).catch(() => false)) after = (await openDrafts(place).catch(() => []))[0];
+    let after = (await openDrafts(place).catch(() => []))[0], pausedHere = false;
+    const paused = async (pausing: Promise<boolean>) => {
+      if (!await pausing.catch(() => false)) return;
+      pausedHere = true;
+      after = (await openDrafts(place).catch(() => []))[0];
+    };
+    if (after && stop.stopped && isWorkedOn(after)) await paused(pauseDraft(place, after.draft, { reason: "stopped" }));
     // A service it reads that failed for good pauses it, naming the service; the host, status, error, tool and file are the console's (#359).
     const failed = output.serviceFailed;
-    if (after && failed && isWorkedOn(after) && await pauseDraft(place, after.draft, { reason: "service", service: failed.service }, { host: failed.host, ...(failed.status ? { status: failed.status } : {}), error: failed.error, tool: failed.tool, ...(failed.file ? { file: failed.file } : {}) }).catch(() => false)) after = (await openDrafts(place).catch(() => []))[0];
+    if (after && failed && isWorkedOn(after)) await paused(pauseDraft(place, after.draft, { reason: "service", service: failed.service }, { host: failed.host, ...(failed.status ? { status: failed.status } : {}), error: failed.error, tool: failed.tool, ...(failed.file ? { file: failed.file } : {}) }));
     const ended = before ? after?.name !== before.name : !after && output.toolCallsExecuted.some(({ call, result }) => call.name === "startChangelog" && result.success);
     const stalled = !!after && !ended && isWorkedOn(after) && !!countTurn && await countTurn().catch(() => false);
-    if (stalled) after = (await openDrafts(place).catch(() => []))[0];
+    if (stalled) { pausedHere = true; after = (await openDrafts(place).catch(() => []))[0]; }
     const draft = after ?? before, workedOn = !!after && isWorkedOn(after);
     const wentOn = !!draft && output.toolCallsExecuted.some(({ call }) => goesOnWith(draft, call));
-    // Paused by this turn: one it went on with, or the work's own whose Stop or progress paused it; a person's Stop on a draft nobody works
-    // on pauses nothing.
-    const pausedNow = !!after && !workedOn && (wentOn || ((stop.stopped || stalled) && (ownWork || (!!before && isWorkedOn(before))))), paused = after?.work?.state === "paused" ? after.work : undefined;
-    const asked = pausedNow && paused?.reason === "question" && output.toolCallsExecuted.some(({ call }) => call.name === "askChangelogAsker") ? paused.question : undefined;
+    // Paused by this turn: one it went on with or paused itself, or the work's own whose Stop was pressed meanwhile; a person's Stop on a
+    // draft nobody works on pauses nothing.
+    const pausedNow = !!after && !workedOn && (wentOn || pausedHere || (stop.stopped && (ownWork || (!!before && isWorkedOn(before)))));
+    const pause = after?.work?.state === "paused" ? after.work : undefined;
+    const asked = pausedNow && pause?.reason === "question" && output.toolCallsExecuted.some(({ call }) => call.name === "askChangelogAsker") ? pause.question : undefined;
     return { draft, wentOn, workedOn, ended, stalled, pausedNow, asked };
   }
   /** Forgets the Stop buttons of work that ended. */
@@ -948,8 +954,9 @@ export class DiscordBotManager {
         turnProgress.step(step);
         if (step.type === "tool_call" && before && !isWorkedOn(before) && !stopping.stopped && goesOnWith(before, step.payload)) resuming ??= resumeDraft(draftPlace, before.draft, before.work).catch(() => {});
       };
-      // A service the place's draft reads that fails for good ends the turn and pauses the draft (#359).
-      const failedForGood = serviceFailures(async () => (await openDrafts(draftPlace).catch(() => []))[0]);
+      // A service the place's draft reads that fails for good ends the turn and pauses the draft (#359): in the draft's own work any service
+      // it calls, in a person's turn only the draft's repository.
+      const failedForGood = serviceFailures(async () => (await openDrafts(draftPlace).catch(() => []))[0], { ownWork: fromDraft });
       const output = await agentReActLoop.run({ tenantId: runtime.tenantId, botId, message: turn, images: media.images, onStep, stopRequested: () => stopping.stopped, failedForGood, conversationId: conversation?.id, replyLanguage: language, maxIterations: agent?.settings?.maxReActIterations, ...(fromDraft ? { ephemeral: { history: [], cacheKey: `changelog:${channelId}:${opts.draft}` } } : {}), context: { tenantId: runtime.tenantId, platform: "discord", guildId: msg.guildId || undefined, guildName: msg.guild?.name, channelId, userId: actor.id, userName: actor.name, addressed: direct, follows: !direct && items.some((i) => i.follows), playbook, timezone: configuredTimezone(guild, agent), language: configuredLanguage(guild, agent), answerIn: shown, skillContext: { member: memberAuth(actor.member), discord: adapterFor(runtime, msg.guildId), parentChannelId: projectChannelId, privateThread: channelId === msg.channelId ? placeOfChannel(msg.channel).privateThread : undefined, askerWords } } });
       const notes = [...(output.imagesRejected ? [t.rejected] : []), ...media.notes];
       if (output.imagesRejected && shots.length) await unseeBriefImages(runtime.tenantId, place!, shots.map((s) => s.id)).catch(() => null);
