@@ -1,6 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 import { canonicalTimezone, isLanguage, docPatternError, MAX_DOC_PATTERNS, type Language } from "@pachiware/skills";
-import type { DigestChannel, DailyLogChannel, DocSource } from "@pachiware/db";
+import { MAX_PLAYBOOK_WORKERS, MIN_PLAYBOOK_WORKERS, type DigestChannel, type DailyLogChannel, type DocSource } from "@pachiware/db";
 import type { TurnRow } from "../loop/react.js";
 
 export type PlaceSettings = { timezone?: string | null; language?: Language | null };
@@ -41,12 +41,11 @@ export function modelRetryWaitSeconds(body: Record<string, any>): number | undef
   return seconds;
 }
 
-export const MAX_PLAYBOOK_WORKERS = 5;
-/** `playbookWorkers` from a tenant settings body: how many workers trace an API changelog's endpoints at once, 1 to MAX_PLAYBOOK_WORKERS; undefined when left out. */
+/** `playbookWorkers` from a tenant settings body: how many workers trace an API changelog's endpoints at once, MIN_PLAYBOOK_WORKERS to MAX_PLAYBOOK_WORKERS; undefined when left out. */
 export function playbookWorkers(body: Record<string, any>): number | undefined {
   const workers = body.playbookWorkers;
   if (workers === undefined) return undefined;
-  if (!Number.isInteger(workers) || workers < 1 || workers > MAX_PLAYBOOK_WORKERS) throw new HTTPException(400, { message: `playbookWorkers must be a whole number from 1 to ${MAX_PLAYBOOK_WORKERS}` });
+  if (!Number.isInteger(workers) || workers < MIN_PLAYBOOK_WORKERS || workers > MAX_PLAYBOOK_WORKERS) throw new HTTPException(400, { message: `playbookWorkers must be a whole number from ${MIN_PLAYBOOK_WORKERS} to ${MAX_PLAYBOOK_WORKERS}` });
   return workers;
 }
 

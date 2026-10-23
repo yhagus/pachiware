@@ -141,11 +141,14 @@ const writeDraft = (tenantId: string, full: string, doc: Json, version?: string)
 /** A Changelog draft nobody touched for this long is dropped, unannounced, the next time its place is read (#348). */
 export const DRAFT_IDLE_MS = 7 * 24 * 3600_000;
 
-/** What finds a place's drafts: who asks where. */
-type DraftPlace = Pick<SkillContext, "tenantId" | "botId" | "guildId" | "channelId" | "parentChannelId" | "privateThread" | "userId" | "language">;
+/** Who acts on a place's drafts, and where: what finds a draft by its path and changes it. */
+type DraftCaller = Pick<SkillContext, "tenantId" | "botId" | "guildId" | "channelId" | "parentChannelId" | "privateThread" | "userId" | "language">;
+
+/** A draft's name, its file name without `.draft.json`, from its path: what tells it from any other draft of its place. */
+export const draftName = (path: string) => path.split("/").pop()!.replace(/\.draft\.json$/, "");
 
 /** A draft the place's own folder holds, by the path the tools gave: its store path, refused anywhere else. */
-function draftPath(ctx: DraftPlace, draft: unknown) {
+function draftPath(ctx: DraftCaller, draft: unknown) {
   if (typeof draft !== "string" || !DRAFT.test(draft.trim())) throw new Error('draft must be the path startChangelog returned, e.g. "channel/files/changelogs/acme-api/2026-10-22_1a2b3c4..5d6e7f8.draft.json".');
   const full = resolvePath(ctx, draft.trim());
   checkThreadWrite(ctx, full);
@@ -306,7 +309,7 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "botId" | 
     }
     const changelog = doc.info?.["x-changelog"] ?? {}, counted = meta.files ? accounting(meta, changelog.setAside) : null;
     shown.push({
-      draft: `${root}${file.path.slice(storeRoot.length)}`, name: file.path.split("/").pop()!.replace(/\.draft\.json$/, ""), repo: meta.repo, branch: meta.branch, scope: meta.scope, ...(meta.from ? { from: meta.from } : {}), to: meta.to,
+      draft: `${root}${file.path.slice(storeRoot.length)}`, name: draftName(file.path), repo: meta.repo, branch: meta.branch, scope: meta.scope, ...(meta.from ? { from: meta.from } : {}), to: meta.to,
       base: changelog.base?.commit, head: changelog.head?.commit, ...(meta.startedBy ? { startedBy: meta.startedBy } : {}), ...(changelog.date ? { startedOn: changelog.date } : {}),
       operations: [...iterOperations(doc)].length, ...(meta.changedFiles !== undefined ? { changedFiles: meta.changedFiles } : {}),
       ...(counted ? { examined: counted.examined, setAside: counted.setAside, left: counted.left.length } : {}),
@@ -319,17 +322,23 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "botId" | 
 }
 
 /**
- * Keeps where the progress message of the work on an open draft (its path as openDrafts gives it) was posted. It leaves the draft's
- * touch time alone: a progress message is no work on it.
+ * Changes what an open draft (its path as openDrafts gives it) keeps of the work on it, one change at a time per draft: `change` changes
+ * the metadata and returns true to have it written. It leaves the draft's touch time alone: the host keeping track of the work is no work
+ * on the draft. Returns the metadata as written, or null when nothing was.
  */
-export async function keepProgressMessage(ctx: DraftPlace, draft: string, at: ProgressMessage) {
+async function changeMeta(ctx: DraftCaller, draft: string, change: (meta: DraftMeta, doc: Json) => boolean) {
   const full = draftPath(ctx, draft);
-  await serial(`${ctx.tenantId}/${full}`, async () => {
-    const found = await readJson(ctx.tenantId, full);
-    if (!found?.doc["x-draft"]) return;
-    found.doc["x-draft"].progressMessage = { channelId: at.channelId, messageId: at.messageId };
+  return serial(`${ctx.tenantId}/${full}`, async () => {
+    const found = await readJson(ctx.tenantId, full), meta: DraftMeta | undefined = found?.doc["x-draft"];
+    if (!found || !meta || !change(meta, found.doc)) return null;
     await writeJson(ctx.tenantId, full, found.doc, found.version);
+    return meta;
   });
+}
+
+/** Keeps where the progress message of the work on an open draft was posted (#355). */
+export async function keepProgressMessage(ctx: DraftCaller, draft: string, at: ProgressMessage) {
+  await changeMeta(ctx, draft, (meta) => { meta.progressMessage = { channelId: at.channelId, messageId: at.messageId }; return true; });
 }
 
 /** Whether the draft goes on by itself after each turn in its place. */
@@ -340,8 +349,13 @@ export const isWorkedOn = (d: Pick<OpenDraft, "work">) => d.work?.state === "wor
  * asker goes on with it too: the turn that asks pauses it (#356).
  */
 const DRAFT_TOOLS = new Set(["putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "askChangelogAsker", "traceEndpoints"]);
-/** The repository reads of contract-diff, which go on with a draft of the repository they read; startChangelog names it the same way. */
-export const REPOSITORY_TOOLS = new Set(["startChangelog", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff"]);
+/**
+ * The repository reads of contract-diff, which go on with a draft of the repository they read; startChangelog names it the same way. The
+ * one list of them: its workers' reads and the progress stages name theirs from it, and the playbook's frontmatter offers every one.
+ */
+const REPOSITORY_TOOL_NAMES = ["startChangelog", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff"] as const;
+export type RepositoryTool = (typeof REPOSITORY_TOOL_NAMES)[number];
+export const REPOSITORY_TOOLS: ReadonlySet<string> = new Set(REPOSITORY_TOOL_NAMES);
 
 /** Whether a tool call goes on with the draft: a changelog tool given its path, or a repository read of its repository (#361). */
 export function goesOnWith(d: Pick<OpenDraft, "draft" | "repo">, call: { name: string; arguments?: unknown }) {
@@ -351,15 +365,11 @@ export function goesOnWith(d: Pick<OpenDraft, "draft" | "repo">, call: { name: s
 }
 
 /** Changes an open draft's work state when `change` returns one; like the progress message, it is no work on the draft and leaves its touch time alone. */
-async function changeWork(ctx: DraftPlace, draft: string, change: (meta: DraftMeta, doc: Json) => WorkState | null) {
-  const full = draftPath(ctx, draft);
-  return serial(`${ctx.tenantId}/${full}`, async () => {
-    const found = await readJson(ctx.tenantId, full), meta: DraftMeta | undefined = found?.doc["x-draft"];
-    const next = meta ? change(meta, found!.doc) : null;
-    if (!found || !meta || !next) return null;
-    meta.work = next;
-    await writeJson(ctx.tenantId, full, found.doc, found.version);
-    return meta;
+async function changeWork(ctx: DraftCaller, draft: string, change: (meta: DraftMeta, doc: Json) => WorkState | null) {
+  return changeMeta(ctx, draft, (meta, doc) => {
+    const next = change(meta, doc);
+    if (next) meta.work = next;
+    return !!next;
   });
 }
 
@@ -367,7 +377,7 @@ async function changeWork(ctx: DraftPlace, draft: string, change: (meta: DraftMe
  * Has a paused draft worked on again, when a turn goes on with it. Only the state `from` is taken up, the one the turn found: a pause that
  * came since, such as its asker's Stop, stands.
  */
-export async function resumeDraft(ctx: DraftPlace, draft: string, from: WorkState | undefined) {
+export async function resumeDraft(ctx: DraftCaller, draft: string, from: WorkState | undefined) {
   await changeWork(ctx, draft, (meta) => (JSON.stringify(meta.work) === JSON.stringify(from) && meta.work?.state !== "worked-on" ? { state: "worked-on" } : null));
 }
 
@@ -375,12 +385,12 @@ export async function resumeDraft(ctx: DraftPlace, draft: string, from: WorkStat
  * A turn that went on by itself with a worked-on draft could not reach the model (#358): the same continuation runs once more at `at` (ms).
  * The draft keeps the time, so whatever wakes it finds the retry pending. False unless the draft is worked on.
  */
-export async function awaitModelRetry(ctx: DraftPlace, draft: string, at: number) {
+export async function awaitModelRetry(ctx: DraftCaller, draft: string, at: number) {
   return !!await changeWork(ctx, draft, (meta) => (meta.work?.state === "worked-on" ? { ...meta.work, retryAt: new Date(at).toISOString() } : null));
 }
 
 /** The model answered a turn in the place again: a worked-on draft forgets its pending retry, so a later failure gets one of its own. */
-export async function modelAnswered(ctx: DraftPlace, draft: string) {
+export async function modelAnswered(ctx: DraftCaller, draft: string) {
   await changeWork(ctx, draft, (meta) => {
     if (meta.work?.state !== "worked-on" || meta.work.retryAt === undefined) return null;
     const { retryAt: _answered, ...work } = meta.work;
@@ -411,10 +421,10 @@ export async function workedOnPlaces(tenantId: string, guildId: string): Promise
  * Pauses a draft that is worked on, for `pause.reason`. Every pause writes an Agent log warn line and the audit event changelog_draft_paused,
  * with `detail` (host, status, error, tool, file) for the console; what a person reads names none of it.
  */
-export async function pauseDraft(ctx: DraftPlace, draft: string, pause: { reason: PauseReason; service?: string; question?: string }, detail: Record<string, unknown> = {}) {
+export async function pauseDraft(ctx: DraftCaller, draft: string, pause: { reason: PauseReason; service?: string; question?: string }, detail: Record<string, unknown> = {}) {
   const paused = await changeWork(ctx, draft, (meta) => (meta.work?.state === "worked-on" ? { state: "paused", ...pause, since: new Date(now()).toISOString() } : null));
   if (!paused) return false;
-  const name = draft.split("/").pop()!.replace(/\.draft\.json$/, "");
+  const name = draftName(draft);
   console.warn(`[changelog] Paused ${paused.repo} (branch ${paused.branch}, draft ${name}) in channel ${ctx.channelId}: ${pause.reason}${pause.service ? `, ${pause.service}` : ""}${Object.keys(detail).length ? ` ${JSON.stringify(detail)}` : ""}`);
   await audit(ctx, "changelog_draft_paused", { reason: pause.reason, ...(pause.service ? { service: pause.service } : {}), repo: paused.repo, branch: paused.branch, draft: name, channelId: ctx.channelId, ...detail });
   return true;
@@ -440,7 +450,7 @@ const progressOf = (doc: Json) => {
  * draft for "no-progress", which it then returns true for. A pause clears the count, so a draft worked on again counts afresh. It changes
  * only the count: a pending model retry is the model's to clear (#358).
  */
-export async function measureTurn(ctx: DraftPlace, draft: string) {
+export async function measureTurn(ctx: DraftCaller, draft: string) {
   const found = await readJson(ctx.tenantId, draftPath(ctx, draft)), mark = found ? progressOf(found.doc) : null;
   return async () => {
     let turns = 0;
@@ -502,7 +512,7 @@ const upTo = (items: string[]) => (items.length > STATE_ITEMS ? [...items.slice(
  * examined, set aside and left, the endpoints and components recorded, the notes, the repository's conventions summary and how the last
  * turn ended. Null when the draft is gone.
  */
-export async function draftState(ctx: DraftPlace, draft: string) {
+export async function draftState(ctx: DraftCaller, draft: string) {
   const doc = (await readJson(ctx.tenantId, resolvePath(ctx, draft)).catch(() => null))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
   if (!meta) return null;
   const changelog = doc.info?.["x-changelog"] ?? {}, lines = [`Draft: ${draft} (${meta.repo}, branch ${meta.branch}, ${coverage(meta)}, commits ${changelog.base?.commit}..${changelog.head?.commit})`];
@@ -536,15 +546,10 @@ export async function draftState(ctx: DraftPlace, draft: string) {
 }
 
 /** Keeps how a turn on an open draft ended, for the next turn that goes on by itself; like the work state, it leaves the touch time alone. */
-export async function keepClosingSummary(ctx: DraftPlace, draft: string, text: string) {
-  const full = draftPath(ctx, draft), kept = text.trim().length > CLOSING_CHARS ? `${text.trim().slice(0, CLOSING_CHARS)}…` : text.trim();
+export async function keepClosingSummary(ctx: DraftCaller, draft: string, text: string) {
+  const kept = text.trim().length > CLOSING_CHARS ? `${text.trim().slice(0, CLOSING_CHARS)}…` : text.trim();
   if (!kept) return;
-  await serial(`${ctx.tenantId}/${full}`, async () => {
-    const found = await readJson(ctx.tenantId, full);
-    if (!found?.doc["x-draft"]) return;
-    found.doc["x-draft"].closingSummary = kept;
-    await writeJson(ctx.tenantId, full, found.doc, found.version);
-  });
+  await changeMeta(ctx, draft, (meta) => { meta.closingSummary = kept; return true; });
 }
 
 /**
@@ -576,8 +581,8 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
   const { base, head } = await changelogRevisions(conn, repo, branch, covers, timezone);
   const at = changelogFiles(ctx, repo, base, { ref: head.ref, commit: head.commit }, today);
   const names = (await workspaceStore().list(ctx.tenantId, resolvePath(ctx, at.folder, true))).map((e) => e.path.split("/").pop()!);
-  const draftName = names.find((n) => n.endsWith(`_${at.stem}.draft.json`)), written = names.find((n) => n.endsWith(`_${at.stem}.json`));
-  const draft = draftName ? `${at.folder}/${draftName}` : at.draft, full = resolvePath(ctx, draft);
+  const draftFile = names.find((n) => n.endsWith(`_${at.stem}.draft.json`)), written = names.find((n) => n.endsWith(`_${at.stem}.json`));
+  const draft = draftFile ? `${at.folder}/${draftFile}` : at.draft, full = resolvePath(ctx, draft);
   checkThreadWrite(ctx, full);
   // A place has one open draft at a time: another changelog waits until the person goes on with that one or stops it.
   const other = (await openDrafts(ctx)).find((d) => d.draft !== draft);

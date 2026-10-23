@@ -1,5 +1,5 @@
 import { textIn, type Language } from "./language.js";
-import type { OpenDraft } from "./openapi/changelog.js";
+import type { OpenDraft, RepositoryTool } from "./openapi/changelog.js";
 
 /**
  * How a long turn's progress reads to a person (#345): each step as a fixed phrase with what it touched, never a tool's name, and for a
@@ -39,16 +39,18 @@ export function stepLine(kind: StepKind, subjects: (string | undefined)[], langu
   return named.length > 1 ? t.many(named.length) : t.one(named[0]);
 }
 
+/** Repository reads of contract-diff, named as its one list of them names them. */
+const reads = (...tools: RepositoryTool[]): string[] => tools;
 /**
  * The stages a playbook's work goes through, in order, and the tools that reach each. The stage shown is the furthest one reached;
  * contract-diff also counts the endpoints it has recorded.
  */
 const STAGES: Record<string, { stage: string; tools: string[] }[]> = {
   "contract-diff": [
-    { stage: "range", tools: ["startChangelog"] },
+    { stage: "range", tools: reads("startChangelog") },
     { stage: "conventions", tools: ["readPlaybookFile"] },
-    { stage: "reading", tools: ["repoCompare", "repoFileDiff", "repoReadFile", "repoTree"] },
-    { stage: "tracing", tools: ["repoSearchCode", "repoFindDefinition", "traceEndpoints", "putChangelogOperation", "putChangelogComponents"] },
+    { stage: "reading", tools: reads("repoCompare", "repoFileDiff", "repoReadFile", "repoTree") },
+    { stage: "tracing", tools: [...reads("repoSearchCode", "repoFindDefinition"), "traceEndpoints", "putChangelogOperation", "putChangelogComponents"] },
     { stage: "checking", tools: ["finishChangelog"] },
     { stage: "publishing", tools: ["publishOpenApi"] },
   ],

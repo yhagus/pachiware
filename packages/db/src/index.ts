@@ -15,7 +15,7 @@ export * from "./crypto.js";
 export * from "./persona.js";
 export { ReplicaSetRequiredError } from "./mongo/connection.js";
 export { patternCovers } from "./repositories/git/rules.js";
-export { DEFAULT_REACT_ITERATIONS, DEFAULT_CONVERSATION_IDLE_HOURS, DEFAULT_MODEL_RETRY_WAIT_SECONDS, DEFAULT_PLAYBOOK_WORKERS } from "./repositories/agent-config/types.js";
+export { DEFAULT_REACT_ITERATIONS, DEFAULT_CONVERSATION_IDLE_HOURS, DEFAULT_MODEL_RETRY_WAIT_SECONDS, DEFAULT_PLAYBOOK_WORKERS, MIN_PLAYBOOK_WORKERS, MAX_PLAYBOOK_WORKERS } from "./repositories/agent-config/types.js";
 export { ALL_PLANE_PROJECTS, PLANE_ID, FIRST_PLANE_VERSION } from "./repositories/plane/rules.js";
 export type { DigestChannel, DailyLogChannel, DocSource } from "./schema/types.js";
 export type { Repositories, Tenant, TenantStatus, NewTenant, TenantUpdate, ApiKey, ApiKeyListing, IssuedApiKey, TenantRepository } from "./repositories/index.js";

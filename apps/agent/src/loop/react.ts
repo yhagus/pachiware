@@ -394,7 +394,7 @@ export class AgentReActLoop {
         const ranOut = !out.outOfBudget || out.stopped ? null : out.iterations >= run.steps ? "steps" : Date.now() >= ends ? "time" : null;
         return {
           calls: out.toolCallsExecuted.map(({ call, result }) => ({ name: call.name, arguments: call.arguments, success: result.success, data: result.data })), answer: out.reply,
-          ...(out.failed ? { modelFailed: true as const } : {}), ...(out.serviceFailed ? { serviceFailed: true as const } : {}), ...(out.stopped ? { stopped: true as const } : {}), ...(ranOut ? { ranOut } : {}),
+          ...(out.failed ? { halted: "model" as const } : out.serviceFailed ? { halted: "service" as const } : out.stopped ? { halted: "stopped" as const } : {}), ...(ranOut ? { ranOut } : {}),
         };
       },
     };
