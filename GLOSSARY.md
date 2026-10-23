@@ -173,7 +173,7 @@ An OpenAPI document the bot wrote from a repository's source code, recording eve
 _Avoid_: Contract diff (the playbook that writes one), API docs, Swagger, release notes
 
 **Changelog draft**:
-An API changelog still being made: one repository, branch and coverage, started by one person. It stays open until the changelog is written (or published, when the asker asked for that too), the asker stops it, or every changed file was examined and none changed what the frontend sees. One nobody touches for a week is dropped.
+An API changelog still being made: one repository, branch and coverage, started by one person. It stays open until the changelog is written (or published, when the asker asked for that too), the asker stops it, or every changed file was examined and none changed what the frontend sees. While open it is either worked on, the bot going on with it by itself turn after turn, whoever else talks there, or paused: when it asked its asker something, its asker paused it, the model or a service it reads (GitLab, Plane) failed, or two turns in a row added nothing. Anyone in the place can say to go on with a paused one, and it is then worked on again until it ends or pauses. One nobody touches for a week is dropped.
 _Avoid_: Changelog run, unfinished changelog, job
 
 **OpenAPI Schema Viewer**:

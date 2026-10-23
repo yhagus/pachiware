@@ -17,3 +17,7 @@ The API changelog of 2026-10-22 covered one commit, eight files and one to three
 - Workers use the bot's Profile and its fallbacks.
 - Workers write the same draft safely: `withDraft` writes one call at a time for each draft and checks the file's version.
 - One Discord message, edited in place, shows the run's progress and each endpoint's result as its worker records it. The report and the preview link go in a new message.
+
+## Amended by ADR 0025
+
+A changelog of a thousand endpoints does not fit one turn, so the draft keeps each candidate endpoint as waiting, traced or failed, and `traceEndpoints` traces waiting ones while the turn has time; a later turn goes on with the rest. A worker that fails because the model could not be reached leaves its candidate waiting, and the draft pauses. Any other failure stays failed and is listed as unverified, and the candidate is never traced again by itself. The conventions summary is kept in the draft, where turns that go on by themselves read it too.
