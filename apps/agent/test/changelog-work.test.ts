@@ -413,6 +413,18 @@ discordScenario("a draft paused for no progress that a lanjut goes on with count
   expect((await pauses(s)).map((p: any) => p.reason)).toEqual(["no-progress", "no-progress"]);
 });
 
+discordScenario("in a thread, the asker's own turn that writes the changelog pings her, since a post in a thread replies to nothing (#361)", async (s) => {
+  await acmeApi(s);
+  await s.guildSettings({ language: "en", useThreads: true });
+  s.model.script(START, [read(0), ...READ_REST], RECORD, FINISH, written);
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(s.model.calls).toHaveLength(5);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [], reference: m.reference }))).toEqual([
+    { content: `<@user-alice> The acme/api changelog is written: ${WRITTEN}`, pinged: ["user-alice"], reference: undefined },
+  ]);
+});
+
 const QUESTION = "Is src/users/dto/f.dto.ts still served, or can it be set aside?";
 const ASK = { tool: "askChangelogAsker", args: { draft: DRAFT, question: QUESTION } };
 
@@ -449,15 +461,17 @@ discordScenario("a turn the model ends with a question in its answer goes on; as
   expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
 });
 
-discordScenario("a question longer than three short lines is refused and asks nothing; asked in the asker's own turn, the question answers her message without a ping (#356)", async (s) => {
+discordScenario("a question longer than three short lines is refused and asks nothing; asked in the asker's own turn, the question replies to her message mentioning her as its reply, so she is notified and no one else is (#356, #361)", async (s) => {
   await acmeApi(s);
   const long = { tool: "askChangelogAsker", args: { draft: DRAFT, question: "I read the controller.\nI read the first DTO.\nThe last DTO looks unused.\nIs it still served, or can it be set aside?" } };
   s.model.script(START, long, ASK, "Asked.");
-  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+  const asked = await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   expect(String(s.model.calls[2]!.findLast((m: any) => m.role === "tool")!.content)).toContain("Ask in at most 3 short lines");
   expect(s.model.calls).toHaveLength(4);
-  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([{ content: QUESTION, pinged: [] }]);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, reference: m.reference, allowedMentions: m.allowedMentions }))).toEqual([
+    { content: QUESTION, reference: { messageId: asked.id }, allowedMentions: { parse: [], repliedUser: true } },
+  ]);
   expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "question", question: QUESTION });
   expect(await pauses(s)).toHaveLength(1);
 });

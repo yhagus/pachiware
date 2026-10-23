@@ -84,8 +84,8 @@ discordScenario("traceEndpoints hands each candidate to a worker of its own, whi
   expect(traced).toEqual({ traced: [{ endpoint: "POST /api/v2/users", recorded: ["POST /api/v2/users"], impact: "breaking", changes: 4 }], failed: [], waiting: 0, note: expect.any(String) });
   for (const call of s.model.calls.slice(6)) expect(call.map(text).join("\n")).not.toContain(SOURCE);
   expect(candidates).toEqual([{ method: "post", path: "/api/v2/users", note: `${CONTROLLER}: the controller moved to api/v2`, state: "traced", recorded: ["POST /api/v2/users"], at: "2026-10-22T03:00:00.000Z" }]);
-  // All in Alice's own turn: the answer replies to her, with no ping.
-  expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
+  // All in Alice's own turn: the answer replies to her, mentioning her as its reply and pinging no one (#361).
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, allowedMentions: m.allowedMentions }))).toEqual([{ content: `The acme/api changelog is written: ${WRITTEN}`, allowedMentions: { parse: [], repliedUser: true } }]);
   expect(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).paths["/api/v2/users"].post["x-impact"]).toBe("breaking");
 });
 

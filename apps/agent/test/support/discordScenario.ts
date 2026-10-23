@@ -50,7 +50,7 @@ export type FakeUser = { id: string; name: string; username?: string };
 export interface FakeMessage {
   id: string; channelId: string; guildId: string | null; author: FakeUser & { bot: boolean }; readonly url: string;
   content: string; embeds: any[]; components: any[]; files: any[];
-  /** As the bot sent it; absent when it posted a plain string. */ allowedMentions?: { parse?: string[]; users?: string[] };
+  /** As the bot sent it; absent when it posted a plain string. */ allowedMentions?: { parse?: string[]; users?: string[]; repliedUser?: boolean };
   reactions: string[]; edits: Payload[]; reference?: { messageId: string }; thread?: FakeChannel; pinned: boolean;
 }
 export interface FakeChannel { id: string; guildId: string | null; parentId: string | null; ownerId: string | null; name: string; messages: FakeMessage[]; /** History reads (one per `messages.fetch` page). */ fetches: number }

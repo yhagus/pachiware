@@ -724,24 +724,27 @@ export class DiscordBotManager {
   }
   /**
    * What a turn left of its place's Changelog draft (#361): whether the draft is worked on, so the work goes on by itself, and whether the
-   * turn went on with it, paused it or ended it. A Stop its asker pressed pauses a draft still worked on, such as one the turn started after
-   * its Stop button went up. A turn that went on by itself is counted (`countTurn`), and its draft pauses when it is the second in a row to
-   * add nothing (`stalled`, #357). `asked` is the question the turn paused it with, through askChangelogAsker (#356); a draft so paused is
-   * no longer worked on, so that turn is not counted.
+   * turn went on with it, paused it or ended it, a draft it started and ended within the turn included. A Stop its asker pressed pauses a
+   * draft still worked on, such as one the turn started after its Stop button went up. A turn that went on by itself is counted
+   * (`countTurn`), and its draft pauses when it is the second in a row to add nothing (`stalled`, #357). `asked` is the question the turn
+   * paused it with, through askChangelogAsker (#356); a draft so paused is no longer worked on, so that turn is not counted. `ownWork` says
+   * the turn went on with the draft by itself.
    */
-  private async draftWork(place: DraftPlace, before: OpenDraft | undefined, output: { toolCallsExecuted: { call: { name: string; arguments?: unknown } }[]; serviceFailed?: FailedForGood }, stop: StopEntry, resuming?: Promise<unknown>, countTurn?: (() => Promise<boolean>) | null) {
+  private async draftWork(place: DraftPlace, before: OpenDraft | undefined, output: { toolCallsExecuted: { call: { name: string; arguments?: unknown }; result: { success: boolean } }[]; serviceFailed?: FailedForGood }, stop: StopEntry, ownWork: boolean, resuming?: Promise<unknown>, countTurn?: (() => Promise<boolean>) | null) {
     await resuming;
     let after = (await openDrafts(place).catch(() => []))[0];
     if (after && stop.stopped && isWorkedOn(after) && await pauseDraft(place, after.draft, { reason: "stopped" }).catch(() => false)) after = (await openDrafts(place).catch(() => []))[0];
     // A service it reads that failed for good pauses it, naming the service; the host, status, error, tool and file are the console's (#359).
     const failed = output.serviceFailed;
     if (after && failed && isWorkedOn(after) && await pauseDraft(place, after.draft, { reason: "service", service: failed.service }, { host: failed.host, ...(failed.status ? { status: failed.status } : {}), error: failed.error, tool: failed.tool, ...(failed.file ? { file: failed.file } : {}) }).catch(() => false)) after = (await openDrafts(place).catch(() => []))[0];
-    const ended = !!before && after?.name !== before.name;
+    const ended = before ? after?.name !== before.name : !after && output.toolCallsExecuted.some(({ call, result }) => call.name === "startChangelog" && result.success);
     const stalled = !!after && !ended && isWorkedOn(after) && !!countTurn && await countTurn().catch(() => false);
     if (stalled) after = (await openDrafts(place).catch(() => []))[0];
     const draft = after ?? before, workedOn = !!after && isWorkedOn(after);
     const wentOn = !!draft && output.toolCallsExecuted.some(({ call }) => goesOnWith(draft, call));
-    const pausedNow = !!after && !workedOn && (wentOn || stop.stopped || stalled), paused = after?.work?.state === "paused" ? after.work : undefined;
+    // Paused by this turn: one it went on with, or the work's own whose Stop or progress paused it; a person's Stop on a draft nobody works
+    // on pauses nothing.
+    const pausedNow = !!after && !workedOn && (wentOn || ((stop.stopped || stalled) && (ownWork || (!!before && isWorkedOn(before))))), paused = after?.work?.state === "paused" ? after.work : undefined;
     const asked = pausedNow && paused?.reason === "question" && output.toolCallsExecuted.some(({ call }) => call.name === "askChangelogAsker") ? paused.question : undefined;
     return { draft, wentOn, workedOn, ended, stalled, pausedNow, asked };
   }
@@ -850,9 +853,9 @@ export class DiscordBotManager {
     // ⏳ marks the messages being answered until the turn ends; one not meant for the bot gets none, since it may get no answer.
     const botUserId = runtime.client.user?.id;
     const working = await Promise.all(items.filter((i) => i.direct !== false && i.msg.author.id !== botUserId).map((i) => i.msg.react("⏳").catch(() => null)));
-    // `users` are pinged; nobody else the text names is.
-    const send = (content: string, files: OutgoingDiscordFile[] = [], users?: string[]) => {
-      const allowedMentions = users ? { users } : { parse: [] as [] };
+    // `users` are pinged; nobody else the text names is. `repliedUser` notifies the author of the message replied to, and no one else.
+    const send = (content: string, files: OutgoingDiscordFile[] = [], users?: string[], repliedUser = false) => {
+      const allowedMentions = users ? { users } : { parse: [] as [], ...(repliedUser ? { repliedUser: true } : {}) };
       return thread ? thread.send({ content, files, allowedMentions }) : msg.reply({ content, files, allowedMentions });
     };
     // The language to answer in is judged on the people's own words, not the quotes and framing around them (#257).
@@ -955,7 +958,7 @@ export class DiscordBotManager {
       if (plan.messages.length || direct) plan = withNotes(plan, notes);
       if (brief?.outsider && plan.messages.length) plan = withNotes(plan, [authorDecidesNote(brief.authorId, language)]);
       // A turn whose model could not be reached is no turn without progress: the model's own rule takes it (#358).
-      const work = await this.draftWork(draftPlace, before, output, stopping, resuming, output.failed ? null : countTurn);
+      const work = await this.draftWork(draftPlace, before, output, stopping, fromDraft, resuming, output.failed ? null : countTurn);
       // The turn a service ended has no answer of the model's: the pause names only the service (#359).
       if (output.serviceFailed) plan = { messages: [t.changelogServicePaused(output.serviceFailed.service)] };
       // A turn that asked the draft's asker something answers with the question alone (#356).
@@ -1004,13 +1007,16 @@ export class DiscordBotManager {
       const carried = { progress: pending?.progress ?? progress, stop: pending?.stop ?? stop };
       // The progress message shrinks before the answer goes, so the answer is the newest message and notifies; a pause keeps it, saying so.
       if (!again || carried.progress !== progress) await progress.finish(plan.messages.length > 0, !again && work.pausedNow);
-      // The final answer and every pause ping the asker, who may be gone for hours; a reply to the asker's own message needs none (#361).
-      const ping = (work.ended || work.pausedNow) && (continued > 0 || actor.id !== stopping.askerId) ? stopping.askerId : null;
+      // The final answer and every pause notify the asker alone, who may be gone for hours (#361): a reply to the asker's own message mentions
+      // them as its reply; any other answer, such as one in a thread or one going on by itself, pings them.
+      const notify = work.ended || work.pausedNow ? stopping.askerId : null;
+      const repliesToAsker = !!notify && !thread && msg.author.id === notify && items.some((i) => i.msg === msg);
+      const ping = notify && !repliesToAsker ? notify : null;
       if (ping) plan = withPing(plan, ping);
       if (plan.reaction) await msg.react(plan.reaction).catch(() => {});
       // A file sendFiles built goes with the reply's last message; several go one a message after it, so no upload holds two files' worth.
       const files = outgoingFiles(output.toolCallsExecuted), withLast = files.length === 1 && plan.messages.length ? files.splice(0) : [];
-      for (const [i, chunk] of plan.messages.entries()) await send(chunk, i === plan.messages.length - 1 ? withLast : [], i === 0 && ping ? [ping] : undefined);
+      for (const [i, chunk] of plan.messages.entries()) await send(chunk, i === plan.messages.length - 1 ? withLast : [], i === 0 && ping ? [ping] : undefined, i === 0 && repliesToAsker);
       for (const file of files) await send("", [file]);
       if (briefed?.written.length && place && target.isSendable()) await showDrafts(runtime.tenantId, target, place, briefed.written);
       if (output.toolCallsExecuted.length && target.isSendable()) {

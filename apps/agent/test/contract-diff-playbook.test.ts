@@ -53,7 +53,8 @@ discordScenario("a changelog asked for with a preview is written, validated, sen
 
   const reply = started.thread!.messages.filter((m) => m.author.bot).at(-1)!;
   expect(link).toMatch(new RegExp(`^https://pachi\\.example\\.com/open-api/${UUID}$`));
-  expect(reply.content).toBe(`3 breaking, 1 non-breaking. Preview: ${link}`);
+  // The final answer pings the asker alone: a post in the thread replies to nothing (#361).
+  expect(reply).toMatchObject({ content: `<@user-alice> 3 breaking, 1 non-breaking. Preview: ${link}`, allowedMentions: { users: ["user-alice"] } });
   expect(reply.files.map((f) => f.name)).toEqual(["2026-10-22_9f8e7d6..a1b2c3d.json"]);
   const sent = JSON.parse(new TextDecoder().decode(new Uint8Array(reply.files[0].attachment)));
   expect(sent.info["x-changelog"]).toMatchObject({ date: "2026-10-22", base: { commit: "9f8e7d6" }, head: { commit: "a1b2c3d" }, summary: { breaking: 3, deprecated: 0, "non-breaking": 1 } });
@@ -79,7 +80,7 @@ discordScenario("a changelog asked to be published from the start is published a
 
   expect(link).toMatch(new RegExp(`^https://pachi\\.example\\.com/open-api/${UUID}$`));
   expect(finished).toMatchObject({ written: true, path: WRITTEN, published: { url: link, title: "acme/api API changes" } });
-  expect(started.thread!.messages.filter((m) => m.author.bot).at(-1)!.content).toBe(`Published: ${link}`);
+  expect(started.thread!.messages.filter((m) => m.author.bot).at(-1)!.content).toBe(`<@user-alice> Published: ${link}`);
   const { createServer } = await import("../src/server.ts");
   const kept = await s.workspace.read("guilds/guild-1/channels/channel-1/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json");
   expect(await (await createServer().request(`/open-api/${link.split("/").pop()}/openapi.json`)).text()).toBe(kept!);
