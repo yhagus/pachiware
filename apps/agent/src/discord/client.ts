@@ -23,7 +23,7 @@ import { botCompletion } from "../llm/completion.js";
 import { TurnProgress } from "./progress.js";
 import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, NOT_A_CORRECTION, type MinutesBrief } from "./minutes.js";
 import { DEFAULT_MODEL_RETRY_WAIT_SECONDS } from "@pachiware/db";
-import { atClock, awaitModelRetry, modelAnswered, retryTime, draftProgress } from "@pachiware/skills";
+import { atClock, awaitModelRetry, modelAnswered, retryTime, draftProgress, elapsed } from "@pachiware/skills";
 import type { ModelFailure } from "../llm/types.js";
 import { workedOnPlaces } from "@pachiware/skills";
 
@@ -801,9 +801,10 @@ export class DiscordBotManager {
   }
   /**
    * Stops the turn its Stop button belongs to, when the asker presses it: no further tool call runs (#351). A Changelog draft's button
-   * pauses the draft there and then, whatever turn runs in its place (#361).
+   * pauses the draft there and then, whatever turn runs in its place (#361). With no turn of the place running or waiting in line to say
+   * so, as while a model retry waits, the progress message says the draft paused, and a retry this process waits on never runs (#362).
    */
-  private async pressStop(runtime: BotRuntime, botId: string, i: ButtonLike & { channel?: Message["channel"] | null }) {
+  private async pressStop(runtime: BotRuntime, botId: string, i: ButtonLike & { channel?: Message["channel"] | null; message?: { createdTimestamp?: number } }) {
     const name = i.customId.startsWith(`${DRAFT_STOP_PREFIX}:`) ? i.customId.slice(DRAFT_STOP_PREFIX.length + 1) : null;
     const place = name && i.channel ? draftPlaceOf(runtime, botId, i.channel, i.user.id) : null;
     const open = place ? (await openDrafts(place).catch(() => [])).find((d) => d.name === name) : undefined;
@@ -814,7 +815,11 @@ export class DiscordBotManager {
     if (i.user.id !== entry.askerId) { await i.reply({ content: t.stopOnlyAsker(entry.askerName), ephemeral: true }); return; }
     entry.stopped = true;
     if (place && open) await pauseDraft(place, open.draft, { reason: "stopped" }).catch(() => {});
-    await i.update({ components: [] });
+    const ofPlace = (key: string) => key.startsWith("conv:") && key.endsWith(`:${place?.channelId}`);
+    if (!place || !open || [...this.operations.keys()].some(ofPlace)) { await i.update({ components: [] }); return; }
+    this.retries.get(`conv:${botId}:${place.channelId}`)?.leave();
+    const shown = i.message?.createdTimestamp;
+    await i.update({ content: `-# ${t.paused(elapsed(shown ? now() - shown : 0, entry.language))}`, components: [] });
   }
   /** Who may stop a draft's work that no turn of this process holds: its asker, told off in the place's language. */
   private async draftStop(runtime: BotRuntime, botId: string, i: ButtonLike, asker: { id: string; name?: string }): Promise<StopEntry> {
@@ -915,7 +920,15 @@ export class DiscordBotManager {
       }
       const goOn = () => { void this.serialize(convKey, () => this.goOn(runtime, botId, { channelId, asker }, next, heard)).catch(() => {}); };
       if (retryAt === undefined || retryAt <= now()) { goOn(); return; }
-      const waiting = { leave: () => { cancel(); this.retries.delete(convKey); this.dropStop(next.stop); next.progress?.leave(); } };
+      const waiting = {
+        leave: () => {
+          cancel();
+          this.retries.delete(convKey);
+          if (next.chain && this.chains.get(convKey)?.token === next.chain) this.chains.delete(convKey);
+          this.dropStop(next.stop);
+          next.progress?.leave();
+        },
+      };
       this.retries.set(convKey, waiting);
       const cancel = atClock(retryAt, () => { if (this.retries.get(convKey) !== waiting) return; this.retries.delete(convKey); goOn(); });
     };

@@ -203,3 +203,20 @@ discordScenario("once the model answers again, a later outage gets a retry of it
   expect(s.model.calls).toHaveLength(10);
   expect(s.discord.botMessages).toEqual([expect.objectContaining({ content: `<@user-alice> The acme/api changelog is written: ${WRITTEN}` })]);
 });
+
+discordScenario("the asker's Stop while a model retry waits pauses the draft there and then: its progress message says it paused, and the retry never runs (#358, #362)", async (s) => {
+  await acmeApi(s);
+  await fastProgress();
+  s.model.script(START, "Started the acme/api changelog.", async () => { await pause(300); return READ_ALL[0]!; }, PROVIDER_DOWN);
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+  const [progress] = s.discord.botMessages;
+  const click = await s.discord.click(progress!, "Stop");
+  s.clock.advance(60_000);
+  await s.scheduler.tick();
+
+  expect(click.responses.map((r: any) => r.kind)).toEqual(["update"]);
+  expect(s.model.calls).toHaveLength(4);
+  expect(s.discord.botMessages).toEqual([progress]);
+  expect(progress).toMatchObject({ content: expect.stringMatching(/^-# ⏸️ Paused after /), components: [] });
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "stopped", since: "2026-10-22T03:00:00.000Z" });
+});

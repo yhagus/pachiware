@@ -107,7 +107,7 @@ discordScenario("after a restart, work whose progress message was deleted shows 
   expect(await draftMeta(s)).toMatchObject({ progressMessage: { channelId: "channel-1", messageId: progress!.id }, work: { state: "paused", reason: "stopped" } });
 });
 
-discordScenario("after a restart, the asker's Stop on work waiting on a model retry pauses the draft, so the retry never runs; anyone else's Stop is refused (#362)", async (s) => {
+discordScenario("after a restart, the asker's Stop on work waiting on a model retry pauses the draft, so the retry never runs, and its progress message says it paused; anyone else's Stop is refused (#362)", async (s) => {
   await acmeApi(s);
   await fastProgress();
   s.model.script(START, "Started the acme/api changelog.", async () => { await pause(300); return read(0); }, PROVIDER_DOWN);
@@ -122,7 +122,7 @@ discordScenario("after a restart, the asker's Stop on work waiting on a model re
 
   expect(bob.responses).toEqual([{ kind: "reply", payload: expect.objectContaining({ content: "Only Alice can stop this.", ephemeral: true }) }]);
   expect(alice.responses.map((r: any) => r.kind)).toEqual(["update"]);
-  expect(progress!.components).toEqual([]);
+  expect(progress).toMatchObject({ content: expect.stringMatching(/^-# ⏸️ Paused after /), components: [] });
   expect(s.model.calls).toHaveLength(4);
   expect(s.discord.botMessages).toEqual([progress]);
   expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "stopped", since: "2026-10-22T03:00:00.000Z" });
