@@ -22,6 +22,9 @@ import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
 import { TurnProgress } from "./progress.js";
 import { MINUTES_PLAYBOOK, RECENT_MS, minutesRefusal, writeMinutes, minutesFileOf, correctMinutes, minutesBrief, namedNumbers, NOT_A_CORRECTION, type MinutesBrief } from "./minutes.js";
+import { DEFAULT_MODEL_RETRY_WAIT_SECONDS } from "@pachiware/db";
+import { atClock, awaitModelRetry, modelAnswered, retryTime } from "@pachiware/skills";
+import type { ModelFailure } from "../llm/types.js";
 
 const BURST_MS = 2500;
 /** How many messages before a line `followsBot` reads, looking for the bot's reply behind a burst. */
@@ -630,6 +633,27 @@ export class DiscordBotManager {
     for (const [id, entry] of this.stops) if (entry === stop) this.stops.delete(id);
   }
   /**
+   * What a turn's model failure does to its place's worked-on Changelog draft (#358). A turn that went on by itself (`own`) and could not
+   * reach the model has the same continuation run once more after the tenant's wait, the time kept in the draft; failing with a retry
+   * already pending, or with a wait of 0, it pauses the draft for "model". A person's turn that fails changes nothing, and the work goes on
+   * after it, at the pending retry's time when one waits. A turn the model answered clears a pending retry. `retryAt` is when the work
+   * goes on, if not at once.
+   */
+  private async modelOutage(place: DraftPlace, work: { draft?: OpenDraft; workedOn: boolean }, output: { failed?: true; failure?: ModelFailure }, own: boolean, waitSeconds: number): Promise<{ retryAt?: number; paused?: boolean }> {
+    if (!work.draft || !work.workedOn) return {};
+    const pending = retryTime(work.draft);
+    if (!output.failed) {
+      if (pending !== undefined) await modelAnswered(place, work.draft.draft).catch(() => {});
+      return {};
+    }
+    if (!own) return pending !== undefined ? { retryAt: pending } : {};
+    if (pending === undefined && waitSeconds > 0) {
+      const retryAt = now() + waitSeconds * 1000;
+      if (await awaitModelRetry(place, work.draft.draft, retryAt).catch(() => false)) return { retryAt };
+    }
+    return { paused: await pauseDraft(place, work.draft.draft, { reason: "model" }, { ...output.failure }).catch(() => false) };
+  }
+  /**
    * Stops the turn its Stop button belongs to, when the asker presses it: no further tool call runs (#351). A Changelog draft's button
    * pauses the draft there and then, whatever turn runs in its place (#361).
    */
@@ -774,13 +798,20 @@ export class DiscordBotManager {
         await keepProgressMessage(draftPlace, work.draft.draft, { channelId: up.channelId, messageId: up.id }).catch(() => {});
       }
       const continued = opts.continued ?? 0;
-      // A worked-on Changelog draft goes on after any turn, unless the model could not be reached (#361). Other long work goes on by itself
-      // when its turn ran out, LONG_CONTINUATIONS times; after that a reply continues it (#289). A turn its asker stopped waits for them.
+      // A turn of the work that could not reach the model is run once more after the tenant's wait, then pauses the draft (#358).
+      const own = continued > 0 && !!opts.draft, outage = await this.modelOutage(draftPlace, work, output, own, agent?.settings?.modelRetryWaitSeconds ?? DEFAULT_MODEL_RETRY_WAIT_SECONDS);
+      if (outage.paused) {
+        Object.assign(work, { workedOn: false, pausedNow: true });
+        plan = { messages: [textIn(progressLanguage).modelPaused] };
+      }
+      // A worked-on Changelog draft goes on after any turn (#361). Other long work goes on by itself when its turn ran out,
+      // LONG_CONTINUATIONS times; after that a reply continues it (#289). A turn its asker stopped waits for them.
       const cut = output.outOfBudget === true && !output.stopped && !!playbook && "long" in playbook && !work.ended && !work.pausedNow;
-      const again = (work.workedOn && !output.failed) || (cut && continued < LONG_CONTINUATIONS);
+      const again = work.workedOn || (cut && continued < LONG_CONTINUATIONS);
       // The turns of the work post no answer: what they did is stored for the next, and the progress message carries on (#351). A person's
-      // turn that did not go on with a worked-on draft, such as a side question, is answered as usual, and the work goes on after it (#361).
-      if (again && (work.wentOn || !work.workedOn)) plan = { messages: [] };
+      // turn that did not go on with a worked-on draft, such as a side question, is answered as usual, and the work goes on after it (#361);
+      // so is a person's turn that could not reach the model (#358).
+      if (again && (output.failed ? own : work.wentOn || !work.workedOn)) plan = { messages: [] };
       else if (!again) {
         if (cut) plan = withNotes(plan, [t.continueByReply]);
         // The progress message shrinks before the answer goes, so the answer is the newest message and notifies; a pause keeps it, saying so.
@@ -820,7 +851,10 @@ export class DiscordBotManager {
         // Taken now, so a person's turn that runs before this one is seen as having come between.
         const next = { ...opts, continued: continued + 1, answerIn: shown ?? undefined, progress, stop, draft: work.workedOn ? work.draft?.name : undefined }, heard = this.heard.get(convKey) ?? 0;
         const asker = work.draft?.startedBy ? { id: work.draft.startedBy.id, name: work.draft.startedBy.name ?? work.draft.startedBy.id } : { id: actor.id, name: actor.name };
-        void this.serialize(convKey, () => this.goOn(runtime, botId, { channelId, asker }, next, heard)).catch(() => {});
+        const goOn = () => { void this.serialize(convKey, () => this.goOn(runtime, botId, { channelId, asker }, next, heard)).catch(() => {}); };
+        // A pending model retry runs when its time comes, unless the bot was restarted meanwhile (#358).
+        if (outage.retryAt !== undefined && outage.retryAt > now()) atClock(outage.retryAt, () => { if (this.clients.get(botId) === runtime) goOn(); });
+        else goOn();
       }
     } catch (error) {
       const failure = failureOf(error);

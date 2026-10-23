@@ -42,7 +42,11 @@ export type PauseReason = "question" | "stopped" | "model" | "service" | "no-pro
  * failure also names the service, and a question keeps the question. What the work needs only while it runs belongs with `worked-on`, so
  * a pause clears it and a resume starts it afresh.
  */
-export type WorkState = { state: "worked-on" } | { state: "paused"; reason: PauseReason; since: string; service?: string; question?: string };
+export type WorkState = {
+  state: "worked-on";
+  /** A turn that went on by itself could not reach the model: the same continuation runs once more at this time (#358). */
+  retryAt?: string;
+} | { state: "paused"; reason: PauseReason; since: string; service?: string; question?: string };
 type ChangedFile = { path: string; oldPath?: string; status: string };
 type Side = "base" | "head";
 /** Files set aside unexamined, each pattern with why; kept in the written changelog, so a reader sees what was not read. */
@@ -341,6 +345,26 @@ async function changeWork(ctx: DraftPlace, draft: string, change: (meta: DraftMe
 export async function resumeDraft(ctx: DraftPlace, draft: string, from: WorkState | undefined) {
   await changeWork(ctx, draft, (meta) => (JSON.stringify(meta.work) === JSON.stringify(from) && meta.work?.state !== "worked-on" ? { state: "worked-on" } : null));
 }
+
+/**
+ * A turn that went on by itself with a worked-on draft could not reach the model (#358): the same continuation runs once more at `at` (ms).
+ * The draft keeps the time, so whatever wakes it finds the retry pending. False unless the draft is worked on.
+ */
+export async function awaitModelRetry(ctx: DraftPlace, draft: string, at: number) {
+  return !!await changeWork(ctx, draft, (meta) => (meta.work?.state === "worked-on" ? { ...meta.work, retryAt: new Date(at).toISOString() } : null));
+}
+
+/** The model answered a turn in the place again: a worked-on draft forgets its pending retry, so a later failure gets one of its own. */
+export async function modelAnswered(ctx: DraftPlace, draft: string) {
+  await changeWork(ctx, draft, (meta) => {
+    if (meta.work?.state !== "worked-on" || meta.work.retryAt === undefined) return null;
+    const { retryAt: _answered, ...work } = meta.work;
+    return work;
+  });
+}
+
+/** When a worked-on draft's pending model retry runs (ms), or undefined when none is pending. */
+export const retryTime = (d: Pick<OpenDraft, "work">) => (d.work?.state === "worked-on" && d.work.retryAt ? Date.parse(d.work.retryAt) : undefined);
 
 /**
  * Pauses a draft that is worked on, for `pause.reason`. Every pause writes an Agent log warn line and the audit event changelog_draft_paused,

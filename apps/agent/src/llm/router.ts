@@ -103,10 +103,10 @@ export class LLMRouter {
       answered = await this.answerWith({ ...profile!, model: models[tried++] }, tenantConfig, messages, options);
     }
     const { response, provider, model } = answered;
-    if (response.finishReason !== "error") {
-      if (profile && tried > 1) await audit(options, "model_fallback", { profileId: profile.id, from: profile.model, to: models[tried - 1], models: tried });
-      await repositories().usage.record({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0, latencyMs: Math.round(performance.now() - started), ...(profile ? { profileId: profile.id } : {}) } });
-    }
+    // What failed is named for the console: the model asked last, after the Profile's fallbacks.
+    if (response.finishReason === "error") return { ...response, failure: { provider, model, error: response.failure?.error ?? "Provider request failed" } };
+    if (profile && tried > 1) await audit(options, "model_fallback", { profileId: profile.id, from: profile.model, to: models[tried - 1], models: tried });
+    await repositories().usage.record({ tenantId: options.tenantId, botId: options.botId || null, type: "llm_tokens", provider, model, promptTokens: response.usage?.promptTokens || 0, completionTokens: response.usage?.completionTokens || 0, metadata: { cachedTokens: response.usage?.cachedTokens || 0, latencyMs: Math.round(performance.now() - started), ...(profile ? { profileId: profile.id } : {}) } });
     return response;
   }
 
@@ -257,7 +257,7 @@ export class LLMRouter {
       };
     } catch (err: any) {
       console.warn("[llm] Provider request failed.");
-      return this.handleFallback("Provider request failed", messages, options);
+      return this.handleFallback(`Provider request failed: ${err?.message ?? err}`, messages, options);
     }
   }
 
@@ -374,7 +374,7 @@ export class LLMRouter {
       };
     } catch (err: any) {
       console.warn("[llm] Provider request failed.");
-      return this.handleFallback("Provider request failed", messages, options);
+      return this.handleFallback(`Provider request failed: ${err?.message ?? err}`, messages, options);
     }
   }
 
@@ -394,7 +394,7 @@ export class LLMRouter {
       return this.handleMissingApiKey("custom", messages, options);
     }
     if (!baseUrl) {
-      return { content: textIn(options.language).providerNoBaseUrl, toolCalls: [], finishReason: "error" };
+      return { content: textIn(options.language).providerNoBaseUrl, toolCalls: [], finishReason: "error", failure: { error: "No base URL for the custom provider" } };
     }
 
     // Reuse OpenAI wire format
@@ -499,7 +499,7 @@ export class LLMRouter {
       };
     } catch (err: any) {
       console.warn("[llm] Provider request failed.");
-      return this.handleFallback("Provider request failed", messages, options);
+      return this.handleFallback(`Provider request failed: ${err?.message ?? err}`, messages, options);
     }
   }
 
@@ -511,7 +511,7 @@ export class LLMRouter {
     const baseUrl = providerBaseUrl("custom", dbConfig?.customBaseUrl);
     const model = options.model || dbConfig?.customModel || "gpt-4o";
     if (!apiKey) return this.handleMissingApiKey("custom", messages, options);
-    if (!baseUrl) return { content: textIn(options.language).providerNoBaseUrl, toolCalls: [], finishReason: "error" };
+    if (!baseUrl) return { content: textIn(options.language).providerNoBaseUrl, toolCalls: [], finishReason: "error", failure: { error: "No base URL for the custom provider" } };
 
     const input: any[] = [];
     for (const m of messages) {
@@ -556,9 +556,9 @@ export class LLMRouter {
           ? { promptTokens: data.usage.input_tokens, completionTokens: data.usage.output_tokens, totalTokens: data.usage.total_tokens ?? data.usage.input_tokens + data.usage.output_tokens, cachedTokens: cachedTokensOf(data.usage) }
           : undefined,
       };
-    } catch {
+    } catch (err: any) {
       console.warn("[llm] Provider request failed.");
-      return this.handleFallback("Provider request failed", messages, options);
+      return this.handleFallback(`Provider request failed: ${err?.message ?? err}`, messages, options);
     }
   }
 
@@ -568,12 +568,12 @@ export class LLMRouter {
     messages: ChatMessage[],
     options: LLMRequestOptions
   ): LLMResponse {
-    return { content: textIn(options.language).providerNoKey(providerName), toolCalls: [], finishReason: "error" };
+    return { content: textIn(options.language).providerNoKey(providerName), toolCalls: [], finishReason: "error", failure: { error: `No ${providerName} API key` } };
   }
 
   private rejected(status: number, messages: ChatMessage[], options: LLMRequestOptions): LLMResponse {
     console.warn(`[llm] Provider rejected the request (${status}).`);
-    return { ...this.handleFallback("Provider request failed", messages, options), httpStatus: status };
+    return { ...this.handleFallback(`Provider rejected the request (${status})`, messages, options), httpStatus: status };
   }
 
   private handleFallback(
@@ -581,7 +581,7 @@ export class LLMRouter {
     messages: ChatMessage[],
     options: LLMRequestOptions
   ): LLMResponse {
-    return { content: textIn(options.language).providerFailed, toolCalls: [], finishReason: "error" };
+    return { content: textIn(options.language).providerFailed, toolCalls: [], finishReason: "error", failure: { error: errorReason } };
   }
 
   static async testOpenAI(apiKey: string, baseUrl?: string): Promise<{ success: boolean; message: string; modelCount?: number }> {

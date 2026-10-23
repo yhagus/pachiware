@@ -73,7 +73,8 @@ export interface Guild { id: string; name: string; icon: string | null; memberCo
 export type Language = "id" | "en";
 export const LANGUAGES: { id: Language; name: string }[] = [{ id: "id", name: "Indonesian" }, { id: "en", name: "English" }];
 /** The tenant's defaults; a guild overrides them with its own, null meaning "the tenant's". */
-export interface TenantSettings { timezone: string; language: Language; conversationIdleHours: number; }
+/** `modelRetryWaitSeconds`: how long a worked-on Changelog draft waits to try the model once more before it pauses, 0 to pause at once. */
+export interface TenantSettings { timezone: string; language: Language; conversationIdleHours: number; modelRetryWaitSeconds: number; }
 /** A channel opted in to the daily Digest and the hour (0 to 23, in the server's zone) it posts at. */
 export interface DigestChannel { channelId: string; hour: number; }
 /** A channel this bot writes a Daily log of every night; `backfill` asks for the last 30 days when it is turned on. */

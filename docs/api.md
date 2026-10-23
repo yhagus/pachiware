@@ -37,7 +37,7 @@ All `/api/admin/*` requests require `X-Platform-Key`. JSON mutations require `Co
 | GET | `/api/admin/tenants/:id` | `{tenant}` |
 | PATCH | `/api/admin/tenants/:id` | `{name?, status?: active or suspended, metadata?}`; slug immutable |
 | DELETE | `/api/admin/tenants/:id` | Soft delete; stops tenant bots |
-| GET, PUT | `/api/admin/tenants/:id/settings` | `{timezone, language, conversationIdleHours}`: the tenant's defaults (seeded `Asia/Jakarta`, `id`, 24). PUT is partial; `timezone` must be an IANA name, `language` `id` or `en`, `conversationIdleHours` whole hours from 0 to 720: a channel, thread or DM whose last turn is that long ago starts a fresh conversation with its next message (0 never) |
+| GET, PUT | `/api/admin/tenants/:id/settings` | `{timezone, language, conversationIdleHours, modelRetryWaitSeconds}`: the tenant's defaults (seeded `Asia/Jakarta`, `id`, 24, 60). PUT is partial; `timezone` must be an IANA name, `language` `id` or `en`, `conversationIdleHours` whole hours from 0 to 720: a channel, thread or DM whose last turn is that long ago starts a fresh conversation with its next message (0 never); `modelRetryWaitSeconds` whole seconds from 0 to 600: a worked-on Changelog draft whose turn could not reach the model tries once more after this wait, and pauses when it fails again (0 pauses at once) |
 | POST | `/api/admin/api-keys` | `{name?}` -> raw key once |
 | GET | `/api/admin/api-keys` | `{apiKeys}` (prefix, metadata, `tenantCount`) |
 | DELETE | `/api/admin/api-keys/:keyId` | Revoke key |

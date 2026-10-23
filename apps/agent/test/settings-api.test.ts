@@ -68,6 +68,22 @@ describe("time zone and language settings", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("a Changelog draft's model retry waits 60 seconds unless the tenant sets other whole seconds, 0 to pause at once and at most 600 (#358)", () => {
+    const { code, stderr } = scenario(`
+      const path = "/api/admin/tenants/" + tenant.id + "/settings";
+      assert((await read("GET", path)).settings.modelRetryWaitSeconds === 60, "default not 60");
+      const changed = await read("PUT", path, { modelRetryWaitSeconds: 30 });
+      assert(changed.settings.modelRetryWaitSeconds === 30 && changed.settings.conversationIdleHours === 24 && changed.settings.timezone === "Asia/Jakarta", "update: " + JSON.stringify(changed));
+      assert((await read("PUT", path, { modelRetryWaitSeconds: 0 })).settings.modelRetryWaitSeconds === 0, "0 refused");
+      assert((await read("PUT", path, { modelRetryWaitSeconds: 600 })).settings.modelRetryWaitSeconds === 600, "600 refused");
+      for (const bad of [-1, 601, 2.5, "60", null]) assert(await status("PUT", path, { modelRetryWaitSeconds: bad }) === 400, JSON.stringify(bad) + " accepted");
+      await read("PUT", path, { conversationIdleHours: 6 });
+      const row = await repositories().agentConfig.get(tenant.id);
+      assert(row.settings.modelRetryWaitSeconds === 600 && row.settings.conversationIdleHours === 6 && row.settings.maxReActIterations === 32, "settings not merged: " + JSON.stringify(row.settings));
+    `);
+    expect(code, stderr).toBe(0);
+  });
+
   test("the tenant API carries both settings on the config resource with the same validation", () => {
     const { code, stderr } = scenario(`
       const key = await repositories().tenants.issueApiKey("one");

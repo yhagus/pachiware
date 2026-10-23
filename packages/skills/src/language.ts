@@ -57,6 +57,8 @@ const en = {
   providerFailed: "I can't reach the AI service right now. Try again in a moment.",
   providerNoKey: (provider: string) => `No ${provider} API key is set for this tenant, so I can't answer. An admin has to add the API key first.`,
   providerNoBaseUrl: "No base URL is set for the custom provider, so I can't answer. An admin has to add the base URL first.",
+  /** A worked-on Changelog draft paused because the model could not be reached, even once more after the wait; it names no provider or Profile (#358). */
+  modelPaused: "The AI model can't be reached; say go on to carry on.",
   doneBeforeFailure: (done: string[]) => `Done before it stopped:\n${done.map((d) => `- ${d}`).join("\n")}`,
   /** Changes whose tool did not answer in time before a provider failure, as lines of a list. */
   uncertainBeforeFailure: (changes: string[]) => `These got no answer in time, so they may or may not have happened:\n${changes.map((d) => `- ${d}`).join("\n")}`,
@@ -380,6 +382,7 @@ const id: typeof en = {
   providerFailed: "Saya sedang tidak bisa terhubung ke layanan AI. Coba lagi sebentar lagi.",
   providerNoKey: (provider) => `Belum ada API key ${provider} untuk tenant ini, jadi saya belum bisa menjawab. Admin perlu menambahkan API key-nya dulu.`,
   providerNoBaseUrl: "Belum ada base URL untuk penyedia custom, jadi saya belum bisa menjawab. Admin perlu menambahkan base URL-nya dulu.",
+  modelPaused: "Model AI tidak bisa dihubungi; ketik lanjut untuk meneruskan.",
   doneBeforeFailure: (done) => `Yang sudah sempat selesai:\n${done.map((d) => `- ${d}`).join("\n")}`,
   uncertainBeforeFailure: (changes) => `Yang ini belum pasti sudah terjadi atau belum, karena tidak ada jawaban tepat waktu:\n${changes.map((d) => `- ${d}`).join("\n")}`,
   toolTimedOut: "Alatnya tidak menjawab tepat waktu. Perubahan mungkin sudah terjadi atau belum: periksa dulu sebelum mencoba lagi.",

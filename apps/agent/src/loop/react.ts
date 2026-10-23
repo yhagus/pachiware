@@ -3,7 +3,7 @@ import { historyWindow, storedToolResult, windowOf } from "./history.js";
 import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, openDrafts, textIn, stepOf, stepLine, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
-import type { ChatMessage, ImagePart } from "../llm/types.js";
+import type { ChatMessage, ImagePart, ModelFailure } from "../llm/types.js";
 import { SystemPromptBuilder, type PromptContext } from "./prompt.js";
 import { summaryMessage } from "./summary.js";
 import { checkLinks, citationsIn, renderCitations } from "./citations.js";
@@ -61,6 +61,8 @@ export interface ReActOutput {
   recorded?: TurnRow[];
   /** The provider failed, so `reply` is the host's failure text, not an answer. */
   failed?: true;
+  /** With `failed`: the provider, model and error behind it, for the console only (#358). */
+  failure?: ModelFailure;
   /** The turn stopped because its model calls or its time ran out, so `reply` summarizes work that is not finished. */
   outOfBudget?: true;
   /** The asker stopped it; `outOfBudget` is set too, since `reply` summarizes unfinished work. */
@@ -353,7 +355,7 @@ export class AgentReActLoop {
     let iterations = 0;
     let outOfTime = false, stopped = false, toldToRecord = false, cutEmpty = 0;
     let stalled: "empty" | "cut" | null = null;
-    let finalReply = "", failed = false;
+    let finalReply = "", failed = false, failure: ModelFailure | undefined;
     let imagesRejected = false;
 
     // 7. ReAct execution cycle
@@ -387,6 +389,7 @@ export class AgentReActLoop {
       if (response.finishReason === "error") {
         finalReply = failureReply(response.content ?? "", toolCallsExecuted, input.context.language);
         failed = true;
+        failure = response.failure;
         break;
       }
 
@@ -490,7 +493,7 @@ export class AgentReActLoop {
       const options = { tenantId: input.tenantId, botId: input.botId, cacheKey, historyEnd, language: input.context.language, deadline: Date.now() + turnDeadline.summaryMs, ...outputFloor(input) };
       // A server that refuses tool_choice is asked once more without tools by the router, before any fallback Profile.
       const boundary = await llmRouter.complete(request, { ...options, tools: activeTools, toolChoice: "none" });
-      if (boundary.finishReason === "error") { finalReply = failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language); failed = true; }
+      if (boundary.finishReason === "error") { finalReply = failureReply(boundary.content ?? "", toolCallsExecuted, input.context.language); failed = true; failure = boundary.failure; }
       else {
         const content = boundary.content ? await cite(boundary.content, toolCallsExecuted, request, skillContext) : "";
         if (content) await record.add({ role: "assistant", content, toolCalls: null, tokensUsed: boundary.usage?.totalTokens || null });
@@ -508,7 +511,7 @@ export class AgentReActLoop {
       historyOffset: windowOffset,
       offered: activeTools.map((t) => t.name),
       ...(input.ephemeral ? { recorded } : {}),
-      ...(failed ? { failed: true as const } : {}),
+      ...(failed ? { failed: true as const, ...(failure ? { failure: { ...failure, error: redact(failure.error).slice(0, 200) } } : {}) } : {}),
       ...(outOfBudget && !failed ? { outOfBudget: true as const } : {}),
       ...(outOfBudget && stopped && !failed ? { stopped: true as const } : {}),
     };

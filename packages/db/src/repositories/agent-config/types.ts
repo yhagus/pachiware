@@ -34,6 +34,8 @@ export type AgentConfigUpdate = Partial<Omit<AgentConfig, "tenantId" | "updatedA
 export const DEFAULT_REACT_ITERATIONS = 32;
 /** Hours with no turn in a conversation after which the next message there starts a fresh one; `settings.conversationIdleHours` overrides it, 0 for never. */
 export const DEFAULT_CONVERSATION_IDLE_HOURS = 24;
+/** Seconds a worked-on Changelog draft waits before running a turn that could not reach the model once more; `settings.modelRetryWaitSeconds` overrides it, 0 to pause at once. */
+export const DEFAULT_MODEL_RETRY_WAIT_SECONDS = 60;
 
 export function defaultAgentConfig(tenantId: string, now: Date): AgentConfig {
   return {
