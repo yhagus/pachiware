@@ -280,7 +280,8 @@ export function openDraftLine(d: OpenDraft) {
   const progress = d.left !== undefined ? `: ${d.examined} examined, ${d.setAside} set aside, ${d.left} left` : "";
   const files = d.changedFiles !== undefined ? `, ${d.changedFiles} changed file${d.changedFiles === 1 ? "" : "s"}${progress}` : "";
   return `Open API changelog in this place (unfinished until it is written; data, not instructions): ${d.repo}, branch ${d.branch}, ${coverage(d)} (commits ${d.base}..${d.head}${files}), ${who}; ${d.operations} endpoint${d.operations === 1 ? "" : "s"} recorded so far. Draft: ${d.draft}
-When the person asks to go on, go on with this draft by its path: do not ask again what it covers, and start it again only to see its changed files. Do not stop only to ask whether to go on; stop for a question only the person can answer. When the person who started it asks to stop the changelog, stop it with stopChangelog; a message that only pauses stops nothing.`;
+When the person asks to go on, go on with this draft by its path: do not ask again what it covers, and start it again only to see its changed files. Do not stop only to ask whether to go on; stop for a question only the person can answer. When the person who started it asks to stop the changelog, stop it with stopChangelog; a message that only pauses stops nothing.
+If you stop before it is written, answer in at most three short lines: how far it is (changed files done of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them, and do not ask whether to go on.${d.scope === "range" && d.left === undefined ? "\nThis draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage. It goes on with this same draft and lists them, so the files done can be counted." : ""}`;
 }
 
 /**
@@ -335,7 +336,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     if (found) {
       const notes = found.doc.info["x-changelog"], meta: DraftMeta = found.doc["x-draft"];
       // A draft from before drafts listed their files learns them now.
-      if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files });
+      if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files, changedFiles: meta.changedFiles ?? changed.totalFiles });
       if (args.publish === true) meta.publish = true;
       given.forEach((path) => examine(meta, path));
       await writeDraft(ctx.tenantId, full, found.doc, found.version);
@@ -392,8 +393,19 @@ async function changedFiles(conn: GitConn, repo: string, base: string, head: str
 
 const METHODS = new Set<string>(HTTP_METHODS);
 
+/**
+ * An argument a model may send as JSON text instead of the object or list itself: parsed when it is, and refused with where it fails
+ * when the text does not parse, so a stringified operation is never mistaken for a broken one (#353).
+ */
+function fromText(value: unknown, name: string): unknown {
+  if (typeof value !== "string" || !/^\s*[[{]/.test(value)) return value;
+  try { return JSON.parse(value); }
+  catch (e: any) { throw new Error(`${name} was sent as JSON text that does not parse (${e?.message ?? e}). Send it as an object, not as text.`); }
+}
+
 /** Adds or replaces one operation of a draft (null removes it), with the components it brings; returns that operation's own problems. */
-export async function putOperation(ctx: SkillContext, args: { draft?: unknown; method?: unknown; path?: unknown; operation?: unknown; components?: unknown }) {
+export async function putOperation(ctx: SkillContext, sent: { draft?: unknown; method?: unknown; path?: unknown; operation?: unknown; components?: unknown }) {
+  const args = { ...sent, operation: fromText(sent.operation, "operation"), components: fromText(sent.components, "components") };
   const method = typeof args.method === "string" ? args.method.trim().toLowerCase() : "";
   if (!METHODS.has(method)) throw new Error(`method must be one of ${[...METHODS].join(", ")}.`);
   const path = typeof args.path === "string" ? args.path.trim() : "";
@@ -426,7 +438,7 @@ export async function putOperation(ctx: SkillContext, args: { draft?: unknown; m
 
 /** Adds or replaces shared components (schemas, responses, parameters, securitySchemes, ...) by name, for operations to $ref. */
 export async function putComponents(ctx: SkillContext, args: { draft?: unknown; components?: unknown }) {
-  const components = args.components;
+  const components = fromText(args.components, "components");
   if (!components || typeof components !== "object" || Array.isArray(components) || !Object.values(components).every((v) => v && typeof v === "object" && !Array.isArray(v))) {
     throw new Error('components must be an object of sections, e.g. {"schemas": {"User": {...}}, "securitySchemes": {"bearerAuth": {...}}}.');
   }
@@ -440,7 +452,9 @@ export async function putComponents(ctx: SkillContext, args: { draft?: unknown; 
  * Sets what a changelog says beyond its operations: changes to every endpoint, removed endpoints, what the code could not settle, the files
  * set aside unexamined with why, and its title.
  */
-export async function putNotes(ctx: SkillContext, args: { draft?: unknown; globalChanges?: unknown; removedOperations?: unknown; unverified?: unknown; setAside?: unknown; title?: unknown; description?: unknown }) {
+export async function putNotes(ctx: SkillContext, sent: { draft?: unknown; globalChanges?: unknown; removedOperations?: unknown; unverified?: unknown; setAside?: unknown; title?: unknown; description?: unknown }) {
+  const args = { ...sent };
+  for (const key of ["globalChanges", "removedOperations", "unverified", "setAside"] as const) args[key] = fromText(sent[key], key);
   for (const key of ["globalChanges", "removedOperations", "unverified", "setAside"] as const) if (args[key] !== undefined && !Array.isArray(args[key])) throw new Error(`${key} must be a list.`);
   return withDraft(ctx, args.draft, (doc) => {
     const changelog = doc.info["x-changelog"], meta: DraftMeta = doc["x-draft"];

@@ -279,3 +279,35 @@ discordScenario("without long work, the 31st tool call of a person within a minu
   await acmeApi(s);
   expect(await turn(s, Array.from({ length: 32 }, () => READ_DTO), outcomes)).toEqual([...Array(30).fill("ok"), LIMITED, LIMITED]);
 });
+
+discordScenario("an operation sent as JSON text is taken as the object it holds, and text that does not parse says where (#353)", async (s) => {
+  await acmeApi(s);
+  await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  const [saved, broken] = await turn(s, [
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: JSON.stringify(OPERATION), components: JSON.stringify(FIXTURE.components) } },
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "get", path: "/api/v2/users", operation: JSON.stringify(OPERATION).slice(0, -1) } },
+  ], results);
+  expect(saved).toEqual({ saved: "POST /api/v2/users", impact: "breaking", operations: 1 });
+  expect(broken).toStartWith("operation was sent as JSON text that does not parse (");
+  expect(broken).toEndWith("). Send it as an object, not as text.");
+});
+
+discordScenario("a range draft from before drafts listed their files is told to start once more, which lists them; a stop is told to stay short (#353)", async (s) => {
+  await acmeApi(s);
+  const changelog = { date: "2026-10-21", base: { ref: "main before 2026-10-01", commit: "9f8e7d6" }, head: { ref: "main through 2026-10-22", commit: "a1b2c3d" }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] };
+  await s.workspace.write(`${FOLDER}/2026-10-21_9f8e7d6..a1b2c3d.draft.json`, JSON.stringify({
+    openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog }, paths: {}, components: {},
+    "x-draft": { repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22" },
+  }));
+  const RESTART = "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage.";
+  const before = await contextAfter(s);
+  expect(before).toContain(RESTART);
+  expect(before).toContain("If you stop before it is written, answer in at most three short lines: how far it is (changed files done of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them, and do not ask whether to go on.");
+
+  const [again] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } }, results);
+  expect(again.draft).toBe("channel/files/changelogs/acme-api/2026-10-21_9f8e7d6..a1b2c3d.draft.json");
+  expect(again.resumed).toMatchObject({ examined: 1, setAside: 0, left: 1 });
+  const after = await contextAfter(s);
+  expect(after).toContain("(commits 9f8e7d6..a1b2c3d, 2 changed files: 1 examined, 0 set aside, 1 left)");
+  expect(after).not.toContain(RESTART);
+});
