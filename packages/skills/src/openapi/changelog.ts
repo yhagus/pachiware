@@ -31,8 +31,18 @@ type DraftMeta = {
   publish?: boolean;
   /** Where the progress message of the work on it is, so that message can be found again (#355). */
   progressMessage?: ProgressMessage;
+  /** Whether it is worked on or paused (#361). A draft from before work states is paused until a turn goes on with it. */
+  work?: WorkState;
 };
 type ProgressMessage = { channelId: string; messageId: string };
+/** Why a Changelog draft paused: its question to the asker, the asker's Stop, the model or a service failing, or turns adding nothing (#354). */
+export type PauseReason = "question" | "stopped" | "model" | "service" | "no-progress";
+/**
+ * A Changelog draft is worked on, turn after turn, until it ends or pauses (ADR 0025). A pause keeps its reason and when it came; a service
+ * failure also names the service, and a question keeps the question. What the work needs only while it runs belongs with `worked-on`, so
+ * a pause clears it and a resume starts it afresh.
+ */
+export type WorkState = { state: "worked-on" } | { state: "paused"; reason: PauseReason; since: string; service?: string; question?: string };
 type ChangedFile = { path: string; oldPath?: string; status: string };
 type Side = "base" | "head";
 /** Files set aside unexamined, each pattern with why; kept in the written changelog, so a reader sees what was not read. */
@@ -111,7 +121,7 @@ const writeDraft = (tenantId: string, full: string, doc: Json, version?: string)
 export const DRAFT_IDLE_MS = 7 * 24 * 3600_000;
 
 /** What finds a place's drafts: who asks where. */
-type DraftPlace = Pick<SkillContext, "tenantId" | "guildId" | "channelId" | "parentChannelId" | "privateThread" | "userId" | "language">;
+type DraftPlace = Pick<SkillContext, "tenantId" | "botId" | "guildId" | "channelId" | "parentChannelId" | "privateThread" | "userId" | "language">;
 
 /** A draft the place's own folder holds, by the path the tools gave: its store path, refused anywhere else. */
 function draftPath(ctx: DraftPlace, draft: unknown) {
@@ -249,6 +259,7 @@ export type OpenDraft = {
   /** For a range whose changed files the draft lists: how many were examined, set aside, and are left. */
   examined?: number; setAside?: number; left?: number;
   progressMessage?: ProgressMessage;
+  work?: WorkState;
 };
 
 /**
@@ -275,6 +286,7 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "botId" | 
       operations: [...iterOperations(doc)].length, ...(meta.changedFiles !== undefined ? { changedFiles: meta.changedFiles } : {}),
       ...(counted ? { examined: counted.examined, setAside: counted.setAside, left: counted.left.length } : {}),
       ...(meta.progressMessage ? { progressMessage: meta.progressMessage } : {}),
+      ...(meta.work ? { work: meta.work } : {}),
     });
   }
   return shown;
@@ -292,6 +304,55 @@ export async function keepProgressMessage(ctx: DraftPlace, draft: string, at: Pr
     found.doc["x-draft"].progressMessage = { channelId: at.channelId, messageId: at.messageId };
     await writeJson(ctx.tenantId, full, found.doc, found.version);
   });
+}
+
+/** Whether the draft goes on by itself after each turn in its place. */
+export const isWorkedOn = (d: Pick<OpenDraft, "work">) => d.work?.state === "worked-on";
+
+/** The tools that go on with a draft named by its path; stopChangelog ends it, and a refused stop goes on with nothing. */
+const DRAFT_TOOLS = new Set(["putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog"]);
+/** The repository reads of contract-diff, which go on with a draft of the repository they read; startChangelog names it the same way. */
+const REPOSITORY_TOOLS = new Set(["startChangelog", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff"]);
+
+/** Whether a tool call goes on with the draft: a changelog tool given its path, or a repository read of its repository (#361). */
+export function goesOnWith(d: Pick<OpenDraft, "draft" | "repo">, call: { name: string; arguments?: unknown }) {
+  const args = (call.arguments && typeof call.arguments === "object" ? call.arguments : {}) as Record<string, unknown>;
+  if (DRAFT_TOOLS.has(call.name)) return typeof args.draft === "string" && args.draft.trim() === d.draft;
+  return REPOSITORY_TOOLS.has(call.name) && typeof args.repo === "string" && args.repo.trim().toLowerCase() === d.repo.toLowerCase();
+}
+
+/** Changes an open draft's work state when `change` returns one; like the progress message, it is no work on the draft and leaves its touch time alone. */
+async function changeWork(ctx: DraftPlace, draft: string, change: (meta: DraftMeta) => WorkState | null) {
+  const full = draftPath(ctx, draft);
+  return serial(`${ctx.tenantId}/${full}`, async () => {
+    const found = await readJson(ctx.tenantId, full), meta: DraftMeta | undefined = found?.doc["x-draft"];
+    const next = meta ? change(meta) : null;
+    if (!found || !meta || !next) return null;
+    meta.work = next;
+    await writeJson(ctx.tenantId, full, found.doc, found.version);
+    return meta;
+  });
+}
+
+/**
+ * Has a paused draft worked on again, when a turn goes on with it. Only the state `from` is taken up, the one the turn found: a pause that
+ * came since, such as its asker's Stop, stands.
+ */
+export async function resumeDraft(ctx: DraftPlace, draft: string, from: WorkState | undefined) {
+  await changeWork(ctx, draft, (meta) => (JSON.stringify(meta.work) === JSON.stringify(from) && meta.work?.state !== "worked-on" ? { state: "worked-on" } : null));
+}
+
+/**
+ * Pauses a draft that is worked on, for `pause.reason`. Every pause writes an Agent log warn line and the audit event changelog_draft_paused,
+ * with `detail` (host, status, error, tool, file) for the console; what a person reads names none of it.
+ */
+export async function pauseDraft(ctx: DraftPlace, draft: string, pause: { reason: PauseReason; service?: string; question?: string }, detail: Record<string, unknown> = {}) {
+  const paused = await changeWork(ctx, draft, (meta) => (meta.work?.state === "worked-on" ? { state: "paused", ...pause, since: new Date(now()).toISOString() } : null));
+  if (!paused) return false;
+  const name = draft.split("/").pop()!.replace(/\.draft\.json$/, "");
+  console.warn(`[changelog] Paused ${paused.repo} (branch ${paused.branch}, draft ${name}) in channel ${ctx.channelId}: ${pause.reason}${pause.service ? `, ${pause.service}` : ""}${Object.keys(detail).length ? ` ${JSON.stringify(detail)}` : ""}`);
+  await audit(ctx, "changelog_draft_paused", { reason: pause.reason, ...(pause.service ? { service: pause.service } : {}), repo: paused.repo, branch: paused.branch, draft: name, channelId: ctx.channelId, ...detail });
+  return true;
 }
 
 /** What an open draft covers, in words. */
@@ -375,6 +436,8 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
       repo, ...(args.account ? { account: args.account } : {}), branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to,
       ...(ctx.channelId ? { place: ctx.channelId } : {}), ...(ctx.userId ? { startedBy: { id: ctx.userId, ...(ctx.userName ? { name: ctx.userName } : {}) } } : {}), changedFiles: changed.totalFiles,
       ...(files ? { base: base.commit, head: head.commit, files } : {}), ...(args.publish === true ? { publish: true } : {}),
+      // Started, it is worked on until it ends or pauses (#361).
+      work: { state: "worked-on" },
     };
     given.forEach((path) => examine(meta, path));
     if (meta.files) seen.counted = accounting(meta);

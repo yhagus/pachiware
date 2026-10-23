@@ -183,54 +183,23 @@ async function openDraft(s: Scenario) {
   }));
 }
 
-discordScenario("with a Changelog draft open, a turn that runs out goes on by itself up to 5 times, under one progress message that counts the files (#351)", async (s) => {
+discordScenario("a person's message sent while a long playbook's work goes on by itself is answered first, and the work waits for them (#351)", async (s) => {
   await s.guildSettings({ language: "en" });
   await playbook(s, "trace", true);
-  await openDraft(s);
   await longDeadline(600);
-  await fastProgress();
-  s.model.script(...Array.from({ length: 6 }, (_, i) => [slowLookup, `Part ${i + 1} done.`]).flat());
-  const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
-
-  expect(s.model.calls).toHaveLength(12);
-  const [progress, answer, ...rest] = started.thread!.messages.filter((m: any) => m.author.bot);
-  expect(rest).toEqual([]);
-  expect(answer!.content).toBe("Part 6 done.\nNot finished yet. Reply here if you want me to carry on.");
-  expect(progress!.edits.map((e: any) => e.content).join("\n")).toContain("1 of 3 changed files done");
-  expect(progress!.content).toMatch(/^-# 🧠 Done in /);
-  expect(progress!.components).toEqual([]);
-});
-
-// A chat turn's deadline is shortened too, for work that goes on by itself with only a Changelog draft open.
-let shippedTurn: number | undefined;
-async function turnDeadline(ms: number) {
-  const { turnDeadline } = await import("../src/loop/react.ts");
-  shippedTurn ??= turnDeadline.ms;
-  turnDeadline.ms = ms;
-}
-afterEach(async () => {
-  if (shippedTurn === undefined) return;
-  (await import("../src/loop/react.ts")).turnDeadline.ms = shippedTurn;
-  shippedTurn = undefined;
-});
-
-discordScenario("a person's message sent while the work goes on by itself is answered first, and the work waits for them (#351)", async (s) => {
-  await s.guildSettings({ language: "en", useThreads: false });
-  await openDraft(s);
-  await turnDeadline(600);
   let sent: Promise<unknown> | undefined;
   s.model.script(
-    // Bob writes while the first turn still works; his send settles only once the bot is idle again.
-    async () => { sent = s.discord.send(`${s.discord.mention} hold on, wait for me`, { author: s.discord.bob }); return slowLookup(); },
+    // Alice writes in the thread while the first turn still works; her send settles only once the bot is idle again.
+    async () => { sent = s.discord.send("hold on, wait for me", { channel: s.discord.channel("channel-1").messages.find((m) => !m.author.bot)!.thread! }); return slowLookup(); },
     "Traced GET /users.",
     "Sure, I'll hold off.",
   );
-  await s.discord.send(`${s.discord.mention} lanjut changelog-nya`);
+  const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
   await sent;
 
   expect(s.model.calls).toHaveLength(3);
   expect(String(s.model.calls[2]!.at(-2)!.content)).toContain("hold on, wait for me");
-  expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Sure, I'll hold off."]);
+  expect(said(started.thread)).toEqual(["Sure, I'll hold off."]);
 });
 
 discordScenario("the asker's Stop on the progress message cuts the turn before its next step; nobody else can press it, and the work waits (#351)", async (s) => {

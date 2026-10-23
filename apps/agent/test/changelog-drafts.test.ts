@@ -1,4 +1,4 @@
-import { expect } from "bun:test";
+import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 
@@ -27,17 +27,46 @@ async function acmeApi(s: Scenario) {
   s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 3, behind_by: 0, commits: [], files: [{ filename: "src/users/users.controller.ts", status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, { filename: "src/users/dto/create-user.dto.ts", status: "modified" }] }));
   // Any file of the repository reads as these four lines, at any ref.
   s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
+  await progressAtOnce();
+}
+
+// A turn's progress message goes up as soon as the turn waits, so its Stop button is there to press.
+let shippedProgress: { showAfterMs: number; everyMs: number } | undefined;
+async function progressAtOnce() {
+  const { progressTiming } = await import("../src/discord/progress.ts");
+  shippedProgress ??= { ...progressTiming };
+  Object.assign(progressTiming, { showAfterMs: 0 });
+}
+afterEach(async () => {
+  if (!shippedProgress) return;
+  Object.assign((await import("../src/discord/progress.ts")).progressTiming, shippedProgress);
+  shippedProgress = undefined;
+});
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Presses Stop on the turn's progress message once it is up; the click, kept in `clicks`, settles once the bot is idle again. */
+async function pressStop(s: Scenario, clicks: Promise<unknown>[]) {
+  const up = () => s.discord.botMessages.findLast((m) => m.components.length);
+  for (let i = 0; i < 200 && !up(); i++) await pause(5);
+  clicks.push(s.discord.click(up()!, "Stop"));
 }
 
 const SOURCE = "export class CreateUserDto {\n  full_name: string;\n  phone: string;\n}";
 /** Reads the DTO whole at head: with the controller's patch startChangelog gave, every changed file is examined (#347). */
 const READ_DTO = { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: "src/users/dto/create-user.dto.ts" } };
 
-async function turn(s: Scenario, ...steps: Parameters<Scenario["model"]["script"]>) {
-  s.model.script(...steps);
-  await s.discord.send(`${s.discord.mention} changelog`);
+type Step = Parameters<Scenario["model"]["script"]>[number];
+/**
+ * One turn of Alice's in `channel`: its tool calls, its answer, and what the model is asked after the turn. As the answer comes she presses
+ * Stop, so a draft the turn worked on pauses there (#361) and her next message is the next turn, instead of the work going on by itself.
+ */
+async function turnIn(s: Scenario, channel: string | undefined, calls: Step, answer: Step, ...after: Step[]) {
+  const clicks: Promise<unknown>[] = [];
+  s.model.script(calls, async (t) => { await pressStop(s, clicks); return typeof answer === "function" ? answer(t) : answer; }, ...after);
+  await s.discord.send(`${s.discord.mention} changelog`, channel ? { channel } : {});
+  await Promise.all(clicks);
   return lastReply(s);
 }
+const turn = (s: Scenario, calls: Step, answer: Step, ...after: Step[]) => turnIn(s, undefined, calls, answer, ...after);
 
 /** A turn the model answers in words, in `channel`; returns the per-turn context it read. */
 async function contextAfter(s: Scenario, channel?: string) {
@@ -74,9 +103,7 @@ discordScenario("a place holds one open draft: another changelog is refused with
 
   // A public thread shares its channel's folder, but a draft belongs to where it was started.
   s.discord.channel("thread-1", { thread: true, parentId: "channel-1" });
-  s.model.script({ tool: "startChangelog", args: { repo: "acme/api", scope: "all" } }, results);
-  await s.discord.send(`${s.discord.mention} changelog`, { channel: "thread-1" });
-  const [inThread] = lastReply(s);
+  const [inThread] = await turnIn(s, "thread-1", { tool: "startChangelog", args: { repo: "acme/api", scope: "all" } }, results);
   expect(inThread.draft).toBe("channel/files/changelogs/acme-api/2026-10-22_4b825dc..a1b2c3d.draft.json");
   const thread = await contextAfter(s, "thread-1");
   expect(thread).toContain("acme/api, branch main, the whole history through 2026-10-22");

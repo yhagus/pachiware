@@ -339,6 +339,8 @@ const en = {
   progress: {
     working: "🧠 Working…",
     workedFor: (time: string) => `🧠 Done in ${time}`,
+    /** A Changelog draft's progress message once the draft paused (#361). */
+    paused: (time: string) => `⏸️ Paused after ${time}`,
     seconds: (n: number) => `${n} s`,
     minutes: (n: number) => `${n} min`,
     recorded: (n: number) => `${n} endpoint${n === 1 ? "" : "s"} recorded`,
@@ -624,6 +626,7 @@ const id: typeof en = {
   progress: {
     working: "🧠 Sedang mengerjakan…",
     workedFor: (time) => `🧠 Selesai dalam ${time}`,
+    paused: (time) => `⏸️ Dijeda setelah ${time}`,
     seconds: (n) => `${n} detik`,
     minutes: (n) => `${n} menit`,
     recorded: (n) => `${n} endpoint tercatat`,

@@ -17,7 +17,7 @@
  *     const helper = await s.discord.addBot(); // a second bot of the tenant in the same guild
  *   });
  *
- * Each scenario runs in its own `bun test` subprocess with a fresh SQLite database and Workspace folder, so
+ * Each scenario runs in its own `bun test` subprocess with a fresh SQLite database, Workspace folder and Agent log folder, so
  * `mock.module("discord.js")` and the stubbed `fetch` never leak. The callback must not close over variables
  * from the test file. Every `send`, `click`, and `contextMenu` returns after the bot has finished handling it.
  * An unscripted model call or an unstubbed request fails the scenario.
@@ -170,7 +170,7 @@ async function runInSubprocess(file: string, name: string) {
     const run = Bun.spawn({
       cmd: ["bun", "test", file, "-t", name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")],
       cwd: ROOT,
-      env: { ...process.env, PACHIWARE_SCENARIO: name, DATABASE_URL: `sqlite:${join(dir, "scenario.db")}`, WORKSPACE_DIR: join(dir, "workspace"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"), PLATFORM_ADMIN_KEY: "scenario", NODE_ENV: "test" },
+      env: { ...process.env, PACHIWARE_SCENARIO: name, DATABASE_URL: `sqlite:${join(dir, "scenario.db")}`, WORKSPACE_DIR: join(dir, "workspace"), LOG_DIR: join(dir, "logs"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"), PLATFORM_ADMIN_KEY: "scenario", NODE_ENV: "test" },
       stdout: "pipe", stderr: "pipe",
     });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);

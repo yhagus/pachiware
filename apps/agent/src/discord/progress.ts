@@ -5,7 +5,7 @@ export const progressTiming = { showAfterMs: 10_000, everyMs: 3_000 };
 /** How many step lines the message shows: the latest ones. */
 const SHOWN_STEPS = 5;
 
-type Posted = { edit(content: string | { content: string; components: [] }): Promise<unknown>; delete?(): Promise<unknown> };
+type Posted = { id?: string; channelId?: string; edit(content: string | { content?: string; components: any[] }): Promise<unknown>; delete?(): Promise<unknown> };
 type Line = { kind: StepKind; subjects: (string | undefined)[]; running: number };
 
 /**
@@ -77,15 +77,25 @@ export class TurnProgress {
     }, progressTiming.everyMs);
   }
 
-  /** Ends it: the message shrinks to how long the work took, or goes when nothing was answered after it. */
-  async finish(answered: boolean) {
+  /** The message once it is up, or null while it is not. */
+  async posted(): Promise<Posted | null> {
+    await this.posting;
+    return this.message;
+  }
+
+  /**
+   * Ends it: the message shrinks to how long the work took, or goes when nothing was answered after it. A Changelog draft that `paused`
+   * keeps it, saying so (#361).
+   */
+  async finish(answered: boolean, paused = false) {
     if (this.ended) return;
     this.ended = true;
     clearTimeout(this.first);
     clearInterval(this.ticks);
     await this.posting;
     if (!this.message) return;
-    if (!answered && this.message.delete) await this.message.delete().catch(() => {});
-    else await this.message.edit({ content: `-# ${textIn(this.language).progress.workedFor(elapsed(Date.now() - this.started, this.language))}`, components: [] }).catch(() => {});
+    const t = textIn(this.language).progress, took = elapsed(Date.now() - this.started, this.language);
+    if (!answered && !paused && this.message.delete) await this.message.delete().catch(() => {});
+    else await this.message.edit({ content: `-# ${paused ? t.paused(took) : t.workedFor(took)}`, components: [] }).catch(() => {});
   }
 }

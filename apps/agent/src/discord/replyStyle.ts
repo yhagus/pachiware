@@ -43,6 +43,13 @@ export function withNotes(plan: ReplyPlan, notes: string[]): ReplyPlan {
   return { ...plan, messages };
 }
 
+/** Leads the plan with a ping of `userId`: on its first message when that still fits, else as a message of its own. */
+export function withPing(plan: ReplyPlan, userId: string): ReplyPlan {
+  const mention = `<@${userId}>`, [first, ...rest] = plan.messages;
+  if (first === undefined) return plan;
+  return { ...plan, messages: first.length + mention.length + 1 <= MESSAGE_LIMIT ? [`${mention} ${first}`, ...rest] : [mention, first, ...rest] };
+}
+
 /**
  * Splits a reply into Discord messages at paragraph breaks, falling back to line breaks.
  * Only a single line longer than a whole message is cut inside, at its last space.
