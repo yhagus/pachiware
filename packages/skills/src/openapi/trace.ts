@@ -21,10 +21,11 @@ const UNCHANGED = /^\s*UNCHANGED\b[\s:.-]*/i;
 const REASON_CHARS = 300;
 
 type Endpoint = { method: string; path: string; note?: string };
-type Kept = Awaited<ReturnType<typeof takeCandidates>>;
+/** What a worker's brief is made from: the draft's repository, commits and conventions, beside the candidates still waiting. */
+type BriefSource = Awaited<ReturnType<typeof takeCandidates>>;
 
 /** What one worker starts from: the draft's repository, commits and conventions and the extension reference first, the same for every worker, and its endpoint last. */
-function briefOf(kept: Kept, draft: string, extensions: string, c: Endpoint) {
+function briefOf(kept: BriefSource, draft: string, extensions: string, c: Endpoint) {
   const commits = kept.base
     ? `Base: ${kept.base.commit} (${kept.base.ref}); head: ${kept.head.commit} (${kept.head.ref}). Read code at them by passing each as the ref.`
     : `Head: ${kept.head.commit} (${kept.head.ref}). Nothing came before this changelog: the endpoint is NEW. Read head only.`;
