@@ -15,7 +15,7 @@ export * from "./workspace/threadMove.js";
 export * from "./workspace/memory.js";
 export * from "./workspace/files.js";
 export * from "./workspace/keywords.js";
-export { openDrafts, openDraftLine, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, pauseDraft, draftState, keepClosingSummary, type OpenDraft, type WorkState, type PauseReason } from "./openapi/changelog.js";
+export { openDrafts, openDraftLine, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, pauseDraft, measureTurn, draftState, keepClosingSummary, type OpenDraft, type WorkState, type PauseReason } from "./openapi/changelog.js";
 export * from "./builtin/discord.js";
 export * from "./builtin/git.js";
 export * from "./git.js";
