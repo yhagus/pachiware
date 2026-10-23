@@ -66,7 +66,12 @@ export async function call(c: GitConn, path: string, init: { method?: string; bo
     headers: { ...authHeaders(c.provider, c.token, c.oauth), ...(init.body ? { "Content-Type": "application/json" } : {}) },
     body: init.body ? JSON.stringify(init.body) : undefined,
     signal: AbortSignal.timeout(REQUEST_MS),
-  }).catch((e) => { throw failure(null, String((e as Error)?.message ?? e)); });
+  }).catch((e) => {
+    // Named as fetch named it (TimeoutError, TypeError), as audits of failures record it.
+    const unanswered = failure(null, String((e as Error)?.message ?? e));
+    if (e instanceof Error) unanswered.name = e.name;
+    throw unanswered;
+  });
   let res = await send();
   // A rate limit is waited out once, when the wait is short and the call still has time for it and another request (#350).
   const wait = rateLimitWait(res);

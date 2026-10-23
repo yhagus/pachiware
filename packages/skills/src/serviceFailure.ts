@@ -7,9 +7,12 @@ export type FailureKind = "refused" | "gone" | "unavailable";
 /** A failure of a service, with what the console needs: the service's display name, its host, the HTTP status (none when no answer came) and the error text. */
 export type ServiceFailed = { kind: FailureKind; service: string; host: string; status?: number; error: string };
 
-/** An error of a service the bot reads; `failed` says how, when it failed for good. The message is what the model reads, as before. */
+/**
+ * An error of a service the bot reads; `failed` says how, when it failed for good. The message is what the model reads, as before, and its
+ * name stays Error, as audits of failures record it.
+ */
 export class ServiceError extends Error {
-  constructor(message: string, readonly failed?: ServiceFailed) { super(message); this.name = "ServiceError"; }
+  constructor(message: string, readonly failed?: ServiceFailed) { super(message); }
 }
 
 /**
