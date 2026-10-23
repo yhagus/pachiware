@@ -64,3 +64,23 @@ discordScenario("a changelog asked for with a preview is written, validated, sen
   const { createServer } = await import("../src/server.ts");
   expect(await (await createServer().request(`/open-api/${link.split("/").pop()}/openapi.json`)).text()).toBe(kept!);
 });
+
+discordScenario("a changelog asked to be published from the start is published as it is written, in the same step (#349)", async (s) => {
+  await acmeApi(s);
+  const { "x-impact": _, ...operation } = FIXTURE.paths["/api/v2/users"].post;
+  let finished: any, link = "";
+  s.model.script(
+    { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22", publish: true } },
+    [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation } }],
+    { tool: "finishChangelog", args: { draft: DRAFT } },
+    (turn) => { finished = turn.toolResults.at(-1); link = finished.published.url; return `Published: ${link}`; },
+  );
+  const started = await s.discord.send(`${s.discord.mention} changelog: acme/api from 2026-10-01 to today, terus publish`);
+
+  expect(link).toMatch(new RegExp(`^https://pachi\\.example\\.com/open-api/${UUID}$`));
+  expect(finished).toMatchObject({ written: true, path: WRITTEN, published: { url: link, title: "acme/api API changes" } });
+  expect(started.thread!.messages.filter((m) => m.author.bot).at(-1)!.content).toBe(`Published: ${link}`);
+  const { createServer } = await import("../src/server.ts");
+  const kept = await s.workspace.read("guilds/guild-1/channels/channel-1/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json");
+  expect(await (await createServer().request(`/open-api/${link.split("/").pop()}/openapi.json`)).text()).toBe(kept!);
+});

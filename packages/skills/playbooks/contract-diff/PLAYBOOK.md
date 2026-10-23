@@ -37,7 +37,7 @@ When the request does not say which, ask once, offering both, and wait. For a ra
 
 The repository is this thread's. When the prompt does not name it, call `playbookRepositories` once you have the answer; with several allowed, ask the person who started the thread which one, in one line, and wait. When neither the scope nor the repository is settled, ask both in the same message, and call `playbookRepositories` first only to offer its list.
 
-Then call `startChangelog` with the repository, the scope, and for a range from and to. It turns the days into two commits on the branch (head: the last commit through the last day; base: the last commit before the first day) and returns the draft path, both commits, and the first page of changed files.
+Then call `startChangelog` with the repository, the scope, and for a range from and to; pass publish when the request also asks to publish, show, preview or share the changelog. It turns the days into two commits on the branch (head: the last commit through the last day; base: the last commit before the first day) and returns the draft path, both commits, and the first page of changed files.
 
 - When it refuses, say why in one line and stop. When another changelog is open here, say which and ask whether to go on with it or stop it first.
 - When no branch was named, it uses the default branch: name it when you say you are starting, and in your answer.
@@ -135,7 +135,7 @@ The file holds the details; the report says in plain words what changed for the 
 2. One bullet per endpoint: its method and path in code format, then what changed in everyday words. The request and response fields the frontend uses may be named, in code format; nothing else of the code is (no file paths, schema or class names, commit hashes).
 3. What the code could not settle, as a count in one line, such as "Two things could not be confirmed from the code; the file marks them."
    What was set aside unread, in one line with the reasons, such as "Not read: tests and CI configuration."
-4. When the request also asked to show, preview or share the changelog, publish it with `publishOpenApi`, give the link it returns on its own line, and pass on its warning as written.
+4. When the changelog was started with publish, `finishChangelog` published it as it wrote it: give the link on its own line and pass on its warning as written; when it says publishing failed, say so in one line. When the person asks to publish it only later, publish it with `publishOpenApi`.
 
 - When nothing frontend-visible changed, `finishChangelog` writes no file: say so in one sentence, with how many changed files were examined.
 - When `repoCompare` said GitHub stopped at 300 changed files, add that the changelog may miss some endpoints.

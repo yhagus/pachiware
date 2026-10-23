@@ -6,6 +6,7 @@ import { DEFAULT_TIMEZONE, isoInZone, now, zonedTime } from "../clock.js";
 import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, changeCounts, escapePointer, iterOperations, mostSevere, recordsNothing, resolveLocal, validateChangelog, validateOperation } from "./validate.js";
 import { textIn } from "../language.js";
 import { audit } from "../guardrails.js";
+import { publishPreview } from "./previews.js";
 import type { SkillContext } from "../types.js";
 
 /**
@@ -26,6 +27,8 @@ type DraftMeta = {
   base?: string; head?: string; files?: ChangedFile[]; examined?: string[]; reads?: Record<string, Partial<Record<Side, { total: number; read: [number, number][] }>>>;
   /** When the draft last changed, by the agent's clock; one untouched for DRAFT_IDLE_MS is dropped (#348). */
   touchedAt?: string;
+  /** The person asked to publish it too: finishing publishes it as it writes it (#349). */
+  publish?: boolean;
 };
 type ChangedFile = { path: string; oldPath?: string; status: string };
 type Side = "base" | "head";
@@ -301,7 +304,7 @@ export async function stopChangelog(ctx: SkillContext, args: { draft?: unknown }
   };
 }
 
-export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: string, args: { account?: string; branch?: unknown; scope?: unknown; from?: unknown; to?: unknown }) {
+export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: string, args: { account?: string; branch?: unknown; scope?: unknown; from?: unknown; to?: unknown; publish?: unknown }) {
   const timezone = ctx.timezone ?? DEFAULT_TIMEZONE, today = isoInZone(timezone).slice(0, 10);
   const covers = changelogScope(args, today);
   const named = typeof args.branch === "string" && args.branch.trim() ? args.branch.trim() : null;
@@ -333,6 +336,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
       const notes = found.doc.info["x-changelog"], meta: DraftMeta = found.doc["x-draft"];
       // A draft from before drafts listed their files learns them now.
       if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files });
+      if (args.publish === true) meta.publish = true;
       given.forEach((path) => examine(meta, path));
       await writeDraft(ctx.tenantId, full, found.doc, found.version);
       if (meta.files) seen.counted = accounting(meta, notes.setAside);
@@ -346,7 +350,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     const meta: DraftMeta = {
       repo, ...(args.account ? { account: args.account } : {}), branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to,
       ...(ctx.channelId ? { place: ctx.channelId } : {}), ...(ctx.userId ? { startedBy: { id: ctx.userId, ...(ctx.userName ? { name: ctx.userName } : {}) } } : {}), changedFiles: changed.totalFiles,
-      ...(files ? { base: base.commit, head: head.commit, files } : {}),
+      ...(files ? { base: base.commit, head: head.commit, files } : {}), ...(args.publish === true ? { publish: true } : {}),
     };
     given.forEach((path) => examine(meta, path));
     if (meta.files) seen.counted = accounting(meta);
@@ -526,7 +530,10 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     try { await writeJson(ctx.tenantId, target, doc, (await workspaceStore().readBytes(ctx.tenantId, target))?.version); }
     catch (e) { if (e instanceof WorkspaceConflict) throw new Error(`${path} changed while it was being written; call finishChangelog again.`); throw e; }
     await workspaceStore().remove(ctx.tenantId, full);
+    // Asked for from the start: published in the same step, so the link cannot be forgotten. A failed publish leaves the file written.
+    const published = meta?.publish ? await publishPreview(ctx, { full: target, shown: path }).then((p) => ({ published: p }), (e: any) => ({ publishFailed: String(e?.message ?? e) })) : {};
     return {
+      ...published,
       written: true, path, summary, breaking: breakingLines(doc), unverified: [...(changelog.unverified ?? []), ...operations.flatMap((o) => (o.op["x-unverified"] ?? []).map((u: Json) => ({ operation: `${o.method.toUpperCase()} ${o.path}`, ...u })))],
       ...(changelog.setAside?.length ? { setAside: changelog.setAside } : {}),
       ...(report.warnings.length ? { warnings: report.warnings } : {}),

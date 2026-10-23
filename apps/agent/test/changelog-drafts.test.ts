@@ -247,3 +247,20 @@ discordScenario("a draft nobody touched for 7 days is dropped unannounced the ne
   const { repositories } = await import("@pachiware/db");
   expect((await repositories().usage.list({ tenantId: s.tenant.id, type: "changelog_draft_expired" })).map((e: any) => e.metadata)).toEqual([expect.objectContaining({ repo: "acme/api", branch: "main", operations: 0 })]);
 });
+
+discordScenario("when publishing a changelog asked for from the start fails, the file is still written and the result says why (#349)", async (s) => {
+  await acmeApi(s);
+  // A finished draft whose description makes the changelog too large for an OpenAPI Schema Viewer page.
+  const changelog = { date: "2026-10-22", base: { ref: "main before 2026-10-01", commit: "9f8e7d6" }, head: { ref: "main through 2026-10-22", commit: "a1b2c3d" }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] };
+  // Past the scenario's 256 KB helper: drafts are written with the blob limit, as the changelog tools write them.
+  const { workspaceStore, MAX_BLOB_BYTES } = await import("@pachiware/skills");
+  await workspaceStore().write(s.tenant.id, `${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`, JSON.stringify({
+    openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", description: "x".repeat(2_200_000), "x-changelog": changelog },
+    paths: { "/api/v2/users": { post: OPERATION } }, components: FIXTURE.components,
+    "x-draft": { repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", place: "channel-1", publish: true },
+  }), undefined, { maxBytes: MAX_BLOB_BYTES });
+  s.model.script({ tool: "finishChangelog", args: { draft: DRAFT } }, (turn) => JSON.stringify(turn.toolResults.map((r: any) => ({ written: r.written, path: r.path, publishFailed: r.publishFailed, published: r.published }))));
+  await s.discord.send(`${s.discord.mention} changelog`);
+  expect(lastReply(s)).toEqual([{ written: true, path: "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json", publishFailed: "That file is 2.1 MB; an OpenAPI Schema Viewer page holds at most 2 MB." }]);
+  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.json`]);
+});
