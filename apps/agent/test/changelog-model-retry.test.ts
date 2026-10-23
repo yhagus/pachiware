@@ -1,41 +1,9 @@
 import { expect } from "bun:test";
-import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
+import { BASE, DRAFT_FILE, FINISH, FOLDER, HEAD, PROVIDER_DOWN, READ_REST, RECORD, START, WRITTEN, WRITTEN_FILE, acmeApi, draftMeta, fastProgress, pause, pauses, read, written } from "./support/changelog";
 
-const FOLDER = "guilds/guild-1/channels/channel-1/files/changelogs/acme-api";
-const DRAFT_FILE = `${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`, WRITTEN_FILE = `${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.json`;
-const DRAFT = "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.draft.json", WRITTEN = DRAFT.replace(".draft.json", ".json");
-const BASE = "9f8e7d6".padEnd(40, "0"), HEAD = "a1b2c3d".padEnd(40, "0");
-/** The skill's example operation and its components, a valid changelog entry (packages/skills/test/openapi-validate.test.ts checks it). */
-const FIXTURE = JSON.parse(readFileSync(new URL("../../../packages/skills/test/fixtures/contract-diff/create-user.json", import.meta.url), "utf8"));
-const DTOS = ["a", "b", "c", "d", "e", "f"].map((n) => `src/users/dto/${n}.dto.ts`);
-const SOURCE = "export class Dto {\n  full_name: string;\n  phone: string;\n}";
-
-/**
- * acme/api on GitHub, open in this channel (no threads), at 10:00 on 22 October in Jakarta: main's last commit through that day is HEAD,
- * its last before 1 October BASE. Between them the controller changed and six DTOs; any file reads as SOURCE.
- */
-async function acmeApi(s: Scenario) {
-  await s.guildSettings({ language: "en", useThreads: false });
-  s.clock.set("2026-10-22T10:00:00+07:00");
-  await s.git({ repos: ["acme/*"] });
-  await s.availability({ level: "tenant" }, { kind: "playbook", name: "contract-diff", value: "on" });
-  s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
-  s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
-    ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: HEAD, commit: { committer: { date: "2026-10-21T08:00:00Z" } } }]));
-  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 3, behind_by: 0, commits: [], files: [
-    { filename: "src/users/users.controller.ts", status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, ...DTOS.map((filename) => ({ filename, status: "modified" })),
-  ] }));
-  s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
-}
-const START = { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } };
-const READ_ALL = DTOS.map((path) => ({ tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path } }));
-const { "x-impact": _impact, ...OPERATION } = FIXTURE.paths["/api/v2/users"].post;
-const RECORD = [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION } }];
-const FINISH = { tool: "finishChangelog", args: { draft: DRAFT } };
-const written = (turn: any) => `The acme/api changelog is written: ${turn.toolResults.at(-1).path}`;
-const draftMeta = async (s: Scenario) => JSON.parse((await s.workspace.read(DRAFT_FILE))!)["x-draft"];
-const PROVIDER_DOWN = { error: "I can't reach the AI service right now. Try again in a moment." };
+/** Every changed DTO, read whole at head. */
+const READ_ALL = [read(0), ...READ_REST];
 
 discordScenario("a turn that goes on by itself and cannot reach the model runs once more after the tenant's wait, and the work goes on to the end; the failure posts nothing (#358)", async (s) => {
   await acmeApi(s);
@@ -68,16 +36,6 @@ discordScenario("a turn that goes on by itself and cannot reach the model runs o
   expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
 });
 
-// The progress message's wait is shortened, so a slow turn shows it with its Stop button.
-async function fastProgress() {
-  const { progressTiming } = await import("../src/discord/progress.ts");
-  Object.assign(progressTiming, { showAfterMs: 150, everyMs: 40 });
-}
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const pauses = async (s: Scenario) => {
-  const { repositories } = await import("@pachiware/db");
-  return (await repositories().usage.list({ tenantId: s.tenant.id, type: "changelog_draft_paused" })).map((e: any) => e.metadata);
-};
 
 discordScenario("the model failing on the retry too pauses the draft after the tenant's wait: one line that names only the AI model pings the asker, and the progress message says it paused (#358)", async (s) => {
   await acmeApi(s);

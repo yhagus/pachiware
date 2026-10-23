@@ -1,16 +1,9 @@
 import { expect } from "bun:test";
-import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
+import { BASE, DRAFT, FINISH, FOLDER, HEAD, RECORD, SOURCE, START, WRITTEN, WRITTEN_FILE, agentLog, contractDiffOn, draftMeta, pauses, warnings } from "./support/changelog";
 
-const FOLDER = "guilds/guild-1/channels/channel-1/files/changelogs/acme-api";
-const DRAFT_FILE = `${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`, WRITTEN_FILE = `${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.json`;
-const DRAFT = "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.draft.json", WRITTEN = DRAFT.replace(".draft.json", ".json");
-const BASE = "9f8e7d6".padEnd(40, "0"), HEAD = "a1b2c3d".padEnd(40, "0");
-/** The skill's example operation and its components, a valid changelog entry (packages/skills/test/openapi-validate.test.ts checks it). */
-const FIXTURE = JSON.parse(readFileSync(new URL("../../../packages/skills/test/fixtures/contract-diff/create-user.json", import.meta.url), "utf8"));
 /** The changed files, none with a patch given: each is examined by reading it whole. */
 const DTOS = ["a", "b", "c"].map((n) => `src/users/dto/${n}.dto.ts`);
-const SOURCE = "export class Dto {\n  full_name: string;\n  phone: string;\n}";
 const PROJECT = "gitlab.com/api/v4/projects/acme%2Fapi";
 /** The repository itself, and no request under it. */
 const THE_PROJECT = /^GET https:\/\/gitlab\.com\/api\/v4\/projects\/acme%2Fapi$/;
@@ -23,36 +16,21 @@ async function acmeOnGitLab(s: Scenario) {
   await s.guildSettings({ language: "en", useThreads: false });
   s.clock.set("2026-10-22T10:00:00+07:00");
   await s.git({ provider: "gitlab", repos: ["acme/*"] });
-  await s.availability({ level: "tenant" }, { kind: "playbook", name: "contract-diff", value: "on" });
+  await contractDiffOn(s);
   s.http.on(THE_PROJECT, () => ({ default_branch: "main" }));
   s.http.on(`GET ${PROJECT}/repository/commits`, (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
     ? [{ id: BASE, committed_date: "2026-09-29T08:00:00Z" }] : [{ id: HEAD, committed_date: "2026-10-21T08:00:00Z" }]));
   s.http.on(`GET ${PROJECT}/repository/compare`, () => ({ commits: [], diffs: DTOS.map((path) => ({ new_path: path, old_path: path, new_file: false, deleted_file: false, renamed_file: false })) }));
   s.http.on(`GET ${PROJECT}/repository/files/`, () => ({ content: Buffer.from(SOURCE).toString("base64") }));
 }
-const START = { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } };
 /** Reads a changed DTO whole at head, which examines it. */
 const read = (i: number) => ({ tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: DTOS[i] } });
-const { "x-impact": _impact, ...OPERATION } = FIXTURE.paths["/api/v2/users"].post;
-const RECORD = [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION } }];
-const FINISH = { tool: "finishChangelog", args: { draft: DRAFT } };
 const ASK = `changelog acme/api from 1 to 22 October`;
 type Step = Parameters<Scenario["model"]["script"]>[number];
 /** GitLab's answer to every file read from now on. */
 const filesAnswer = (s: Scenario, respond: () => Response) => s.http.on(`GET ${PROJECT}/repository/files/`, respond);
 const badGateway = () => new Response("Bad Gateway", { status: 502 });
 
-const draftMeta = async (s: Scenario) => JSON.parse((await s.workspace.read(DRAFT_FILE))!)["x-draft"];
-/** Every console line from now on is kept in the Agent log, as the agent process keeps it, for the console's logs API. */
-async function agentLog() {
-  const { installAgentLog } = await import("../src/logs/agentLog.ts");
-  installAgentLog();
-}
-const warnings = async (s: Scenario) => (await s.admin("GET", "/api/admin/logs?level=warn&source=changelog")).body.entries.map((e: any) => e.text);
-const pauses = async (s: Scenario) => {
-  const { repositories } = await import("@pachiware/db");
-  return (await repositories().usage.list({ tenantId: s.tenant.id, type: "changelog_draft_paused" })).map((e: any) => e.metadata);
-};
 /** What the asker reads when GitLab failed for good: the service and how to go on, never its host, status or error. */
 const PAUSED = '<@user-alice> Changelog paused: GitLab could not be reached. Type "go on" to continue.';
 

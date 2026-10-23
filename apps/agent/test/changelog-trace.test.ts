@@ -1,15 +1,12 @@
 import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
+import {
+  BASE, CONTROLLER, DRAFT, DRAFT_FILE, FINISH, FIXTURE, FOLDER, HEAD, OPERATION, PROVIDER_DOWN, START, WRITTEN, WRITTEN_FILE,
+  contractDiffOn, draftMeta, fastProgress, pause, pauses, written,
+} from "./support/changelog";
 
-const FOLDER = "guilds/guild-1/channels/channel-1/files/changelogs/acme-api";
-const DRAFT_FILE = `${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`, WRITTEN_FILE = `${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.json`;
-const DRAFT = "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.draft.json", WRITTEN = DRAFT.replace(".draft.json", ".json");
-const BASE = "9f8e7d6".padEnd(40, "0"), HEAD = "a1b2c3d".padEnd(40, "0");
-/** The skill's example operation and its components, a valid changelog entry (packages/skills/test/openapi-validate.test.ts checks it): four changes, breaking. */
-const FIXTURE = JSON.parse(readFileSync(new URL("../../../packages/skills/test/fixtures/contract-diff/create-user.json", import.meta.url), "utf8"));
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
-const CONTROLLER = "src/users/users.controller.ts";
 /** What every file of acme/api reads as, at any commit: what a worker reads, and the main loop never should. */
 const SOURCE = "@Controller('api/v2/users')\nexport class UsersController {\n  @Post() create(@Body() dto: CreateUserDto) {}\n}";
 const CONVENTIONS = "Routes: @Controller prefixes, no global prefix. Envelope: { data } from TransformInterceptor. Errors: HttpExceptionFilter gives { code, message }.";
@@ -22,7 +19,7 @@ async function acmeApi(s: Scenario) {
   await s.guildSettings({ language: "en", useThreads: false });
   s.clock.set("2026-10-22T10:00:00+07:00");
   await s.git({ repos: ["acme/*"] });
-  await s.availability({ level: "tenant" }, { kind: "playbook", name: "contract-diff", value: "on" });
+  await contractDiffOn(s);
   expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
   s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
   s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
@@ -32,20 +29,15 @@ async function acmeApi(s: Scenario) {
   ] }));
   s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
 }
-const START = { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } };
 const NOTE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: CONVENTIONS } };
 const candidate = (method: string, path: string, note?: string) => ({ method, path, ...(note ? { note } : {}) });
 const trace = (...candidates: ReturnType<typeof candidate>[]) => ({ tool: "traceEndpoints", args: { draft: DRAFT, ...(candidates.length ? { candidates } : {}) } });
-const { "x-impact": _impact, ...OPERATION } = FIXTURE.paths["/api/v2/users"].post;
 /** A worker's step that records `method path` as the example operation. */
 const record = (method: string, path: string) => [
   { tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } },
   { tool: "putChangelogOperation", args: { draft: DRAFT, method, path, operation: OPERATION } },
 ];
 const readController = { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: CONTROLLER } };
-const FINISH = { tool: "finishChangelog", args: { draft: DRAFT } };
-const written = (turn: any) => `The acme/api changelog is written: ${turn.toolResults.at(-1).path}`;
-const draftMeta = async (s: Scenario) => JSON.parse((await s.workspace.read(DRAFT_FILE))!)["x-draft"];
 /** The six tools a worker is offered, whatever the place offers (ADR 0024). */
 const WORKER_TOOLS = ["putChangelogComponents", "putChangelogOperation", "repoFileDiff", "repoReadFile", "repoSearchCode", "repoTree"];
 const text = (message: any) => (typeof message?.content === "string" ? message.content : JSON.stringify(message?.content));
@@ -97,7 +89,6 @@ const newOperation = (id: string) => ({
 });
 const recordNew = (method: string, path: string, id: string) => ({ tool: "putChangelogOperation", args: { draft: DRAFT, method, path, operation: newOperation(id) } });
 const EXPORT = candidate("get", "/api/v2/users/export"), SESSIONS = candidate("delete", "/api/v2/sessions");
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** The endpoint a worker's brief names. */
 const endpointOf = (call: any[]) => briefOf(call).match(/^Your endpoint: (.+)$/m)?.[1];
 
@@ -142,11 +133,6 @@ discordScenario("a turn cut while its workers trace goes on by itself with the c
   expect(Object.keys(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).paths).sort()).toEqual(["/api/v2/sessions", "/api/v2/users", "/api/v2/users/export"]);
 }, 30000);
 
-const PROVIDER_DOWN = { error: "I can't reach the AI service right now. Try again in a moment." };
-const pauses = async (s: Scenario) => {
-  const { repositories } = await import("@pachiware/db");
-  return (await repositories().usage.list({ tenantId: s.tenant.id, type: "changelog_draft_paused" })).map((e: any) => e.metadata);
-};
 const states = async (s: Scenario) => (await draftMeta(s)).candidates.map((c: any) => `${c.method.toUpperCase()} ${c.path}: ${c.state}`);
 
 discordScenario("a worker that cannot reach the model leaves its endpoint waiting, and the draft goes through the model's rule: one retry after the tenant's wait, then a pause (#343)", async (s) => {
@@ -201,18 +187,6 @@ discordScenario("a worker that fails otherwise has its endpoint listed as unveri
   expect(Object.keys(changelog.paths)).toEqual(["/api/v2/users/export"]);
 });
 
-// The progress message's wait is shortened, so a slow turn shows it.
-let shippedProgress: { showAfterMs: number; everyMs: number } | undefined;
-async function fastProgress() {
-  const { progressTiming } = await import("../src/discord/progress.ts");
-  shippedProgress ??= { ...progressTiming };
-  Object.assign(progressTiming, { showAfterMs: 150, everyMs: 40 });
-}
-afterEach(async () => {
-  if (!shippedProgress) return;
-  Object.assign((await import("../src/discord/progress.ts")).progressTiming, shippedProgress);
-  shippedProgress = undefined;
-});
 
 discordScenario("the progress message shows each endpoint's result as its worker records it: the impact and how many changes, or unverified with why (#343)", async (s) => {
   await acmeApi(s);
