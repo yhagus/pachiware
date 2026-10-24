@@ -251,9 +251,9 @@ discordScenario("the progress message shows each endpoint's result as its worker
   expect(rest).toEqual([]);
   expect(answer!.content).toBe(`The acme/api changelog is written: ${WRITTEN}`);
   const shown = progress!.edits.map((e) => e.content ?? "");
-  expect(shown.find((t) => t.includes("1 of 3 endpoints traced"))).toContain("\n-# POST /api/v2/users · breaking, 4 changes");
-  expect(shown.find((t) => t.includes("2 of 3 endpoints traced"))).toContain("\n-# POST /api/v2/users · breaking, 4 changes\n-# GET /api/v2/users/export · non-breaking, 1 change");
-  expect(shown.find((t) => t.includes("3 of 3 endpoints traced (1 unverified)"))).toContain("\n-# DELETE /api/v2/sessions · unverified: Its route is registered from config at runtime.");
+  expect(shown.find((t) => t.includes("1 of 3 candidates traced: 1 changed\n"))).toContain("\n-# POST /api/v2/users · breaking, 4 changes");
+  expect(shown.find((t) => t.includes("2 of 3 candidates traced: 2 changed\n"))).toContain("\n-# POST /api/v2/users · breaking, 4 changes\n-# GET /api/v2/users/export · non-breaking, 1 change");
+  expect(shown.find((t) => t.includes("3 of 3 candidates traced: 2 changed, 1 unverified\n"))).toContain("\n-# DELETE /api/v2/sessions · unverified: Its route is registered from config at runtime.");
   expect(shown.at(-1)).toMatch(/^-# 🧠 Done in /);
 });
 

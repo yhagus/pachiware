@@ -42,6 +42,11 @@ const whenQuestion = (asks: string[], either: [string, string] | null, q: Record
 const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const list = (items: string[], and: string) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ${and} ${items.at(-1)}`);
+/** A count's parts after a colon, those that are zero (falsy) left out; nothing when all are. */
+const split = (parts: (string | 0)[]) => {
+  const shown = parts.filter((p): p is string => !!p);
+  return shown.length ? `: ${shown.join(", ")}` : "";
+};
 
 const DOCUMENT_NAMES = typeNames(DOCUMENT_TYPES);
 
@@ -351,8 +356,12 @@ const en = {
     minutes: (n: number) => `${n} min`,
     recorded: (n: number) => `${n} endpoint${n === 1 ? "" : "s"} recorded`,
     files: (done: number, total: number) => `${done} of ${total} changed file${total === 1 ? "" : "s"} done`,
-    /** How far a changelog's candidate endpoints are traced, and each one's result as its worker recorded it (#343). */
-    endpoints: (done: number, total: number, unverified: number) => `${done} of ${total} endpoint${total === 1 ? "" : "s"} traced${unverified ? ` (${unverified} unverified)` : ""}`,
+    /**
+     * How far a changelog's candidate endpoints are traced, split by how they turned out, the parts that are zero left out (#367); and
+     * each one's result as its worker recorded it (#343).
+     */
+    endpoints: (done: number, total: number, { changed, unchanged, unverified }: { changed: number; unchanged: number; unverified: number }) =>
+      `${done} of ${total} candidate${total === 1 ? "" : "s"} traced${split([changed && `${changed} changed`, unchanged && `${unchanged} unchanged`, unverified && `${unverified} unverified`])}`,
     traced: (impact: string | undefined, changes: number) => `${impact ? `${impact}, ` : ""}${changes} change${changes === 1 ? "" : "s"}`,
     unchanged: "no change",
     unverified: (reason: string) => `unverified: ${reason}`,
@@ -645,7 +654,8 @@ const id: typeof en = {
     minutes: (n) => `${n} menit`,
     recorded: (n) => `${n} endpoint tercatat`,
     files: (done, total) => `${done} dari ${total} file berubah selesai`,
-    endpoints: (done, total, unverified) => `${done} dari ${total} endpoint selesai ditelusuri${unverified ? ` (${unverified} tidak terverifikasi)` : ""}`,
+    endpoints: (done, total, { changed, unchanged, unverified }) =>
+      `${done} dari ${total} kandidat ditelusuri${split([changed && `${changed} berubah`, unchanged && `${unchanged} tidak berubah`, unverified && `${unverified} tidak terverifikasi`])}`,
     traced: (impact, changes) => `${impact ? `${impact}, ` : ""}${changes} perubahan`,
     unchanged: "tidak berubah",
     unverified: (reason) => `tidak terverifikasi: ${reason}`,

@@ -284,8 +284,11 @@ export type OpenDraft = {
   examined?: number; setAside?: number; left?: number;
   progressMessage?: ProgressMessage;
   work?: WorkState;
-  /** How the tracing of its candidate endpoints stands, with the latest results, newest last (#343). */
-  candidates?: { waiting: number; traced: number; failed: number; latest: TraceResult[] };
+  /**
+   * How the tracing of its candidate endpoints stands, with the latest results, newest last (#343): how many wait, and those traced as a
+   * Changed endpoint, unchanged, or failed and so unverified (#367).
+   */
+  candidates?: { waiting: number; changed: number; unchanged: number; failed: number; latest: TraceResult[] };
 };
 /** One candidate's result as people read it: what its worker recorded (the impact and how many changes), that it is unchanged, or why it failed. */
 export type TraceResult = { endpoint: string } & ({ recorded: string[]; impact?: string; changes: number } | { unchanged: true } | { failed: string });
@@ -772,11 +775,12 @@ function recordedChanges(doc: Json, recorded: string[]) {
 /** A candidate's result as traceEndpoints and the progress message give it. */
 const resultOf = (doc: Json, c: Candidate): TraceResult => (c.state === "failed" ? { endpoint: endpointOf(c), failed: c.reason ?? "" } : c.unchanged ? { endpoint: endpointOf(c), unchanged: true } : { endpoint: endpointOf(c), recorded: c.recorded ?? [], ...recordedChanges(doc, c.recorded ?? []) });
 
-/** How the tracing of a draft's candidates stands: how many wait, are traced or failed, and the latest results. */
+/** How the tracing of a draft's candidates stands: how many wait, are traced as changed or unchanged, or failed, and the latest results. */
 function tracing(doc: Json, candidates: Candidate[]): NonNullable<OpenDraft["candidates"]> {
   const count = (state: Candidate["state"]) => candidates.filter((c) => c.state === state).length;
+  const unchanged = candidates.filter((c) => c.state === "traced" && c.unchanged).length;
   const done = candidates.filter((c) => c.state !== "waiting" && c.at).sort((a, b) => a.at!.localeCompare(b.at!));
-  return { waiting: count("waiting"), traced: count("traced"), failed: count("failed"), latest: done.slice(-LATEST_RESULTS).map((c) => resultOf(doc, c)) };
+  return { waiting: count("waiting"), changed: count("traced") - unchanged, unchanged, failed: count("failed"), latest: done.slice(-LATEST_RESULTS).map((c) => resultOf(doc, c)) };
 }
 
 /** A candidates list as traceEndpoints takes it: each a method and the full path, with an optional note. */

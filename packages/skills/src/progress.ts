@@ -89,7 +89,8 @@ export function draftProgress(d: Pick<OpenDraft, "changedFiles" | "examined" | "
   if (d.left !== undefined && d.changedFiles !== undefined) lines.push(t.files(d.examined! + d.setAside!, d.changedFiles));
   const c = d.candidates;
   if (c) {
-    lines.push(t.endpoints(c.traced + c.failed, c.traced + c.failed + c.waiting, c.failed));
+    const done = c.changed + c.unchanged + c.failed;
+    lines.push(t.endpoints(done, done + c.waiting, { changed: c.changed, unchanged: c.unchanged, unverified: c.failed }));
     const reason = (text: string) => (text.length > REASON_SHOWN ? `${text.slice(0, REASON_SHOWN - 1)}…` : text);
     for (const r of c.latest) lines.push(`-# ${r.endpoint} · ${"failed" in r ? t.unverified(reason(r.failed)) : "unchanged" in r ? t.unchanged : t.traced(r.impact, r.changes)}`);
   }
