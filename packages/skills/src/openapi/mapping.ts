@@ -1,6 +1,6 @@
 import { readPlaybookFile } from "../playbooks.js";
 import { asUntrusted } from "../guardrails.js";
-import { draftName, mappingWork, settleFiles, type ChangedFile } from "./changelog.js";
+import { draftName, listRouteFiles, mappedKind, mappingWork, settleFiles, type ChangedFile } from "./changelog.js";
 import { cutByTurn, fanOut, WORKER_READS, workerBudget, workerLimit } from "./workers.js";
 import type { SkillContext, WorkerOutcome } from "../types.js";
 
@@ -43,19 +43,23 @@ export function mappingGroups<T extends Weighed>(files: T[]): T[][] {
 
 type Work = Awaited<ReturnType<typeof mappingWork>>;
 
-/** What one worker starts from: the draft's repository, commits and conventions, the same for every worker, and its files last. */
+/**
+ * What one worker starts from: the draft's repository, commits and conventions, the same for every worker, and its files last. The whole
+ * history has no base: its worker reads its route files at head, each route they declare NEW, and is told how they were chosen (#373).
+ */
 function briefOf(work: Work, draft: string, group: ChangedFile[]) {
-  const many = group.length === 1 ? "file" : `${group.length} files`;
+  const kind = mappedKind(work.scope), many = group.length === 1 ? kind : `${group.length} ${kind}s`;
   return [
-    `Map ${group.length === 1 ? "one changed file" : `${group.length} changed files`} of the API changelog of ${work.repo}${"account" in work ? ` (git account ${work.account})` : ""}, branch ${work.branch}, and record how each ends in the changelog's draft before you stop.`,
-    `Base: ${work.base.commit} (${work.base.ref}); head: ${work.head.commit} (${work.head.ref}). Read code at them by passing each as the ref.`,
+    `Map ${group.length === 1 ? `one ${kind}` : many} of the API changelog of ${work.repo}${"account" in work ? ` (git account ${work.account})` : ""}, branch ${work.branch}, and record how each ends in the changelog's draft before you stop.`,
+    work.base ? `Base: ${work.base.commit} (${work.base.ref}); head: ${work.head.commit} (${work.head.ref}). Read code at them by passing each as the ref.`
+      : `Head: ${work.head.commit} (${work.head.ref}). Nothing came before this changelog: it covers the whole history, so every route your files declare is NEW. Read them at head by passing it as the ref.`,
     `Draft: ${draft}. Pass it to putChangelogMapping.`,
     "",
     "The repository's conventions, as the changelog's main work wrote them down:",
     asUntrusted("conventions summary", work.conventions),
     "",
-    `Your ${many}, with how ${group.length === 1 ? "it" : "each"} changed:`,
-    asUntrusted("changed files", group.map((f) => `- ${f.path} (${f.status}${f.oldPath ? `, was ${f.oldPath}` : ""})`).join("\n")),
+    ...(work.base ? [`Your ${many}, with how ${group.length === 1 ? "it" : "each"} changed:`, asUntrusted("changed files", group.map((f) => `- ${f.path} (${f.status}${f.oldPath ? `, was ${f.oldPath}` : ""})`).join("\n"))]
+      : [`Your ${many}, which the changelog's main work chose as follows:`, asUntrusted("how the route files were chosen", work.chosenBy ?? ""), ...group.map((f) => `- ${f.path}`)]),
   ].join("\n");
 }
 
@@ -67,18 +71,19 @@ function whyUnmapped(outcome: WorkerOutcome, path: string) {
   return (line ? line.slice(path.length + 1).trim() : outcome.answer.trim()).slice(0, REASON_CHARS) || "its worker ended without mapping it";
 }
 
-const files = (n: number) => `${n} changed file${n === 1 ? "" : "s"}`;
-
 /**
  * mapChangedFiles: hands the changed files neither mapped nor set aside to mapping workers, a group each, while the turn has time, at most
  * the tenant's `playbookWorkers` at once (ADR 0026). A file a worker left unmapped joins a later group; the second worker to leave it lists
  * it as unverified. A worker that could not reach the model, that a service failed for good, or that the turn's time cut short leaves its
  * files waiting and no more start; the turn then ends as the host's rules for those say (#358, #359). Returns counts, never what was read.
+ * For the whole history the files are the route files at head, which `routeFiles` and `chosenBy` list first (#373).
  */
-export async function mapChangedFiles(ctx: SkillContext, args: { draft?: unknown }, playbook: string) {
+export async function mapChangedFiles(ctx: SkillContext, args: { draft?: unknown; routeFiles?: unknown; chosenBy?: unknown }, playbook: string) {
   const workers = ctx.workers;
   if (!workers) throw new Error("Changed files can only be mapped in a chat turn. Nothing was mapped.");
+  const listed = args.routeFiles !== undefined || args.chosenBy !== undefined ? await listRouteFiles(ctx, args.draft, args) : undefined;
   const work = await mappingWork(ctx, args.draft), draft = String(args.draft).trim();
+  const files = (n: number) => `${n} ${mappedKind(work.scope)}${n === 1 ? "" : "s"}`;
   const [rules, limit] = await Promise.all([readPlaybookFile(ctx.tenantId, playbook, "mapping.md", ctx.guildId), workerLimit(ctx.tenantId)]);
   if (!rules) throw new Error(`The ${playbook} playbook has no mapping.md, so no worker can map. Nothing was mapped.`);
   // The files still to map; those a worker has are busy, and one it leaves unmapped goes back, to join the next group formed.
@@ -100,15 +105,16 @@ export async function mapChangedFiles(ctx: SkillContext, args: { draft?: unknown
   });
 
   const waiting = stands.files.left, { candidates, globalChanges, removedOperations } = stands;
-  const listed = unverified ? `; ${unverified} could not be mapped and ${unverified === 1 ? "is" : "are"} listed as unverified` : "";
+  const unmappable = unverified ? `; ${unverified} could not be mapped and ${unverified === 1 ? "is" : "are"} listed as unverified` : "";
   // A change to every endpoint and a route taken away are recorded in the notes, not as candidates: the changelog has them without tracing.
   const noted = [globalChanges && `${globalChanges} global change${globalChanges === 1 ? "" : "s"}`, removedOperations && `${removedOperations} removed endpoint${removedOperations === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
-  const note = halted === "model" ? "The model could not be reached, so the changed files not mapped wait for the next turn. Say nothing more now."
-    : halted === "service" ? "A service the work reads failed, so the work paused; the changed files not mapped wait."
-    : halted === "stopped" ? "The person pressed Stop: the changed files not mapped wait."
+  const kind = mappedKind(work.scope);
+  const note = halted === "model" ? `The model could not be reached, so the ${kind}s not mapped wait for the next turn. Say nothing more now.`
+    : halted === "service" ? `A service the work reads failed, so the work paused; the ${kind}s not mapped wait.`
+    : halted === "stopped" ? `The person pressed Stop: the ${kind}s not mapped wait.`
     : waiting ? `This turn's time is nearly out: ${files(waiting)} wait${waiting === 1 ? "s" : ""} to be mapped, and the next turn goes on with ${waiting === 1 ? "it" : "them"} through mapChangedFiles.`
-    : candidates ? `Every changed file is mapped or set aside${listed}. Trace the ${candidates} candidate endpoint${candidates === 1 ? "" : "s"} with traceEndpoints.`
-    : noted ? `Every changed file is mapped or set aside${listed}, and no candidate endpoint is kept to trace; the notes hold ${noted}: call finishChangelog.`
-    : `Every changed file is mapped or set aside${listed}, and no change reaches an endpoint: call finishChangelog.`;
-  return { mapped, unverified, files: stands.files, candidates, ...(globalChanges ? { globalChanges } : {}), ...(removedOperations ? { removedOperations } : {}), note };
+    : candidates ? `Every ${kind} is mapped or set aside${unmappable}. Trace the ${candidates} candidate endpoint${candidates === 1 ? "" : "s"} with traceEndpoints.`
+    : noted ? `Every ${kind} is mapped or set aside${unmappable}, and no candidate endpoint is kept to trace; the notes hold ${noted}: call finishChangelog.`
+    : `Every ${kind} is mapped or set aside${unmappable}, and no change reaches an endpoint: call finishChangelog.`;
+  return { ...(listed !== undefined ? { routeFiles: listed } : {}), mapped, unverified, files: stands.files, candidates, ...(globalChanges ? { globalChanges } : {}), ...(removedOperations ? { removedOperations } : {}), note };
 }

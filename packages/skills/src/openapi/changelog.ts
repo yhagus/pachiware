@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { workspaceStore, MAX_BLOB_BYTES, WorkspaceConflict } from "../workspace/store.js";
 import { placeRoot, resolvePath, safeId } from "../workspace/paths.js";
 import { checkThreadWrite } from "../workspace/threads.js";
-import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, goneFrom, lastCommitBy, READ_PAGE, type GitConn, type TreeFile } from "../git.js";
+import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, goneFrom, lastCommitBy, READ_PAGE, repoTree, type GitConn, type TreeFile } from "../git.js";
 import { readRepo } from "../builtin/gitShared.js";
 import { DEFAULT_TIMEZONE, isoInZone, now, zonedTime } from "../clock.js";
 import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, changeCounts, escapePointer, iterOperations, mostSevere, recordsNothing, resolveLocal, validateChangelog, validateOperation } from "./validate.js";
@@ -30,6 +30,11 @@ type DraftMeta = {
    * not yet read whole (#347). A draft from before mapping kept an `examined` list instead, which nothing reads: its files start unmapped.
    */
   base?: string; head?: string; files?: ChangedFile[]; mapping?: Record<string, FileMapping>; reads?: Record<string, Partial<Record<Side, { total: number; read: [number, number][] }>>>;
+  /**
+   * The whole history keeps its head in full and maps the files that declare routes there instead (#373): `files` lists them once the main
+   * loop named them, by path or pattern (`given`), with how it chose them (`chosenBy`).
+   */
+  routeFiles?: { given: string[]; chosenBy: string };
   /** When the draft last changed, by the agent's clock; one untouched for DRAFT_IDLE_MS is dropped (#348). */
   touchedAt?: string;
   /** The person asked to publish it too: finishing publishes it as it writes it (#349). */
@@ -233,6 +238,10 @@ function accounting(meta: DraftMeta, setAside: SetAside[] = []) {
 
 /** What a range's draft from before drafts listed their changed files must do before its files can be mapped or its endpoints traced. */
 const UNLISTED = "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage.";
+/** What a whole-history draft must do before anything is mapped, traced or written: list its route files (#373). */
+const NO_ROUTE_FILES = "This changelog covers the whole history, and its draft lists no route files yet: call mapChangedFiles with routeFiles, the files that declare routes at head (their paths, or patterns such as src/**/*.controller.ts, matched against head's tree), and chosenBy, how you chose them from the conventions summary and the head tree.";
+/** What a draft maps, as its refusals and notes name it: a range's changed files, or the whole history's route files (#373). */
+export const mappedKind = (scope: Scope) => (scope === "all" ? "route file" : "changed file");
 /** How many of the files or candidate endpoints left a refusal names. */
 const NAMED_LEFT = 10;
 /** The files left, one "- path" line each, as a refusal names them. */
@@ -769,7 +778,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     const meta: DraftMeta = {
       repo, ...(args.account ? { account: args.account } : {}), branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to,
       ...(ctx.channelId ? { place: ctx.channelId } : {}), ...(ctx.userId ? { startedBy: { id: ctx.userId, ...(ctx.userName ? { name: ctx.userName } : {}) } } : {}), changedFiles: changed.totalFiles,
-      ...(files ? { base: base.commit, head: head.commit, files } : {}), ...(args.publish === true ? { publish: true } : {}),
+      ...(files ? { base: base.commit, head: head.commit, files } : covers.scope === "all" ? { head: head.commit } : {}), ...(args.publish === true ? { publish: true } : {}),
       ...("commits" in changed ? { commits: changed.commits } : {}),
       // Started, it is worked on until it ends or pauses (#361).
       work: { state: "worked-on" },
@@ -791,11 +800,15 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     ...(same ? { goesOn: "This is the changelog already open here, for the same repository, branch and coverage: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to." } : {}),
     ...(moved && moved.head !== moved.from ? { lastDay: `${covers.to} had not ended when this changelog was pinned: its head moved from ${short(moved.from)} to that day's last commit, ${short(moved.head)}, adding ${moved.commits} commit${moved.commits === 1 ? "" : "s"}. The files they changed are to be mapped again, and the traced candidates those files reach are traced again. Say so in one line.` } : {}),
     changedFiles: changed,
-    ...(seen.counted ? { mappingNote: `Before it is written, every changed file must be mapped or set aside with a reason (putChangelogNotes setAside). Set aside first what cannot change what the frontend sees, then map the rest with mapChangedFiles: its workers read the patches and record how each file ends. Mapped so far: ${seen.counted.mapped} of ${seen.counted.files}.` } : {}),
+    ...(covers.scope === "all" ? { mappingNote: seen.counted ? `Its route files are listed: ${seen.counted.mapped} of ${seen.counted.files} mapped so far. Call mapChangedFiles with the draft to go on with the rest.` : LIST_ROUTE_FILES }
+      : seen.counted ? { mappingNote: `Before it is written, every changed file must be mapped or set aside with a reason (putChangelogNotes setAside). Set aside first what cannot change what the frontend sees, then map the rest with mapChangedFiles: its workers read the patches and record how each file ends. Mapped so far: ${seen.counted.mapped} of ${seen.counted.files}.` } : {}),
     ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
     ...(written ? { alreadyWritten: `${at.folder}/${written}`, alreadyNote: "A changelog of these same commits was written before. Offer it with sendFiles unless the person asked to write it again." } : {}),
   };
 }
+
+/** How a changelog of the whole history is mapped, as startChangelog says it (#373). */
+const LIST_ROUTE_FILES = "Nothing came before, so the files mapped are those that declare routes at head. Once the conventions summary is written, choose them from it and from head's tree (repoTree), and call mapChangedFiles with routeFiles (their paths, or patterns such as src/**/*.controller.ts) and chosenBy (how you chose them): its workers read each whole at head and keep every route it declares as a NEW candidate.";
 
 /** The first page of every file at head, with how to list the rest. */
 async function headFiles(conn: GitConn, repo: string, head: string) {
@@ -970,12 +983,14 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
   const given = list.map(checkMapping);
   return withDraft(ctx, sent.draft, (doc) => {
     const meta: DraftMeta = doc["x-draft"], changelog = doc.info["x-changelog"];
-    if (!meta.files) throw new Error(meta.scope === "range" ? `${UNLISTED} Nothing was mapped.` : "A changelog of the whole history has no changed files to map. Nothing was mapped.");
-    const strangers = given.filter((g) => !fileOf(meta, g.path)).map((g) => g.path);
-    if (strangers.length) throw new Error(`Nothing was mapped: ${strangers.join(", ")} ${strangers.length === 1 ? "is not a changed file" : "are not changed files"} of this changelog.`);
+    if (!meta.files) throw new Error(`${meta.scope === "range" ? UNLISTED : NO_ROUTE_FILES} Nothing was mapped.`);
+    const strangers = given.filter((g) => !fileOf(meta, g.path)).map((g) => g.path), kind = mappedKind(meta.scope);
+    if (strangers.length) throw new Error(`Nothing was mapped: ${strangers.join(", ")} ${strangers.length === 1 ? `is not a ${kind}` : `are not ${kind}s`} of this changelog.`);
     const files = given.map((g) => ({ ...g, file: fileOf(meta, g.path)! })), unread = [...new Set(files.filter((f) => !isRead(meta, f.file)).map((f) => f.file))];
     if (unread.length) {
-      throw new Error(`Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from ${short(meta.base!)} to ${short(meta.head!)} (or every line at either commit with repoReadFile):\n${unread.map((f) => leftToRead(meta, f)).join("\n")}`);
+      // From the empty tree a file's patch is the whole file, which only a read at head gives (#373).
+      const how = meta.base ? `with repoFileDiff from ${short(meta.base)} to ${short(meta.head!)} (or every line at either commit with repoReadFile)` : `every line at head (${short(meta.head!)}) with repoReadFile`;
+      throw new Error(`Nothing was mapped: a file is mapped only once its whole patch was read. Read first, ${how}:\n${unread.map((f) => leftToRead(meta, f)).join("\n")}`);
     }
     const added: string[] = [];
     for (const { file, change, endpoints, none, global, removed } of files) {
@@ -1039,14 +1054,45 @@ const NO_CONVENTIONS_TO_MAP = "This changelog's draft holds no conventions summa
 export async function mappingWork(ctx: SkillContext, draft: unknown) {
   const doc = (await readJson(ctx.tenantId, draftPath(ctx, draft)))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
   if (!meta) throw new Error("No such draft: start it with startChangelog.");
-  if (!meta.files) throw new Error(meta.scope === "range" ? "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage. Nothing was mapped." : "A changelog of the whole history has no changed files to map. Nothing was mapped.");
+  if (!meta.files && meta.scope === "range") throw new Error(`${UNLISTED} Nothing was mapped.`);
   if (!meta.conventions) throw new Error(NO_CONVENTIONS_TO_MAP);
+  if (!meta.files) throw new Error(`${NO_ROUTE_FILES} Nothing was mapped.`);
   const changelog = doc.info["x-changelog"], counted = accounting(meta, changelog.setAside);
   return {
-    files: counted.left, counted: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0, ...notesOf(changelog),
+    scope: meta.scope, files: counted.left, counted: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0, ...notesOf(changelog),
     repo: meta.repo, ...(meta.account ? { account: meta.account } : {}), branch: meta.branch, conventions: meta.conventions,
-    base: { commit: meta.base!, ref: changelog.base?.ref as string }, head: { commit: meta.head!, ref: changelog.head?.ref as string },
+    // The whole history has no base: its workers read head only, and know how its route files were chosen (#373).
+    base: meta.base ? { commit: meta.base, ref: changelog.base?.ref as string } : null, head: { commit: meta.head!, ref: changelog.head?.ref as string },
+    ...(meta.routeFiles ? { chosenBy: meta.routeFiles.chosenBy } : {}),
   };
+}
+
+/**
+ * Lists a whole-history draft's route files as mapChangedFiles is given them (#373): `routeFiles`, paths or patterns the main loop chose
+ * from the conventions summary and head's tree, matched against that tree, and `chosenBy`, how it chose them. A list given again replaces
+ * the one kept, and the files still listed keep how far they were mapped. A name matching no file of head lists nothing.
+ */
+export async function listRouteFiles(ctx: SkillContext, draft: unknown, sent: { routeFiles?: unknown; chosenBy?: unknown }) {
+  const list = fromText(sent.routeFiles, "routeFiles"), chosenBy = typeof sent.chosenBy === "string" ? sent.chosenBy.trim().slice(0, NOTE_CHARS) : "";
+  if (!Array.isArray(list) || !list.length || !list.every((g) => typeof g === "string" && g.trim()) || !chosenBy) {
+    throw new Error('routeFiles is a list of the files that declare routes at head, by path or pattern ("src/**/*.controller.ts", "routes/api.php"), and chosenBy says how you chose them. Nothing was listed or mapped.');
+  }
+  const given = list.map((g: string) => g.trim()), doc = (await readJson(ctx.tenantId, draftPath(ctx, draft)))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
+  if (!meta) throw new Error("No such draft: start it with startChangelog.");
+  if (meta.scope !== "all") throw new Error("routeFiles is only for a changelog of the whole history: a range maps the files its commits changed. Call mapChangedFiles with the draft alone. Nothing was listed or mapped.");
+  if (!meta.conventions) throw new Error(NO_CONVENTIONS_TO_MAP);
+  if (!meta.head) throw new Error("This changelog of the whole history was started before drafts kept their head commit in full, so its route files cannot be listed: tell the person who started it to stop it and ask for it again. Nothing was listed or mapped.");
+  const head = meta.head, tree = await readRepo({ repo: meta.repo, account: meta.account }, ctx, (conn, repo) => repoTree(conn, repo, head));
+  const { files, unmatched } = routeFilesAt(tree.files, given);
+  if (unmatched.length) {
+    throw new Error(`Nothing was listed or mapped: ${unmatched.join(", ")} ${unmatched.length === 1 ? "matches" : "match"} no file at head (${short(head)}). Name the files that declare routes at head by their paths, or by patterns that match them; repoTree lists head's files.`);
+  }
+  return withDraft(ctx, draft, (doc) => {
+    const meta: DraftMeta = doc["x-draft"], listed = new Set(files.map((f) => f.path));
+    for (const kept of [meta.mapping, meta.reads]) for (const path of Object.keys(kept ?? {})) if (!listed.has(path)) delete kept![path];
+    Object.assign(meta, { files, routeFiles: { given, chosenBy } });
+    return files.length;
+  });
 }
 
 /**
@@ -1114,9 +1160,11 @@ export async function takeCandidates(ctx: SkillContext, draft: unknown, sent: un
     const meta: DraftMeta = doc["x-draft"], changelog = doc.info["x-changelog"];
     if (!meta.conventions) throw new Error(NO_CONVENTIONS);
     // Tracing waits until every changed file is mapped, so the total it starts from is final (#369, ADR 0026).
-    if (meta.scope === "range" && !meta.files) throw new Error(`${UNLISTED} Nothing was traced.`);
-    const counted = meta.files ? accounting(meta, changelog.setAside) : null;
-    if (counted?.left.length) throw new Error(`${counted.left.length} of ${counted.files} changed files ${counted.left.length === 1 ? "is" : "are"} not mapped yet, so nothing was traced: tracing waits until every changed file is mapped, so that the candidates it counts are all there are. Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside; then call traceEndpoints again. Not mapped yet:\n${namedFiles(counted.left)}`);
+    // The whole history's candidates are the routes of the files it lists, so it waits for that list too (#373).
+    if (!meta.files) throw new Error(`${meta.scope === "range" ? UNLISTED : NO_ROUTE_FILES} Nothing was traced.`);
+    const counted = accounting(meta, changelog.setAside), kind = mappedKind(meta.scope);
+    const mapThem = meta.scope === "all" ? "Map them with mapChangedFiles" : "Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside";
+    if (counted.left.length) throw new Error(`${counted.left.length} of ${counted.files} ${kind}s ${counted.left.length === 1 ? "is" : "are"} not mapped yet, so nothing was traced: tracing waits until every ${kind} is mapped, so that the candidates it counts are all there are. ${mapThem}; then call traceEndpoints again. Not mapped yet:\n${namedFiles(counted.left)}`);
     const kept = (meta.candidates ??= []);
     if (!kept.length) throw new Error("No mapped file reaches an endpoint, so this changelog keeps no candidate endpoint to trace. Record removed endpoints with putChangelogNotes, then call finishChangelog. Nothing was traced.");
     return {
@@ -1189,12 +1237,15 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     const found = await readJson(ctx.tenantId, full);
     if (!found) throw new Error("No such draft: start it with startChangelog.");
     const { "x-draft": meta, ...doc } = found.doc, changelog = doc.info["x-changelog"];
+    // The whole history records the routes of the files it lists, so a draft that lists none has mapped nothing yet (#373).
+    if (meta?.scope === "all" && !meta.files) return { written: false, fix: `${NO_ROUTE_FILES} Once they are mapped and their candidates traced, call finishChangelog again.` };
     // Every changed file mapped or set aside first, even when nothing was recorded: a turn cut short must not end the changelog (#347, ADR 0026).
     const left = meta?.files ? accounting(meta, changelog.setAside).left : [];
     if (left.length) {
       return {
         written: false, unmapped: left.length, files: left.slice(0, NAMED_LEFT).map((f) => f.path),
-        fix: "Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.",
+        fix: meta.scope === "all" ? "Map them with mapChangedFiles; then call finishChangelog again."
+          : "Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.",
       };
     }
     // Every candidate traced or failed too: one still waiting may be a Changed endpoint, so finishing now could say nothing changed (#369).
