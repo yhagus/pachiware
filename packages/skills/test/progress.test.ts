@@ -81,6 +81,17 @@ test("a range whose head moved to the end of its last day says so in the line be
   expect(draftProgress({ to: "2026-10-22", commits: 1, changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "en")).toBe("1 commit · 2 of 7 changed files mapped");
 });
 
+test("the whole history counts its route files mapped of those listed and the candidates found, not the files at head; tracing follows once all are mapped (#373)", () => {
+  const mapping = { scope: "all" as const, changedFiles: 1_480, mapped: 12, setAside: 0, left: 57, candidates: { waiting: 706, changed: 0, unchanged: 0, failed: 0, latest: [] } };
+  expect(draftProgress(mapping, "id")).toBe("12 dari 69 file route dipetakan · 706 kandidat");
+  expect(draftProgress(mapping, "en")).toBe("12 of 69 route files mapped · 706 candidates");
+  const tracing = { ...mapping, mapped: 69, left: 0, candidates: { waiting: 678, changed: 27, unchanged: 0, failed: 1, latest: [] } };
+  expect(draftProgress(tracing, "id")).toBe("69 dari 69 file route dipetakan · 706 kandidat\n28 dari 706 kandidat ditelusuri: 27 berubah, 1 tidak terverifikasi");
+  // Before a candidate is found the count is left out, and a draft that lists no route files yet shows nothing of its files.
+  expect(draftProgress({ scope: "all", changedFiles: 1_480, mapped: 0, setAside: 0, left: 69 }, "en")).toBe("0 of 69 route files mapped");
+  expect(draftProgress({ scope: "all", changedFiles: 1_480 }, "en")).toBeNull();
+});
+
 test("time reads in seconds under a minute and in whole minutes after", () => {
   expect(elapsed(12_400, "id")).toBe("12 detik");
   expect(elapsed(254_000, "id")).toBe("4 menit");
