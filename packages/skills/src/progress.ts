@@ -49,7 +49,7 @@ const STAGES: Record<string, { stage: string; tools: string[] }[]> = {
   "contract-diff": [
     { stage: "range", tools: reads("startChangelog") },
     { stage: "conventions", tools: ["readPlaybookFile"] },
-    { stage: "reading", tools: reads("repoCompare", "repoFileDiff", "repoReadFile", "repoTree") },
+    { stage: "mapping", tools: [...reads("repoCompare", "repoFileDiff", "repoReadFile", "repoTree"), "putChangelogMapping"] },
     { stage: "tracing", tools: [...reads("repoSearchCode", "repoFindDefinition"), "traceEndpoints", "putChangelogOperation", "putChangelogComponents"] },
     { stage: "checking", tools: ["finishChangelog"] },
     { stage: "publishing", tools: ["publishOpenApi"] },
@@ -81,16 +81,17 @@ export function elapsed(ms: number, language?: Language): string {
 const REASON_SHOWN = 100;
 
 /**
- * An open Changelog draft's lines in its progress message: the commits its range holds and how many changed files are done (#367), and
- * how far its candidate endpoints are traced, with the latest results as their workers recorded them (#343). Null when it has neither.
+ * An open Changelog draft's lines in its progress message: the commits its range holds (#367), how many changed files are mapped with the
+ * candidates found so far, or that all are (#366), and how far its candidate endpoints are traced, with the latest results as their
+ * workers recorded them (#343). While files are left and none is traced, the files line alone counts the candidates. Null when it has neither.
  */
 export function draftProgress(d: Pick<OpenDraft, "commits" | "changedFiles" | "mapped" | "setAside" | "left" | "candidates">, language?: Language): string | null {
   const t = textIn(language).progress, lines: string[] = [];
-  const files = d.left === undefined || d.changedFiles === undefined ? undefined : d.left === 0 ? t.filesDone(d.changedFiles) : t.files(d.mapped! + d.setAside!, d.changedFiles);
+  const c = d.candidates, found = c ? c.waiting + c.changed + c.unchanged + c.failed : 0, mapping = !!d.left && d.changedFiles !== undefined;
+  const files = d.left === undefined || d.changedFiles === undefined ? undefined : d.left === 0 ? t.filesDone(d.changedFiles) : t.files(d.mapped! + d.setAside!, d.changedFiles, found);
   const range = [d.commits !== undefined ? t.commits(d.commits) : undefined, files].filter((part): part is string => !!part);
   if (range.length) lines.push(range.join(" · "));
-  const c = d.candidates;
-  if (c) {
+  if (c && !(mapping && c.waiting === found)) {
     const done = c.changed + c.unchanged + c.failed;
     lines.push(t.endpoints(done, done + c.waiting, { changed: c.changed, unchanged: c.unchanged, unverified: c.failed }));
     const reason = (text: string) => (text.length > REASON_SHOWN ? `${text.slice(0, REASON_SHOWN - 1)}…` : text);

@@ -355,7 +355,8 @@ const en = {
     seconds: (n: number) => `${n} s`,
     minutes: (n: number) => `${n} min`,
     recorded: (n: number) => `${n} endpoint${n === 1 ? "" : "s"} recorded`,
-    files: (done: number, total: number) => `${done} of ${total} changed file${total === 1 ? "" : "s"} done`,
+    /** How many of a range's changed files are mapped, with the candidate endpoints found so far (#366). */
+    files: (done: number, total: number, candidates: number) => `${done} of ${total} changed file${total === 1 ? "" : "s"} mapped${candidates ? ` · ${candidates} candidate${candidates === 1 ? "" : "s"} so far` : ""}`,
     /**
      * How far a changelog's candidate endpoints are traced, split by how they turned out, the parts that are zero left out (#367); and
      * each one's result as its worker recorded it (#343).
@@ -365,13 +366,13 @@ const en = {
     traced: (impact: string | undefined, changes: number) => `${impact ? `${impact}, ` : ""}${changes} change${changes === 1 ? "" : "s"}`,
     unchanged: "no change",
     unverified: (reason: string) => `unverified: ${reason}`,
-    /** A changelog's range: how many commits it holds, which start its files line, and that line once every changed file is done (#367). */
+    /** A changelog's range: how many commits it holds, which start its files line, and that line once every changed file is mapped (#366, #367). */
     commits: (n: number) => `${n} commit${n === 1 ? "" : "s"}`,
-    filesDone: (total: number) => `${total} changed file${total === 1 ? "" : "s"}, all done`,
+    filesDone: (total: number) => `${total} changed file${total === 1 ? "" : "s"}, all mapped`,
     stop: "Stop",
     stopOnlyAsker: (who: string) => `Only ${who} can stop this.`,
     stopEnded: "This work has already ended.",
-    stages: { range: "Pinning which changes to cover", conventions: "Learning the repository's conventions", reading: "Reading the changes", tracing: "Tracing the endpoints", checking: "Checking the changelog", publishing: "Publishing the preview" },
+    stages: { range: "Pinning which changes to cover", conventions: "Learning the repository's conventions", mapping: "Mapping the changes", tracing: "Tracing the endpoints", checking: "Checking the changelog", publishing: "Publishing the preview" },
     steps: {
       repository: { one: (s?: string) => (s ? `Opening the repository ${s}` : "Looking over the repositories"), many: (_n: number) => "Looking over the repositories" },
       changes: { one: (s?: string) => (s ? `Checking what changed in ${s}` : "Checking what changed"), many: (_n: number) => "Checking what changed" },
@@ -656,18 +657,18 @@ const id: typeof en = {
     seconds: (n) => `${n} detik`,
     minutes: (n) => `${n} menit`,
     recorded: (n) => `${n} endpoint tercatat`,
-    files: (done, total) => `${done} dari ${total} file berubah selesai`,
+    files: (done, total, candidates) => `${done} dari ${total} file berubah dipetakan${candidates ? ` · ${candidates} kandidat sejauh ini` : ""}`,
     endpoints: (done, total, { changed, unchanged, unverified }) =>
       `${done} dari ${total} kandidat ditelusuri${split([changed && `${changed} berubah`, unchanged && `${unchanged} tidak berubah`, unverified && `${unverified} tidak terverifikasi`])}`,
     traced: (impact, changes) => `${impact ? `${impact}, ` : ""}${changes} perubahan`,
     unchanged: "tidak berubah",
     unverified: (reason) => `tidak terverifikasi: ${reason}`,
     commits: (n) => `${n} commit`,
-    filesDone: (total) => `${total} file berubah, semua selesai`,
+    filesDone: (total) => `${total} file berubah, semua dipetakan`,
     stop: "Hentikan",
     stopOnlyAsker: (who) => `Hanya ${who} yang bisa menghentikan ini.`,
     stopEnded: "Pekerjaan ini sudah selesai.",
-    stages: { range: "Menentukan rentang perubahan", conventions: "Mempelajari konvensi repository", reading: "Membaca perubahan", tracing: "Menelusuri endpoint", checking: "Memeriksa changelog", publishing: "Menerbitkan preview" },
+    stages: { range: "Menentukan rentang perubahan", conventions: "Mempelajari konvensi repository", mapping: "Memetakan perubahan", tracing: "Menelusuri endpoint", checking: "Memeriksa changelog", publishing: "Menerbitkan preview" },
     steps: {
       repository: { one: (s) => (s ? `Membuka repository ${s}` : "Melihat daftar repository"), many: () => "Melihat daftar repository" },
       changes: { one: (s) => (s ? `Mengecek perubahan di ${s}` : "Mengecek perubahan"), many: () => "Mengecek perubahan" },

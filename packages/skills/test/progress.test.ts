@@ -25,7 +25,8 @@ test("contract-diff's stage only moves forward, and tracing counts the endpoints
   expect(stageLine("contract-diff", at, 0, "id")).toBe("Menelusuri endpoint");
   expect(stageLine("contract-diff", at, 2, "id")).toBe("Menelusuri endpoint · 2 endpoint tercatat");
   expect(stageLine("contract-diff", stageIndex("contract-diff", "publishOpenApi", at), 2, "en")).toBe("Publishing the preview");
-  expect(stageLine("contract-diff", stageIndex("contract-diff", "repoReadFile", -1), 0, "en")).toBe("Reading the changes");
+  expect(stageLine("contract-diff", stageIndex("contract-diff", "repoReadFile", -1), 0, "en")).toBe("Mapping the changes");
+  expect(stageLine("contract-diff", stageIndex("contract-diff", "putChangelogMapping", -1), 0, "id")).toBe("Memetakan perubahan");
   expect(stageLine(undefined, stageIndex(undefined, "repoReadFile", -1), 0, "en")).toBeNull();
 });
 
@@ -58,13 +59,17 @@ test("a part of the traced split that is zero is left out, and so is the split b
   expect(draftProgress({ candidates: { waiting: 1, changed: 0, unchanged: 0, failed: 0, latest: [] } }, "en")).toBe("0 of 1 candidate traced");
 });
 
-test("a range's files line names the commits it holds and how many files changed, and says when all are done (#367)", () => {
-  const done = { commits: 46, changedFiles: 360, mapped: 350, setAside: 10, left: 0 };
-  expect(draftProgress(done, "id")).toBe("46 commit · 360 file berubah, semua selesai");
-  expect(draftProgress(done, "en")).toBe("46 commits · 360 changed files, all done");
-  expect(draftProgress({ commits: 1, changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "en")).toBe("1 commit · 2 of 7 changed files done");
-  // A draft started before drafts kept their commits shows its files alone.
-  expect(draftProgress({ changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "id")).toBe("2 dari 7 file berubah selesai");
+test("while a range's files are mapped, its line names the commits, the files mapped of all and the candidates so far; once all are mapped it says so, and the tracing line follows (#366, #367)", () => {
+  const found = { waiting: 52, changed: 0, unchanged: 0, failed: 0, latest: [] };
+  const mapping = { commits: 46, changedFiles: 360, mapped: 170, setAside: 10, left: 180, candidates: found };
+  expect(draftProgress(mapping, "id")).toBe("46 commit · 180 dari 360 file berubah dipetakan · 52 kandidat sejauh ini");
+  expect(draftProgress(mapping, "en")).toBe("46 commits · 180 of 360 changed files mapped · 52 candidates so far");
+  const tracing = { commits: 46, changedFiles: 360, mapped: 350, setAside: 10, left: 0, candidates: { waiting: 33, changed: 21, unchanged: 6, failed: 1, latest: [] } };
+  expect(draftProgress(tracing, "id")).toBe("46 commit · 360 file berubah, semua dipetakan\n28 dari 61 kandidat ditelusuri: 21 berubah, 6 tidak berubah, 1 tidak terverifikasi");
+  expect(draftProgress(tracing, "en")).toBe("46 commits · 360 changed files, all mapped\n28 of 61 candidates traced: 21 changed, 6 unchanged, 1 unverified");
+  // Before any candidate is found the count is left out, and a draft started before drafts kept their commits shows its files alone.
+  expect(draftProgress({ commits: 1, changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "en")).toBe("1 commit · 2 of 7 changed files mapped");
+  expect(draftProgress({ changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "id")).toBe("2 dari 7 file berubah dipetakan");
 });
 
 test("time reads in seconds under a minute and in whole minutes after", () => {
