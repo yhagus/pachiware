@@ -118,7 +118,7 @@ export const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve
 
 /**
  * Shortens the turn to `turnMs` and the workers' budget for a scenario. Each scenario runs in a process of its own, so the shortened budgets
- * never reach another.
+ * never reach another. Both are measured on the scenario's clock, which acmeOnGitHub pins: only a step that moves it spends them.
  */
 export async function budgets(turnMs: number, worker: Partial<{ steps: number; ms: number; leastMs: number }>) {
   const { turnDeadline } = await import("../../src/loop/react.ts");
@@ -128,8 +128,8 @@ export async function budgets(turnMs: number, worker: Partial<{ steps: number; m
 }
 /** A turn has 2 seconds, and a worker starts only with at least 1.5 left: the turn of a worker answering `outlasting` starts no other. */
 export const oneWorkerATurn = () => budgets(2000, { leastMs: 1500 });
-/** A worker's last step, answered once its turn has too little time left to start another worker (oneWorkerATurn). */
-export const outlasting = (step: string) => async () => { await pause(600); return step; };
+/** A worker's last step, which takes 600 ms of its turn's time, so the turn has too little left to start another worker (oneWorkerATurn). */
+export const outlasting = (s: Scenario, step: string) => () => { s.clock.advance(600); return step; };
 
 /** What a message to the model says, as text. */
 export const text = (message: any) => (typeof message?.content === "string" ? message.content : JSON.stringify(message?.content));

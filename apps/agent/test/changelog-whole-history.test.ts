@@ -106,7 +106,7 @@ discordScenario("tracing a whole-history draft waits until every route file it l
     // Named by their paths: 15,000 and 30,000 bytes do not fit one group.
     { tool: "mapChangedFiles", args: { draft: DRAFT, routeFiles: [USERS, ORDERS], chosenBy: CHOSEN } },
     // The first worker maps its file and answers once the turn's time is gone, so no other worker starts.
-    read(ORDERS), map(declares(ORDERS, "GET /api/v2/orders")), async () => { await pause(3200); return "Mapped."; },
+    read(ORDERS), map(declares(ORDERS, "GET /api/v2/orders")), () => { s.clock.advance(3200); return "Mapped."; },
     "One of two route files is mapped; one waits.",
     // The turn that goes on by itself starts from the draft; tracing and finishing wait for the file left.
     (turn) => { state = text(turn.messages.find((m: any) => typeof m.content === "string" && m.content.startsWith("[No one wrote this"))); context = text(turn.messages.find((m: any) => typeof m.content === "string" && m.content.startsWith("[Context for this turn"))); return [TRACE, FINISH]; },

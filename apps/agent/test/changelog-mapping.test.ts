@@ -74,7 +74,7 @@ discordScenario("a turn cut while its workers map goes on by itself with the fil
   s.model.script(
     START, NOTE_CONVENTIONS, MAP_CHANGED,
     // The first worker maps its file and answers once the turn's time is gone, so no other worker starts.
-    read(CREATE), mapNone(CREATE), async () => { await pause(3200); return "Mapped."; },
+    read(CREATE), mapNone(CREATE), () => { s.clock.advance(3200); return "Mapped."; },
     // Out of time, the main loop is asked for its answer after the tool's result.
     (turn) => { cut = JSON.parse(text(turn.messages.findLast((m: any) => m.role === "tool")).replace(/<\/?untrusted_data[^>]*>/g, "")); return "One of four changed files is mapped; three wait."; },
     // The turn that goes on by itself starts from the draft, which lists the files left.

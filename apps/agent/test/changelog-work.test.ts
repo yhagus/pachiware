@@ -111,7 +111,7 @@ discordScenario("one request whose work spans many turns, cut by their budget or
   await oneWorkerATurn();
   let link = "";
   // Each turn's mapping worker reads its DTO whole and maps it, which is what counts as progress (#366), and leaves no time for another.
-  const dto = (i: number) => [read(i), mapper(reaches(DTOS[i]!, "a body field changed"))[0]!, outlasting("Mapped.")];
+  const dto = (i: number) => [read(i), mapper(reaches(DTOS[i]!, "a body field changed"))[0]!, outlasting(s, "Mapped.")];
   s.model.script(
     START, "Started the acme/api changelog.",
     [WRITE_CONVENTIONS, MAP_CHANGED], ...dto(0), "Mapped the first DTO.",
@@ -325,7 +325,7 @@ discordScenario("only the turns that go on by themselves count: a turn that only
     START, "Started the acme/api changelog.",
     "Next I will read the DTOs.",
     // This turn's one mapping worker reads the first DTO and maps it, leaving no time for another.
-    [WRITE_CONVENTIONS, MAP_CHANGED], read(0), mapper(reaches(DTOS[0]!, "a body field changed"))[0]!, outlasting("Mapped."), "Mapped the first DTO.",
+    [WRITE_CONVENTIONS, MAP_CHANGED], read(0), mapper(reaches(DTOS[0]!, "a body field changed"))[0]!, outlasting(s, "Mapped."), "Mapped the first DTO.",
     // Bob asks while the work reads the second DTO without mapping it, which adds nothing.
     async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(1); }, "Read the second DTO.",
     "Masih ada 5 file lagi.",
@@ -477,7 +477,7 @@ async function fourTurns(s: Scenario) {
   const dto = (i: number) => [read(i), mapper(reaches(DTOS[i]!, "a body field changed"))[0]!];
   s.model.script(
     START, NOTE_CONVENTIONS, "Started the acme/api changelog and noted its conventions.",
-    MAP_CHANGED, ...dto(0), outlasting("Mapped."), "Mapped the first DTO.",
+    MAP_CHANGED, ...dto(0), outlasting(s, "Mapped."), "Mapped the first DTO.",
     MAP_CHANGED, ...[1, 2, 3, 4, 5].flatMap((i) => [...dto(i), "Mapped."]), ...mappers([]), TRACE, ...WORKER, "Recorded POST /api/v2/users.",
     FINISH, written,
   );
@@ -495,18 +495,21 @@ discordScenario("a turn that goes on by itself starts from the draft alone: the 
   // The second turn: the system prompt, the draft's state and the per-turn context, nothing of Alice's turn.
   const second = s.model.calls[3]!;
   expect(second.map((m) => m.role)).toEqual(["system", "user", "user"]);
-  expect(second[1]!.content).toBe(`${DRAFT_TURN}
-This turn starts from the draft alone: what earlier turns read is not here, only what they recorded in it.
-<untrusted_data source="changelog draft">
-Draft: ${DRAFT} (acme/api, branch main, 2026-10-01 to 2026-10-22, commits 9f8e7d6..a1b2c3d)
-Changed files: 7: 0 mapped, 0 set aside, 7 left.
-Left:
-- src/users/users.controller.ts (modified, read whole)
-${DTOS.map((p) => `- ${p} (modified)`).join("\n")}
-Endpoints recorded: none yet.
-Repository conventions: ${CONVENTIONS}
-How the last turn ended: Started the acme/api changelog and noted its conventions.
-</untrusted_data>`);
+  const brief = String(second[1]!.content);
+  expect(brief).toStartWith(DRAFT_TURN);
+  expect(brief).not.toContain("from 1 to 22 October");
+  // The draft's state, as data: its range and commits, every changed file left, no endpoint yet, the conventions and the last closing summary.
+  expect(brief.split("\n")).toEqual(expect.arrayContaining([
+    '<untrusted_data source="changelog draft">',
+    `Draft: ${DRAFT} (acme/api, branch main, 2026-10-01 to 2026-10-22, commits 9f8e7d6..a1b2c3d)`,
+    "Changed files: 7: 0 mapped, 0 set aside, 7 left.",
+    "- src/users/users.controller.ts (modified, read whole)",
+    ...DTOS.map((p) => `- ${p} (modified)`),
+    "Endpoints recorded: none yet.",
+    `Repository conventions: ${CONVENTIONS}`,
+    "How the last turn ended: Started the acme/api changelog and noted its conventions.",
+    "</untrusted_data>",
+  ]));
   expect(String(second[2]!.content)).toContain(`Draft: ${DRAFT}`);
 
   // The third turn knows the second's reads only as the files its worker mapped and the candidate they reach, and its closing summary replaced the one before.

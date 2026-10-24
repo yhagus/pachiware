@@ -1,6 +1,6 @@
 import { repositories, DEFAULT_REACT_ITERATIONS } from "@pachiware/db";
 import { historyWindow, storedToolResult, windowOf } from "./history.js";
-import { skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, openDrafts, textIn, stepOf, stepLine, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type FailedForGood, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
+import { now, skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, openDrafts, textIn, stepOf, stepLine, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type FailedForGood, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
 import type { ChatMessage, ImagePart, ModelFailure } from "../llm/types.js";
@@ -130,6 +130,8 @@ export const toolTimeout = { ms: 90_000 };
 /**
  * How long one turn may keep calling the model and tools (TURN_DEADLINE_SECONDS, default 3 minutes): past it no model call or
  * tool call starts, and the turn ends with the same summary the action budget gives, which may take `summaryMs` more. Tests shorten both.
+ * A turn and its workers measure their time on the agent's clock (packages/skills/src/clock.ts), so a test that pins it decides when they
+ * run out; a provider call or a tool call is still cut on the real clock, when as much real time has passed as the turn had left.
  */
 export const turnDeadline = { ms: (Number(process.env.TURN_DEADLINE_SECONDS) || 180) * 1000, summaryMs: 30_000 };
 /** The deadline of a turn of a playbook with `budget: long` (LONG_TURN_DEADLINE_SECONDS, default 15 minutes); tests shorten it. */
@@ -234,7 +236,9 @@ export class AgentReActLoop {
    */
   async run(input: ReActInput): Promise<ReActOutput> {
     const long = !!input.context.playbook?.long;
-    const startedAt = Date.now(), deadline = startedAt + (input.worker ? input.worker.ms : long ? longTurnDeadline.ms : turnDeadline.ms);
+    const startedAt = now(), deadline = startedAt + (input.worker ? input.worker.ms : long ? longTurnDeadline.ms : turnDeadline.ms);
+    /** The turn's deadline on the real clock, for what waits in real time: provider calls and the tools' own cuts. */
+    const realDeadline = () => Date.now() + (deadline - now());
     const requestedIterations = Number(input.maxIterations) || DEFAULT_REACT_ITERATIONS;
     const maxIterations = input.worker ? input.worker.steps : Math.min(128, Math.max(1, input.context.playbook ? Math.max(requestedIterations, long ? LONG_PLAYBOOK_ITERATIONS : PLAYBOOK_ITERATIONS) : requestedIterations));
     // A long playbook's work survives a turn that runs out only as far as it was recorded: once, late in the turn, the model is told to record (#342).
@@ -341,7 +345,7 @@ export class AgentReActLoop {
       language: input.context.language,
       askerLanguage: input.context.answerIn ?? input.context.language,
       askerWords: input.context.skillContext?.askerWords,
-      complete: botCompletion({ tenantId: input.tenantId, botId: input.botId, language: input.context.language }, deadline),
+      complete: (request) => botCompletion({ tenantId: input.tenantId, botId: input.botId, language: input.context.language }, realDeadline())(request),
       metadata: input.context.skillContext?.metadata,
       auth: {
         tenantId: input.tenantId, botId: input.botId, userId: input.context.userId, guildId: input.context.guildId, channelId: input.context.channelId,
@@ -356,7 +360,7 @@ export class AgentReActLoop {
     // Nested calls get the same ceiling, and the call running them is given until theirs has passed, so a hung part is reported as such.
     let running: Ceiling | undefined;
     const setRunning = (ceiling?: Ceiling) => { running = ceiling; };
-    skillContext.callDeadline = () => Math.min(running?.until ?? deadline, deadline);
+    skillContext.callDeadline = () => Math.min(running?.until ?? Infinity, realDeadline());
     skillContext.tools = {
       here: new Set(activeTools.map((t) => t.name)),
       run: (name, args) => {
@@ -378,20 +382,20 @@ export class AgentReActLoop {
     // a service failed for good ends it as the turn's own read would (#359).
     const workerFailed: { model?: true; failure?: ModelFailure } = {};
     if (!input.worker) skillContext.workers = {
-      timeLeft: () => deadline - Date.now(),
+      timeLeft: () => deadline - now(),
       run: async (run) => {
-        const ends = Date.now() + Math.max(0, Math.min(run.ms, deadline - Date.now()));
+        const ends = now() + Math.max(0, Math.min(run.ms, deadline - now()));
         // The call running workers is given until the last of them can have ended, past its own ceiling.
-        if (running) running.until = running.cap = Math.max(running.cap, ends + toolTimeout.ms);
+        if (running) running.until = running.cap = Math.max(running.cap, Date.now() + (ends - now()) + toolTimeout.ms);
         const repository = input.context.playbook?.repository;
         const out = await this.run({
           tenantId: input.tenantId, botId: input.botId, message: run.brief, replyLanguage: input.replyLanguage, stopRequested: input.stopRequested, failedForGood: input.failedForGood,
           context: { ...input.context, playbook: { name: run.playbook, body: run.rules, tools: run.tools, long: true, ...(repository ? { repository } : {}) } },
-          ephemeral: { history: [], cacheKey: run.cacheKey }, worker: { steps: run.steps, ms: Math.max(0, ends - Date.now()) },
+          ephemeral: { history: [], cacheKey: run.cacheKey }, worker: { steps: run.steps, ms: Math.max(0, ends - now()) },
         });
         if (out.failed && !workerFailed.model) Object.assign(workerFailed, { model: true }, out.failure ? { failure: out.failure } : {});
         if (out.serviceFailed) serviceFailed ??= out.serviceFailed;
-        const ranOut = !out.outOfBudget || out.stopped ? null : out.iterations >= run.steps ? "steps" : Date.now() >= ends ? "time" : null;
+        const ranOut = !out.outOfBudget || out.stopped ? null : out.iterations >= run.steps ? "steps" : now() >= ends ? "time" : null;
         return {
           calls: out.toolCallsExecuted.map(({ call, result }) => ({ name: call.name, arguments: call.arguments, success: result.success, data: result.data })), answer: out.reply,
           ...(out.failed ? { halted: "model" as const } : out.serviceFailed ? { halted: "service" as const } : out.stopped ? { halted: "stopped" as const } : {}), ...(ranOut ? { ranOut } : {}),
@@ -401,10 +405,10 @@ export class AgentReActLoop {
 
     // 7. ReAct execution cycle
     while (iterations < maxIterations) {
-      if (Date.now() >= deadline) { outOfTime = true; break; }
+      if (now() >= deadline) { outOfTime = true; break; }
       if (input.stopRequested?.()) { stopped = true; break; }
       // Not stored, like the budget's instructions: it steers this turn only.
-      if (long && !toldToRecord && (Date.now() >= recordAt.time || iterations >= recordAt.iterations)) {
+      if (long && !toldToRecord && (now() >= recordAt.time || iterations >= recordAt.iterations)) {
         toldToRecord = true;
         messageHistory.push({ role: "user", content: RECORD_NOW });
         await audit(skillContext, "guardrail_denied", { kind: "limit", reason: "record_now" });
@@ -412,6 +416,7 @@ export class AgentReActLoop {
       iterations++;
 
       // LLM Step (Thinking & Tool Decision)
+      const callDeadline = realDeadline();
       const response = await llmRouter.complete(messageHistory, {
         tenantId: input.tenantId,
         botId: input.botId,
@@ -419,14 +424,14 @@ export class AgentReActLoop {
         historyEnd,
         tools: activeTools,
         language: input.context.language,
-        deadline,
+        deadline: callDeadline,
         ...outputFloor(input),
       });
 
       if (response.imagesRejected) { imagesRejected = true; turn.content = input.message; }
 
       // The failure text is the host's, not the model's: kept out of history so later turns never read it as something the bot said.
-      if (response.finishReason === "error" && Date.now() >= deadline) { outOfTime = true; break; }
+      if (response.finishReason === "error" && (now() >= deadline || Date.now() >= callDeadline)) { outOfTime = true; break; }
       if (response.finishReason === "error") {
         finalReply = failureReply(response.content ?? "", toolCallsExecuted, input.context.language);
         failed = true;
@@ -450,7 +455,7 @@ export class AgentReActLoop {
         continue;
       }
       let answer = response.content, stillCut = false;
-      if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, cacheKey, historyEnd, input, skillContext, deadline));
+      if (cut && final) ({ text: answer, stillCut } = await continueCut(response.content ?? "", messageHistory, activeTools, cacheKey, historyEnd, input, skillContext, realDeadline()));
       // An empty answer after this turn's tool work tells the person nothing of it: it is not kept, and the answer is asked for once more
       // without tools, the way a spent budget's is, so a long playbook's work then goes on by itself (#342).
       if (final && !stillCut && !answer?.trim() && toolCallsExecuted.length) { stalled = "empty"; break; }
@@ -493,7 +498,7 @@ export class AgentReActLoop {
         input.onStep?.({ type: "tool_call", payload: toolCall });
 
         if (cut) await audit(skillContext, "guardrail_denied", { kind: "limit", reason: "output_cut", part: "tool_call", tool: toolCall.name });
-        const late = !cut && Date.now() >= deadline, halted = !cut && !late && !!input.stopRequested?.();
+        const late = !cut && now() >= deadline, halted = !cut && !late && !!input.stopRequested?.();
         if (late) outOfTime = true;
         if (halted) stopped = true;
         const refusal = cut ? CUT_TOOL_CALL : late ? OUT_OF_TIME_CALL : halted ? STOPPED_CALL : serviceFailed ? SERVICE_FAILED_CALL : workerFailed.model ? MODEL_FAILED_CALL : closed.get(toolCall.name) ?? (bulkRefusal && BULK_TASK_TOOLS.has(toolCall.name) ? bulkRefusal : undefined);

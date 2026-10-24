@@ -145,7 +145,7 @@ discordScenario("traceEndpoints traces nothing while a changed file is unmapped,
   s.model.script(
     START, [NOTE_CONVENTIONS, MAP_CHANGED],
     // The first DTO's mapping worker reads and maps it, and leaves no time for another.
-    read(0), mapper(reaches(DTOS[0]!, "a body field changed"))[0]!, outlasting("Mapped."),
+    read(0), mapper(reaches(DTOS[0]!, "a body field changed"))[0]!, outlasting(s, "Mapped."),
     TRACE,
     async (turn) => { refusal = turn.toolResults.at(-1).error; kept = (await draftMeta(s)).candidates.map((c: any) => `${c.method.toUpperCase()} ${c.path}: ${c.state}`); return "Six changed files wait to be mapped."; },
     // The turn that goes on by itself has the rest mapped, then traces.
@@ -221,7 +221,7 @@ discordScenario("a turn cut while its workers trace goes on by itself with the c
     START, [NOTE_CONVENTIONS, MAP_CHANGED], ...mapController(candidate("post", "/api/v2/users"), EXPORT, SESSIONS),
     TRACE,
     // The first worker records its endpoint and answers once the turn's time is gone.
-    record("post", "/api/v2/users"), async () => { await pause(3200); return "Recorded POST /api/v2/users."; },
+    record("post", "/api/v2/users"), () => { s.clock.advance(3200); return "Recorded POST /api/v2/users."; },
     "One of three endpoints is traced; two wait.",
     // The turn that goes on by itself starts from the draft, which says which candidates wait.
     (turn) => { state = text(turn.messages[1]); return TRACE; },
@@ -355,7 +355,7 @@ discordScenario("a turn that goes on by itself and only settles candidates made 
   await budgets(3000, { leastMs: 2000 });
   s.model.script(
     START, [NOTE_CONVENTIONS, MAP_CHANGED], ...mapController(candidate("post", "/api/v2/users"), EXPORT), "Started the acme/api changelog.",
-    TRACE, async () => { await pause(1200); return "Its route is built at runtime."; }, "One endpoint could not be traced.",
+    TRACE, () => { s.clock.advance(1200); return "Its route is built at runtime."; }, "One endpoint could not be traced.",
     TRACE, "Its handler comes from another service.", "Another endpoint could not be traced.",
     FINISH, written,
   );

@@ -342,7 +342,7 @@ discordScenario("a changelog is written only when every changed file was mapped 
   expect(early).toEqual({ written: false, unmapped: 5, files: ["src/users/users.controller.ts", "README.md", "src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts", "src/users/users.controller.spec.ts"], fix });
 
   // The README's mapping worker, the first by path, maps it and the controller, whose patches startChangelog gave, and leaves no time for another.
-  await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [map(CONTROLLER_REACHES, { path: "README.md", none: "documentation; nothing serves it" }), outlasting("Mapped.")], results);
+  await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [map(CONTROLLER_REACHES, { path: "README.md", none: "documentation; nothing serves it" }), outlasting(s, "Mapped.")], results);
   // Patterns that skip the work instead of naming files that need none.
   const aside = (pattern: string, reason = "too many files") => ({ tool: "putChangelogNotes", args: { draft: DRAFT, setAside: [{ pattern, reason }] } });
   const [everything, rest] = await turn(s, [aside("**"), aside("src/users/**")], results);
@@ -418,7 +418,7 @@ discordScenario("a draft started before files were mapped has every changed file
   // The DTO's mapping worker, the first by path, tries the controller, and leaves no time for another.
   await oneWorkerATurn();
   let refused = "";
-  await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [map(CONTROLLER_REACHES), (t: any) => { refused = t.toolResults.at(-1).error; return outlasting("src/users/users.controller.ts: not read yet")(); }], results);
+  await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [map(CONTROLLER_REACHES), (t: any) => { refused = t.toolResults.at(-1).error; return outlasting(s, "src/users/users.controller.ts: not read yet")(); }], results);
   expect(refused).toBe("Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from 9f8e7d6 to a1b2c3d (or every line at either commit with repoReadFile):\n- src/users/users.controller.ts");
   const [early] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(early).toMatchObject({ written: false, unmapped: 2, files: ["src/users/users.controller.ts", "src/users/dto/create-user.dto.ts"] });
