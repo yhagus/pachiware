@@ -304,6 +304,42 @@ discordScenario("a changed file is mapped only once its whole patch was read, an
   });
 });
 
+discordScenario("a draft started before files were mapped has every changed file unmapped and unread: its examined list is not carried over (#366)", async (s) => {
+  await acmeApi(s);
+  const changelog = { date: "2026-10-22", base: { ref: "main before 2026-10-01", commit: "9f8e7d6" }, head: { ref: "main through 2026-10-22", commit: "a1b2c3d" }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] };
+  await s.workspace.write(`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`, JSON.stringify({
+    openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog }, paths: {}, components: {},
+    "x-draft": {
+      repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", place: "channel-1", startedBy: { id: "user-alice", name: "Alice" }, changedFiles: 2,
+      base: BASE, head: HEAD, files: [{ path: "src/users/users.controller.ts", status: "modified" }, { path: "src/users/dto/create-user.dto.ts", status: "modified" }],
+      examined: ["src/users/users.controller.ts", "src/users/dto/create-user.dto.ts"], touchedAt: new Date(s.clock.now()).toISOString(),
+    },
+  }));
+  expect(await contextAfter(s)).toContain(`${OPEN(0)} 0 endpoints recorded so far.`);
+  const [refused] = await turn(s, map(CONTROLLER_REACHES), results);
+  expect(refused).toBe("Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from 9f8e7d6 to a1b2c3d (or every line at either commit with repoReadFile):\n- src/users/users.controller.ts");
+  const [early] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
+  expect(early).toMatchObject({ written: false, unmapped: 2, files: ["src/users/users.controller.ts", "src/users/dto/create-user.dto.ts"] });
+});
+
+discordScenario("files that change every endpoint alike are mapped to a global change, recorded once in the notes and never as a candidate per endpoint (#366)", async (s) => {
+  await acmeApi(s);
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 1, behind_by: 0, commits: [], files: [
+    { filename: "src/config/routes.ts", status: "modified", patch: "@@ -1 +1 @@\n-export const API_PREFIX = 'api';\n+export const API_PREFIX = 'api/v2';" },
+    { filename: "src/main.ts", status: "modified", patch: "@@ -3 +3 @@\n-  app.setGlobalPrefix('api');\n+  app.setGlobalPrefix(API_PREFIX);" },
+  ] }));
+  await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  const prefix = { status: "CHANGED", impact: "breaking", in: "url", before: "/api", after: "/api/v2", note: "Every route moved under /api/v2." };
+  // The second file names the same change with its keys in another order.
+  const [mapped] = await turn(s, map({ path: "src/config/routes.ts", global: prefix }, { path: "src/main.ts", global: { note: prefix.note, after: "/api/v2", before: "/api", in: "url", impact: "breaking", status: "CHANGED" } }), results);
+  expect(mapped).toEqual({ mapped: ["src/config/routes.ts", "src/main.ts"], newCandidates: [], candidates: 0, globalChanges: 1, files: { mapped: 2, setAside: 0, left: 0 } });
+  expect((await draftMeta(s)).candidates).toBeUndefined();
+
+  const [finished] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
+  expect(finished).toMatchObject({ written: true, summary: { breaking: 1, deprecated: 0, "non-breaking": 0 }, breaking: ["every endpoint: CHANGED url /api → /api/v2: Every route moved under /api/v2."] });
+  expect(JSON.parse((await s.workspace.read(`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.json`))!).info["x-changelog"].globalChanges).toEqual([prefix]);
+});
+
 discordScenario("the person who started a changelog stops it from chat: the draft goes with what it recorded, and nobody else can (#348)", async (s) => {
   await acmeApi(s);
   await turn(s, [{ tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } }], results);
