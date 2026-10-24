@@ -58,5 +58,6 @@ export * from "./plane/versions.js";
 export * from "./builtin/plane.js";
 export * from "./builtin/openapi.js";
 export { forViewer } from "./openapi/viewer.js";
+export { typesForViewer, type OperationTypes } from "./openapi/typescript.js";
 export { previewUrl } from "./openapi/previews.js";
 export { publicUrl } from "./publicUrl.js";

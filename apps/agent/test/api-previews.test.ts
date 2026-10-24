@@ -39,7 +39,7 @@ discordScenario("a published changelog becomes an API preview whose page, docume
   });
   const html = await page.text();
   expect(html).toContain("<title>Users API changes · OpenAPI Schema Viewer</title>");
-  expect(html).toContain(`<div id="app" data-url="./${id}/view.json"></div>`);
+  expect(html).toContain(`<div id="app" data-url="./${id}/view.json" data-types="./${id}/types.json"></div>`);
   expect(html).not.toMatch(/https?:\/\//);
   for (const script of [...html.matchAll(/<script src="\.\/([^"]+)"><\/script>/g)].map((m) => m[1])) {
     const served = await visit(`/open-api/${script}`);
@@ -51,6 +51,11 @@ discordScenario("a published changelog becomes an API preview whose page, docume
   expect(view.paths["/api/v2/users"].post["x-badges"]).toEqual([{ name: "Breaking", color: "#cf222e", position: "before" }, { name: "Changed", color: "#0969da", position: "before" }]);
   expect(view.info.description).toStartWith("**Changelog** of 2026-10-22: from `main` (`9f8e7d6`) to `feature/user-phone` (`a1b2c3d`).");
   expect(view.info.description).toContain(`[Download the OpenAPI JSON](./${id}/openapi.json)`);
+  const types = await (await visit(`/open-api/${id}/types.json`)).json();
+  const op = types.operations["POST /api/v2/users"];
+  expect(op.request).toContain("interface NewUser {");
+  expect(Object.keys(op.responses).sort()).toEqual(["201", "409", "422"]);
+  expect(op.responses["201"]).toContain("interface UserEnvelope {");
 
   // The file changes and goes; the preview does not.
   await s.workspace.write(`${GENERAL}/${CHANGELOG.slice("channel/".length)}`, '{"openapi": "3.1.2", "info": {"title": "Changed", "version": "2"}, "paths": {}}');
