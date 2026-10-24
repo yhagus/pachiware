@@ -101,11 +101,14 @@ export async function mapChangedFiles(ctx: SkillContext, args: { draft?: unknown
 
   const waiting = stands.files.left, { candidates, globalChanges, removedOperations } = stands;
   const listed = unverified ? `; ${unverified} could not be mapped and ${unverified === 1 ? "is" : "are"} listed as unverified` : "";
+  // A change to every endpoint and a route taken away are recorded in the notes, not as candidates: the changelog has them without tracing.
+  const noted = [globalChanges && `${globalChanges} global change${globalChanges === 1 ? "" : "s"}`, removedOperations && `${removedOperations} removed endpoint${removedOperations === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
   const note = halted === "model" ? "The model could not be reached, so the changed files not mapped wait for the next turn. Say nothing more now."
     : halted === "service" ? "A service the work reads failed, so the work paused; the changed files not mapped wait."
     : halted === "stopped" ? "The person pressed Stop: the changed files not mapped wait."
     : waiting ? `This turn's time is nearly out: ${files(waiting)} wait${waiting === 1 ? "s" : ""} to be mapped, and the next turn goes on with ${waiting === 1 ? "it" : "them"} through mapChangedFiles.`
     : candidates ? `Every changed file is mapped or set aside${listed}. Trace the ${candidates} candidate endpoint${candidates === 1 ? "" : "s"} with traceEndpoints.`
+    : noted ? `Every changed file is mapped or set aside${listed}, and no candidate endpoint is kept to trace; the notes hold ${noted}: call finishChangelog.`
     : `Every changed file is mapped or set aside${listed}, and no change reaches an endpoint: call finishChangelog.`;
   return { mapped, unverified, files: stands.files, candidates, ...(globalChanges ? { globalChanges } : {}), ...(removedOperations ? { removedOperations } : {}), note };
 }

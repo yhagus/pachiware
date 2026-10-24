@@ -286,3 +286,31 @@ discordScenario("a mapping worker comparing the route tables records a route onl
   expect(changelog.info["x-changelog"]).toMatchObject({ summary: { breaking: 1, deprecated: 0, "non-breaking": 1 }, removedOperations: [REVOKED] });
   expect(Object.keys(changelog.paths)).toEqual(["/api/v2/billing/invoices"]);
 });
+
+discordScenario("a mapping worker records a global interceptor change once in the notes and no candidate for it, its files count as mapped, and the main loop hears to finish (#372)", async (s) => {
+  await acmeApi(s);
+  const INTERCEPTOR = "src/common/transform.interceptor.ts", MAIN = "src/main.ts";
+  // TransformInterceptor comes in, registered for the whole app in the bootstrap.
+  changed(s, [
+    { filename: INTERCEPTOR, status: "added", patch: "@@ -0,0 +1,6 @@\n+@Injectable()\n+export class TransformInterceptor implements NestInterceptor {\n+  intercept(context, next) {\n+    return next.handle().pipe(map((data) => ({ data })));\n+  }\n+}" },
+    { filename: MAIN, status: "modified", patch: "@@ -7,0 +8 @@\n+  app.useGlobalInterceptors(new TransformInterceptor());" },
+  ]);
+  const ENVELOPE = { status: "CHANGED", impact: "breaking", in: "envelope", before: "body", after: "{ data: body }", note: "Every success response is wrapped in data." };
+  let mapped: any, meta: any, finished: any;
+  s.model.script(
+    START, NOTE_CONVENTIONS, MAP_FILES,
+    // One worker has both files, whose patches startChangelog gave: both make the one change to every endpoint.
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: INTERCEPTOR, global: ENVELOPE }, { path: MAIN, global: ENVELOPE }] } },
+    "Mapped.",
+    async (turn) => { mapped = turn.toolResults.at(-1); meta = await draftMeta(s); return FINISH; },
+    (turn) => { finished = turn.toolResults.at(-1); return written(turn); },
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(workerStarts(s).map(filesOf)).toEqual([[INTERCEPTOR, MAIN]]);
+  expect(mapped).toEqual({ mapped: 2, unverified: 0, files: { mapped: 2, setAside: 0, left: 0 }, candidates: 0, globalChanges: 1, note: "Every changed file is mapped or set aside, and no candidate endpoint is kept to trace; the notes hold 1 global change: call finishChangelog." });
+  expect(meta.candidates).toBeUndefined();
+  expect(meta.mapping).toEqual({ [INTERCEPTOR]: { read: true, global: ENVELOPE }, [MAIN]: { read: true, global: ENVELOPE } });
+  expect(finished).toMatchObject({ written: true, summary: { breaking: 1, deprecated: 0, "non-breaking": 0 }, breaking: ["every endpoint: CHANGED envelope body → { data: body }: Every success response is wrapped in data."] });
+  expect(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).info["x-changelog"].globalChanges).toEqual([ENVELOPE]);
+});
