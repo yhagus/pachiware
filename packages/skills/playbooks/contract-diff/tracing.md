@@ -71,6 +71,12 @@ The draft is OpenAPI 3.1.2: use 3.1 features only. The extension reference and a
 - **Deprecation.** Set `deprecated: true` on deprecated operations, parameters, and schema properties in addition to the x-changes entry, so generated types flag them.
 - **Keep schemas free of `x-` keys.** All change metadata lives on the operation.
 - **Human-readable text** (descriptions, notes, reasons) follows the language of the conventions summary.
+- **Enumerations are bullet lists, not paragraphs.** Whenever a description, note, or reason covers more than one rule, condition, editable field, or case, write a Markdown bullet list — one item per rule, each opening with the word that matters (the status, the field, the mode) — rather than packing them into one sentence. The viewer renders the Markdown, and a reader scans a list where a paragraph buries the point. A lone fact stays a sentence. For example, replace "PATCH parsial: field yang tidak dikirim dipertahankan. Sumber data terverifikasi hanya boleh mengubah name, schedule, timeout_ms, ingestion_mode, atau default_limit pada mode pagination yang aktif; draft dan revision_required boleh mengubah semua field. Body berisi hanya ingestion_mode diizinkan pada semua status." with:
+  - PATCH parsial — field yang tidak dikirim dipertahankan.
+  - Status `verified` — hanya `name`, `schedule`, `timeout_ms`, `ingestion_mode`, dan `default_limit` (pada mode pagination yang aktif) yang boleh diubah.
+  - Status `draft` atau `revision_required` — semua field boleh diubah.
+  - Body yang hanya berisi `ingestion_mode` — diizinkan pada semua status.
+- **Each field carries its own rule.** A rule about one field — what it means when the name is not plain, what its value is checked against in words, when it may be null or absent and why (per the table in step 1), which status or mode may change it — belongs on that field's own `description`: a parameter's, or a body or response property's, where the reader meets the field. Do not collect per-field rules into the operation description; keep that for behavior spanning several fields, as the bullet list above. The viewer shows type, `required`, `enum`, and length or pattern from the schema already, so the description adds only what those cannot say; a self-evident field (a plain `name`, an `id`) needs no prose.
 - Use the handler's name as the operation id when it is meaningful.
 
 ## 4. End
