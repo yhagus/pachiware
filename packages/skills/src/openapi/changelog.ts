@@ -53,6 +53,8 @@ type DraftMeta = {
   candidates?: Candidate[];
   /** How many commits a range holds, from the comparison that pinned it; the progress message names them (#367). */
   commits?: number;
+  /** The changed files were weighed afresh from the comparison, once, as a draft from before they kept their patches' lengths is (#370). */
+  weighed?: true;
   /**
    * A range pinned before its last day ended reaches that day's last commit once it is worked on after the day (#371): the head it had
    * then, and how many commits moving it added, 0 when the day held none later. Kept, so it moves once.
@@ -1108,6 +1110,25 @@ export async function mappingWork(ctx: SkillContext, draft: unknown) {
     base: meta.base ? { commit: meta.base, ref: changelog.base?.ref as string } : null, head: { commit: meta.head!, ref: changelog.head?.ref as string },
     ...(meta.routeFiles ? { chosenBy: meta.routeFiles.chosenBy } : {}),
   };
+}
+
+/**
+ * Weighs a range's changed files from the comparison of its two commits, once, when any lacks its patch's length, as in a draft from before
+ * the files kept them (#370): mapping groups weigh a file without one as too large, a group of its own. A file the comparison gives no patch
+ * for stays without one. True when the draft was weighed now.
+ */
+export async function weighFiles(ctx: SkillContext, draft: unknown) {
+  const meta: DraftMeta | undefined = (await readJson(ctx.tenantId, draftPath(ctx, draft)))?.doc?.["x-draft"];
+  if (!meta?.files || !meta.base || !meta.head || meta.weighed || meta.files.every((f) => f.patchChars !== undefined)) return false;
+  const { base, head } = meta;
+  const listed = await readRepo({ repo: meta.repo, account: meta.account }, ctx, (conn, repo) => changedFileList(conn, repo, base, head));
+  const sizes = new Map(listed.map((f) => [f.path, f.patchChars]));
+  await withDraft(ctx, draft, (doc) => {
+    const meta: DraftMeta = doc["x-draft"];
+    for (const f of meta.files ?? []) { const chars = sizes.get(f.path); if (chars !== undefined) f.patchChars = chars; }
+    meta.weighed = true;
+  });
+  return true;
 }
 
 /**

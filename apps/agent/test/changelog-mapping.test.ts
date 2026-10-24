@@ -225,6 +225,38 @@ discordScenario("the progress message counts the changed files mapped and the ca
   }
 });
 
+discordScenario("a draft from before changed files kept their patches' lengths has them weighed from the comparison once, so its files are grouped by size and not one a worker (#370)", async (s) => {
+  await acmeApi(s);
+  // Started before mapping groups: its files keep no patch length, and every one is read whole already.
+  const changelog = { date: "2026-10-22", base: { ref: "main before 2026-10-01", commit: "9f8e7d6" }, head: { ref: "main through 2026-10-22", commit: "a1b2c3d" }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] };
+  const files = [SERVICE, CREATE, CONTROLLER, UPDATE];
+  await s.workspace.write(DRAFT_FILE, JSON.stringify({
+    openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog }, paths: {}, components: {},
+    "x-draft": {
+      repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", place: "channel-1", startedBy: { id: "user-alice", name: "Alice" }, changedFiles: 4,
+      base: BASE, head: HEAD, files: files.map((path) => ({ path, status: "modified" })), mapping: Object.fromEntries(files.map((path) => [path, { read: true }])),
+      conventions: CONVENTIONS, touchedAt: new Date(s.clock.now()).toISOString(), work: { state: "paused", reason: "stopped", since: "2026-10-22T02:00:00.000Z" },
+    },
+  }));
+  let weighed: unknown;
+  s.model.script(
+    MAP_FILES,
+    mapNone(CREATE), "Mapped.",
+    mapNone(UPDATE, CONTROLLER), "Mapped.",
+    mapNone(SERVICE), "Mapped.",
+    async () => { weighed = (await draftMeta(s)).files; return FINISH; },
+    "Nothing the frontend sees changed.",
+  );
+  await s.discord.send(`${s.discord.mention} lanjut`);
+
+  // As the first scenario groups them: 12,000; then 30,000 and 1,000; then 45,000 alone.
+  expect(workerStarts(s).map(filesOf)).toEqual([[CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
+  expect(weighed).toEqual([
+    { path: SERVICE, status: "modified", patchChars: 45_000 }, { path: CREATE, status: "modified", patchChars: 12_000 },
+    { path: CONTROLLER, status: "modified", patchChars: 1_000 }, { path: UPDATE, status: "modified", patchChars: 30_000 },
+  ]);
+});
+
 discordScenario("the main loop's own putChangelogMapping is refused and maps nothing: only mapping workers record how a file ends (ADR 0026)", async (s) => {
   await acmeApi(s);
   let refusal = "", mapping: unknown;

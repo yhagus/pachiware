@@ -1,6 +1,6 @@
 import { readPlaybookFile } from "../playbooks.js";
 import { asUntrusted } from "../guardrails.js";
-import { draftName, listRouteFiles, mappedKind, mappingWork, settleFiles, type ChangedFile } from "./changelog.js";
+import { draftName, listRouteFiles, mappedKind, mappingWork, settleFiles, weighFiles, type ChangedFile } from "./changelog.js";
 import { cutByTurn, fanOut, WORKER_READS, workerBudget, workerLimit } from "./workers.js";
 import type { SkillContext, WorkerOutcome } from "../types.js";
 
@@ -82,7 +82,10 @@ export async function mapChangedFiles(ctx: SkillContext, args: { draft?: unknown
   const workers = ctx.workers;
   if (!workers) throw new Error("Changed files can only be mapped in a chat turn. Nothing was mapped.");
   const listed = args.routeFiles !== undefined || args.chosenBy !== undefined ? await listRouteFiles(ctx, args.draft, args) : undefined;
-  const work = await mappingWork(ctx, args.draft), draft = String(args.draft).trim();
+  // A draft from before the files kept their patches' lengths is weighed first, so its files are grouped by size (#370).
+  let work = await mappingWork(ctx, args.draft);
+  if (await weighFiles(ctx, args.draft)) work = await mappingWork(ctx, args.draft);
+  const draft = String(args.draft).trim();
   const files = (n: number) => `${n} ${mappedKind(work.scope)}${n === 1 ? "" : "s"}`;
   const [rules, limit] = await Promise.all([readPlaybookFile(ctx.tenantId, playbook, "mapping.md", ctx.guildId), workerLimit(ctx.tenantId)]);
   if (!rules) throw new Error(`The ${playbook} playbook has no mapping.md, so no worker can map. Nothing was mapped.`);
