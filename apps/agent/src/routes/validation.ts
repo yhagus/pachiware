@@ -41,7 +41,7 @@ export function modelRetryWaitSeconds(body: Record<string, any>): number | undef
   return seconds;
 }
 
-/** `playbookWorkers` from a tenant settings body: how many workers trace an API changelog's endpoints at once, MIN_PLAYBOOK_WORKERS to MAX_PLAYBOOK_WORKERS; undefined when left out. */
+/** `playbookWorkers` from a tenant settings body: how many workers map an API changelog's changed files or trace its endpoints at once, MIN_PLAYBOOK_WORKERS to MAX_PLAYBOOK_WORKERS; undefined when left out. */
 export function playbookWorkers(body: Record<string, any>): number | undefined {
   const workers = body.playbookWorkers;
   if (workers === undefined) return undefined;

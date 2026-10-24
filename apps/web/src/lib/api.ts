@@ -75,7 +75,7 @@ export const LANGUAGES: { id: Language; name: string }[] = [{ id: "id", name: "I
 /** The tenant's defaults; a guild overrides them with its own, null meaning "the tenant's". */
 /**
  * `modelRetryWaitSeconds`: how long a worked-on Changelog draft waits to try the model once more before it pauses, 0 to pause at once.
- * `playbookWorkers`: how many workers trace an API changelog's endpoints at once, 1 to 5.
+ * `playbookWorkers`: how many workers map an API changelog's changed files or trace its endpoints at once, 1 to 5.
  */
 export interface TenantSettings { timezone: string; language: Language; conversationIdleHours: number; modelRetryWaitSeconds: number; playbookWorkers: number; }
 /** A channel opted in to the daily Digest and the hour (0 to 23, in the server's zone) it posts at. */

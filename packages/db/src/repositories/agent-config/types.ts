@@ -36,7 +36,7 @@ export const DEFAULT_REACT_ITERATIONS = 32;
 export const DEFAULT_CONVERSATION_IDLE_HOURS = 24;
 /** Seconds a worked-on Changelog draft waits before running a turn that could not reach the model once more; `settings.modelRetryWaitSeconds` overrides it, 0 to pause at once. */
 export const DEFAULT_MODEL_RETRY_WAIT_SECONDS = 60;
-/** How many workers trace an API changelog's endpoints at once (ADR 0024); `settings.playbookWorkers` overrides it, MIN to MAX. */
+/** How many workers map an API changelog's changed files or trace its endpoints at once (ADRs 0024, 0026); `settings.playbookWorkers` overrides it, MIN to MAX. */
 export const DEFAULT_PLAYBOOK_WORKERS = 3, MIN_PLAYBOOK_WORKERS = 1, MAX_PLAYBOOK_WORKERS = 5;
 
 export function defaultAgentConfig(tenantId: string, now: Date): AgentConfig {

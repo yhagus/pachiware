@@ -94,7 +94,7 @@ export function TenantSettings() {
                 value={Number.isNaN(settings.playbookWorkers) ? "" : settings.playbookWorkers} onChange={(e) => setSettings({ ...settings, playbookWorkers: e.target.valueAsNumber })} />
               <span className="text-sm text-muted-foreground">at once</span>
             </div>
-            <p className="text-xs text-muted-foreground">How many endpoints of an API changelog the bot traces at the same time, each with its own model calls. More finishes sooner but sends more requests at once to the model provider, whose rate limit the tenant's bots share. From 1 to {MAX_WORKERS}.</p>
+            <p className="text-xs text-muted-foreground">How many workers an API changelog runs at the same time, mapping its changed files or tracing its endpoints, each with its own model calls. More finishes sooner but sends more requests at once to the model provider, whose rate limit the tenant's bots share. From 1 to {MAX_WORKERS}.</p>
           </div>
           <Button size="sm" disabled={saving || !settings.timezone || !validHours(settings.conversationIdleHours) || !validWait(settings.modelRetryWaitSeconds) || !validWorkers(settings.playbookWorkers)}>{saving ? "Saving" : "Save settings"}</Button>
         </form>
