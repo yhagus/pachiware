@@ -1,7 +1,7 @@
 import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, DRAFT, FINISH, HEAD, START, WRITTEN_FILE, contractDiffOn, draftMeta } from "./support/changelog";
+import { BASE, DRAFT, DRAFT_FILE, FINISH, HEAD, PROVIDER_DOWN, START, WRITTEN_FILE, contractDiffOn, draftMeta, pauses } from "./support/changelog";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
 /** What every file of acme/api reads as, at any commit: what a worker reads, and the main loop never should. */
@@ -148,4 +148,54 @@ discordScenario("a file two workers could not map is listed as unverified with w
   const unverified = [{ in: "operation", reason: `${CREATE} could not be mapped: ${why}` }];
   expect(finished).toMatchObject({ written: true, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, unverified });
   expect(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).info["x-changelog"].unverified).toEqual(unverified);
+});
+
+discordScenario("a worker that cannot reach the model leaves its files unmapped, and the draft goes through the model's rule: one retry after the tenant's wait, then a pause (#370, #358)", async (s) => {
+  await acmeApi(s);
+  s.model.script(
+    START, NOTE_CONVENTIONS, "Started the acme/api changelog.",
+    MAP_FILES, PROVIDER_DOWN,
+    MAP_FILES, PROVIDER_DOWN,
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  // The worker's failure ends the turn that went on by itself, which then waits the tenant's 60 seconds; no other worker started.
+  expect(s.model.calls).toHaveLength(5);
+  // Only the controller's patch, given with startChangelog, is read; no file counts a worker's attempt.
+  const untouched = { [CONTROLLER]: { read: true } };
+  expect((await draftMeta(s)).mapping).toEqual(untouched);
+  expect((await draftMeta(s)).work).toEqual({ state: "worked-on", retryAt: "2026-10-22T03:01:00.000Z" });
+  expect(s.discord.botMessages).toEqual([]);
+
+  s.clock.advance(60_000);
+  await s.scheduler.tick();
+
+  // The retry gives the same file to a worker, which fails again: the draft pauses, and every file is still unmapped.
+  expect(workerStarts(s).map(filesOf)).toEqual([[CREATE], [CREATE]]);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: "<@user-alice> The AI model can't be reached; say go on to carry on.", pinged: ["user-alice"] },
+  ]);
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "model", since: "2026-10-22T03:01:00.000Z" });
+  expect((await draftMeta(s)).mapping).toEqual(untouched);
+  expect(await pauses(s)).toEqual([expect.objectContaining({ reason: "model", repo: "acme/api", draft: "2026-10-22_9f8e7d6..a1b2c3d" })]);
+  expect(JSON.parse((await s.workspace.read(DRAFT_FILE))!).info["x-changelog"].unverified).toEqual([]);
+});
+
+discordScenario("a worker that GitHub refuses leaves its files unmapped and pauses the draft, naming only GitHub, as the turn's own read would (#370, #359)", async (s) => {
+  await acmeApi(s);
+  s.model.script(
+    START, NOTE_CONVENTIONS, "Started the acme/api changelog.",
+    MAP_FILES,
+    () => { s.http.on("GET api.github.com/repos/acme/api/contents/", () => Response.json({ message: "Bad credentials" }, { status: 401 })); return read(CREATE); },
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  // The refusal ends the worker and the turn: the model is asked nothing more, and no other worker starts.
+  expect(s.model.calls).toHaveLength(5);
+  expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
+    { content: '<@user-alice> Changelog paused: GitHub could not be reached. Type "go on" to continue.', pinged: ["user-alice"] },
+  ]);
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "service", service: "GitHub", since: "2026-10-22T03:00:00.000Z" });
+  expect((await draftMeta(s)).mapping).toEqual({ [CONTROLLER]: { read: true } });
+  expect(await pauses(s)).toEqual([expect.objectContaining({ reason: "service", service: "GitHub", host: "api.github.com", status: 401, tool: "repoReadFile", file: CREATE })]);
 });
