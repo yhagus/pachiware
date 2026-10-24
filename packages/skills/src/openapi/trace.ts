@@ -1,7 +1,7 @@
-import { DEFAULT_PLAYBOOK_WORKERS, MAX_PLAYBOOK_WORKERS, MIN_PLAYBOOK_WORKERS, repositories } from "@pachiware/db";
 import { readPlaybookFile } from "../playbooks.js";
 import { asUntrusted } from "../guardrails.js";
-import { draftName, settleCandidate, takeCandidates, type RepositoryTool, type TraceResult } from "./changelog.js";
+import { draftName, settleCandidate, takeCandidates, type TraceResult } from "./changelog.js";
+import { cutByTurn, fanOut, WORKER_READS, workerBudget, workerLimit } from "./workers.js";
 import type { SkillContext, WorkerOutcome } from "../types.js";
 
 /**
@@ -9,10 +9,8 @@ import type { SkillContext, WorkerOutcome } from "../types.js";
  * `playbookWorkers` at once, each recording its own endpoint in the draft, so the main loop's context never holds the files they read.
  */
 
-/** A worker's steps and time (ADR 0024), and the least a turn must have left to start one; tests shorten them. */
-export const workerBudget = { steps: 20, ms: 5 * 60_000, leastMs: 60_000 };
-/** The repository reads a worker is offered: reading, diffing and searching files, not comparing or listing commits. */
-const WORKER_READS: RepositoryTool[] = ["repoReadFile", "repoFileDiff", "repoSearchCode", "repoTree"];
+/** The budget every worker of a changelog has (workers.ts), where tests have shortened it. */
+export { workerBudget } from "./workers.js";
 /** What a worker is offered: its repository reads and the two tools that record into the draft. */
 export const WORKER_TOOLS = [...WORKER_READS, "putChangelogOperation", "putChangelogComponents"];
 /** A worker that finds its endpoint's contract unchanged ends its answer with this word first, and why. */
@@ -55,7 +53,7 @@ function settled(outcome: WorkerOutcome, ms: number): { recorded: string[] } | {
   if (recorded.length) return { recorded };
   const answer = outcome.answer.trim();
   if (!outcome.ranOut && UNCHANGED.test(answer)) return { unchanged: answer.replace(UNCHANGED, "").slice(0, REASON_CHARS) || "its contract did not change" };
-  if (outcome.ranOut === "time" && ms < workerBudget.ms) return null;
+  if (cutByTurn(outcome, ms)) return null;
   if (outcome.ranOut === "steps") return { reason: `its worker used all ${workerBudget.steps} steps before recording it` };
   if (outcome.ranOut === "time") return { reason: `its worker ran out of its ${Math.round(workerBudget.ms / 60_000)} minutes before recording it` };
   return { reason: answer.slice(0, REASON_CHARS) || "its worker ended without recording it" };
@@ -71,28 +69,21 @@ export async function traceEndpoints(ctx: SkillContext, args: { draft?: unknown;
   const workers = ctx.workers;
   if (!workers) throw new Error("Endpoints can only be traced in a chat turn. Nothing was traced.");
   const kept = await takeCandidates(ctx, args.draft, args.candidates), draft = String(args.draft).trim();
-  const [rules, extensions, config] = await Promise.all([
-    readPlaybookFile(ctx.tenantId, playbook, "tracing.md", ctx.guildId), readPlaybookFile(ctx.tenantId, playbook, "extensions.md", ctx.guildId), repositories().agentConfig.get(ctx.tenantId),
+  const [rules, extensions, limit] = await Promise.all([
+    readPlaybookFile(ctx.tenantId, playbook, "tracing.md", ctx.guildId), readPlaybookFile(ctx.tenantId, playbook, "extensions.md", ctx.guildId), workerLimit(ctx.tenantId),
   ]);
   if (!rules) throw new Error(`The ${playbook} playbook has no tracing.md, so no worker can trace. Nothing was traced.`);
-  const limit = Math.max(MIN_PLAYBOOK_WORKERS, Math.min(MAX_PLAYBOOK_WORKERS, Number(config?.settings?.playbookWorkers) || DEFAULT_PLAYBOOK_WORKERS));
   const queue = [...kept.waiting], traced: TraceResult[] = [], failed: TraceResult[] = [];
-  let halted: "model" | "service" | "stopped" | "time" | null = null;
 
-  const work = async () => {
-    while (queue.length && !halted) {
-      const left = workers.timeLeft();
-      if (left < workerBudget.leastMs) { halted = "time"; break; }
-      const c = queue.shift()!, ms = Math.min(workerBudget.ms, left);
-      const outcome = await workers.run({ playbook, rules, brief: briefOf(kept, draft, extensions ?? "", c), tools: WORKER_TOOLS, steps: workerBudget.steps, ms, cacheKey: `changelog-worker:${draft}` });
-      const settle = settled(outcome, ms);
-      console.info(`[changelog] Worker on ${c.method.toUpperCase()} ${c.path} (${kept.repo}, draft ${draftName(draft)}): ${outcome.calls.length} tool call${outcome.calls.length === 1 ? "" : "s"}, ${!settle ? "left waiting" : "reason" in settle ? `failed: ${settle.reason}` : "traced"}`);
-      if (!settle) { halted ??= outcome.halted ?? "time"; queue.unshift(c); continue; }
-      const result = await settleCandidate(ctx, draft, c, settle);
-      ("failed" in result ? failed : traced).push(result);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, work));
+  const halted = await fanOut(workers, limit, { more: () => queue.length > 0, take: () => queue.shift()! }, async (c, ms) => {
+    const outcome = await workers.run({ playbook, rules, brief: briefOf(kept, draft, extensions ?? "", c), tools: WORKER_TOOLS, steps: workerBudget.steps, ms, cacheKey: `changelog-worker:${draft}` });
+    const settle = settled(outcome, ms);
+    console.info(`[changelog] Worker on ${c.method.toUpperCase()} ${c.path} (${kept.repo}, draft ${draftName(draft)}): ${outcome.calls.length} tool call${outcome.calls.length === 1 ? "" : "s"}, ${!settle ? "left waiting" : "reason" in settle ? `failed: ${settle.reason}` : "traced"}`);
+    if (!settle) { queue.unshift(c); return outcome.halted ?? "time"; }
+    const result = await settleCandidate(ctx, draft, c, settle);
+    ("failed" in result ? failed : traced).push(result);
+    return null;
+  });
 
   const waiting = queue.length;
   const note = halted === "model" ? "The model could not be reached, so the endpoints not traced wait for the next turn. Say nothing more now."
