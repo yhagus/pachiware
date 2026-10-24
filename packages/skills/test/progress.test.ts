@@ -59,12 +59,12 @@ test("a part of the traced split that is zero is left out, and so is the split b
 });
 
 test("a range's files line names the commits it holds and how many files changed, and says when all are done (#367)", () => {
-  const done = { commits: 46, changedFiles: 360, examined: 350, setAside: 10, left: 0 };
+  const done = { commits: 46, changedFiles: 360, mapped: 350, setAside: 10, left: 0 };
   expect(draftProgress(done, "id")).toBe("46 commit · 360 file berubah, semua selesai");
   expect(draftProgress(done, "en")).toBe("46 commits · 360 changed files, all done");
-  expect(draftProgress({ commits: 1, changedFiles: 7, examined: 1, setAside: 1, left: 5 }, "en")).toBe("1 commit · 2 of 7 changed files done");
+  expect(draftProgress({ commits: 1, changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "en")).toBe("1 commit · 2 of 7 changed files done");
   // A draft started before drafts kept their commits shows its files alone.
-  expect(draftProgress({ changedFiles: 7, examined: 1, setAside: 1, left: 5 }, "id")).toBe("2 dari 7 file berubah selesai");
+  expect(draftProgress({ changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "id")).toBe("2 dari 7 file berubah selesai");
 });
 
 test("time reads in seconds under a minute and in whole minutes after", () => {

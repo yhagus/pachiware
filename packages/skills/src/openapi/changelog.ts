@@ -24,8 +24,11 @@ type Revision = { ref: string; commit: string };
  */
 type DraftMeta = {
   repo: string; account?: string; branch: string; scope: Scope; from?: string; to: string; place?: string; startedBy?: { id: string; name?: string }; changedFiles?: number;
-  /** A range's two commits in full and every file changed between them, with those examined so far and the lines read of the rest (#347). */
-  base?: string; head?: string; files?: ChangedFile[]; examined?: string[]; reads?: Record<string, Partial<Record<Side, { total: number; read: [number, number][] }>>>;
+  /**
+   * A range's two commits in full and every file changed between them, with how far each is mapped (ADR 0026) and the lines read of those
+   * not yet read whole (#347). A draft from before mapping kept an `examined` list instead, which nothing reads: its files start unmapped.
+   */
+  base?: string; head?: string; files?: ChangedFile[]; mapping?: Record<string, FileMapping>; reads?: Record<string, Partial<Record<Side, { total: number; read: [number, number][] }>>>;
   /** When the draft last changed, by the agent's clock; one untouched for DRAFT_IDLE_MS is dropped (#348). */
   touchedAt?: string;
   /** The person asked to publish it too: finishing publishes it as it writes it (#349). */
@@ -66,8 +69,15 @@ export type WorkState = {
   retryAt?: string;
 } | { state: "paused"; reason: PauseReason; since: string; service?: string; question?: string };
 type ChangedFile = { path: string; oldPath?: string; status: string };
+/**
+ * How far a changed file is mapped (ADR 0026), kept by its path at head: `read` once its whole patch was read, and only then how it ended.
+ * It reaches the candidate endpoints `reaches` names ("POST /api/v2/users"), reaches none for the reason `none` gives, or makes `global`, a
+ * change to every endpoint alike that the notes record once. A file set aside by pattern has no state of its own.
+ */
+export type FileMapping = { read?: true; reaches?: string[]; none?: string; global?: Json };
+const isMapped = (m: FileMapping | undefined) => !!m && (m.reaches !== undefined || m.none !== undefined || m.global !== undefined);
 type Side = "base" | "head";
-/** Files set aside unexamined, each pattern with why; kept in the written changelog, so a reader sees what was not read. */
+/** Files set aside unmapped, each pattern with why; kept in the written changelog, so a reader sees what was not read. */
 type SetAside = { pattern: string; reason: string };
 type Json = any;
 
@@ -190,25 +200,25 @@ function globTest(pattern: string) {
   return (f: ChangedFile) => re.test(f.path) || (!!f.oldPath && re.test(f.oldPath));
 }
 
-/** What a range's draft has done with its changed files: how many it examined, how many it set aside unexamined, and the files left. */
+/** What a range's draft has done with its changed files: how many it mapped, how many it set aside unmapped, and the files left. */
 function accounting(meta: DraftMeta, setAside: SetAside[] = []) {
-  const files = meta.files ?? [], examined = new Set(meta.examined ?? []), tests = setAside.map((s) => globTest(s.pattern));
-  const open = files.filter((f) => !examined.has(f.path)), left = open.filter((f) => !tests.some((t) => t(f)));
-  return { files: files.length, examined: files.length - open.length, setAside: open.length - left.length, left };
+  const files = meta.files ?? [], tests = setAside.map((s) => globTest(s.pattern));
+  const open = files.filter((f) => !isMapped(meta.mapping?.[f.path])), left = open.filter((f) => !tests.some((t) => t(f)));
+  return { files: files.length, mapped: files.length - open.length, setAside: open.length - left.length, left };
 }
 
 /**
  * A set-aside list as putChangelogNotes takes it. A pattern covering two or more files skips the work instead of naming files that need
- * none, and is refused, when it covers every changed file, or every file not yet examined while those are still most of them; a remainder
+ * none, and is refused, when it covers every changed file, or every file not yet mapped while those are still most of them; a remainder
  * of tests or lockfiles at the end may still go in one pattern.
  */
 function checkSetAside(meta: DraftMeta, list: unknown[]): SetAside[] {
-  const files = meta.files ?? [], examined = new Set(meta.examined ?? []), open = files.filter((f) => !examined.has(f.path));
+  const files = meta.files ?? [], open = files.filter((f) => !isMapped(meta.mapping?.[f.path]));
   return list.map((item: Json) => {
     if (typeof item?.pattern !== "string" || !item.pattern.trim() || typeof item?.reason !== "string" || !item.reason.trim()) throw new Error('Each setAside entry is {"pattern": "**/*.spec.ts", "reason": "tests, not served"}: a pattern and why those files cannot change what the frontend sees.');
     const test = globTest(item.pattern), hits = files.filter(test);
     if (hits.length >= 2 && (hits.length === files.length || (open.length * 2 > files.length && open.every(test)))) {
-      throw new Error(`setAside "${item.pattern.trim()}" covers every ${hits.length === files.length ? "changed file" : "file not yet examined"}. Set aside only files that cannot change what the frontend sees (tests, docs, CI, lockfiles), each with its reason, and read the rest.`);
+      throw new Error(`setAside "${item.pattern.trim()}" covers every ${hits.length === files.length ? "changed file" : "file not yet mapped"}. Set aside only files that cannot change what the frontend sees (tests, docs, CI, lockfiles), each with its reason, and map the rest.`);
     }
     return { pattern: item.pattern.trim(), reason: item.reason.trim() };
   });
@@ -220,18 +230,22 @@ function sideOf(meta: DraftMeta, ref: unknown): Side | null {
   return r.length < 7 ? null : meta.base?.startsWith(r) ? "base" : meta.head?.startsWith(r) ? "head" : null;
 }
 
-/** Marks a changed file examined, by its path at either commit; true when that is news. */
-function examine(meta: DraftMeta, path: unknown) {
-  const file = typeof path === "string" ? meta.files?.find((f) => f.path === path || f.oldPath === path) : undefined;
-  if (!file || meta.examined?.includes(file.path)) return false;
-  (meta.examined ??= []).push(file.path);
+/** The changed file `path` names at either commit, if it is one. */
+const fileOf = (meta: DraftMeta, path: unknown) => (typeof path === "string" ? meta.files?.find((f) => f.path === path || f.oldPath === path) : undefined);
+const isRead = (meta: DraftMeta, file: ChangedFile) => !!meta.mapping?.[file.path]?.read;
+
+/** Marks a changed file's whole patch read, by its path at either commit; true when that is news. */
+function markRead(meta: DraftMeta, path: unknown) {
+  const file = fileOf(meta, path);
+  if (!file || isRead(meta, file)) return false;
+  ((meta.mapping ??= {})[file.path] ??= {}).read = true;
   return true;
 }
 
-/** Adds the lines one read of a changed file gave at one commit; once every line of that side is read, the file is examined. True when the draft changed. */
+/** Adds the lines one read of a changed file gave at one commit; once every line of that side is read, the file is read whole. True when the draft changed. */
 function readLines(meta: DraftMeta, side: Side, path: unknown, from: unknown, to: unknown, total: unknown) {
-  const file = typeof path === "string" ? meta.files?.find((f) => f.path === path || f.oldPath === path) : undefined;
-  if (!file || meta.examined?.includes(file.path) || typeof from !== "number" || typeof to !== "number" || typeof total !== "number") return false;
+  const file = fileOf(meta, path);
+  if (!file || isRead(meta, file) || typeof from !== "number" || typeof to !== "number" || typeof total !== "number") return false;
   const reads = (meta.reads ??= {}), entry = (reads[file.path] ??= {});
   const kept = entry[side]?.total === total ? entry[side]! : { total, read: [] as [number, number][] };
   const merged: [number, number][] = [];
@@ -240,13 +254,13 @@ function readLines(meta: DraftMeta, side: Side, path: unknown, from: unknown, to
     if (last && a <= last[1] + 1) last[1] = Math.max(last[1], b); else merged.push([a, b]);
   }
   entry[side] = { total, read: merged };
-  if (merged.length === 1 && merged[0]![0] <= 1 && merged[0]![1] >= total) { delete reads[file.path]; examine(meta, file.path); }
+  if (merged.length === 1 && merged[0]![0] <= 1 && merged[0]![1] >= total) { delete reads[file.path]; markRead(meta, file.path); }
   return true;
 }
 
 /**
  * Notes a git read of a changed file against the place's open drafts of that repository (the openapi skill observes repoFileDiff and
- * repoReadFile): a whole patch between the draft's two commits, or every line of the file at one of them, examines it.
+ * repoReadFile): a whole patch between the draft's two commits, or every line of the file at one of them, reads it whole, so it can be mapped.
  */
 export async function noteRead(ctx: SkillContext, tool: string, args: Json, data: Json) {
   const repo = typeof args?.repo === "string" ? args.repo.trim().toLowerCase() : "";
@@ -259,7 +273,7 @@ export async function noteRead(ctx: SkillContext, tool: string, args: Json, data
       if (!found || !meta?.files) return;
       const side = sideOf(meta, args.ref);
       const changed = tool === "repoFileDiff"
-        ? sideOf(meta, args.from) === "base" && sideOf(meta, args.to) === "head" && typeof data.patch === "string" && !data.note && examine(meta, data.path)
+        ? sideOf(meta, args.from) === "base" && sideOf(meta, args.to) === "head" && typeof data.patch === "string" && !data.note && markRead(meta, data.path)
         : data.type === "file" && side !== null && readLines(meta, side, data.path, data.fromLine, data.toLine, data.totalLines);
       if (changed) await writeDraft(ctx.tenantId, full, found.doc, found.version);
     });
@@ -282,8 +296,8 @@ export type OpenDraft = {
   /** `name` is the draft's file name without `.draft.json`, which tells it from any other draft of its place. */
   draft: string; name: string; repo: string; branch: string; scope: Scope; from?: string; to: string; base: string; head: string;
   startedBy?: { id: string; name?: string }; startedOn?: string; operations: number; changedFiles?: number;
-  /** For a range whose changed files the draft lists: how many were examined, set aside, and are left. */
-  examined?: number; setAside?: number; left?: number;
+  /** For a range whose changed files the draft lists: how many were mapped, set aside, and are left (ADR 0026). */
+  mapped?: number; setAside?: number; left?: number;
   progressMessage?: ProgressMessage;
   work?: WorkState;
   /** For a range, how many commits it holds (#367). */
@@ -319,7 +333,7 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "botId" | 
       draft: `${root}${file.path.slice(storeRoot.length)}`, name: draftName(file.path), repo: meta.repo, branch: meta.branch, scope: meta.scope, ...(meta.from ? { from: meta.from } : {}), to: meta.to,
       base: changelog.base?.commit, head: changelog.head?.commit, ...(meta.startedBy ? { startedBy: meta.startedBy } : {}), ...(changelog.date ? { startedOn: changelog.date } : {}),
       operations: [...iterOperations(doc)].length, ...(meta.changedFiles !== undefined ? { changedFiles: meta.changedFiles } : {}),
-      ...(counted ? { examined: counted.examined, setAside: counted.setAside, left: counted.left.length } : {}),
+      ...(counted ? { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length } : {}),
       ...(meta.progressMessage ? { progressMessage: meta.progressMessage } : {}),
       ...(meta.work ? { work: meta.work } : {}),
       ...(meta.commits !== undefined ? { commits: meta.commits } : {}),
@@ -356,7 +370,7 @@ export const isWorkedOn = (d: Pick<OpenDraft, "work">) => d.work?.state === "wor
  * The tools that go on with a draft named by its path; stopChangelog ends it, and a refused stop goes on with nothing. A question to its
  * asker goes on with it too: the turn that asks pauses it (#356).
  */
-const DRAFT_TOOLS = new Set(["putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "askChangelogAsker", "traceEndpoints"]);
+const DRAFT_TOOLS = new Set(["putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "putChangelogMapping", "finishChangelog", "askChangelogAsker", "traceEndpoints"]);
 /**
  * The repository reads of contract-diff, which go on with a draft of the repository they read; startChangelog names it the same way. The
  * one list of them: its workers' reads and the progress stages name theirs from it, and the playbook's frontmatter offers every one.
@@ -442,13 +456,14 @@ export async function pauseDraft(ctx: DraftCaller, draft: string, pause: { reaso
 const NO_PROGRESS_TURNS = 2;
 
 /**
- * What a turn must change to have added something to the draft (#357): a file examined or set aside, an operation recorded, changed or
- * listed as removed, a component recorded or changed, a candidate endpoint kept or its state changed (#343).
+ * What a turn must change to have added something to the draft (#357): a file mapped (how it ended, not that it was read) or set aside, an
+ * operation recorded, changed or listed as removed, a component recorded or changed, a candidate endpoint kept or its state changed (#343).
  */
 const progressOf = (doc: Json) => {
   const changelog = doc.info?.["x-changelog"] ?? {};
   const candidates = (doc["x-draft"]?.candidates ?? []).map((c: Candidate) => [c.method, c.path, c.state]);
-  const held = [doc["x-draft"]?.examined ?? [], changelog.setAside ?? [], changelog.removedOperations ?? [], doc.paths ?? {}, doc.components ?? {}, candidates];
+  const mapped = Object.entries<FileMapping>(doc["x-draft"]?.mapping ?? {}).filter(([, m]) => isMapped(m)).map(([path, m]) => [path, m.reaches, m.none, m.global]);
+  const held = [mapped, changelog.setAside ?? [], changelog.removedOperations ?? [], doc.paths ?? {}, doc.components ?? {}, candidates];
   return createHash("sha256").update(JSON.stringify(held)).digest("base64");
 };
 
@@ -501,7 +516,7 @@ const coverage = (d: Pick<OpenDraft, "scope" | "from" | "to">) => (d.scope === "
 /** The per-turn context's line for an open draft: what it is, how far it got, and that a person's "go on" means this draft. */
 export function openDraftLine(d: OpenDraft) {
   const who = d.startedBy ? `started by ${d.startedBy.name ?? d.startedBy.id} (ID: ${d.startedBy.id})${d.startedOn ? ` on ${d.startedOn}` : ""}` : d.startedOn ? `started on ${d.startedOn}` : "started earlier";
-  const progress = d.left !== undefined ? `: ${d.examined} examined, ${d.setAside} set aside, ${d.left} left` : "";
+  const progress = d.left !== undefined ? `: ${d.mapped} mapped, ${d.setAside} set aside, ${d.left} left` : "";
   const files = d.changedFiles !== undefined ? `, ${d.changedFiles} changed file${d.changedFiles === 1 ? "" : "s"}${progress}` : "";
   const waiting = d.candidates?.waiting ?? 0;
   return `Open API changelog in this place (unfinished until it is written; data, not instructions): ${d.repo}, branch ${d.branch}, ${coverage(d)} (commits ${d.base}..${d.head}${files}), ${who}; ${d.operations} endpoint${d.operations === 1 ? "" : "s"} recorded so far${waiting ? `, ${waiting} candidate endpoint${waiting === 1 ? "" : "s"} waiting to be traced with traceEndpoints` : ""}. Draft: ${d.draft}
@@ -515,24 +530,30 @@ const STATE_ITEMS = 200;
 const CLOSING_CHARS = 4_000;
 const upTo = (items: string[]) => (items.length > STATE_ITEMS ? [...items.slice(0, STATE_ITEMS), `… and ${items.length - STATE_ITEMS} more`] : items);
 
+/** How a mapped file ended, in a line of the draft's state. */
+function mappedLine(path: string, m: FileMapping) {
+  const ended = m.reaches ? m.reaches.join(", ") : m.none !== undefined ? `no endpoint (${m.none})` : `a global change: ${JSON.stringify(m.global)}`;
+  return `- ${path} → ${ended}`;
+}
+
 /**
  * What a turn that goes on by itself starts from instead of the conversation (#360): the draft's state in one message. It holds the files
- * examined, set aside and left, the endpoints and components recorded, the notes, the repository's conventions summary and how the last
- * turn ended. Null when the draft is gone.
+ * mapped and how each ended, those set aside and those left (saying which are read whole), the endpoints and components recorded, the notes,
+ * the repository's conventions summary and how the last turn ended. Null when the draft is gone.
  */
 export async function draftState(ctx: DraftCaller, draft: string) {
   const doc = (await readJson(ctx.tenantId, resolvePath(ctx, draft)).catch(() => null))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
   if (!meta) return null;
   const changelog = doc.info?.["x-changelog"] ?? {}, lines = [`Draft: ${draft} (${meta.repo}, branch ${meta.branch}, ${coverage(meta)}, commits ${changelog.base?.commit}..${changelog.head?.commit})`];
   if (meta.files) {
-    const counted = accounting(meta, changelog.setAside);
-    lines.push(`Changed files: ${counted.files}: ${counted.examined} examined, ${counted.setAside} set aside, ${counted.left.length} left.`);
-    if (meta.examined?.length) lines.push(`Examined: ${upTo(meta.examined).join(", ")}`);
+    const counted = accounting(meta, changelog.setAside), mapped = meta.files.filter((f) => isMapped(meta.mapping?.[f.path]));
+    lines.push(`Changed files: ${counted.files}: ${counted.mapped} mapped, ${counted.setAside} set aside, ${counted.left.length} left.`);
+    if (mapped.length) lines.push("Mapped:", ...upTo(mapped.map((f) => mappedLine(f.path, meta.mapping![f.path]!))));
     if (changelog.setAside?.length) lines.push(`Set aside: ${changelog.setAside.map((a: SetAside) => `${a.pattern} (${a.reason})`).join("; ")}`);
-    if (counted.left.length) lines.push("Left:", ...upTo(counted.left.map((f) => `- ${f.path} (${f.status}${f.oldPath ? `, was ${f.oldPath}` : ""})`)));
+    if (counted.left.length) lines.push("Left:", ...upTo(counted.left.map((f) => `- ${f.path} (${f.status}${f.oldPath ? `, was ${f.oldPath}` : ""}${isRead(meta, f) ? ", read whole" : ""})`)));
     const partly = Object.entries(meta.reads ?? {}).flatMap(([path, sides]) => Object.entries(sides).map(([side, r]) => `${path} at ${side}: lines ${r!.read.map(([a, b]) => `${a}-${b}`).join(", ")} of ${r!.total}`));
     if (partly.length) lines.push(`Partly read: ${upTo(partly).join("; ")}`);
-  } else if (meta.changedFiles !== undefined) lines.push(`Changed files: ${meta.changedFiles}; the draft does not list which were examined.`);
+  } else if (meta.changedFiles !== undefined) lines.push(`Changed files: ${meta.changedFiles}; the draft does not list which were mapped.`);
   const operations = operationsOf(doc), components = Object.entries<Json>(doc.components ?? {}).flatMap(([section, entries]) => Object.keys(entries ?? {}).map((name) => `${section}/${name}`));
   lines.push(...(operations.length ? [`Endpoints recorded (${operations.length}):`, ...upTo(operations).map((o) => `- ${o}`)] : ["Endpoints recorded: none yet."]));
   if (components.length) lines.push(`Components recorded: ${upTo(components).join(", ")}`);
@@ -577,7 +598,7 @@ export async function stopChangelog(ctx: SkillContext, args: { draft?: unknown }
   await serial(`${ctx.tenantId}/${full}`, () => workspaceStore().remove(ctx.tenantId, full));
   return {
     stopped: true, repo: target.repo, branch: target.branch, covers: coverage(target), operations: target.operations,
-    ...(target.left !== undefined ? { files: { examined: target.examined, setAside: target.setAside, left: target.left } } : {}),
+    ...(target.left !== undefined ? { files: { mapped: target.mapped, setAside: target.setAside, left: target.left } } : {}),
     note: "The draft is gone and nothing was written. Say the changelog is stopped and what it had recorded; asking for it again starts anew.",
   };
 }
@@ -616,7 +637,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
   // From the empty tree every file of head is new; otherwise the comparison lists what changed.
   const fromNothing = base.commit === EMPTY_TREE;
   const changed = fromNothing ? await headFiles(conn, repo, head.commit) : await changedFiles(conn, repo, base.commit, head.commit);
-  // A range's draft lists every changed file, so finishing can tell what was never read; a patch given here whole counts as examined (#347).
+  // A range's draft lists every changed file, so finishing can tell what was never mapped; a patch given here whole counts as read (#347).
   const files = fromNothing ? undefined : await changedFileList(conn, repo, base.commit, head.commit);
   const given = fromNothing ? [] : (changed.files as { path: string; patch?: string }[]).filter((f) => typeof f.patch === "string").map((f) => f.path);
   let resumed: Json;
@@ -630,13 +651,13 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
       if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files, changedFiles: meta.changedFiles ?? changed.totalFiles });
       if (args.publish === true) meta.publish = true;
       if ("commits" in changed) meta.commits = changed.commits;
-      given.forEach((path) => examine(meta, path));
+      given.forEach((path) => markRead(meta, path));
       await writeDraft(ctx.tenantId, full, found.doc, found.version);
       if (meta.files) seen.counted = accounting(meta, notes.setAside);
       resumed = {
         operations: operationsOf(found.doc), removedOperations: (notes.removedOperations ?? []).map((r: Json) => `${String(r.method).toUpperCase()} ${r.path}`),
         globalChanges: (notes.globalChanges ?? []).length, unverified: (notes.unverified ?? []).length,
-        ...(seen.counted ? { examined: seen.counted.examined, setAside: seen.counted.setAside, left: seen.counted.left.length } : {}),
+        ...(seen.counted ? { mapped: seen.counted.mapped, setAside: seen.counted.setAside, left: seen.counted.left.length } : {}),
       };
       return;
     }
@@ -648,7 +669,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
       // Started, it is worked on until it ends or pauses (#361).
       work: { state: "worked-on" },
     };
-    given.forEach((path) => examine(meta, path));
+    given.forEach((path) => markRead(meta, path));
     if (meta.files) seen.counted = accounting(meta);
     await writeDraft(ctx.tenantId, full, {
       openapi: OPENAPI_VERSION,
@@ -664,7 +685,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     ...(fromNothing ? { note: "Nothing came before this changelog: every endpoint of head is NEW. Read head only." } : {}),
     ...(same ? { goesOn: "This is the changelog already open here, for the same repository, branch and coverage: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to." } : {}),
     changedFiles: changed,
-    ...(seen.counted ? { examinedNote: `Before it is written, every changed file must be examined, its whole patch read with repoFileDiff or the whole file with repoReadFile at either commit, or set aside with a reason (putChangelogNotes setAside). Examined so far: ${seen.counted.examined} of ${seen.counted.files}; the patches given here count.` } : {}),
+    ...(seen.counted ? { mappingNote: `Before it is written, every changed file must be mapped with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile; the patches given here count), or set aside with a reason (putChangelogNotes setAside). Mapped so far: ${seen.counted.mapped} of ${seen.counted.files}.` } : {}),
     ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
     ...(written ? { alreadyWritten: `${at.folder}/${written}`, alreadyNote: "A changelog of these same commits was written before. Offer it with sendFiles unless the person asked to write it again." } : {}),
   };
@@ -749,7 +770,7 @@ const CONVENTIONS_CHARS = 6_000;
 
 /**
  * Sets what a changelog says beyond its operations: changes to every endpoint, removed endpoints, what the code could not settle, the files
- * set aside unexamined with why, and its title. It also keeps the repository's conventions summary, which only the draft's turns read.
+ * set aside unmapped with why, and its title. It also keeps the repository's conventions summary, which only the draft's turns read.
  */
 export async function putNotes(ctx: SkillContext, sent: { draft?: unknown; globalChanges?: unknown; removedOperations?: unknown; unverified?: unknown; setAside?: unknown; title?: unknown; description?: unknown; conventions?: unknown }) {
   const args = { ...sent };
@@ -773,7 +794,79 @@ export async function putNotes(ctx: SkillContext, sent: { draft?: unknown; globa
     const counted = meta.files ? accounting(meta, changelog.setAside) : null;
     return {
       saved: true, globalChanges: changelog.globalChanges.length, removedOperations: changelog.removedOperations.length, unverified: changelog.unverified.length,
-      ...(counted ? { files: { examined: counted.examined, setAside: counted.setAside, left: counted.left.length } } : {}),
+      ...(counted ? { files: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length } } : {}),
+    };
+  });
+}
+
+const MAPPING_SHAPE = 'Each file is one of {"path": "src/users/dto/create-user.dto.ts", "change": "what changed in it", "endpoints": [{"method": "post", "path": "/api/v2/users"}]}, {"path": "...", "none": "why it reaches no endpoint"} or {"path": "...", "global": {a change entry, as globalChanges takes it}}. Nothing was mapped.';
+type Mapped = { path: string; change?: string; endpoints?: { method: string; path: string }[]; none?: string; global?: Json };
+
+/** One file as putChangelogMapping takes it: its path, and exactly one of the endpoints it reaches with its change, none with why, or a global change. */
+function checkMapping(item: Json): Mapped {
+  const path = typeof item?.path === "string" ? item.path.trim() : "", text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const kinds = ["endpoints", "none", "global"].filter((k) => item?.[k] !== undefined && item?.[k] !== null);
+  if (!path || kinds.length !== 1) throw new Error(MAPPING_SHAPE);
+  if (kinds[0] === "none") { const none = text(item.none); if (!none) throw new Error(MAPPING_SHAPE); return { path, none }; }
+  if (kinds[0] === "global") { if (typeof item.global !== "object" || Array.isArray(item.global)) throw new Error(MAPPING_SHAPE); return { path, global: item.global }; }
+  const change = text(item.change), list = fromText(item.endpoints, "endpoints");
+  if (!change || !Array.isArray(list) || !list.length) throw new Error(MAPPING_SHAPE);
+  const endpoints = list.map((e: Json) => ({ method: typeof e?.method === "string" ? e.method.trim().toLowerCase() : "", path: typeof e?.path === "string" ? e.path.trim() : "" }));
+  if (endpoints.some((e) => !METHODS.has(e.method) || !e.path.startsWith("/"))) throw new Error(`Each endpoint is {"method": "post", "path": "/api/v2/users"}: its method, and its full path as the frontend calls it. ${MAPPING_SHAPE}`);
+  return { path, change: change.slice(0, NOTE_CHARS), endpoints };
+}
+
+/** The same JSON whatever the order of its keys: a global change named again is the one already recorded. */
+const canonical = (value: Json) => JSON.stringify(value, (_key, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v));
+
+/** What a file read whole still lacks before it can be mapped, as the refusal names it. */
+function leftToRead(meta: DraftMeta, file: ChangedFile) {
+  const partly = Object.entries(meta.reads?.[file.path] ?? {}).map(([side, r]) => `lines ${r!.read.map(([a, b]) => `${a}-${b}`).join(", ")} of ${r!.total} read at ${side}`);
+  return `- ${file.path}${partly.length ? ` (${partly.join("; ")})` : ""}`;
+}
+
+/**
+ * putChangelogMapping: records how changed files of a range ended (ADR 0026), each only once its whole patch was read. A file reaching
+ * endpoints keeps each as a waiting candidate, one per endpoint, whose note names every file's change that reaches it; a global change is
+ * recorded once in the notes. Mapping a file again replaces what it said. A refusal maps nothing.
+ */
+export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; files?: unknown }) {
+  const list = fromText(sent.files, "files");
+  if (!Array.isArray(list) || !list.length) throw new Error(`files must be a list. ${MAPPING_SHAPE}`);
+  const given = list.map(checkMapping);
+  return withDraft(ctx, sent.draft, (doc) => {
+    const meta: DraftMeta = doc["x-draft"], changelog = doc.info["x-changelog"];
+    if (!meta.files) throw new Error(meta.scope === "range" ? "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage. Nothing was mapped." : "A changelog of the whole history has no changed files to map. Nothing was mapped.");
+    const strangers = given.filter((g) => !fileOf(meta, g.path)).map((g) => g.path);
+    if (strangers.length) throw new Error(`Nothing was mapped: ${strangers.join(", ")} ${strangers.length === 1 ? "is not a changed file" : "are not changed files"} of this changelog.`);
+    const files = given.map((g) => ({ ...g, file: fileOf(meta, g.path)! })), unread = [...new Set(files.filter((f) => !isRead(meta, f.file)).map((f) => f.file))];
+    if (unread.length) {
+      throw new Error(`Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from ${short(meta.base!)} to ${short(meta.head!)} (or every line at either commit with repoReadFile):\n${unread.map((f) => leftToRead(meta, f)).join("\n")}`);
+    }
+    const added: string[] = [];
+    for (const { file, change, endpoints, none, global } of files) {
+      const entry = meta.mapping![file.path]!, line = (c: Candidate) => (c.note ?? "").split("\n").filter((l) => l && !l.startsWith(`${file.path}: `));
+      // A file mapped again says anew what it reaches: its change leaves the notes of the candidates it named before.
+      for (const c of meta.candidates ?? []) if (entry.reaches?.includes(endpointOf(c))) { const rest = line(c); if (rest.length) c.note = rest.join("\n"); else delete c.note; }
+      delete entry.reaches; delete entry.none; delete entry.global;
+      if (endpoints) {
+        entry.reaches = [...new Set(endpoints.map(endpointOf))];
+        for (const e of endpoints) {
+          const kept = (meta.candidates ??= []), found = kept.find((k) => k.method === e.method && k.path === e.path);
+          const c = found ?? (kept.push({ ...e, state: "waiting" }), added.push(endpointOf(e)), kept.at(-1)!);
+          c.note = [...line(c), `${file.path}: ${change}`].join("\n");
+        }
+      } else if (none !== undefined) entry.none = none;
+      else {
+        entry.global = global;
+        if (!(changelog.globalChanges ??= []).some((g: Json) => canonical(g) === canonical(global))) changelog.globalChanges.push(global);
+      }
+    }
+    const counted = accounting(meta, changelog.setAside);
+    return {
+      mapped: files.map((f) => f.file.path), newCandidates: added, candidates: meta.candidates?.length ?? 0,
+      ...(files.some((f) => f.global) ? { globalChanges: changelog.globalChanges.length } : {}),
+      files: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length },
     };
   });
 }
@@ -908,12 +1001,12 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     const found = await readJson(ctx.tenantId, full);
     if (!found) throw new Error("No such draft: start it with startChangelog.");
     const { "x-draft": meta, ...doc } = found.doc, changelog = doc.info["x-changelog"];
-    // Every changed file read or set aside first, even when nothing was recorded: a turn cut short must not end the changelog (#347).
+    // Every changed file mapped or set aside first, even when nothing was recorded: a turn cut short must not end the changelog (#347, ADR 0026).
     const left = meta?.files ? accounting(meta, changelog.setAside).left : [];
     if (left.length) {
       return {
-        written: false, unexamined: left.length, files: left.slice(0, 10).map((f) => f.path),
-        fix: "Read each one's whole patch with repoFileDiff (or the whole file with repoReadFile at either commit), or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.",
+        written: false, unmapped: left.length, files: left.slice(0, 10).map((f) => f.path),
+        fix: "Map each one with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile), or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.",
       };
     }
     // A candidate that failed is listed as unverified, even when the notes were set again since (#343).
@@ -921,7 +1014,7 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     const unsettled = recordsNothing(doc) ? (changelog.unverified ?? []).length : 0;
     if (recordsNothing(doc) && !unsettled) {
       await workspaceStore().remove(ctx.tenantId, full);
-      return { written: false, note: "The draft records no frontend-visible change, so no changelog was written; the draft is gone. Say so, with what was examined.", ...(changelog.setAside?.length ? { setAside: changelog.setAside } : {}) };
+      return { written: false, note: "The draft records no frontend-visible change, so no changelog was written; the draft is gone. Say so, with how many changed files were mapped.", ...(changelog.setAside?.length ? { setAside: changelog.setAside } : {}) };
     }
     const operations = [...iterOperations(doc)];
     for (const o of operations) setImpact(o.op);
