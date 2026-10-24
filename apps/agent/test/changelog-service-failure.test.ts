@@ -2,7 +2,7 @@ import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import { BASE, DRAFT, FINISH, FOLDER, HEAD, RECORD, SOURCE, START, WRITTEN, WRITTEN_FILE, agentLog, contractDiffOn, draftMeta, pauses, warnings } from "./support/changelog";
 
-/** The changed files, none with a patch given: each is examined by reading it whole. */
+/** The changed files, none with a patch given: each can be mapped once it is read whole. */
 const DTOS = ["a", "b", "c"].map((n) => `src/users/dto/${n}.dto.ts`);
 const PROJECT = "gitlab.com/api/v4/projects/acme%2Fapi";
 /** The repository itself, and no request under it. */
@@ -23,8 +23,10 @@ async function acmeOnGitLab(s: Scenario) {
   s.http.on(`GET ${PROJECT}/repository/compare`, () => ({ commits: [], diffs: DTOS.map((path) => ({ new_path: path, old_path: path, new_file: false, deleted_file: false, renamed_file: false })) }));
   s.http.on(`GET ${PROJECT}/repository/files/`, () => ({ content: Buffer.from(SOURCE).toString("base64") }));
 }
-/** Reads a changed DTO whole at head, which examines it. */
+/** Reads a changed DTO whole at head, so it can be mapped. */
 const read = (i: number) => ({ tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: DTOS[i] } });
+/** Maps the three DTOs, once each is read whole: each reaches POST /api/v2/users (#366). */
+const MAP = { tool: "putChangelogMapping", args: { draft: DRAFT, files: DTOS.map((path) => ({ path, change: "a body field changed", endpoints: [{ method: "post", path: "/api/v2/users" }] })) } };
 const ASK = `changelog acme/api from 1 to 22 October`;
 type Step = Parameters<Scenario["model"]["script"]>[number];
 /** GitLab's answer to every file read from now on. */
@@ -143,7 +145,7 @@ discordScenario("two 502s then a read that succeeds, and a file that does not ex
     },
     saw(read(0)), read(0), read(1), read(1), read(1),
     { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: MISSING } }, saw(read(2)),
-    RECORD, FINISH, `The acme/api changelog is written: ${WRITTEN}`,
+    [MAP, ...RECORD], FINISH, `The acme/api changelog is written: ${WRITTEN}`,
   );
   await s.discord.send(`${s.discord.mention} ${ASK}`);
 

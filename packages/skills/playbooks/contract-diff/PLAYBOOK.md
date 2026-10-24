@@ -4,7 +4,7 @@ category: Git, code & APIs
 trigger: {"word": ["changelog"]}
 default: off
 requires: ["git_repositories", "openapi"]
-tools: ["playbookRepositories", "startChangelog", "stopChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "traceEndpoints", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]
+tools: ["playbookRepositories", "startChangelog", "stopChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "putChangelogMapping", "traceEndpoints", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]
 repository: required
 budget: long
 ---
@@ -22,9 +22,9 @@ Produce an OpenAPI document that holds only the endpoints whose frontend-facing 
 
 **Ask for reads together.** Every step you take costs the person time. When reads do not depend on each other, such as the diffs of all the changed files, or one file at base and at head, call them all in one response.
 
-**Record as you go.** What you found but did not record is lost when the turn runs out: the next turn starts from the draft, not from what you read. Hand candidates to `traceEndpoints` as soon as you have them, and record removed endpoints and files set aside with `putChangelogNotes`.
+**Record as you go.** What you found but did not record is lost when the turn runs out: the next turn starts from the draft, not from what you read. Map each changed file with `putChangelogMapping` as soon as you have followed its patch. Hand candidates to `traceEndpoints` as soon as you have them, and record removed endpoints and files set aside with `putChangelogNotes`.
 
-**Keep going until it is written.** While the changelog is open, the turn's context names its draft. Go on with that draft when the person says to; never ask again what it covers. Ending a turn that works on the changelog stops nothing: the work goes on by itself until it is written, so never ask whether to continue. When only the person who started it can answer something, such as which branch to read or whether a folder is set aside, ask them with `askChangelogAsker`: it is the only way you pause the work, and the question is your whole answer. When the person who started the changelog asks to stop it, in any words, call `stopChangelog` and say what was dropped; a message that only pauses stops nothing. When a turn ends before the changelog is written, answer in at most three short lines: how far it is (changed files done of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them.
+**Keep going until it is written.** While the changelog is open, the turn's context names its draft. Go on with that draft when the person says to; never ask again what it covers. Ending a turn that works on the changelog stops nothing: the work goes on by itself until it is written, so never ask whether to continue. When only the person who started it can answer something, such as which branch to read or whether a folder is set aside, ask them with `askChangelogAsker`: it is the only way you pause the work, and the question is your whole answer. When the person who started the changelog asks to stop it, in any words, call `stopChangelog` and say what was dropped; a message that only pauses stops nothing. When a turn ends before the changelog is written, answer in at most three short lines: how far it is (changed files mapped of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them.
 
 ## 1. Pin what the changelog covers
 
@@ -55,13 +55,16 @@ Read a convention's files at base too only when they are among the changed files
 
 Then write what you learned into the draft with `putChangelogNotes` conventions, in at most about 1,500 tokens: how routes are declared, prefixed and versioned, the envelope, the error format, validation, serialization (field names, and how null and absent fields come out) and auth, each with the files that hold it. The turns that go on by themselves start from the draft, not from what you read, and the workers of step 4 get this summary instead of checklist.md, so it is all they know of the repository's conventions. Write it before any endpoint is traced: `traceEndpoints` refuses while the draft has none. A draft started earlier without one, such as one you go on with, gets it first too.
 
-## 3. Find the affected endpoints
+## 3. Map the changed files
+
+Every changed file is mapped before the changelog is written: its whole patch read, then followed outward to the routes it reaches.
 
 1. List the changed files. The first page came with `startChangelog`, with the patches of as many of them as fit; get the other patches with `repoFileDiff`, and the rest of the list with `repoCompare` from base to head, page by page, or with `repoTree` at head when base is the empty tree.
 2. Follow each changed file outward to every route that uses it. A changed DTO, serializer, model, exception class, or shared helper changes every endpoint that touches it, even when those route files are untouched. Search for its usages (imports, class and function names) with `repoSearchCode`, recursively until you reach route registrations, and confirm each hit at head, since the search reads only the default branch: with `repoFindDefinition` for a function, class or constant, or with `repoReadFile` from the hit's line. Missing this step is the most common way a changelog ends up incomplete.
 3. When the changed files include where routes are mounted, prefixed or versioned (the app's bootstrap, its modules or router mounts, a global prefix or versioning setting), compare the full route tables of base and head: list the route, controller and router files of each revision with `repoTree` (pass path for a folder) and read them at each commit, since a one-line change there can move or remove many endpoints. When none of those changed, the route table differs only in the changed controller and route files: compare just their routes, at both commits.
+4. Record how each file ended with `putChangelogMapping` once you have followed it: the endpoints its change reaches (method and full path as the frontend calls it, with what changed), none with why (a seed, a script, a scheduler), or a change to every endpoint alike (a global prefix or versioning, a global guard, interceptor or pipe, the envelope, the bootstrap), recorded once as a global change. Keep every endpoint a change reaches: whether its contract changed is for its worker to find. A file is mapped only once its whole patch was read, with `repoFileDiff` or every line of it at base or head with `repoReadFile` (every page); the patches `startChangelog` gave count. Each endpoint reached is kept in the draft as a candidate waiting to be traced, one per endpoint, its note naming every change that reaches it.
 
-You now have candidate endpoints (method and path), plus any endpoints that exist only in base or only in head.
+You now have the candidate endpoints in the draft, plus any endpoints that exist only in base or only in head.
 
 ## 4. Hand the candidates to workers
 
@@ -76,7 +79,7 @@ Each candidate gets a worker of its own, which follows tracing.md: it reads the 
 
 ## 5. Validate and write
 
-Every changed file is examined or set aside before the changelog is written. A file counts as examined when you read its whole patch with `repoFileDiff`, or the whole file with `repoReadFile` at base or head (every page of it); the patches `startChangelog` gave count too. Files that cannot change what the frontend sees (tests, docs, CI, lockfiles) you may set aside in the setAside list of `putChangelogNotes`, by pattern, each with its reason; never set aside a file only because there are many. `finishChangelog` refuses while any file is neither and names them: read or set those aside, then call it again.
+Every changed file is mapped (step 3) or set aside before the changelog is written. Files that cannot change what the frontend sees (tests, docs, CI, lockfiles) you may set aside in the setAside list of `putChangelogNotes`, by pattern, each with its reason; never set aside a file only because there are many. `finishChangelog` refuses while any file is neither and names them: map or set those aside, then call it again.
 
 Call `finishChangelog`. It validates the whole document (the contract-diff checks and the OpenAPI 3.1 schema), counts the summary, and writes the changelog's .json beside the draft. With errors nothing is written: fix each (with `putChangelogNotes`, `putChangelogComponents`, or `putChangelogOperation` given the whole operation) and call it again, until it writes the file. Read its warnings too: an unused component or an unverifiable field path usually means something is off.
 
@@ -90,5 +93,5 @@ The file holds the details; the report says in plain words what changed for the 
    What was set aside unread, in one line with the reasons, such as "Not read: tests and CI configuration."
 4. When the changelog was started with publish, `finishChangelog` published it as it wrote it: give the link on its own line and pass on its warning as written; when it says publishing failed, say so in one line. When the person asks to publish it only later, publish it with `publishOpenApi`.
 
-- When nothing frontend-visible changed, `finishChangelog` writes no file: say so in one sentence, with how many changed files were examined.
+- When nothing frontend-visible changed, `finishChangelog` writes no file: say so in one sentence, with how many changed files were mapped.
 - When `repoCompare` said GitHub stopped at 300 changed files, add that the changelog may miss some endpoints.

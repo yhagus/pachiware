@@ -430,7 +430,7 @@ discordScenario("a range draft from before drafts listed their files is told to 
   const RESTART = "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage.";
   const before = await contextAfter(s);
   expect(before).toContain(RESTART);
-  expect(before).toContain("If you stop before it is written, answer in at most three short lines: how far it is (changed files done of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them, and do not ask whether to go on.");
+  expect(before).toContain("If you stop before it is written, answer in at most three short lines: how far it is (changed files mapped of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them, and do not ask whether to go on.");
 
   const [again] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } }, results);
   expect(again.draft).toBe("channel/files/changelogs/acme-api/2026-10-21_9f8e7d6..a1b2c3d.draft.json");

@@ -18,7 +18,7 @@ const { "x-impact": _impact, ...operation } = FIXTURE.paths["/api/v2/users"].pos
 /** The example operation without its impact, which the tools set. */
 export const OPERATION = operation;
 export const CONTROLLER = "src/users/users.controller.ts";
-/** The changed files whose patches startChangelog does not give: each is examined by reading it whole. */
+/** The changed files whose patches startChangelog does not give: each is read whole before it is mapped. */
 export const DTOS = ["a", "b", "c", "d", "e", "f"].map((n) => `src/users/dto/${n}.dto.ts`);
 /** What every file of acme/api reads as, at any commit. */
 export const SOURCE = "export class Dto {\n  full_name: string;\n  phone: string;\n}";
@@ -51,9 +51,17 @@ export async function acmeApi(s: Scenario) {
 /** Starts the changelog from 1 October through today; `publish` asks for it to be published as it is written (#349). */
 export const startChangelog = (extra: { publish?: boolean } = {}) => ({ tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", ...extra } });
 export const START = startChangelog();
-/** Reads one changed DTO whole at head, which examines it. */
+/** Reads one changed DTO whole at head, so it can be mapped. */
 export const read = (i: number) => ({ tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: DTOS[i] } });
 export const READ_REST = [1, 2, 3, 4, 5].map(read);
+/** A changed file that reaches POST /api/v2/users, as putChangelogMapping takes it. */
+const reaches = (path: string, change: string) => ({ path, change, endpoints: [{ method: "post", path: "/api/v2/users" }] });
+/** Maps DTO i, once it is read whole: its field reaches POST /api/v2/users (#366). */
+export const mapDto = (i: number) => ({ tool: "putChangelogMapping", args: { draft: DRAFT, files: [reaches(DTOS[i]!, "a body field changed")] } });
+/** Maps the controller and the DTOs given, each once it is read whole: all reach POST /api/v2/users, one candidate whose note names each change (#366). */
+export const mapFiles = (dtos = [0, 1, 2, 3, 4, 5]) => ({ tool: "putChangelogMapping", args: { draft: DRAFT, files: [reaches(CONTROLLER, "@Post() became @Post('v2')"), ...dtos.map((i) => reaches(DTOS[i]!, "a body field changed"))] } });
+/** Maps every changed file, once all seven are read whole. */
+export const MAP = mapFiles();
 export const RECORD = [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION } }];
 export const FINISH = { tool: "finishChangelog", args: { draft: DRAFT } };
 /** The model's answer once finishChangelog wrote the changelog, naming the path it was written to. */

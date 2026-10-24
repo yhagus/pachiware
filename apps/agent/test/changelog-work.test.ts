@@ -1,8 +1,8 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import {
-  BASE, DRAFT, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, READ_REST, RECORD, WRITTEN, WRITTEN_FILE,
-  acmeApi, agentLog, contractDiffOn, draftMeta, fastProgress, pause, pauses, read, startChangelog, warnings, written,
+  BASE, DRAFT, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, MAP, READ_REST, RECORD, WRITTEN, WRITTEN_FILE,
+  acmeApi, agentLog, contractDiffOn, draftMeta, fastProgress, mapDto, mapFiles, pause, pauses, read, startChangelog, warnings, written,
 } from "./support/changelog";
 
 /** Alice asks for the changelog to be published too, so finishing publishes it as it writes it (#349). */
@@ -40,7 +40,7 @@ discordScenario("a turn that goes on by itself needs only its place and asker: w
   s.model.script(
     // Alice deletes her message while the first turn works; Discord refuses a reply to a deleted message.
     () => { void s.discord.deleteMessage(s.discord.channel("channel-1").messages.find((m) => !m.author.bot)!); return START; }, "Started the acme/api changelog.",
-    [read(0), ...READ_REST], RECORD, FINISH, written,
+    [read(0), ...READ_REST], [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October, then publish it`);
 
@@ -54,8 +54,8 @@ discordScenario("the draft keeps where its progress message is, the one message 
   let kept: unknown;
   s.model.script(
     START, "Started the acme/api changelog.",
-    async () => { await pause(300); return read(0); }, "Read the first DTO.",
-    async () => { kept = (await draftMeta(s)).progressMessage; await pause(100); return READ_REST; }, RECORD, FINISH, written,
+    async () => { await pause(300); return [read(0), mapFiles([0])]; }, "Mapped the controller and the first DTO.",
+    async () => { kept = (await draftMeta(s)).progressMessage; await pause(100); return READ_REST; }, [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
@@ -63,7 +63,8 @@ discordScenario("the draft keeps where its progress message is, the one message 
   expect(rest).toEqual([]);
   expect(answer!.content).toBe(`<@user-alice> The acme/api changelog is written: ${WRITTEN}`);
   expect(progress!.content).toMatch(/^-# 🧠 Done in /);
-  expect(progress!.edits.map((e) => e.content).join("\n")).toContain("2 of 7 changed files done");
+  // The files mapped of all and the candidates found so far (#366).
+  expect(progress!.edits.map((e) => e.content).join("\n")).toContain("\n3 commits · 2 of 7 changed files mapped · 1 candidate so far\n");
   expect(kept).toEqual({ channelId: "channel-1", messageId: progress!.id });
 });
 
@@ -107,10 +108,11 @@ discordScenario("one request whose work spans many turns, cut by their budget or
   let link = "";
   s.model.script(
     START, "Started the acme/api changelog.",
-    read(0), "Read the first DTO.",
-    read(1), read(2), "Two more DTOs read.",
-    read(3), "Read another DTO.",
-    read(4), read(5), "Every DTO read.",
+    // Each turn maps what it read, which is what counts as progress (#366).
+    [read(0), mapFiles([0])], "Mapped the controller and the first DTO.",
+    [read(1), mapDto(1)], [read(2), mapDto(2)], "Two more DTOs mapped.",
+    [read(3), mapDto(3)], "Mapped another DTO.",
+    [read(4), mapDto(4)], [read(5), mapDto(5)], "Every DTO mapped.",
     RECORD, "Recorded POST /api/v2/users.",
     FINISH, (turn) => { link = turn.toolResults.at(-1).published.url; return `The acme/api changelog is written and published: ${link}`; },
   );
@@ -183,7 +185,7 @@ discordScenario("a person's message during the work is answered first and the wo
     // Bob's side question is answered; Alice says lanjut while it is.
     () => { sent.push(s.discord.send(`${s.discord.mention} lanjut`)); return "Masih ada 5 file lagi."; },
     read(1), "Reading on.",
-    [read(2), read(3), read(4), read(5)], RECORD, FINISH, written,
+    [read(2), read(3), read(4), read(5)], [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   await Promise.all(sent);
@@ -204,7 +206,7 @@ discordScenario("a person's message mid-work leaves the work's progress message 
     // Bob asks once the work's progress message is up.
     async () => { await pause(300); asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read the first DTO.",
     "Masih ada 5 file lagi.",
-    READ_REST, RECORD, FINISH, written,
+    READ_REST, [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   await Promise.all(asked);
@@ -225,7 +227,7 @@ discordScenario("a person's turn that fails mid-work is answered with the failur
     async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read the first DTO.",
     // Bob's turn breaks before the model answers.
     () => { throw new Error("socket hang up"); },
-    READ_REST, RECORD, FINISH, written,
+    READ_REST, [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   await Promise.all(asked);
@@ -256,7 +258,7 @@ discordScenario("a paused draft stays paused through a turn that only talks, and
 
   s.model.script(
     [read(1), read(2)], "Going on with the DTOs.",
-    [read(3), read(4), read(5)], RECORD, FINISH, written,
+    [read(3), read(4), read(5)], [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} lanjut`, { author: s.discord.bob });
 
@@ -311,15 +313,16 @@ discordScenario("a model that answers every turn without calling a tool pauses t
   expect(await pauses(s)).toEqual([expect.objectContaining({ reason: "no-progress", repo: "acme/api", branch: "main", draft: "2026-10-22_9f8e7d6..a1b2c3d", channelId: "channel-1" })]);
 });
 
-discordScenario("only the turns that go on by themselves count: a file examined starts the count again, and a person's chat in between neither counts nor resets it (#357)", async (s) => {
+discordScenario("only the turns that go on by themselves count: a turn that only maps a file starts the count again, one that only reads adds nothing, and a person's chat in between neither counts nor resets it (#357, #366)", async (s) => {
   await acmeApi(s);
   const asked: Promise<unknown>[] = [];
   s.model.script(
     START, "Started the acme/api changelog.",
     "Next I will read the DTOs.",
-    read(0), "Read the first DTO.",
-    // Bob asks while the work reads the first DTO again, which adds nothing.
-    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read it again.",
+    // The controller's patch came with startChangelog, so this turn only maps it.
+    mapFiles([]), "Mapped the controller.",
+    // Bob asks while the work reads the first DTO without mapping it, which adds nothing.
+    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read the first DTO.",
     "Masih ada 5 file lagi.",
     "Going on with the DTOs.",
   );
@@ -358,7 +361,7 @@ discordScenario("a draft paused for no progress that a lanjut goes on with count
 discordScenario("in a thread, the asker's own turn that writes the changelog pings her, since a post in a thread replies to nothing (#361)", async (s) => {
   await acmeApi(s);
   await s.guildSettings({ language: "en", useThreads: true });
-  s.model.script(START, [read(0), ...READ_REST], RECORD, FINISH, written);
+  s.model.script(START, [read(0), ...READ_REST], [MAP, ...RECORD], FINISH, written);
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   expect(s.model.calls).toHaveLength(5);
@@ -392,7 +395,7 @@ discordScenario("a turn the model ends with a question in its answer goes on; as
   // Bob answers for Alice: his turn goes on with the draft, so the work goes on by itself to the end.
   s.model.script(
     { tool: "putChangelogNotes", args: { draft: DRAFT, setAside: [{ pattern: DTOS[5], reason: "no longer served" }] } }, "Set it aside; going on.",
-    [1, 2, 3, 4].map(read), RECORD, FINISH, written,
+    [1, 2, 3, 4].map(read), [mapFiles([0, 1, 2, 3, 4]), ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} set it aside, it is not served any more`, { author: s.discord.bob });
 
@@ -464,8 +467,8 @@ const NOTE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conv
 function fourTurns(s: Scenario) {
   s.model.script(
     START, NOTE_CONVENTIONS, "Started the acme/api changelog and noted its conventions.",
-    read(0), "Read the first DTO.",
-    READ_REST, RECORD, "Recorded POST /api/v2/users.",
+    [read(0), mapFiles([0])], "Mapped the controller and the first DTO.",
+    READ_REST, [MAP, ...RECORD], "Recorded POST /api/v2/users.",
     FINISH, written,
   );
 }
@@ -486,9 +489,9 @@ discordScenario("a turn that goes on by itself starts from the draft alone: the 
 This turn starts from the draft alone: what earlier turns read is not here, only what they recorded in it.
 <untrusted_data source="changelog draft">
 Draft: ${DRAFT} (acme/api, branch main, 2026-10-01 to 2026-10-22, commits 9f8e7d6..a1b2c3d)
-Changed files: 7: 1 examined, 0 set aside, 6 left.
-Examined: src/users/users.controller.ts
+Changed files: 7: 0 mapped, 0 set aside, 7 left.
 Left:
+- src/users/users.controller.ts (modified, read whole)
 ${DTOS.map((p) => `- ${p} (modified)`).join("\n")}
 Endpoints recorded: none yet.
 Repository conventions: ${CONVENTIONS}
@@ -496,24 +499,33 @@ How the last turn ended: Started the acme/api changelog and noted its convention
 </untrusted_data>`);
   expect(String(second[2]!.content)).toContain(`Draft: ${DRAFT}`);
 
-  // The third turn knows the second's reads only as files examined, and its closing summary replaced the one before.
+  // The third turn knows the second's reads only as the files it mapped and the candidate they reach, and its closing summary replaced the one before.
   const third = String(s.model.calls[5]![1]!.content);
   expect(s.model.calls[5]!.map((m) => m.role)).toEqual(["system", "user", "user"]);
-  expect(third).toContain("Changed files: 7: 2 examined, 0 set aside, 5 left.\nExamined: src/users/users.controller.ts, src/users/dto/a.dto.ts\n");
-  expect(third).toContain("How the last turn ended: Read the first DTO.\n");
+  expect(third).toContain(`Changed files: 7: 2 mapped, 0 set aside, 5 left.
+Mapped:
+- src/users/users.controller.ts → POST /api/v2/users
+- src/users/dto/a.dto.ts → POST /api/v2/users
+Left:
+${DTOS.slice(1).map((p) => `- ${p} (modified)`).join("\n")}
+Endpoints recorded: none yet.
+Candidate endpoints: 1: 0 traced, 0 failed, 1 waiting.
+Waiting to be traced: POST /api/v2/users
+`);
+  expect(third).toContain("How the last turn ended: Mapped the controller and the first DTO.\n");
   expect(third).not.toContain("full_name");
 
   // The fourth turn sees what the third recorded.
   const fourth = String(s.model.calls[8]![1]!.content);
-  expect(fourth).toContain("Changed files: 7: 7 examined, 0 set aside, 0 left.\n");
+  expect(fourth).toContain("Changed files: 7: 7 mapped, 0 set aside, 0 left.\nMapped:\n- src/users/users.controller.ts → POST /api/v2/users\n");
   expect(fourth).toContain("Endpoints recorded (1):\n- POST /api/v2/users (breaking)\nComponents recorded: securitySchemes/bearerAuth, schemas/NewUser, schemas/User, schemas/UserEnvelope, schemas/Error\n");
   expect(fourth).toContain("How the last turn ended: Recorded POST /api/v2/users.\n");
 
   // Their steps are in the Agent log, one line a turn.
   const steps = (await s.admin("GET", "/api/admin/logs?level=info&source=changelog")).body.entries.map((e: any) => e.text);
   expect(steps).toEqual([
-    "Went on with acme/api (branch main, draft 2026-10-22_9f8e7d6..a1b2c3d) in channel channel-1: repoReadFile ×1",
-    "Went on with acme/api (branch main, draft 2026-10-22_9f8e7d6..a1b2c3d) in channel channel-1: repoReadFile ×5, putChangelogComponents ×1, putChangelogOperation ×1",
+    "Went on with acme/api (branch main, draft 2026-10-22_9f8e7d6..a1b2c3d) in channel channel-1: repoReadFile ×1, putChangelogMapping ×1",
+    "Went on with acme/api (branch main, draft 2026-10-22_9f8e7d6..a1b2c3d) in channel channel-1: repoReadFile ×5, putChangelogMapping ×1, putChangelogComponents ×1, putChangelogOperation ×1",
     "Went on with acme/api (branch main, draft 2026-10-22_9f8e7d6..a1b2c3d) in channel channel-1: finishChangelog ×1",
   ]);
 });
@@ -530,7 +542,7 @@ discordScenario("the conversation keeps one closing-summary row per turn that we
   // Alice's own turn is read as it was stored, steps and all; each turn after it left only what it concluded.
   expect(toolsIn(bobs)).toEqual(["startChangelog", "putChangelogNotes"]);
   expect(bobs.filter((m) => m.role === "assistant" && !m.toolCalls?.length).map((m) => m.content)).toEqual([
-    "Started the acme/api changelog and noted its conventions.", "Read the first DTO.", "Recorded POST /api/v2/users.", `The acme/api changelog is written: ${WRITTEN}`,
+    "Started the acme/api changelog and noted its conventions.", "Mapped the controller and the first DTO.", "Recorded POST /api/v2/users.", `The acme/api changelog is written: ${WRITTEN}`,
   ]);
   expect(bobs.some((m) => String(m.content).startsWith(DRAFT_TURN))).toBe(false);
   expect(s.discord.botMessages.at(-1)!.content).toBe("Yes, it is written.");
@@ -543,7 +555,7 @@ discordScenario("putChangelogNotes keeps the repository's conventions summary in
     START, { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: `${CONVENTIONS} `.repeat(25) } },
     (turn) => { refusal = turn.toolResults.at(-1).error; return NOTE_CONVENTIONS; },
     async () => { kept = (await draftMeta(s)).conventions; return [read(0), ...READ_REST]; },
-    RECORD, FINISH, written,
+    [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 

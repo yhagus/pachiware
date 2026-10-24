@@ -44,7 +44,7 @@ describe("built-in playbooks", () => {
   test("contract-diff starts off like the other repository playbooks, from changelog:, needs git and the OpenAPI skill and one repository, runs long, and reads its two references; its workers follow tracing.md", () => {
     expect(named("contract-diff")).toMatchObject({ start: true, defaultOff: true, menu: null, words: ["changelog"], requires: ["git_repositories", "openapi"], repository: "required", budget: "long", run: "thread" });
     expect(files("contract-diff").sort()).toEqual(["PLAYBOOK.md", "checklist.md", "extensions.md", "tracing.md"]);
-    for (const tool of ["startChangelog", "traceEndpoints", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]) expect([tool, text("contract-diff").includes(`\`${tool}\``)]).toEqual([tool, true]);
+    for (const tool of ["startChangelog", "traceEndpoints", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "putChangelogMapping", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]) expect([tool, text("contract-diff").includes(`\`${tool}\``)]).toEqual([tool, true]);
   });
 
   test("contract-diff's frontmatter offers every repository read its draft's work goes on with", () => {

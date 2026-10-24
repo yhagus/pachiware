@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, DRAFT_FILE, FINISH, FOLDER, HEAD, PROVIDER_DOWN, READ_REST, RECORD, START, WRITTEN, WRITTEN_FILE, acmeApi, draftMeta, fastProgress, pause, pauses, read, written } from "./support/changelog";
+import { BASE, DRAFT_FILE, FINISH, FOLDER, HEAD, MAP, PROVIDER_DOWN, READ_REST, RECORD, START, WRITTEN, WRITTEN_FILE, acmeApi, draftMeta, fastProgress, mapFiles, pause, pauses, read, written } from "./support/changelog";
 
 /** Every changed DTO, read whole at head. */
 const READ_ALL = [read(0), ...READ_REST];
@@ -10,7 +10,7 @@ discordScenario("a turn that goes on by itself and cannot reach the model runs o
   s.model.script(
     START, "Started the acme/api changelog.",
     PROVIDER_DOWN,
-    READ_ALL, RECORD, FINISH, written,
+    READ_ALL, [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
@@ -88,14 +88,14 @@ discordScenario("with a model retry wait of 0, a turn that goes on by itself and
   expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "model", since: "2026-10-22T03:00:00.000Z" });
 });
 
-/** Alice's Changelog draft of acme/api, worked on in channel-1 with one of its three changed files examined, as the work leaves it between turns. */
+/** Alice's Changelog draft of acme/api, worked on in channel-1 with one of its three changed files mapped, as the work leaves it between turns. */
 async function workedOnDraft(s: Scenario) {
   const changelog = { date: "2026-10-22", base: { ref: "main before 2026-10-01", commit: "9f8e7d6" }, head: { ref: "main through 2026-10-22", commit: "a1b2c3d" }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] };
   await s.workspace.write(DRAFT_FILE, JSON.stringify({
     openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog }, paths: {}, components: {},
     "x-draft": {
       repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", place: "channel-1", startedBy: { id: "user-alice", name: "Alice" }, changedFiles: 3,
-      base: BASE, head: HEAD, files: [{ path: "a.ts", status: "modified" }, { path: "b.ts", status: "modified" }, { path: "c.ts", status: "modified" }], examined: ["a.ts"],
+      base: BASE, head: HEAD, files: [{ path: "a.ts", status: "modified" }, { path: "b.ts", status: "modified" }, { path: "c.ts", status: "modified" }], mapping: { "a.ts": { read: true, none: "a seed script" } },
       touchedAt: new Date(s.clock.now()).toISOString(), work: { state: "worked-on" },
     },
   }));
@@ -144,9 +144,9 @@ discordScenario("once the model answers again, a later outage gets a retry of it
   s.model.script(
     START, "Started the acme/api changelog.",
     PROVIDER_DOWN,
-    READ_ALL.slice(0, 3), "Read three DTOs.",
+    [...READ_ALL.slice(0, 3), mapFiles([0, 1, 2])], "Mapped three DTOs.",
     PROVIDER_DOWN,
-    READ_ALL.slice(3), RECORD, FINISH, written,
+    READ_ALL.slice(3), [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   s.clock.advance(60_000);

@@ -179,7 +179,7 @@ async function openDraft(s: Scenario) {
   const changelog = { date: "2026-10-22", base: { ref: "main before 2026-10-01", commit: "9f8e7d6" }, head: { ref: "main through 2026-10-22", commit: "a1b2c3d" }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] };
   await s.workspace.write("guilds/guild-1/channels/channel-1/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.draft.json", JSON.stringify({
     openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog }, paths: {}, components: {},
-    "x-draft": { repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", changedFiles: 3, base: "9f8e7d6".padEnd(40, "0"), head: "a1b2c3d".padEnd(40, "0"), files: [{ path: "a.ts", status: "modified" }, { path: "b.ts", status: "modified" }, { path: "c.ts", status: "modified" }], examined: ["a.ts"], touchedAt: new Date().toISOString() },
+    "x-draft": { repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", changedFiles: 3, base: "9f8e7d6".padEnd(40, "0"), head: "a1b2c3d".padEnd(40, "0"), files: [{ path: "a.ts", status: "modified" }, { path: "b.ts", status: "modified" }, { path: "c.ts", status: "modified" }], mapping: { "a.ts": { read: true, none: "a seed script" } }, touchedAt: new Date().toISOString() },
   }));
 }
 

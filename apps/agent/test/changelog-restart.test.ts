@@ -1,15 +1,15 @@
 import { expect } from "bun:test";
 import { discordScenario, type FakeMessage, type Scenario } from "./support/discordScenario";
 import {
-  BASE, CONTROLLER, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, NAME, PROVIDER_DOWN, READ_REST, RECORD, START, WRITTEN, WRITTEN_FILE,
-  acmeApi, draftMeta, fastProgress, pause, read, written,
+  BASE, CONTROLLER, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, MAP, NAME, PROVIDER_DOWN, READ_REST, RECORD, START, WRITTEN, WRITTEN_FILE,
+  acmeApi, draftMeta, fastProgress, mapDto, mapFiles, pause, read, written,
 } from "./support/changelog";
 
 const STOP_ROW = { type: 1, components: [{ type: 2, custom_id: `changelogstop:${NAME}`, label: "Stop", style: 2 }] };
 
 /**
  * Alice's Changelog draft of acme/api as an agent process that ended in the middle of the work leaves it: worked on, the controller and
- * the first DTO examined, and the progress message the bot showed for it, with its Stop button. `touched` is how long ago the work last
+ * the first DTO mapped to the candidate they reach, and the progress message the bot showed for it, with its Stop button. `touched` is how long ago the work last
  * changed the draft.
  */
 async function leftWorkedOn(s: Scenario, { work = { state: "worked-on" } as object, touched = 0, place = "channel-1" } = {}): Promise<FakeMessage> {
@@ -20,7 +20,9 @@ async function leftWorkedOn(s: Scenario, { work = { state: "worked-on" } as obje
     openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog }, paths: {}, components: {},
     "x-draft": {
       repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", place, startedBy: { id: "user-alice", name: "Alice" }, changedFiles: 7,
-      base: BASE, head: HEAD, files: [CONTROLLER, ...DTOS].map((path) => ({ path, status: "modified" })), examined: [CONTROLLER, DTOS[0]],
+      base: BASE, head: HEAD, files: [CONTROLLER, ...DTOS].map((path) => ({ path, status: "modified" })),
+      mapping: { [CONTROLLER]: { read: true, reaches: ["POST /api/v2/users"] }, [DTOS[0]!]: { read: true, reaches: ["POST /api/v2/users"] } },
+      candidates: [{ method: "post", path: "/api/v2/users", note: `${CONTROLLER}: @Post() became @Post('v2')\n${DTOS[0]}: a body field changed`, state: "waiting" }],
       touchedAt: new Date(s.clock.now() - touched).toISOString(), work, progressMessage: { channelId: place, messageId: progress!.id },
     },
   }));
@@ -30,7 +32,7 @@ async function leftWorkedOn(s: Scenario, { work = { state: "worked-on" } as obje
 discordScenario("a draft an earlier agent process left worked on goes on by itself once the bot is back, in the progress message it showed, with no other message until the end (#362)", async (s) => {
   await acmeApi(s);
   const progress = await leftWorkedOn(s);
-  s.model.script(READ_REST, RECORD, FINISH, written);
+  s.model.script(READ_REST, [MAP, ...RECORD], FINISH, written);
   await s.restart();
 
   expect(s.model.calls).toHaveLength(4);
@@ -92,7 +94,7 @@ discordScenario("a model retry pending when the bot restarted runs at its time f
   s.model.script(
     START, "Started the acme/api changelog.",
     async () => { await pause(300); return read(0); }, PROVIDER_DOWN,
-    READ_REST, RECORD, FINISH, written,
+    READ_REST, [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   const [progress] = s.discord.botMessages;
@@ -134,9 +136,9 @@ discordScenario("a scheduler pass adds no turn to work whose turn is running, an
   let restarted: Promise<void> | undefined;
   s.model.script(
     START, "Started the acme/api changelog.",
-    async () => { passes.push(s.scheduler.tick()); await pause(50); return read(0); }, "Read the first DTO.",
-    async () => { restarted = s.restart(); await pause(50); return read(1); }, "Read the second DTO.",
-    READ_REST.slice(1), RECORD, FINISH, written,
+    async () => { passes.push(s.scheduler.tick()); await pause(50); return [read(0), mapFiles([0])]; }, "Mapped the first DTO.",
+    async () => { restarted = s.restart(); await pause(50); return [read(1), mapDto(1)]; }, "Mapped the second DTO.",
+    READ_REST.slice(1), [MAP, ...RECORD], FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   await Promise.all([...passes, restarted]);

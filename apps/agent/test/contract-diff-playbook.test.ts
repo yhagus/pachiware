@@ -6,6 +6,8 @@ const FIXTURE = JSON.parse(readFileSync(new URL("../../../packages/skills/test/f
 const BASE = "9f8e7d6".padEnd(40, "0"), HEAD = "a1b2c3d".padEnd(40, "0");
 const DRAFT = "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.draft.json", WRITTEN = DRAFT.replace(".draft.json", ".json");
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+/** Maps the one changed file, whose patch startChangelog gave, to the endpoint it reaches (#366). */
+const MAP = { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: "src/users/users.controller.ts", change: "@Post() became @Post('v2')", endpoints: [{ method: "post", path: "/api/v2/users" }] }] } };
 
 /** acme/api on GitHub, open in this server: main's last commit through 22 October is HEAD, its last before 1 October BASE. */
 async function acmeApi(s: Scenario) {
@@ -32,7 +34,7 @@ discordScenario("changelog: opens a contract-diff thread whose turns carry the p
   expect(system).toContain("Never choose a scope, a first day or a last day for the person, and call no tool before you have their answer.");
   // The thread offers only the tools the playbook names (ADR 0023), not every tool of the place.
   expect([...s.model.tools[0]!].sort()).toEqual([
-    "askChangelogAsker", "finishChangelog", "playbookRepositories", "publishOpenApi", "putChangelogComponents", "putChangelogNotes", "putChangelogOperation", "readPlaybookFile",
+    "askChangelogAsker", "finishChangelog", "playbookRepositories", "publishOpenApi", "putChangelogComponents", "putChangelogMapping", "putChangelogNotes", "putChangelogOperation", "readPlaybookFile",
     "repoCommit", "repoCompare", "repoFileDiff", "repoFindDefinition", "repoReadFile", "repoSearchCode", "repoTree", "sendFiles", "startChangelog", "stopChangelog", "traceEndpoints",
   ]);
   expect(started.thread!.messages.filter((m) => m.author.bot).map((m) => m.content)).toEqual(["Should the changelog cover the whole history, or a range of days (from which day to which day)?"]);
@@ -44,7 +46,7 @@ discordScenario("a changelog asked for with a preview is written, validated, sen
   let link = "";
   s.model.script(
     { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } },
-    [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation } }],
+    [MAP, { tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation } }],
     { tool: "finishChangelog", args: { draft: DRAFT } },
     [{ tool: "sendFiles", args: { paths: [WRITTEN] } }, { tool: "publishOpenApi", args: { path: WRITTEN } }],
     (turn) => { link = turn.toolResults.at(-1).url; return `3 breaking, 1 non-breaking. Preview: ${link}`; },
@@ -72,7 +74,7 @@ discordScenario("a changelog asked to be published from the start is published a
   let finished: any, link = "";
   s.model.script(
     { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22", publish: true } },
-    [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation } }],
+    [MAP, { tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation } }],
     { tool: "finishChangelog", args: { draft: DRAFT } },
     (turn) => { finished = turn.toolResults.at(-1); link = finished.published.url; return `Published: ${link}`; },
   );

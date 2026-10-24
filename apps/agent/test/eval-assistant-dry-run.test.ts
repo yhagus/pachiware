@@ -145,8 +145,11 @@ discordScenario("dry run: changelog-lanjut goes on with yesterday's open draft f
     [{ tool: "repoReadFile", args: { repo: "acme/api", ref: "9f8e7d6000000000000000000000000000000000", path: "src/users/users.controller.ts" } }, { tool: "repoReadFile", args: { repo: "acme/api", ref: "a1b2c3d000000000000000000000000000000000", path: "src/users/users.controller.ts" } }],
     // The habit #354 met: a status report and "go on?" halfway, with no askChangelogAsker. It is not posted, and the work goes on by itself.
     "Sudah saya baca users.controller.ts di kedua commit. Mau saya lanjutkan?",
-    // Yesterday's draft holds no conventions summary, so it is written before any endpoint is traced (#365).
-    { tool: "putChangelogNotes", args: { draft, conventions: "NestJS: routes from @Controller, no global prefix. Success bodies are returned as they are; errors are { statusCode, message }." } },
+    // Yesterday's draft holds no conventions summary, so it is written before any endpoint is traced (#365); the controller, read whole at both commits, is mapped (#366).
+    [
+      { tool: "putChangelogNotes", args: { draft, conventions: "NestJS: routes from @Controller, no global prefix. Success bodies are returned as they are; errors are { statusCode, message }." } },
+      { tool: "putChangelogMapping", args: { draft, files: [{ path: "src/users/users.controller.ts", change: "the controller moved to api/v2", endpoints: [{ method: "post", path: "/api/v2/users" }] }] } },
+    ],
     // The endpoint goes to a worker of its own, which records it (#343).
     { tool: "traceEndpoints", args: { draft, candidates: [{ method: "post", path: "/api/v2/users", note: "src/users/users.controller.ts: the controller moved to api/v2" }] } },
     { tool: "putChangelogOperation", args: { draft, method: "post", path: "/api/v2/users", operation: example.paths["/api/v2/users"].post, components: example.components } },
