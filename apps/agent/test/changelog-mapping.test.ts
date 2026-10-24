@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import {
   BASE, DRAFT, DRAFT_FILE, FINISH, HEAD, MAPPER_TOOLS, MAP_CHANGED, PROVIDER_DOWN, START, TRACE, WRITTEN_FILE,
-  acmeOnGitHub, briefOf, budgets, draftMeta, fastProgress, filesOf, isMapper, mapperStarts, pause, pauses, text, written,
+  acmeOnGitHub, briefOf, budgets, draftMeta, fastProgress, filesOf, isMapper, mapperStarts, pauses, progressShown, progressShows, text, written,
 } from "./support/changelog";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
@@ -171,13 +171,14 @@ discordScenario("a worker that GitHub refuses leaves its files unmapped and paus
 discordScenario("the progress message counts the changed files mapped and the candidates found as the workers record them (#370)", async (s) => {
   await acmeApi(s);
   await fastProgress();
-  const slowly = (step: unknown) => async () => { await pause(250); return step as any; };
+  // Each step waits until the progress message shows what the workers before it recorded.
+  const once = (shown: () => Promise<void>, step: unknown) => async () => { await shown(); return step as any; };
   const reaches = { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: CREATE, change: "CreateUserDto gains phone", endpoints: [{ method: "post", path: "/api/v2/users" }] }] } };
   s.model.script(
-    slowly(START), NOTE_CONVENTIONS, MAP_CHANGED,
-    read(CREATE), reaches, slowly("Mapped."),
-    read(UPDATE), mapNone(UPDATE, CONTROLLER), slowly("Mapped."),
-    read(SERVICE), mapNone(SERVICE), slowly("Mapped."),
+    once(() => progressShown(s), START), NOTE_CONVENTIONS, MAP_CHANGED,
+    read(CREATE), reaches, once(() => progressShows(s, "3 commits · 1 of 4 changed files mapped · 1 candidate so far"), "Mapped."),
+    read(UPDATE), mapNone(UPDATE, CONTROLLER), once(() => progressShows(s, "3 commits · 3 of 4 changed files mapped · 1 candidate so far"), "Mapped."),
+    read(SERVICE), mapNone(SERVICE), once(() => progressShows(s, "3 commits · 4 changed files, all mapped\n0 of 1 candidate traced"), "Mapped."),
     // The asker's own turn may stop it, so this one ends here.
     { tool: "stopChangelog", args: {} }, "Stopped the changelog.",
   );

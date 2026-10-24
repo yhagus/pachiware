@@ -35,6 +35,12 @@ const SELECTED = process.env.PACHIWARE_SCENARIO;
 
 /** What the model step functions see: the request so far, plus the parsed results of this turn's tool calls. */
 export type ModelTurn = { messages: ChatMessage[]; toolResults: any[] };
+/** Waits until `ready` holds, looking every few milliseconds; fails naming `what` when it still does not after five seconds. */
+export async function until(what: string, ready: () => unknown) {
+  for (const giveUp = Date.now() + 5000; !(await ready()); await new Promise((resolve) => setTimeout(resolve, 5))) {
+    if (Date.now() > giveUp) throw new Error(`Still waiting for ${what}`);
+  }
+}
 export type ToolCallStep = { tool: string; args?: Record<string, unknown> };
 /** The provider failed: the router's fallback answer, as a real outage would produce. */
 export type ErrorStep = { error: string };
@@ -90,8 +96,11 @@ export interface Scenario {
   admin(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ status: number; body: any; text?: string }>;
   /** The clock the time context, task dates and the scheduler read. `set` pins it (ms, Date, or ISO text); `advance` moves it forward. */
   clock: { set(at: number | string | Date): void; advance(ms: number): void; now(): number };
-  /** One scheduler pass at the fake clock's time, as the agent's minute loop would run it; returns once every post has landed. */
-  scheduler: { tick(): Promise<void> };
+  /**
+   * One scheduler pass at the fake clock's time, as the agent's minute loop would run it; `tick` returns once every post has landed, `pass`
+   * once the pass itself is done, for a model step to run one while its own turn goes on.
+   */
+  scheduler: { tick(): Promise<void>; pass(): Promise<void> };
   /** Writes an availability rule as the admin API does and returns once commands are re-registered; `botId` defaults to this bot and the guild to "guild-1". */
   availability(at: { level: "tenant" | "bot" | "guild" | "channel"; botId?: string; guildId?: string; channelId?: string }, rule: { kind: string; name: string; value: string }): Promise<void>;
   /** Switches on at the tenant every administration tool that starts off (#251), or only `names`, for scenarios about those tools. */
@@ -126,6 +135,11 @@ export interface Scenario {
     grant(user: FakeUser | string, permissions: string[]): void;
     send(content: string, options?: { author?: FakeUser; channel?: FakeChannel | string; replyTo?: FakeMessage; attachments?: any[] }): Promise<FakeMessage>;
     /**
+     * Resolves once the bot has handled every message and click sent so far: a message in a shared channel is queued for its turn, though
+     * no turn need have ended. A model step uses it after sending or clicking, so that is handled before the turn the step belongs to ends.
+     */
+    handled(): Promise<void>;
+    /**
      * Sends several messages back to back, as a person pasting one long text in parts does; in a shared channel the bot joins them into one turn after the pause.
      * An entry with its own `author` posts as that person, as when two people write at once; each person's messages form their own turn.
      */
@@ -145,8 +159,11 @@ export interface Scenario {
     addBot(options?: { name?: string }): Promise<FakeBot>;
   };
   settle(): Promise<void>;
-  /** Stops and starts the bot again, as a process restart would, forgetting the turns it ran; Workspace and database state stay. */
-  restart(): Promise<void>;
+  /**
+   * Stops and starts the bot again, as a process restart would, forgetting the turns it ran; Workspace and database state stay. It returns
+   * once the bot is idle again, or with `settle: false` once it runs again, for a model step to restart it while its own turn goes on.
+   */
+  restart(options?: { settle?: boolean }): Promise<void>;
 }
 
 /** Registers a test that runs `body` against a fresh bot in a subprocess. */
@@ -451,6 +468,8 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
   let server: { request(path: string, init: RequestInit): Response | Promise<Response> } | null = null;
 
   const unlimited = new Set<string>();
+  /** Sends whose message has not reached the bot yet. */
+  let sending = 0;
   const responder = (interaction: FakeInteraction & Record<string, any>, channel: any, user: FakeUser) => {
     let replyMessage: FakeMessage | null = null;
     let deferredPrivately = false;
@@ -508,7 +527,7 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       advance: (ms) => { const fixed = clockNow() + ms; setClock(() => fixed); },
       now: () => clockNow(),
     },
-    scheduler: { tick: async () => { await schedulerTick(manager); await settle(); } },
+    scheduler: { tick: async () => { await schedulerTick(manager); await settle(); }, pass: () => schedulerTick(manager) },
     availability: async ({ level, botId = bot.id, guildId = GUILD.id, channelId }, rule) => {
       await setAvailabilityRule({ tenantId: tenant.id, level, botId, guildId, channelId }, rule as any, skillRegistry.getAllSkills());
       await settle();
@@ -576,12 +595,18 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
         } finally { manager0.burstMs = window; }
       },
       send: async (content, { author = alice, channel, replyTo, attachments } = {}) => {
-        if (unlimited.has(author.id)) await CacheService.del(tenantKey(tenant.id, `ratelimit:discord:user:${author.id}`));
-        const message = post(channelOf(channel), { ...author, bot: false }, content, { reference: replyTo?.id, attachments });
-        for (const running of FakeClient.running.values()) running.emit(Events.MessageCreate, as(running.botUser, message));
+        sending++;
+        let message: FakeMessage;
+        try {
+          if (unlimited.has(author.id)) await CacheService.del(tenantKey(tenant.id, `ratelimit:discord:user:${author.id}`));
+          message = post(channelOf(channel), { ...author, bot: false }, content, { reference: replyTo?.id, attachments });
+          for (const running of FakeClient.running.values()) running.emit(Events.MessageCreate, as(running.botUser, message));
+        } finally { sending--; }
         await settle();
         return message;
       },
+      // The bot reads a message or a click in work it tracks; a message is then gathered for its burst window before its turn is queued.
+      handled: () => until("the bot to handle what was sent", () => !sending && !(manager as any).inflight.size && !(manager as any).bursts.size),
       unlimited: (user) => { unlimited.add(user.id); },
       deleteMessage: async (message) => {
         await (message as any).delete();
@@ -642,13 +667,13 @@ async function createScenario(): Promise<Scenario & { close(): Promise<void> }> 
       },
     },
     settle,
-    restart: async () => {
+    restart: async ({ settle: settled = true } = {}) => {
       await manager.stopBot(bot.id);
       // A new process remembers none of the old one's turns: neither the Stop buttons they put up nor how many turns people started (#362).
       for (const memory of ["stops", "heard"]) (manager as any)[memory].clear();
       await manager.startBot(bot.id);
       client = clientOf(BOT_USER.id);
-      await settle();
+      if (settled) await settle();
     },
     close: async () => { for (const id of [bot.id, ...extraBots]) await manager.stopBot(id); },
   };

@@ -174,7 +174,7 @@ discordScenario("Plane refusing the bot's key pauses the draft in a turn that go
     async () => {
       s.http.on(/^GET https:\/\/api\.plane\.so\//, () => Response.json({ detail: "Invalid API key" }, { status: 401 }));
       asked.push(s.discord.send(`${s.discord.mention} what does ENG-42 say?`, { author: s.discord.bob }));
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await s.discord.handled();
       return read(0);
     },
     "Read the first DTO.",

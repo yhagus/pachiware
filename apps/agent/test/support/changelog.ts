@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { expect } from "bun:test";
-import type { Scenario } from "./discordScenario";
+import { until, type Scenario } from "./discordScenario";
 
 export const FOLDER = "guilds/guild-1/channels/channel-1/files/changelogs/acme-api";
 export const NAME = "2026-10-22_9f8e7d6..a1b2c3d";
@@ -115,6 +115,22 @@ export async function fastProgress() {
   Object.assign(progressTiming, { showAfterMs: 150, everyMs: 40 });
 }
 export const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** The turn's progress message, once it is up with its Stop button. */
+export const progressUp = (s: Scenario) => s.discord.botMessages.find((m) => m.components.length);
+/** Waits for the progress message to go up (fastProgress). */
+export const progressShown = (s: Scenario) => until("the progress message", () => progressUp(s));
+/** Waits for an edit of the progress message that shows every one of `lines`. */
+export const progressShows = (s: Scenario, ...lines: string[]) =>
+  until(`the progress message to show ${lines.join(" and ")}`, () => s.discord.botMessages.some((m) => m.edits.some((e) => lines.every((line) => (e.content ?? "").includes(line)))));
+/** Once the progress message is up, the asker presses its Stop, kept in `clicks`; returns when the bot has taken it, and the button came off. */
+export async function pressStop(s: Scenario, clicks: Promise<unknown>[]) {
+  await progressShown(s);
+  const progress = progressUp(s)!;
+  clicks.push(s.discord.click(progress, "Stop"));
+  await stopTaken(progress);
+}
+/** Waits for the bot to take the asker's Stop on `progress`: its button comes off. */
+export const stopTaken = (progress: { components: unknown[] }) => until("the Stop to be taken", () => !progress.components.length);
 
 /**
  * Shortens the turn to `turnMs` and the workers' budget for a scenario. Each scenario runs in a process of its own, so the shortened budgets

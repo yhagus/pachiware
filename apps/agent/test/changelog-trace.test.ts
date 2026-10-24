@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import {
   BASE, CONTROLLER, DRAFT, DRAFT_FILE, DTOS, FINISH, FIXTURE, FOLDER, HEAD, MAP_CHANGED, OPERATION, PROVIDER_DOWN, READ_REST, START, TRACE, TRACER_TOOLS, WRITTEN, WRITTEN_FILE,
-  acmeApi as acmeWithDtos, acmeOnGitHub, briefOf, budgets, draftMeta, endpointOf, fastProgress, isTracer, mapper, mappers, oneWorkerATurn, outlasting, pause, pauses, reaches, read,
+  acmeApi as acmeWithDtos, acmeOnGitHub, briefOf, budgets, draftMeta, endpointOf, fastProgress, isTracer, mapper, mappers, oneWorkerATurn, outlasting, pause, pauses, progressShown, progressShows, reaches, read,
   text, tracerStarts, written,
 } from "./support/changelog";
 
@@ -295,14 +295,16 @@ discordScenario("a worker that fails otherwise has its endpoint listed as unveri
 discordScenario("the progress message names the range's commits and changed files, and shows each endpoint's result as its worker records it: the impact and how many changes, or unverified with why (#343, #367)", async (s) => {
   await acmeApi(s);
   await fastProgress();
-  const slowly = (step: unknown) => async () => { await pause(250); return step as any; };
+  // A step that waits until the progress message is up, or shows what the workers before it recorded.
+  const once = (shown: () => Promise<void>, step: unknown) => async () => { await shown(); return step as any; };
   s.model.script(
-    slowly(START), [NOTE_CONVENTIONS, MAP_CHANGED], ...mapController(candidate("post", "/api/v2/users"), EXPORT, SESSIONS),
+    once(() => progressShown(s), START), [NOTE_CONVENTIONS, MAP_CHANGED], ...mapController(candidate("post", "/api/v2/users"), EXPORT, SESSIONS),
     TRACE,
-    record("post", "/api/v2/users"), slowly("Recorded POST /api/v2/users."),
-    recordNew("get", "/api/v2/users/export", "exportUsers"), slowly("Recorded GET /api/v2/users/export."),
-    slowly("Its route is registered from config at runtime."),
-    slowly(FINISH), written,
+    // A worker's result shows once it has ended, before the next worker's first step.
+    record("post", "/api/v2/users"), "Recorded POST /api/v2/users.",
+    once(() => progressShows(s, "1 of 3 candidates traced: 1 changed\n", "\n-# POST /api/v2/users · breaking, 4 changes"), recordNew("get", "/api/v2/users/export", "exportUsers")), "Recorded GET /api/v2/users/export.",
+    once(() => progressShows(s, "2 of 3 candidates traced: 2 changed\n", "\n-# GET /api/v2/users/export · non-breaking, 1 change"), "Its route is registered from config at runtime."),
+    once(() => progressShows(s, "3 of 3 candidates traced: 2 changed, 1 unverified\n", "\n-# DELETE /api/v2/sessions · unverified: Its route is registered from config at runtime."), FINISH), written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 

@@ -2,7 +2,7 @@ import { expect } from "bun:test";
 import { discordScenario, type FakeMessage, type Scenario } from "./support/discordScenario";
 import {
   BASE, CONTROLLER, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, MAP_CHANGED, MAPPED, NAME, PROVIDER_DOWN, READ_REST, START, TRACE, WORKER, WRITE_CONVENTIONS, WRITTEN, WRITTEN_FILE,
-  acmeApi, draftMeta, fastProgress, mappers, pause, read, written,
+  acmeApi, draftMeta, fastProgress, mappers, pressStop, progressShown, read, written,
 } from "./support/changelog";
 
 const STOP_ROW = { type: 1, components: [{ type: 2, custom_id: `changelogstop:${NAME}`, label: "Stop", style: 2 }] };
@@ -53,7 +53,7 @@ discordScenario("after a restart, work whose progress message was deleted shows 
   await s.discord.deleteMessage(await leftWorkedOn(s));
   const clicks: Promise<any>[] = [];
   s.model.script(
-    async () => { await pause(100); clicks.push(s.discord.click(s.discord.botMessages.find((m) => m.components.length)!, "Stop")); await pause(50); return read(1); },
+    async () => { await pressStop(s, clicks); return read(1); },
     PAUSED,
   );
   await s.restart();
@@ -71,7 +71,7 @@ discordScenario("after a restart, work whose progress message was deleted shows 
 discordScenario("after a restart, the asker's Stop on work waiting on a model retry pauses the draft, so the retry never runs, and its progress message says it paused; anyone else's Stop is refused (#362)", async (s) => {
   await acmeApi(s);
   await fastProgress();
-  s.model.script(START, "Started the acme/api changelog.", async () => { await pause(300); return read(0); }, PROVIDER_DOWN);
+  s.model.script(START, "Started the acme/api changelog.", async () => { await progressShown(s); return read(0); }, PROVIDER_DOWN);
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   const [progress] = s.discord.botMessages;
   await s.restart();
@@ -94,7 +94,7 @@ discordScenario("a model retry pending when the bot restarted runs at its time f
   await fastProgress();
   s.model.script(
     START, "Started the acme/api changelog.",
-    async () => { await pause(300); return read(0); }, PROVIDER_DOWN,
+    async () => { await progressShown(s); return read(0); }, PROVIDER_DOWN,
     READ_REST, [WRITE_CONVENTIONS, MAP_CHANGED, TRACE], ...MAPPED, ...WORKER, FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
@@ -133,16 +133,14 @@ discordScenario("a model retry pending when the bot restarted that fails again p
 
 discordScenario("a scheduler pass adds no turn to work whose turn is running, and a restart in the middle of a turn leaves the work to the pass after it, never to two chains (#362)", async (s) => {
   await acmeApi(s);
-  const passes: Promise<void>[] = [];
-  let restarted: Promise<void> | undefined;
   s.model.script(
     START, "Started the acme/api changelog.",
-    async () => { passes.push(s.scheduler.tick()); await pause(50); return [read(0), ...READ_REST, WRITE_CONVENTIONS, MAP_CHANGED]; }, ...MAPPED, "Mapped every changed file.",
-    async () => { restarted = s.restart(); await pause(50); return TRACE; }, ...WORKER, "Traced POST /api/v2/users.",
+    async () => { await s.scheduler.pass(); return [read(0), ...READ_REST, WRITE_CONVENTIONS, MAP_CHANGED]; }, ...MAPPED, "Mapped every changed file.",
+    async () => { await s.restart({ settle: false }); return TRACE; }, ...WORKER, "Traced POST /api/v2/users.",
     FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
-  await Promise.all([...passes, restarted]);
+  await s.settle();
 
   // The turn that was running when the bot restarted ended; the work it handed on gave way, as the bot's start left the busy place alone.
   expect(s.model.calls).toHaveLength(22);

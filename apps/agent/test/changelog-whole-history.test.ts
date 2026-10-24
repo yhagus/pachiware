@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import {
-  FIXTURE, FOLDER, HEAD, MAPPER_TOOLS, OPERATION, acmeOnGitHub, briefOf, budgets, draftMeta as metaOf, fastProgress, filesOf, mapperStarts, pause, text, tracerStarts,
+  FIXTURE, FOLDER, HEAD, MAPPER_TOOLS, OPERATION, acmeOnGitHub, briefOf, budgets, draftMeta as metaOf, fastProgress, filesOf, mapperStarts, progressShows, text, tracerStarts,
 } from "./support/changelog";
 
 /** acme/api's changelog of the whole history through 22 October: its draft and written file, named by the empty tree and HEAD. */
@@ -42,7 +42,8 @@ const draftMeta = (s: Scenario) => metaOf(s, DRAFT_FILE);
 discordScenario("a whole-history draft lists the files that declare routes at head as the main loop chose them, and workers map them in groups by size, keeping every route as a NEW candidate (#373)", async (s) => {
   await acmeApi(s);
   await fastProgress();
-  const slowly = (step: unknown) => async () => { await pause(250); return step as any; };
+  // A worker's answer waits until the progress message shows what it recorded.
+  const once = (detail: string, step: unknown) => async () => { await progressShows(s, `🧠 Working…\n${detail}\n`); return step as any; };
   let started: any, before: any[] = [], mapped: any, meta: any;
   s.model.script(
     START,
@@ -51,8 +52,8 @@ discordScenario("a whole-history draft lists the files that declare routes at he
     [{ tool: "mapChangedFiles", args: { draft: DRAFT } }, { ...MAP_ROUTES, args: { ...MAP_ROUTES.args, routeFiles: ["src/**/*.routes.ts", "src/**/*.controller.ts"] } }, TRACE, FINISH],
     (turn) => { before = turn.toolResults.map((r: any) => r.error ?? r).slice(-4); return MAP_ROUTES; },
     // 2,000 and 15,000 bytes fit one group; the users controller's 30,000 more would pass 40,000.
-    [read(APP), read(ORDERS)], map(declares(APP, "GET /"), declares(ORDERS, "GET /api/v2/orders", "POST /api/v2/orders")), slowly("Mapped."),
-    read(USERS), map(declares(USERS, "GET /api/v2/users", "POST /api/v2/users")), slowly("Mapped."),
+    [read(APP), read(ORDERS)], map(declares(APP, "GET /"), declares(ORDERS, "GET /api/v2/orders", "POST /api/v2/orders")), once("2 of 3 route files mapped · 3 candidates", "Mapped."),
+    read(USERS), map(declares(USERS, "GET /api/v2/users", "POST /api/v2/users")), once("3 of 3 route files mapped · 5 candidates\n0 of 5 candidates traced", "Mapped."),
     async (turn) => { mapped = turn.toolResults.at(-1); meta = await draftMeta(s); return { tool: "stopChangelog", args: {} }; },
     "Stopped the changelog.",
   );

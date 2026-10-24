@@ -2,7 +2,8 @@ import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import {
   BASE, DRAFT, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, MAP_CHANGED, MAPPED, READ_REST, TRACE, WORKER, WRITE_CONVENTIONS, WRITTEN, WRITTEN_FILE,
-  acmeApi, agentLog, contractDiffOn, draftMeta, fastProgress, mapper, mappers, oneWorkerATurn, outlasting, pause, pauses, reaches, read, startChangelog, warnings, written,
+  acmeApi, agentLog, contractDiffOn, draftMeta, fastProgress, mapper, mappers, oneWorkerATurn, outlasting, pauses, pressStop, progressShown, progressShows, progressUp, reaches, read, startChangelog, stopTaken,
+  warnings, written,
 } from "./support/changelog";
 
 /** Alice asks for the changelog to be published too, so finishing publishes it as it writes it (#349). */
@@ -20,12 +21,6 @@ async function aliceDraft(s: Scenario, place = "channel-1") {
     },
   }));
 }
-/** A step's wait for the progress message, then `user` presses its Stop button; the click settles once the bot is idle again. */
-const pressStop = (s: Scenario, clicks: Promise<unknown>[], user?: { id: string; name: string }) => async () => {
-  await pause(400);
-  clicks.push(s.discord.click(s.discord.botMessages.find((m) => m.components.length)!, "Stop", user ? { user } : {}));
-  await pause(50);
-};
 const buttonsOf = (m: any): string[] => m.components.flatMap((row: any) => row.components.map((c: any) => c.custom_id));
 
 /** Each of a chat turn's model calls may be a step, so a turn that asks for tools twice is cut by its budget and ends with a summary. */
@@ -55,10 +50,10 @@ discordScenario("the draft keeps where its progress message is, the one message 
   let kept: unknown;
   s.model.script(
     START, "Started the acme/api changelog.",
-    async () => { await pause(300); return [read(0), ...READ_REST]; }, "Read every DTO.",
+    async () => { await progressShown(s); return [read(0), ...READ_REST]; }, "Read every DTO.",
     // The first mapping worker's answer comes once the progress message has shown its file mapped.
     async () => { kept = (await draftMeta(s)).progressMessage; return [WRITE_CONVENTIONS, MAP_CHANGED, TRACE]; },
-    MAPPED[0]!, async () => { await pause(300); return "Mapped."; }, ...MAPPED.slice(2), ...WORKER, FINISH, written,
+    MAPPED[0]!, async () => { await progressShows(s, "\n3 commits · 1 of 7 changed files mapped · 1 candidate so far\n"); return "Mapped."; }, ...MAPPED.slice(2), ...WORKER, FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
@@ -81,13 +76,12 @@ discordScenario("the Stop button names the draft: only its asker can press it, a
   s.model.script(
     notes,
     async () => {
-      await pause(400);
-      const progress = s.discord.botMessages.find((m) => m.components.length)!;
+      await progressShown(s);
+      const progress = progressUp(s)!;
       buttons.push(...buttonsOf(progress));
       clicks.push(s.discord.click(progress, "Stop", { user: s.discord.bob }));
-      await pause(50);
       clicks.push(s.discord.click(progress, "Stop"));
-      await pause(50);
+      await s.discord.handled();
       return notes;
     },
     "Paused with 1 of 3 changed files done.",
@@ -135,10 +129,9 @@ discordScenario("the asker's Stop pauses the draft at the running turn's next to
   await fastProgress();
   await agentLog();
   const clicks: Promise<unknown>[] = [];
-  const stop = pressStop(s, clicks);
   s.model.script(
     START, "Started the acme/api changelog.",
-    read(0), async () => { await stop(); return read(1); },
+    read(0), async () => { await pressStop(s, clicks); return read(1); },
     "Paused with 2 of 7 changed files done. Say go on when you want the rest.",
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
@@ -162,7 +155,7 @@ discordScenario("the asker's Stop pressed while someone's question is answered: 
   s.model.script(
     START, "Started the acme/api changelog.",
     // Bob asks while the work is on its second turn, after its progress message went up.
-    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(300); return read(0); }, "Read the first DTO.",
+    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await s.discord.handled(); await progressShown(s); return read(0); }, "Read the first DTO.",
     // Alice presses Stop while Bob's question is answered.
     () => { clicks.push(s.discord.click(s.discord.botMessages.find((m) => m.components.length)!, "Stop")); return "Masih ada 5 file lagi."; },
     "Paused with 2 of 7 changed files done. Say go on when you want the rest.",
@@ -185,7 +178,7 @@ discordScenario("a person's message during the work is answered first and the wo
   const sent: Promise<unknown>[] = [];
   s.model.script(
     START, "Started the acme/api changelog.",
-    async () => { sent.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read the first DTO.",
+    async () => { sent.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await s.discord.handled(); return read(0); }, "Read the first DTO.",
     // Bob's side question is answered; Alice says lanjut while it is.
     () => { sent.push(s.discord.send(`${s.discord.mention} lanjut`)); return "Masih ada 5 file lagi."; },
     read(1), "Reading on.",
@@ -208,7 +201,7 @@ discordScenario("a person's message mid-work leaves the work's progress message 
   s.model.script(
     START, "Started the acme/api changelog.",
     // Bob asks once the work's progress message is up.
-    async () => { await pause(300); asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read the first DTO.",
+    async () => { await progressShown(s); asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await s.discord.handled(); return read(0); }, "Read the first DTO.",
     "Masih ada 5 file lagi.",
     READ_REST, [WRITE_CONVENTIONS, MAP_CHANGED, TRACE], ...MAPPED, ...WORKER, FINISH, written,
   );
@@ -228,7 +221,7 @@ discordScenario("a person's turn that fails mid-work is answered with the failur
   const asked: Promise<unknown>[] = [];
   s.model.script(
     START, "Started the acme/api changelog.",
-    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(0); }, "Read the first DTO.",
+    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await s.discord.handled(); return read(0); }, "Read the first DTO.",
     // Bob's turn breaks before the model answers.
     () => { throw new Error("socket hang up"); },
     READ_REST, [WRITE_CONVENTIONS, MAP_CHANGED, TRACE], ...MAPPED, ...WORKER, FINISH, written,
@@ -247,10 +240,9 @@ discordScenario("a paused draft stays paused through a turn that only talks, and
   await acmeApi(s);
   await fastProgress();
   const clicks: Promise<unknown>[] = [];
-  const stop = pressStop(s, clicks);
   s.model.script(
     START, "Started the acme/api changelog.",
-    read(0), async () => { await stop(); return read(1); }, "Paused with 2 of 7 changed files done.",
+    read(0), async () => { await pressStop(s, clicks); return read(1); }, "Paused with 2 of 7 changed files done.",
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   await Promise.all(clicks);
@@ -278,12 +270,12 @@ discordScenario("a progress message put up before its turn started the draft the
   const clicks: Promise<unknown>[] = [];
   let seen: { buttons: string[]; kept: unknown } | undefined;
   s.model.script(
-    async () => { await pause(300); return START; }, "Started the acme/api changelog.",
+    async () => { await progressShown(s); return START; }, "Started the acme/api changelog.",
     async () => {
       const progress = s.discord.botMessages.find((m) => m.components.length)!;
       seen = { buttons: buttonsOf(progress), kept: (await draftMeta(s)).progressMessage };
       clicks.push(s.discord.click(progress, "Stop"));
-      await pause(50);
+      await stopTaken(progress);
       return read(0);
     },
     "Paused with 1 of 7 changed files done.",
@@ -303,7 +295,7 @@ discordScenario("a model that answers every turn without calling a tool pauses t
   await fastProgress();
   s.model.script(
     START, "Started the acme/api changelog.",
-    async () => { await pause(300); return "Next I will read the DTOs."; },
+    async () => { await progressShown(s); return "Next I will read the DTOs."; },
     "Going on with the DTOs.",
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
@@ -327,7 +319,7 @@ discordScenario("only the turns that go on by themselves count: a turn that only
     // This turn's one mapping worker reads the first DTO and maps it, leaving no time for another.
     [WRITE_CONVENTIONS, MAP_CHANGED], read(0), mapper(reaches(DTOS[0]!, "a body field changed"))[0]!, outlasting(s, "Mapped."), "Mapped the first DTO.",
     // Bob asks while the work reads the second DTO without mapping it, which adds nothing.
-    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await pause(50); return read(1); }, "Read the second DTO.",
+    async () => { asked.push(s.discord.send(`${s.discord.mention} berapa lama lagi?`, { author: s.discord.bob })); await s.discord.handled(); return read(1); }, "Read the second DTO.",
     "Masih ada 5 file lagi.",
     "Going on with the DTOs.",
   );
@@ -384,7 +376,7 @@ discordScenario("a turn the model ends with a question in its answer goes on; as
   await agentLog();
   s.model.script(
     START, "Started the acme/api changelog. Shall I go on?",
-    async () => { await pause(300); return read(0); }, ASK, "I asked Alice about the last DTO.",
+    async () => { await progressShown(s); return read(0); }, ASK, "I asked Alice about the last DTO.",
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
