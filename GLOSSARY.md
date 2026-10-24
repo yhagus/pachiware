@@ -13,7 +13,7 @@ The kind of database an installation keeps its records in: SQLite, PostgreSQL, o
 _Avoid_: Driver (the code that talks to it), dialect, backend
 
 **Tenant**:
-An isolated owner of its bots, profiles, git accounts, Plane accounts, skills, conversations, and one Workspace. Nothing is shared across tenants.
+An isolated owner of its bots, profiles, git accounts, Plane accounts, Google accounts, skills, conversations, and one Workspace. Nothing is shared across tenants.
 _Avoid_: Organization, customer
 
 **API key**:
@@ -68,6 +68,10 @@ _Avoid_: Whitelist, Allowed git hosts (its older, git-only name)
 A tenant's API key for one Plane server, Plane's cloud or a self-hosted Plane. It acts as one Plane user in every Plane workspace that user belongs to. Plane cannot list those workspaces, so the account lists the ones an admin typed in, each switched on or off; integrations can use only those switched on. A bot may have many Plane accounts, and several bots may share the same one. Everything done through it is done as that one Plane user.
 _Avoid_: Plane integration, Plane connection, Plane token
 
+**Google account**:
+A tenant's Google service account: an identity with its own email that people share a Google Doc or Google Sheet with, as a viewer, so the bot can read it. The bot reads only what was shared with that email, or what anyone with the link may view. A bot has at most one, and several bots may share the same one.
+_Avoid_: Google integration, Google connection, Google credentials, Workspace account (a person's account in their Google Workspace)
+
 **Plane version**:
 The Plane releases a Plane account's server runs, chosen from the ones Pachiware has tool code for. Each Plane version names the releases it covers; Plane 1.3.1 and Plane 1.4.2 each cover that release alone. It decides how the bot signs in to that Plane and which Plane tools the account offers. An admin changes it after upgrading Plane; a new release that changes Plane's API gets a new Plane version, and the older one keeps working.
 _Avoid_: API version (Plane's API path is `/api/v1/` on every release), Plane release (what a server reports, such as v1.3.1; a Plane version covers one or more of them)
@@ -89,7 +93,7 @@ The rule that says which Plane workspaces of a bot's Plane accounts, and which P
 _Avoid_: Plane permissions, project ACL
 
 **Skill**:
-A bundle of tools the agent may call. Enabled or disabled per tenant. The git skill turns on by itself when a git account is first attached to a bot, and the Plane skill when a Plane account is.
+A bundle of tools the agent may call. Enabled or disabled per tenant. The git skill turns on by itself when a git account is first attached to a bot, and the Plane skill when a Plane account is; the Google skill is on from the start, since a file anyone with the link may view needs no Google account.
 _Avoid_: Plugin, extension
 
 **Availability rule**:
@@ -165,7 +169,7 @@ Text a person asked the bot to keep that is neither a task, a decision, nor minu
 _Avoid_: Memo, doc, memory
 
 **Document**:
-A file or a long text a person gave the bot in a conversation, or a file an admin chose to mirror from a repository, kept as it was in the Workspace folder of that place so the bot can read it when it needs to. A mirrored file follows its repository: it changes and goes when the file does upstream. Where the Profile sees images, an image given to the bot is kept too, with what the model saw in it written beside it, and a scanned PDF's pages are read the same way. Nobody asked to keep a given one; asking turns its content into a note.
+A file or a long text a person gave the bot in a conversation, a Google Doc or Google Sheet a person linked there, or a file an admin chose to mirror from a repository, kept as it was in the Workspace folder of that place so the bot can read it when it needs to. A linked one is kept as it was when the bot read it; it is read again only when someone asks, and that copy replaces it. A mirrored file follows its repository: it changes and goes when the file does upstream. Where the Profile sees images, an image given to the bot is kept too, with what the model saw in it written beside it, and a scanned PDF's pages and a linked Google Doc's images are read the same way. Nobody asked to keep a given one; asking turns its content into a note.
 _Avoid_: Attachment (Discord's word for any file on a message), upload, Note
 
 **API changelog**:
@@ -218,8 +222,9 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 
 ## Relationships
 
-- A **Tenant** owns many **Bots**, **Profiles**, **Git accounts**, and **Plane accounts**, and exactly one **Workspace**.
-- A **Bot** has zero or one **Profile**, many **Git accounts**, and many **Plane accounts**; all must belong to the bot's **Tenant**.
+- A **Tenant** owns many **Bots**, **Profiles**, **Git accounts**, **Plane accounts**, and **Google accounts**, and exactly one **Workspace**.
+- A **Bot** has zero or one **Profile**, many **Git accounts**, many **Plane accounts**, and zero or one **Google account**; all must belong to the bot's **Tenant**.
+- A **Google account** has no scope: what a bot may read through it is what people shared with it, in every guild and channel where an **Availability rule** leaves the Google skill on.
 - A **Brief** becomes one or more **Issue drafts** through **Clarifying rounds** held in one thread; only its author decides.
 - A **Git scope** narrows a **Bot**'s **Git accounts** per **Guild** and per channel; it can never add an account the bot does not have.
 - A **Plane account** lists one or more **Plane workspaces**, each switched on or off, and is set to exactly one **Plane version**. A Plane tool is offered in a place only when a usable **Plane account**'s **Plane version** has it. A **Plane scope** narrows a **Bot**'s **Plane accounts**, their switched-on **Plane workspaces** and their **Plane projects**, per **Guild** and per channel; it can never add an account the bot does not have.
@@ -235,7 +240,7 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A **Digest** is per channel and reads that channel's tasks and their **Due dates**; it never reads another channel.
 - **Memory** lives in the **Workspace** at the tenant, guild, and channel level; the channel level is read only in that channel.
 - A **Team roster** belongs to one **Guild** and is read from any of its channels; a person on it may be a member or someone known only by name, as an **Assignee** may.
-- A **Document** is kept in the Workspace folder of the channel or DM it was given in; a **Note** may be made from it, never the other way round.
+- A **Document** is kept in the Workspace folder of the channel or DM it was given or linked in; a **Note** may be made from it, never the other way round.
 - A mirrored **Document** is kept under `files/docs/` of the channel an admin chose, and refreshed only while that channel's **Git scope** allows its repository.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.
 - An **API changelog** is written in a **Playbook thread** bound to one repository the **Git scope** allows, and kept in the **Workspace** folder of the thread's channel (or the DM's).
