@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { workspaceStore, MAX_BLOB_BYTES, WorkspaceConflict } from "../workspace/store.js";
 import { placeRoot, resolvePath, safeId } from "../workspace/paths.js";
 import { checkThreadWrite } from "../workspace/threads.js";
-import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, goneFrom, lastCommitBy, type GitConn } from "../git.js";
+import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, goneFrom, lastCommitBy, READ_PAGE, type GitConn, type TreeFile } from "../git.js";
 import { readRepo } from "../builtin/gitShared.js";
 import { DEFAULT_TIMEZONE, isoInZone, now, zonedTime } from "../clock.js";
 import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, changeCounts, escapePointer, iterOperations, mostSevere, recordsNothing, resolveLocal, validateChangelog, validateOperation } from "./validate.js";
@@ -74,7 +74,10 @@ export type WorkState = {
   /** A turn that went on by itself could not reach the model: the same continuation runs once more at this time (#358). */
   retryAt?: string;
 } | { state: "paused"; reason: PauseReason; since: string; service?: string; question?: string };
-/** A changed file of a range, with its patch's length when the comparison gave a patch, which mapping groups weigh it by (#370). */
+/**
+ * A changed file of a range, with its patch's length when the comparison gave a patch, which mapping groups weigh it by (#370); or a route
+ * file of the whole history, added, weighed as routeFilesAt says (#373).
+ */
 export type ChangedFile = { path: string; oldPath?: string; status: string; patchChars?: number };
 /**
  * How far a changed file is mapped (ADR 0026), kept by its path at head: `read` once its whole patch was read, and only then how it ended.
@@ -207,6 +210,18 @@ function globTest(pattern: string) {
   const body = p.split(/(\*\*\/?|\*|\?)/).map((part) => (part === "**/" ? "(?:.*/)?" : part === "**" ? ".*" : part === "*" ? "[^/]*" : part === "?" ? "[^/]" : part.replace(/[.+^${}()|[\]\\]/g, "\\$&"))).join("");
   const re = new RegExp(`^${p.includes("/") ? "" : "(?:.*/)?"}${body}$`);
   return (f: ChangedFile) => re.test(f.path) || (!!f.oldPath && re.test(f.oldPath));
+}
+
+/**
+ * The whole history's route files (#373): the files of head's tree that `given` names, each a path or a set-aside-style pattern, sorted by
+ * path. From the empty tree every file is added and its patch is the whole file, so a file weighs its size at head; GitLab's tree gives
+ * no size, and such a file weighs one page of repoReadFile, the least a worker reads of it. `unmatched` names what matched no file.
+ */
+export function routeFilesAt(tree: TreeFile[], given: string[]) {
+  const tests = given.map((g) => ({ given: g, test: globTest(g) }));
+  const files: ChangedFile[] = tree.filter((f) => tests.some((t) => t.test({ path: f.path, status: "added" })))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).map((f) => ({ path: f.path, status: "added", patchChars: f.size ?? READ_PAGE }));
+  return { files, unmatched: tests.filter((t) => !tree.some((f) => t.test({ path: f.path, status: "added" }))).map((t) => t.given) };
 }
 
 /** What a range's draft has done with its changed files: how many it mapped, how many it set aside unmapped, and the files left. */
