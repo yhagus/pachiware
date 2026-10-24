@@ -733,14 +733,17 @@ async function coverLastDayWith(ctx: DraftCaller, conn: GitConn, repo: string, d
 }
 
 /**
- * The start of a turn that goes on by itself with an open draft (#371): a draft pinned before its last day ended, worked on after that day,
- * moves its head to the day's last commit, read through the draft's own repository access. Null when it was not to move.
+ * The first work on an open draft in a turn, the start of one going on by itself or the main loop's first draft tool in a person's (#371):
+ * a draft pinned before its last day ended, worked on after that day, moves its head to the day's last commit, read through the draft's own
+ * repository access. Null when it was not to move.
  */
 export async function coverLastDay(ctx: SkillContext, draft: string) {
   const timezone = ctx.timezone ?? DEFAULT_TIMEZONE, doc = (await readJson(ctx.tenantId, draftPath(ctx, draft)))?.doc;
   if (!lastDayToCover(doc, isoInZone(timezone).slice(0, 10))) return null;
   const meta: DraftMeta = doc["x-draft"];
-  return readRepo({ repo: meta.repo, account: meta.account }, ctx, (conn, repo) => coverLastDayWith(ctx, conn, repo, draft, timezone));
+  const moved = await readRepo({ repo: meta.repo, account: meta.account }, ctx, (conn, repo) => coverLastDayWith(ctx, conn, repo, draft, timezone));
+  if (moved && moved.head !== moved.from) console.info(`[changelog] Moved ${meta.repo} (branch ${meta.branch}, draft ${draftName(draft)}) to the end of ${meta.to}: head ${short(moved.from)} → ${short(moved.head)}, ${moved.commits} commits added`);
+  return moved;
 }
 
 export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: string, args: { account?: string; branch?: unknown; scope?: unknown; from?: unknown; to?: unknown; publish?: unknown }) {

@@ -1,6 +1,6 @@
-import type { SkillModule, ToolPolicy } from "../types.js";
+import type { SkillModule, ToolHandler, ToolPolicy } from "../types.js";
 import { acct, readRepo, repoP } from "./gitShared.js";
-import { askAsker, finishChangelog, noteRead, putComponents, putMapping, putNotes, putOperation, startChangelog, stopChangelog } from "../openapi/changelog.js";
+import { askAsker, coverLastDay, finishChangelog, noteRead, putComponents, putMapping, putNotes, putOperation, startChangelog, stopChangelog } from "../openapi/changelog.js";
 import { listPreviews, publishPreview } from "../openapi/previews.js";
 import { traceEndpoints } from "../openapi/trace.js";
 import { mapChangedFiles } from "../openapi/mapping.js";
@@ -16,6 +16,14 @@ const draftP = { type: "string", description: "The draft path startChangelog ret
 const DRAFT_ARGS = 40_000;
 const drafting: ToolPolicy = { effect: "write", requiresConfirmation: false, playbook: CONTRACT_DIFF_PLAYBOOK, metered: true, repeatable: true, maxArgs: DRAFT_ARGS };
 const SIZE = ` Keep each call under ${DRAFT_ARGS.toLocaleString("en")} characters: put large or shared schemas in putChangelogComponents and $ref them.`;
+/**
+ * The main loop's work on a draft: one pinned before its last day ended first moves its head to that day's last commit, in whatever turn
+ * first works on it after the day, a person's too (#371).
+ */
+const working = (run: ToolHandler): ToolHandler => async (args, ctx) => {
+  if (typeof args?.draft === "string") await coverLastDay(ctx, args.draft);
+  return run(args, ctx);
+};
 
 export const openapiSkill: SkillModule = {
   id: "openapi",
@@ -56,13 +64,13 @@ export const openapiSkill: SkillModule = {
     startChangelog: (args, ctx) => readRepo(args, ctx, (conn, repo) => startChangelog(ctx, conn, repo, args)),
     putChangelogOperation: (args, ctx) => putOperation(ctx, args),
     putChangelogComponents: (args, ctx) => putComponents(ctx, args),
-    putChangelogNotes: (args, ctx) => putNotes(ctx, args),
+    putChangelogNotes: working((args, ctx) => putNotes(ctx, args)),
     putChangelogMapping: (args, ctx) => putMapping(ctx, args),
-    mapChangedFiles: (args, ctx) => mapChangedFiles(ctx, args, CONTRACT_DIFF_PLAYBOOK),
-    finishChangelog: (args, ctx) => finishChangelog(ctx, args),
+    mapChangedFiles: working((args, ctx) => mapChangedFiles(ctx, args, CONTRACT_DIFF_PLAYBOOK)),
+    finishChangelog: working((args, ctx) => finishChangelog(ctx, args)),
     stopChangelog: (args, ctx) => stopChangelog(ctx, args),
     askChangelogAsker: (args, ctx) => askAsker(ctx, args),
-    traceEndpoints: (args, ctx) => traceEndpoints(ctx, args, CONTRACT_DIFF_PLAYBOOK),
+    traceEndpoints: working((args, ctx) => traceEndpoints(ctx, args, CONTRACT_DIFF_PLAYBOOK)),
     publishOpenApi: async (args, ctx) => publishPreview(ctx, { full: await readablePath(ctx, args.path), shown: String(args.path).trim() }, args.title),
     listOpenApiPreviews: (_args, ctx) => listPreviews(ctx),
   },

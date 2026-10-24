@@ -230,6 +230,38 @@ discordScenario("files that changed again after the old head take out of the not
   expect(moved.info["x-changelog"]).toMatchObject({ globalChanges: [ENVELOPE], removedOperations: [SESSIONS] });
 });
 
+discordScenario("a person's turn that first works on a draft after its last day moves its head before anything else: its mapping and tracing workers read the new head (#371)", async (s) => {
+  await acmeApi(s);
+  await tracedBeforeTheDayEnded(s);
+  // Alice stopped the work before the day ended, so no turn goes on by itself; she says lanjut two days later.
+  const draft = JSON.parse((await s.workspace.read(DRAFT_FILE))!);
+  draft["x-draft"].work = { state: "paused", reason: "stopped", since: "2026-10-22T16:58:00.000Z" };
+  await s.workspace.write(DRAFT_FILE, JSON.stringify(draft));
+  s.clock.set("2026-10-24T09:00:00+07:00");
+  s.model.script(
+    { tool: "mapChangedFiles", args: { draft: DRAFT } },
+    [diff(REFUND), diff(ORDERS)],
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [
+      { path: REFUND, change: "a new refund body", endpoints: [{ method: "post", path: "/api/v2/orders/{id}/refund" }] },
+      { path: ORDERS, change: "list gains a status filter and a page size", endpoints: [{ method: "get", path: "/api/v2/orders" }] },
+    ] } },
+    "Mapped.",
+    { tool: "traceEndpoints", args: { draft: DRAFT } },
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "get", path: "/api/v2/orders", operation: operation("listOrders") } }, "Recorded GET /api/v2/orders.",
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/orders/{id}/refund", operation: operation("refundOrder") } }, "Recorded POST /api/v2/orders/{id}/refund.",
+    FINISH,
+    (turn) => `The acme/api changelog is written: ${turn.toolResults.at(-1).path}`,
+  );
+  await s.discord.send(`${s.discord.mention} lanjut`);
+
+  const mappers = s.model.calls.filter((call) => isMapper(call) && !call.some((m: any) => m.role === "assistant")).map(briefOf);
+  expect(mappers).toEqual([expect.stringContaining(`\nBase: ${BASE} (main before 2026-10-01); head: ${LATER} (main through 2026-10-22).`)]);
+  expect(mappers[0]).toContain(`\n- ${REFUND} (added)\n- ${ORDERS} (modified)\n`);
+  expect(workerStarts(s).map(endpointOf)).toEqual(["GET /api/v2/orders", "POST /api/v2/orders/{id}/refund"]);
+  for (const worker of workerStarts(s)) expect(briefOf(worker)).toContain(LATER);
+  expect(s.discord.botMessages.map((m) => m.content).at(-1)).toBe("The acme/api changelog is written: channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..c4d5e6f.json");
+});
+
 discordScenario("a file two mapping workers could not map that changed again after the old head goes back to unmapped, its unverified entry gone; one that did not change again stays unverified (#370, #371)", async (s) => {
   await acmeApi(s);
   await tracedBeforeTheDayEnded(s);
