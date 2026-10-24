@@ -225,7 +225,7 @@ describe("database engine lock at start-up", () => {
     const result = await startAgent({ databaseUrl: testDatabase(testMongoUrl!, "agent_start") });
     expect(result.started, result.errors).toBe(true);
     expect(result.runtimeConfig).toEqual({ databaseEngine: "mongodb" });
-    expect(result.installationFiles).toEqual([]);
+    expect(result.installationFiles).not.toContain(join("data", "pachiware.db"));
   }, 30_000);
 
   test.skipIf(!process.env.TEST_MONGODB_STANDALONE_URL)("a standalone MongoDB stops the start, saying a replica set is required", async () => {

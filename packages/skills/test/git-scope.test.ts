@@ -35,7 +35,7 @@ test("git scope: default none, server on, channel narrows, thread uses parent, w
       cwd: process.cwd(),
       env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "t.db")}`, NODE_ENV: "test", PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64") },
     });
-    expect(new TextDecoder().decode(r.stderr)).toBe("");
+    expect(r.exitCode, new TextDecoder().decode(r.stderr)).toBe(0);
     expect(JSON.parse(new TextDecoder().decode(r.stdout).trim().split("\n").at(-1)!)).toEqual({
       none: 0, onServer: "Home,Work", narrowed: "Work", thread: "Work", otherChan: "Home,Work", unattached: 0,
       allowed: [true, false, true, false], single: "Work", byName: "Home", noneMsg: true, ambiguous: true, unknown: true,

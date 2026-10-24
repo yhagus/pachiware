@@ -68,7 +68,20 @@ test("PR and issue write/read helpers use provider endpoints", async () => {
     expect(await setLabels(github, "o/r", 2, "issue", ["bug"])).toMatchObject({ labels: ["bug"] });
     expect(await editComment(github, "o/r", 9, "issue", "edited")).toMatchObject({ id: 9, body: "edited" });
     expect(await deleteComment(github, "o/r", 9, "issue")).toMatchObject({ deleted: true });
-    expect(calls.some((x) => x.method === "DELETE" && x.url.includes("issues/comments/9"))).toBe(true);
+    // The stub answers any URL, so the requests themselves are checked against GitHub's REST API.
+    expect(calls.map((x) => [x.method, x.url, x.body])).toEqual([
+      ["PATCH", "https://api.github.com/repos/o/r/pulls/7", { title: "New" }],
+      ["PATCH", "https://api.github.com/repos/o/r/issues/7", { state: "open" }],
+      ["POST", "https://api.github.com/repos/o/r/pulls/7/reviews", { event: "APPROVE", body: "" }],
+      ["GET", "https://api.github.com/repos/o/r/pulls/7/files?per_page=100", undefined],
+      ["GET", "https://api.github.com/repos/o/r/commits/main/check-runs?per_page=100", undefined],
+      ["GET", "https://api.github.com/repos/o/r/commits/main/status", undefined],
+      ["PATCH", "https://api.github.com/repos/o/r/issues/2", { body: "b" }],
+      ["PATCH", "https://api.github.com/repos/o/r/issues/2", { assignees: ["a"] }],
+      ["PUT", "https://api.github.com/repos/o/r/issues/2/labels", { labels: ["bug"] }],
+      ["PATCH", "https://api.github.com/repos/o/r/issues/comments/9", { body: "edited" }],
+      ["DELETE", "https://api.github.com/repos/o/r/issues/comments/9", undefined],
+    ]);
   } finally { globalThis.fetch = real; }
 });
 

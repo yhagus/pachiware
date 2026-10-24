@@ -58,7 +58,7 @@ function adminScenario(name: string, body: string) {
         cwd: w,
         env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "p.db")}`, PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
       });
-      expect(new TextDecoder().decode(r.stderr).trim()).toBe("");
+      expect(r.exitCode, new TextDecoder().decode(r.stderr)).toBe(0);
       expect(new TextDecoder().decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 30000);

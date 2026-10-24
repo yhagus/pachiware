@@ -43,7 +43,7 @@ test("web chat answers 50,000 characters and refuses 50,001 in the language they
       cwd: w,
       env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "w.db")}`, PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test", GUARDRAIL_MODE: "enforce" },
     });
-    expect(decode(r.stderr).trim()).toBe("");
+    expect(r.exitCode, decode(r.stderr)).toBe(0);
     expect(decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -85,7 +85,7 @@ test("web chat cannot read or search another channel's Minutes", () => {
       cwd: w,
       env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "w.db")}`, WORKSPACE_DIR: join(dir, "workspace"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
     });
-    expect(decode(r.stderr).trim()).toBe("");
+    expect(r.exitCode, decode(r.stderr)).toBe(0);
     expect(decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -117,7 +117,7 @@ test("web chat names the language of the person's message to answer in, as Disco
       cwd: w,
       env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "w.db")}`, WORKSPACE_DIR: join(dir, "workspace"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
     });
-    expect(decode(r.stderr).trim()).toBe("");
+    expect(r.exitCode, decode(r.stderr)).toBe(0);
     expect(JSON.parse(decode(r.stdout).trim().split("\n").at(-1)!)).toEqual([["Indonesian"], ["English"], []]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

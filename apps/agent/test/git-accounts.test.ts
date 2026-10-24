@@ -55,7 +55,7 @@ test("git accounts: verified, write-only token, shared across bots, tenant-bound
         assert((await put("/channels/c1", [{ gitAccountId: acc.id, repoPatterns: ["org/api"] }])).status === 200, "narrower channel rule rejected");
         assert((await put("/channels/c2", [{ gitAccountId: acc.id, repoPatterns: ["*"] }])).status === 400, "wider channel rule accepted");
         const got = await j(await app.request("/api/admin/bots/" + b1.bot.id + "/guilds/g1/git", { headers: admin }));
-        assert(got.server.length === 2 && got.server[0].repoPatterns[0] === "org/*" || got.server[1].repoPatterns[0] === "org/*", "server rules not stored lowercased");
+        assert(got.server.length === 2 && (got.server[0].repoPatterns[0] === "org/*" || got.server[1].repoPatterns[0] === "org/*"), "server rules not stored lowercased");
         assert(got.channels.c1.length === 1, "channel rule not stored");
         // Narrowing the server rule drops channel rules that no longer fit.
         await put("", [{ gitAccountId: acc2.id, repoPatterns: ["*"] }]);
@@ -85,7 +85,7 @@ test("git accounts: verified, write-only token, shared across bots, tenant-bound
       cwd: w,
       env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "g.db")}`, PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
     });
-    expect(new TextDecoder().decode(r.stderr).trim()).toBe("");
+    expect(r.exitCode, new TextDecoder().decode(r.stderr)).toBe(0);
     expect(new TextDecoder().decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

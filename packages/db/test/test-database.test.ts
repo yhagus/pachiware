@@ -54,7 +54,8 @@ describe("a test URL must name a test database", () => {
   });
 
   test("a MongoDB database name is read percent-decoded, as the connection opens it", () => {
-    expect(requireTestDatabase("TEST_URL", "mongodb://localhost/my%20test")).toBe("mongodb://localhost/my%20test");
+    // %74 is "t": only the decoded name, "test", contains "test".
+    expect(requireTestDatabase("TEST_URL", "mongodb://localhost/%74est")).toBe("mongodb://localhost/%74est");
   });
 
   test("a URL that is not PostgreSQL or MongoDB is refused", () => {

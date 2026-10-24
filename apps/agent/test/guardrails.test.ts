@@ -199,9 +199,12 @@ test("registry gate and confirmation: scope, role, confirm, other user, duplicat
         resetGuardrailState();
         let limited = 0; for (let i = 0; i < 14; i++) { const x = await run("createTask", { title: "t" + i }, mk([])); if (!x.success && x.error.includes("Too many")) limited++; }
         assert(limited > 0, "write rate limit not applied");
-        // audit rows carry categories only
+        // audit rows carry categories only: a secret in the arguments of a refused, audited call never reaches them
+        const denials = await events("guardrail_denied");
+        const withSecret = await run("createTask", { title: "rotate the secret ghp_0123456789abcdefghijklmnopqrstuvwxyz" }, mk([]));
+        assert(!withSecret.success && withSecret.error.includes("Too many") && await events("guardrail_denied") === denials + 1, "secret-carrying call not refused and audited");
         const rows = await repositories().usage.list({ tenantId: t.id });
-        assert(rows.every((r) => !JSON.stringify(r.metadata).includes("secret")), "audit leaked");
+        assert(rows.every((r) => !/secret|ghp_/.test(JSON.stringify(r.metadata))), "audit leaked");
         console.log("ok");
       `],
       cwd: w,

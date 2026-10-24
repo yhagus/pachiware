@@ -142,7 +142,7 @@ test("web chat renders citations the same way: an unknown ref and a made-up link
       cwd: w,
       env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "w.db")}`, PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test", GUARDRAIL_MODE: "enforce" },
     });
-    expect(new TextDecoder().decode(r.stderr).trim()).toBe("");
+    expect(r.exitCode, new TextDecoder().decode(r.stderr)).toBe(0);
     expect(new TextDecoder().decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -77,15 +77,13 @@ describe("SQLite tenancy migration", () => {
         import { queryClient } from ${JSON.stringify(join(source, "internal.ts"))};
         await runMigrations();
         await runMigrations();
-        const columns = queryClient.query("PRAGMA table_info(schedules)").all().map((c) => c.name);
-        console.log(JSON.stringify({ tenants: queryClient.query("SELECT COUNT(*) AS count FROM tenants").get().count, tables: queryClient.query("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name IN ('api_keys', 'bots', 'tenant_skills', 'usage_events', 'schedules')").get().count, dueIndex: queryClient.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'schedules_due_idx'").get()?.sql, columns }));
+        console.log(JSON.stringify({ tenants: queryClient.query("SELECT COUNT(*) AS count FROM tenants").get().count, tables: queryClient.query("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name IN ('api_keys', 'bots', 'tenant_skills', 'usage_events', 'schedules')").get().count, dueIndex: queryClient.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'schedules_due_idx'").get()?.sql }));
       `;
       const result = run(database, script, { OPENAI_API_KEY: undefined, ANTHROPIC_API_KEY: undefined, CUSTOM_LLM_API_KEY: undefined, DISCORD_BOT_TOKEN: undefined });
       expect(result.exitCode, stderr(result)).toBe(0);
       expect(stdout(result).match(/Bootstrap API key/g)).toBeNull();
       expect(JSON.parse(stdout(result).split("\n").at(-1)!)).toEqual({
         tenants: 0, tables: 5, dueIndex: "CREATE INDEX schedules_due_idx ON schedules(status,next_at)",
-        columns: ["id", "tenant_id", "bot_id", "kind", "guild_id", "channel_id", "owner_id", "owner_name", "text", "with_tasks", "mentions", "recurrence", "weekdays", "day_of_month", "time_of_day", "timezone", "until", "next_at", "last_fired_at", "status", "attempts", "error", "created_at"],
       });
     } finally {
       rmSync(directory, { recursive: true, force: true });

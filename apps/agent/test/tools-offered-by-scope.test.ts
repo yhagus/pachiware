@@ -23,17 +23,6 @@ discordScenario("where no Git or Plane scope applies, of their tools only gitAcc
   expect(s.http.requests).toEqual([]);
 });
 
-discordScenario("where a Git scope and a Plane scope apply, their tools are offered as before", async (s) => {
-  await s.guildSettings({ useThreads: false });
-  await s.git({ provider: "github", repos: ["acme/*"] });
-  await s.plane({ projects: ["*"] });
-
-  s.model.script("ok");
-  await s.discord.send(`${s.discord.mention} hello`);
-  const offered = s.model.tools[0]!;
-  for (const name of ["gitAccounts", "repoList", "repoSearchWork", "planeAccounts", "workItemList", "workItemCreate"]) expect(offered).toContain(name);
-});
-
 discordScenario("in a DM no git tool that needs an account is offered, since git works only in a server channel", async (s) => {
   await s.git({ provider: "github", repos: ["acme/*"] });
   const dm = s.discord.channel("dm-alice", { dm: true });
@@ -48,7 +37,7 @@ discordScenario("where a Git scope and a Plane scope apply, administration tools
   await s.git({ provider: "github", repos: ["acme/*"] });
   await s.plane({ projects: ["*"] });
   const ADMIN = ["repoSecrets", "repoRunners", "repoDeployKeys", "repoTransfer", "repoDelete", "repoWebhooks", "repoAddMember", "orgCreateGroup", "projectCreate", "projectDelete", "stateCreate", "workspaceInvite"];
-  const EVERYDAY = ["repoList", "repoSearchWork", "repoIssues", "repoCreateIssue", "repoComment", "repoMergeRequests", "repoChecks", "workItemList", "workItemCreate", "cycleList"];
+  const EVERYDAY = ["gitAccounts", "planeAccounts", "repoList", "repoSearchWork", "repoIssues", "repoCreateIssue", "repoComment", "repoMergeRequests", "repoChecks", "workItemList", "workItemCreate", "cycleList"];
 
   s.model.script("ok", "ok", "ok");
   await s.discord.send(`${s.discord.mention} hello`);
