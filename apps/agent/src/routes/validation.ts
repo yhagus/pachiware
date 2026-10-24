@@ -1,6 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 import { canonicalTimezone, isLanguage, docPatternError, MAX_DOC_PATTERNS, type Language } from "@pachiware/skills";
-import { MAX_PLAYBOOK_WORKERS, MIN_PLAYBOOK_WORKERS, type DigestChannel, type DailyLogChannel, type DocSource } from "@pachiware/db";
+import { MAX_PLAYBOOK_WORKERS, MIN_PLAYBOOK_WORKERS, MAX_OUTPUT_TOKENS, MIN_HISTORY_TOKENS, MAX_HISTORY_TOKENS, type DigestChannel, type DailyLogChannel, type DocSource } from "@pachiware/db";
 import type { TurnRow } from "../loop/react.js";
 
 export type PlaceSettings = { timezone?: string | null; language?: Language | null };
@@ -47,6 +47,22 @@ export function playbookWorkers(body: Record<string, any>): number | undefined {
   if (workers === undefined) return undefined;
   if (!Number.isInteger(workers) || workers < MIN_PLAYBOOK_WORKERS || workers > MAX_PLAYBOOK_WORKERS) throw new HTTPException(400, { message: `playbookWorkers must be a whole number from ${MIN_PLAYBOOK_WORKERS} to ${MAX_PLAYBOOK_WORKERS}` });
   return workers;
+}
+
+/** `maxTokens` from a settings body: the most one model reply may hold, a whole number from 1 to MAX_OUTPUT_TOKENS; undefined when left out. */
+export function maxTokens(body: Record<string, any>): number | undefined {
+  const tokens = body.maxTokens;
+  if (tokens === undefined) return undefined;
+  if (!Number.isInteger(tokens) || tokens < 1 || tokens > MAX_OUTPUT_TOKENS) throw new HTTPException(400, { message: `maxTokens must be a whole number from 1 to ${MAX_OUTPUT_TOKENS}` });
+  return tokens;
+}
+
+/** `historyTokens` from a tenant settings body: estimated tokens of stored conversation one model call carries, MIN_HISTORY_TOKENS to MAX_HISTORY_TOKENS; undefined when left out. */
+export function historyTokens(body: Record<string, any>): number | undefined {
+  const tokens = body.historyTokens;
+  if (tokens === undefined) return undefined;
+  if (!Number.isInteger(tokens) || tokens < MIN_HISTORY_TOKENS || tokens > MAX_HISTORY_TOKENS) throw new HTTPException(400, { message: `historyTokens must be a whole number from ${MIN_HISTORY_TOKENS} to ${MAX_HISTORY_TOKENS}` });
+  return tokens;
 }
 
 export const MAX_DIGEST_CHANNELS = 50;

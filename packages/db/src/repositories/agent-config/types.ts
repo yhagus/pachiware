@@ -38,6 +38,10 @@ export const DEFAULT_CONVERSATION_IDLE_HOURS = 24;
 export const DEFAULT_MODEL_RETRY_WAIT_SECONDS = 60;
 /** How many workers map an API changelog's changed files or trace its endpoints at once (ADRs 0024, 0026); `settings.playbookWorkers` overrides it, MIN to MAX. */
 export const DEFAULT_PLAYBOOK_WORKERS = 3, MIN_PLAYBOOK_WORKERS = 1, MAX_PLAYBOOK_WORKERS = 5;
+/** The most one model reply may hold; `maxTokens` is a whole number from 1 to this. */
+export const MAX_OUTPUT_TOKENS = 1_000_000;
+/** Estimated tokens of stored conversation one model call carries after the rolling summary; `settings.historyTokens` overrides it, MIN to MAX. */
+export const DEFAULT_HISTORY_TOKENS = 16_000, MIN_HISTORY_TOKENS = 1_000, MAX_HISTORY_TOKENS = 1_000_000;
 
 export function defaultAgentConfig(tenantId: string, now: Date): AgentConfig {
   return {

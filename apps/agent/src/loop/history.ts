@@ -1,4 +1,4 @@
-import { repositories, type Message } from "@pachiware/db";
+import { repositories, DEFAULT_HISTORY_TOKENS, MIN_HISTORY_TOKENS, MAX_HISTORY_TOKENS, type Message } from "@pachiware/db";
 
 export const HISTORY_SIZE = 30;
 export const HISTORY_STEP = 10;
@@ -16,8 +16,6 @@ export function dropLeadingOrphans<T extends { role: string }>(rows: T[]): T[] {
   return rows.slice(i);
 }
 
-/** Stored history after the rolling summary stays within this many estimated tokens; a pasted long text would otherwise ride every later turn. */
-export const HISTORY_TOKENS = 16_000;
 const IMAGE_TOKENS = 1_000;
 const CLIPPED_NOTE = "\n…[clipped; the full text is in the conversation's earlier message]";
 
@@ -38,12 +36,21 @@ const total = (rows: StoredRow[]) => rows.reduce((sum, row) => sum + estimateTok
  * Over budget the start advances by whole steps, so the prompt prefix still changes only once per step; only a window shorter than a step that
  * is still over budget loses single rows from the front. A cut never leaves a tool result without its call.
  */
-export function fitHistory<T extends StoredRow>(rows: T[], budget = HISTORY_TOKENS, step = HISTORY_STEP): T[] {
+export function fitHistory<T extends StoredRow>(rows: T[], budget = DEFAULT_HISTORY_TOKENS, step = HISTORY_STEP): T[] {
   const keep = Math.floor(budget / 2) * 4;
   let fitted = rows.map((row) => (typeof row.content === "string" && estimateTokens(row) > budget ? { ...row, content: `${row.content.slice(0, keep)}${CLIPPED_NOTE}` } : row));
   while (total(fitted) > budget && fitted.length > step) fitted = dropLeadingOrphans(fitted.slice(step));
   while (total(fitted) > budget && fitted.length > 1) fitted = dropLeadingOrphans(fitted.slice(1));
   return fitted;
+}
+
+/**
+ * How many estimated tokens of stored history one model call carries: the tenant's `settings.historyTokens`, else DEFAULT_HISTORY_TOKENS.
+ * A pasted long text would otherwise ride every later turn.
+ */
+export async function historyBudget(tenantId: string) {
+  const config = await repositories().agentConfig.get(tenantId);
+  return Math.max(MIN_HISTORY_TOKENS, Math.min(MAX_HISTORY_TOKENS, Number(config?.settings?.historyTokens) || DEFAULT_HISTORY_TOKENS));
 }
 
 /**
@@ -53,17 +60,18 @@ export function fitHistory<T extends StoredRow>(rows: T[], budget = HISTORY_TOKE
 export async function historyWindow(tenantId: string, conversationId: string): Promise<{ offset: number; rows: Message[] }> {
   const { conversations } = repositories();
   const start = historyOffset(await conversations.countMessages(tenantId, conversationId));
-  return fitWindow(start, await conversations.listMessages(tenantId, conversationId, { offset: start, limit: HISTORY_SIZE + HISTORY_STEP }));
+  const loaded = await conversations.listMessages(tenantId, conversationId, { offset: start, limit: HISTORY_SIZE + HISTORY_STEP });
+  return fitWindow(start, loaded, await historyBudget(tenantId));
 }
 
 /** The same window over rows the caller holds instead of a stored conversation, all of them, oldest first. */
-export function windowOf<T extends StoredRow>(all: T[]): { offset: number; rows: T[] } {
+export function windowOf<T extends StoredRow>(all: T[], budget = DEFAULT_HISTORY_TOKENS): { offset: number; rows: T[] } {
   const start = historyOffset(all.length);
-  return fitWindow(start, all.slice(start, start + HISTORY_SIZE + HISTORY_STEP));
+  return fitWindow(start, all.slice(start, start + HISTORY_SIZE + HISTORY_STEP), budget);
 }
 
-function fitWindow<T extends StoredRow>(start: number, loaded: T[]): { offset: number; rows: T[] } {
-  const rows = fitHistory(dropLeadingOrphans(loaded));
+function fitWindow<T extends StoredRow>(start: number, loaded: T[], budget: number): { offset: number; rows: T[] } {
+  const rows = fitHistory(dropLeadingOrphans(loaded), budget);
   // fitHistory only removes rows from the front.
   return { offset: start + loaded.length - rows.length, rows };
 }

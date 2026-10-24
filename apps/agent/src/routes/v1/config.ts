@@ -5,7 +5,7 @@ import { CacheService, tenantKey } from "../../cache/redis.js";
 import { syncTenantSchedules } from "../../scheduler.js";
 import { LLMRouter } from "../../llm/router.js";
 import { isDefaultProvider } from "../../llm/providers.js";
-import { maskConfig, object, placeSettings } from "../validation.js";
+import { maskConfig, maxTokens, object, placeSettings } from "../validation.js";
 
 export const configRoutes = new Hono<TenantEnv>();
 configRoutes.get("/", async (c) => {
@@ -29,10 +29,8 @@ configRoutes.put("/", async (c) => {
     if (typeof body.temperature !== "number" || !Number.isFinite(body.temperature) || body.temperature < 0 || body.temperature > 2) return c.json({ error: "Temperature must be between 0 and 2" }, 400);
     values.temperature = body.temperature;
   }
-  if (body.maxTokens !== undefined) {
-    if (!Number.isInteger(body.maxTokens) || body.maxTokens < 1 || body.maxTokens > 1000000) return c.json({ error: "Invalid maxTokens" }, 400);
-    values.maxTokens = body.maxTokens;
-  }
+  const output = maxTokens(body);
+  if (output !== undefined) values.maxTokens = output;
   if (body.settings !== undefined) values.settings = object(body.settings, "settings");
   Object.assign(values, placeSettings(body));
   for (const field of ["openaiApiKeyEncrypted", "anthropicApiKeyEncrypted", "customApiKeyEncrypted"]) {

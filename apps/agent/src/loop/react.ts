@@ -1,5 +1,5 @@
 import { repositories, DEFAULT_REACT_ITERATIONS } from "@pachiware/db";
-import { historyWindow, storedToolResult, windowOf } from "./history.js";
+import { historyBudget, historyWindow, storedToolResult, windowOf } from "./history.js";
 import { now, skillRegistry, GuardrailService, audit, redact, asUntrusted, looksLikeInjection, isEnforced, closedTools, availabilityPlace, openDrafts, textIn, stepOf, stepLine, bulkTaskTurn, BULK_TASK_TOOLS, type BulkItem, type FailedForGood, type Language, type Strings, type ToolCall, type ToolDefinition, type ToolResult, type SkillContext, type MemberAuth } from "@pachiware/skills";
 import { llmRouter } from "../llm/router.js";
 import { botCompletion } from "../llm/completion.js";
@@ -93,9 +93,9 @@ const storedRecord = (tenantId: string, conversationId: string): TurnRecord => (
   add: async (row) => { await repositories().conversations.addMessage({ tenantId, conversationId, ...row }); },
 });
 
-function heldRecord(history: TurnRow[], recorded: TurnRow[]): TurnRecord {
+function heldRecord(tenantId: string, history: TurnRow[], recorded: TurnRow[]): TurnRecord {
   return {
-    window: async () => windowOf(history),
+    window: async () => windowOf(history, await historyBudget(tenantId)),
     add: async ({ tokensUsed: _tokens, ...row }) => { recorded.push(row); },
   };
 }
@@ -272,7 +272,7 @@ export class AgentReActLoop {
 
     if (convId === undefined || (!convId && !input.ephemeral)) throw new Error("Conversation creation failed");
     const recorded: TurnRow[] = [];
-    const record = input.ephemeral ? heldRecord(input.ephemeral.history, recorded) : storedRecord(input.tenantId, convId);
+    const record = input.ephemeral ? heldRecord(input.tenantId, input.ephemeral.history, recorded) : storedRecord(input.tenantId, convId);
     const cacheKey = input.ephemeral?.cacheKey ?? convId;
 
     // Guardrail before the loop: refuse rule-rewriting messages, answer the rest however long.

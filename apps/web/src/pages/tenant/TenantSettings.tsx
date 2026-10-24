@@ -15,6 +15,10 @@ const MAX_RETRY_WAIT_SECONDS = 600;
 const validWait = (s: number) => Number.isInteger(s) && s >= 0 && s <= MAX_RETRY_WAIT_SECONDS;
 const MAX_WORKERS = 5;
 const validWorkers = (n: number) => Number.isInteger(n) && n >= 1 && n <= MAX_WORKERS;
+const MAX_OUTPUT_TOKENS = 1_000_000;
+const validOutput = (n: number) => Number.isInteger(n) && n >= 1 && n <= MAX_OUTPUT_TOKENS;
+const MIN_HISTORY_TOKENS = 1_000, MAX_HISTORY_TOKENS = 1_000_000;
+const validHistory = (n: number) => Number.isInteger(n) && n >= MIN_HISTORY_TOKENS && n <= MAX_HISTORY_TOKENS;
 
 export function TenantSettings() {
   const tenant = useOutletContext<Tenant>();
@@ -69,6 +73,20 @@ export function TenantSettings() {
               <p className="text-xs text-muted-foreground">For posts the bot writes on its own, such as reminders and provider errors. Replies follow the language of each message.</p>
             </div>
           </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="tenant-output">Max output tokens</Label>
+              <Input id="tenant-output" type="number" inputMode="numeric" min={1} max={MAX_OUTPUT_TOKENS} step={1} className="w-32" aria-invalid={!validOutput(settings.maxTokens)}
+                value={Number.isNaN(settings.maxTokens) ? "" : settings.maxTokens} onChange={(e) => setSettings({ ...settings, maxTokens: e.target.valueAsNumber })} />
+              <p className="text-xs text-muted-foreground">The most one model reply may hold, for every bot and profile of this tenant. A reasoning model's thinking counts toward it, so give such a model room. Turns of a long playbook such as an API changelog get at least 16,384. From 1 to {MAX_OUTPUT_TOKENS.toLocaleString("en")}.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tenant-history">Max history tokens</Label>
+              <Input id="tenant-history" type="number" inputMode="numeric" min={MIN_HISTORY_TOKENS} max={MAX_HISTORY_TOKENS} step={1} className="w-32" aria-invalid={!validHistory(settings.historyTokens)}
+                value={Number.isNaN(settings.historyTokens) ? "" : settings.historyTokens} onChange={(e) => setSettings({ ...settings, historyTokens: e.target.valueAsNumber })} />
+              <p className="text-xs text-muted-foreground">How much of the earlier conversation, from about its last 30 messages, each model call carries, counting four characters a token and 1,000 an image. Older messages go to the conversation's summary, and one message longer than this is cut to half of it. The bot's instructions, its tools and what it reads during the turn come on top, so keep it well under the context window of the smallest model the tenant uses. From {MIN_HISTORY_TOKENS.toLocaleString("en")} to {MAX_HISTORY_TOKENS.toLocaleString("en")}.</p>
+            </div>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="tenant-idle">Fresh conversation after</Label>
             <div className="flex items-center gap-2">
@@ -96,7 +114,7 @@ export function TenantSettings() {
             </div>
             <p className="text-xs text-muted-foreground">How many workers an API changelog runs at the same time, mapping its changed files or tracing its endpoints, each with its own model calls. More finishes sooner but sends more requests at once to the model provider, whose rate limit the tenant's bots share. From 1 to {MAX_WORKERS}.</p>
           </div>
-          <Button size="sm" disabled={saving || !settings.timezone || !validHours(settings.conversationIdleHours) || !validWait(settings.modelRetryWaitSeconds) || !validWorkers(settings.playbookWorkers)}>{saving ? "Saving" : "Save settings"}</Button>
+          <Button size="sm" disabled={saving || !settings.timezone || !validHours(settings.conversationIdleHours) || !validWait(settings.modelRetryWaitSeconds) || !validWorkers(settings.playbookWorkers) || !validOutput(settings.maxTokens) || !validHistory(settings.historyTokens)}>{saving ? "Saving" : "Save settings"}</Button>
         </form>
       )}
     </div>

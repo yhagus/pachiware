@@ -99,6 +99,29 @@ describe("time zone and language settings", () => {
     expect(code, stderr).toBe(0);
   });
 
+  test("a model reply holds at most 4096 tokens and a call carries 16,000 of history unless the tenant sets others, the reply limit shared with the tenant API", () => {
+    const { code, stderr } = scenario(`
+      const path = "/api/admin/tenants/" + tenant.id + "/settings";
+      const fresh = (await read("GET", path)).settings;
+      assert(fresh.maxTokens === 4096 && fresh.historyTokens === 16000, "defaults: " + JSON.stringify(fresh));
+      const changed = (await read("PUT", path, { maxTokens: 32000, historyTokens: 64000 })).settings;
+      assert(changed.maxTokens === 32000 && changed.historyTokens === 64000 && changed.playbookWorkers === 3 && changed.timezone === "Asia/Jakarta", "update: " + JSON.stringify(changed));
+      assert((await read("PUT", path, { maxTokens: 1 })).settings.maxTokens === 1, "1 refused");
+      assert((await read("PUT", path, { maxTokens: 1000000, historyTokens: 1000 })).settings.historyTokens === 1000, "1,000 history refused");
+      for (const bad of [0, 1000001, 2.5, "4096", null]) assert(await status("PUT", path, { maxTokens: bad }) === 400, "maxTokens " + JSON.stringify(bad) + " accepted");
+      for (const bad of [999, 1000001, 2.5, "16000", null]) assert(await status("PUT", path, { historyTokens: bad }) === 400, "historyTokens " + JSON.stringify(bad) + " accepted");
+      const row = await repositories().agentConfig.get(tenant.id);
+      assert(row.maxTokens === 1000000 && row.settings.historyTokens === 1000 && row.settings.maxReActIterations === 32, "row: " + JSON.stringify({ maxTokens: row.maxTokens, settings: row.settings }));
+      const key = await repositories().tenants.issueApiKey("one");
+      await repositories().tenants.linkApiKey(tenant.id, key.keyId);
+      const headers = { Authorization: "Bearer " + key.raw, "Content-Type": "application/json", "X-Tenant-Id": tenant.id };
+      assert((await read("PUT", "/api/v1/config", { maxTokens: 8192 }, headers)).config.maxTokens === 8192, "tenant API refused 8192");
+      assert(await status("PUT", "/api/v1/config", { maxTokens: 0 }, headers) === 400, "tenant API accepted 0");
+      assert((await read("GET", path)).settings.maxTokens === 8192, "admin and tenant views disagree");
+    `);
+    expect(code, stderr).toBe(0);
+  }, 30_000);
+
   test("the tenant API carries both settings on the config resource with the same validation", () => {
     const { code, stderr } = scenario(`
       const key = await repositories().tenants.issueApiKey("one");

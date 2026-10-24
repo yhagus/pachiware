@@ -104,3 +104,16 @@ discordScenario("when the budget cuts the window, no request starts its history 
   expect(stored(last).map(text).join("\n").length).toBeLessThan(BUDGET_CHARS);
   expect(text(stored(last).at(-1)!)).toBe("reply 10");
 });
+
+discordScenario("a tenant that raises its history budget sees a message the default would clip whole", async (s) => {
+  const { repositories } = await import(process.cwd() + "/packages/db/src/index.ts");
+  const config = await repositories().agentConfig.get(s.tenant.id);
+  await repositories().agentConfig.update(s.tenant.id, { settings: { ...config!.settings, historyTokens: 40_000 } });
+  const huge = `HUGE-START\n${"x".repeat(80_000)}\nHUGE-END`;
+  s.model.script("noted", "sure");
+  await talk(s, [huge, "and now?"]);
+
+  const history = stored(s.model.calls.at(-1)!).map(text).join("\n");
+  expect(history).toContain("HUGE-END");
+  expect(history).not.toMatch(/full text is in the conversation's earlier message/);
+});

@@ -77,7 +77,7 @@ export const LANGUAGES: { id: Language; name: string }[] = [{ id: "id", name: "I
  * `modelRetryWaitSeconds`: how long a worked-on Changelog draft waits to try the model once more before it pauses, 0 to pause at once.
  * `playbookWorkers`: how many workers map an API changelog's changed files or trace its endpoints at once, 1 to 5.
  */
-export interface TenantSettings { timezone: string; language: Language; conversationIdleHours: number; modelRetryWaitSeconds: number; playbookWorkers: number; }
+export interface TenantSettings { timezone: string; language: Language; conversationIdleHours: number; modelRetryWaitSeconds: number; playbookWorkers: number; maxTokens: number; historyTokens: number; }
 /** A channel opted in to the daily Digest and the hour (0 to 23, in the server's zone) it posts at. */
 export interface DigestChannel { channelId: string; hour: number; }
 /** A channel this bot writes a Daily log of every night; `backfill` asks for the last 30 days when it is turned on. */
