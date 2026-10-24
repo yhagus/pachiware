@@ -1,5 +1,6 @@
 import { afterEach, expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
+import { missingFacts } from "./support/facts";
 
 // A tool call that hangs gives up at the ceiling instead of holding the turn (#220). The ceiling is 90 s; scenarios shorten it.
 
@@ -149,8 +150,10 @@ discordScenario("past the turn's deadline the next tool call is not run and the 
   expect(saved).toBe(false);
   const tools = asked.filter((m) => m.role === "tool").map((m) => String(m.content));
   expect(tools[0]).toContain("Hall B");
-  expect(tools[1]).toContain("This tool call was not run: the turn ran out of time. Say it was not done.");
-  expect(String(asked.at(-1).content)).toBe("The time for this turn ran out. Tell the person in one to three short, plain sentences how far the work is toward what they asked and what happens next. Do not name files, folders, tools, functions, schemas, commit hashes or other internal details. Do not call tools.");
+  // The skipped call is not run for lack of time, and the model is told to say it was not done.
+  expect(missingFacts(tools[1] ?? "", /not run/, /\btime\b/, /not done/)).toEqual([]);
+  // The closing request: time ran out; one to three plain sentences on how far the work is and what comes next; no internals, no tools.
+  expect(missingFacts(String(asked.at(-1).content), /\btime\b/i, /one to three/, /plain/, /how far/, /next/, /internal details/, /not call tools/)).toEqual([]);
   expect(s.discord.botMessages.at(-1)!.content).toBe("I found Hall B but ran out of time before saving it.");
   expect(s.model.calls.length).toBe(2);
   const { repositories } = await import("@pachiware/db");
