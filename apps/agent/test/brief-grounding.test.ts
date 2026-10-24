@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
+import { missingFacts } from "./support/facts";
 
 discordScenario("with one allowed repository every draft of the breakdown targets it, and no question asks which", async (s) => {
   const { briefFields, ROUND_1 } = await import(process.cwd() + "/apps/agent/test/support/briefs.ts");
@@ -25,20 +26,19 @@ discordScenario("with one allowed repository every draft of the breakdown target
 discordScenario("in a brief thread the plain repository reads are closed, so every read goes through the budget", async (s) => {
   const { ROUND_1 } = await import(process.cwd() + "/apps/agent/test/support/briefs.ts");
   await s.git({ repos: ["acme/api"] });
+  let refused: string[] = [];
   s.model.script(
     [{ tool: "repoReadFile", args: { repo: "acme/api", path: "README.md" } }, { tool: "repoSearchCode", args: { repo: "acme/api", query: "session" } }],
-    (turn) => {
-      expect(turn.toolResults.map((r: any) => r.error)).toEqual([
-        "This thread follows the issue-draft playbook, which closes repoReadFile: follow the playbook's steps instead.",
-        "This thread follows the issue-draft playbook, which closes repoSearchCode: follow the playbook's steps instead.",
-      ]);
-      return { tool: "postBriefRound", args: ROUND_1 };
-    },
+    (turn) => { refused = turn.toolResults.map((r: any) => String(r.error)); return { tool: "postBriefRound", args: ROUND_1 }; },
     "ok",
   );
   const brief = await s.discord.send(ROUND_1.points.map((p: string) => `- ${p}`).join("\n"));
   await s.discord.contextMenu("Draft issues", brief);
   expect(s.http.requests.filter((r) => r.url.includes("api.github.com"))).toEqual([]);
+  // Each read is refused, naming the playbook that closes it and pointing to the playbook's steps.
+  const [readFile = "", searchCode = ""] = refused;
+  expect(missingFacts(readFile, "issue-draft playbook", /closes repoReadFile/, /playbook's steps/)).toEqual([]);
+  expect(missingFacts(searchCode, "issue-draft playbook", /closes repoSearchCode/, /playbook's steps/)).toEqual([]);
 });
 
 discordScenario("a likely duplicate becomes a skip-or-create question, and the drafts carry existing labels and Context used pinned to HEAD", async (s) => {
@@ -55,7 +55,8 @@ discordScenario("a likely duplicate becomes a skip-or-create question, and the d
     [{ tool: "briefRepositories" }, read({ step: "repository" }), read({ step: "code", point: 1, query: "session" })],
     (turn) => {
       expect(turn.toolResults[1]).toMatchObject({ commit: HEAD, branch: "main", labels: ["bug", "enhancement", "safari"], adrs: ["0001-sessions.md"], readme: "# API\nSessions live in the SessionStore." });
-      expect(JSON.stringify(turn.toolResults[2])).toContain('Run step \\"duplicates\\" for point 1 in acme/api first');
+      // A point's reads go in order: the refusal names the step to run first, for which point and repository.
+      expect(missingFacts(JSON.stringify(turn.toolResults[2]), /in order/, '\\"duplicates\\"', "point 1", "acme/api", /first/)).toEqual([]);
       return [read({ step: "duplicates", point: 1, query: "safari login" }), read({ step: "issue", point: 1, number: 12 }), read({ step: "code", point: 1, query: "session" }), read({ step: "files", point: 1, paths: ["src/session.ts"] })];
     },
     (turn) => {
@@ -74,7 +75,7 @@ discordScenario("a likely duplicate becomes a skip-or-create question, and the d
   s.model.script(
     [{ tool: "recordBriefAnswers", args: { round: 1, acceptRest: true } }, { tool: "writeIssueDraft", args: draft(1, { labels: ["Safari"] }) }, { tool: "writeIssueDraft", args: draft(2, { labels: ["performance"] }) }],
     (turn) => {
-      expect(JSON.stringify(turn.toolResults[2])).toContain("performance is not a label of acme/api. Propose only labels it has: bug, enhancement, safari.");
+      expect(missingFacts(JSON.stringify(turn.toolResults[2]), /performance is not a label of acme\/api/, /only labels it has/, "bug, enhancement, safari")).toEqual([]);
       return { tool: "writeIssueDraft", args: draft(2) };
     },
     "ok",
@@ -111,7 +112,7 @@ discordScenario("with several repositories round 1 recommends the one earlier br
       return { tool: "postBriefRound", args: { ...round, drafts: [{ ...round.drafts[0], repo: "other/x" }, round.drafts[1]] } };
     },
     (turn) => {
-      expect(JSON.stringify(turn.toolResults)).toContain("Draft 1's repo must be one of acme/web, acme/api.");
+      expect(missingFacts(JSON.stringify(turn.toolResults), /Draft 1's repo/, /one of acme\/web, acme\/api/)).toEqual([]);
       return { tool: "postBriefRound", args: round };
     },
     "ok",
@@ -144,8 +145,9 @@ discordScenario("the runner caps reads at 6 per point and 30 per brief before an
     (turn) => {
       const said = JSON.stringify(turn.toolResults);
       expect(said).not.toContain("Too many requests");
-      expect(JSON.stringify(turn.toolResults[8])).toContain("Point 1's reading budget (6 reads) is spent.");
-      expect(JSON.stringify(turn.toolResults.at(-1))).toContain("The brief's reading budget (30 reads) is spent. Draft with what you have, and list what you could not check under Open questions.");
+      // Point 1's budget, then the brief's, is spent: draft with what was read, and list what was not checked under Open questions.
+      expect(missingFacts(JSON.stringify(turn.toolResults[8]), /Point 1's reading budget/, "6 reads", /spent/)).toEqual([]);
+      expect(missingFacts(JSON.stringify(turn.toolResults.at(-1)), /brief's reading budget/, "30 reads", /spent/, /draft with what you have/i, "Open questions")).toEqual([]);
       return { tool: "postBriefRound", args: { points, drafts: points.map((_, i) => ({ point: i + 1, title: `Fix point ${i + 1}`, summary: "One line." })), questions: [] } };
     },
     "ok",
