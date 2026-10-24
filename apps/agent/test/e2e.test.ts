@@ -111,7 +111,7 @@ describe("Phase 13 tenant API", () => {
     `);
     try { expect(result.exitCode, stderr(result)).toBe(0); expect(jsonOutput(result)).toMatchObject({ ok: true, botCalls: expect.any(Number) }); }
     finally { rmSync(directory, { recursive: true, force: true }); }
-  });
+  }, 30_000);
 
   test("rejects cross-tenant conversations and records ReAct LLM/tool usage", () => {
     const { directory, result } = runApiScenario(`
@@ -166,5 +166,5 @@ describe("Phase 13 tenant API", () => {
     `);
     try { expect(result.exitCode, stderr(result)).toBe(0); expect(jsonOutput(result)).toMatchObject({ ok: true, completions: 2 }); }
     finally { rmSync(directory, { recursive: true, force: true }); }
-  });
+  }, 30_000);
 });

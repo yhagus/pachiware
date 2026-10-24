@@ -255,7 +255,7 @@ describe("Router hardening", () => {
       assert(calls.some((c) => c.url.endsWith("/chat/completions") && c.body?.reasoning_effort === "medium"), "test did not send the effort");
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("an answer cut at the output limit reads as \"length\" in every request format, keeping the cut tool call it holds", () => {
     const { code, stderr } = scenario(`

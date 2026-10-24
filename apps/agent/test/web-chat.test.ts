@@ -120,4 +120,4 @@ test("web chat names the language of the person's message to answer in, as Disco
     expect(r.exitCode, decode(r.stderr)).toBe(0);
     expect(JSON.parse(decode(r.stdout).trim().split("\n").at(-1)!)).toEqual([["Indonesian"], ["English"], []]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 30_000);

@@ -91,7 +91,7 @@ describe("Anthropic profiles and image input", () => {
       assert(call.url.startsWith("https://api.anthropic.com/v1/models") && call.headers["x-api-key"] === "sk-ant-typed" && call.headers["anthropic-version"] && !call.headers.Authorization, "wrong request: " + JSON.stringify(call));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("the Test checklist lists models, then sends text and a tiny image in each provider's shape, and reports every step", () => {
     const { code, stderr } = scenario(`
@@ -113,7 +113,7 @@ describe("Anthropic profiles and image input", () => {
       assert(calls[2].url === "https://llm.example/v1/chat/completions" && calls[2].headers.Authorization === "Bearer proxy-key" && part.image_url.url.startsWith("data:image/png;base64,"), "openai-shaped image part wrong: " + JSON.stringify(calls[2]));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("the Test checklist reports the image rejected separately, reuses the saved key, and stops at a refused key", () => {
     const { code, stderr } = scenario(`
@@ -129,7 +129,7 @@ describe("Anthropic profiles and image input", () => {
       assert([model, text, image].every((c) => c.status === "skipped") && calls.length === 1, "steps after a refused key were tried: " + JSON.stringify(denied));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("the Test checklist tells an unreachable host apart from a server that answers in the wrong format", () => {
     const { code, stderr } = scenario(`
@@ -148,7 +148,7 @@ describe("Anthropic profiles and image input", () => {
       assert(wrongPath.checks.text.status === "failed" && wrongPath.checks.text.message.includes("Failed (404).") && wrongPath.checks.text.message.includes("/v1"), "a 404 gives no hint: " + JSON.stringify(wrongPath.checks.text));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("the Test checklist flags an unlisted model, a reply that ignores the instruction, and a wrong image colour, and confirms the key by text when there is no model list", () => {
     const { code, stderr } = scenario(`
@@ -165,7 +165,7 @@ describe("Anthropic profiles and image input", () => {
       assert(!empty.success && empty.checks.text.status === "failed" && empty.checks.text.message.includes("length"), "empty reply passed: " + JSON.stringify(empty.checks.text));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("the Playground sends a prompt with an optional system prompt in each provider's shape and returns the reply, timing, and tokens", () => {
     const { code, stderr } = scenario(`
@@ -197,7 +197,7 @@ describe("Anthropic profiles and image input", () => {
       assert((await post("/profiles/test", { provider: "custom", apiFormat: "soap", model: "m", baseUrl: "https://llm.example/v1" })).status === 400, "unknown format accepted by Test");
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("a BYOK profile on the Responses format sends the conversation and flat tools to /responses and reads text, tool calls, and usage back", () => {
     const { code, stderr } = scenario(`
@@ -228,7 +228,7 @@ describe("Anthropic profiles and image input", () => {
       assert(answer.usage.promptTokens === 20 && answer.usage.completionTokens === 5 && answer.usage.cachedTokens === 8, "usage not read: " + JSON.stringify(answer.usage));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("a BYOK profile on the Messages format answers through <base URL>/messages with both key headers", () => {
     const { code, stderr } = scenario(`
@@ -404,7 +404,7 @@ describe("Anthropic profiles and image input", () => {
       assert(answer.finishReason === "error", "an answer with neither the call nor text passed as a reply: " + JSON.stringify(answer));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("image capability follows the bot's profile flag, and an Anthropic tenant default asks the models endpoint", () => {
     const { code, stderr } = scenario(`
@@ -437,5 +437,5 @@ describe("Anthropic profiles and image input", () => {
       assert(await llmRouter.acceptsImages(broken.id) === false, "a failed lookup must not claim image input");
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 });

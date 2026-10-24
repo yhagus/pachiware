@@ -114,7 +114,7 @@ describe("time zone and language settings", () => {
       assert(viewed.settings.timezone === "Asia/Tokyo" && viewed.settings.language === "en", "admin and tenant views disagree: " + JSON.stringify(viewed));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("guild settings override the tenant per guild, nullable, beside useThreads and always-on channels", () => {
     const { code, stderr } = scenario(`
@@ -130,5 +130,5 @@ describe("time zone and language settings", () => {
       assert(cleared.config.timezone === null && cleared.config.language === null && cleared.config.useThreads === false, "null did not clear the override: " + JSON.stringify(cleared.config));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 });

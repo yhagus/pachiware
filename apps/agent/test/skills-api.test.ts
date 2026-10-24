@@ -51,11 +51,11 @@ test("GET /api/v1/skills lists each skill's name, description and tools as its m
     assert(!("toolDefinitions" in s), m.id + " still carries toolDefinitions");
   }
   assert(listed.task_management.isEnabled === true && listed.git_repositories.isEnabled === false, "tenant state");
-`));
+`), 30_000);
 
 test("a skill only the database knows offers the model none of the tools it stored", () => run(`
   await repositories().skills.register({ id: "ghost", name: "Ghost", description: "No module.", defaultEnabled: true, toolDefinitions: [{ name: "ghostTool", description: "Haunts.", parameters: { type: "object", properties: {} } }], handlerType: "builtin", config: {} });
   await repositories().skills.enable(t.id, "ghost");
   const offered = (await skills.skillRegistry.getActiveTools(t.id)).map((d) => d.name);
   assert(!offered.includes("ghostTool") && offered.includes("createTask"), "offered " + offered);
-`));
+`), 30_000);

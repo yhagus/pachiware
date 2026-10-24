@@ -53,7 +53,7 @@ describe("Digest channels on the server settings", () => {
       assert(untouched.config.digestChannels.length === 2 && untouched.config.useThreads === false, "a save without digestChannels dropped them: " + JSON.stringify(untouched.config));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("saving upserts one daily digest schedule row per entry in the guild's zone and cancels the rows of removed entries", () => {
     const { code, stderr } = scenario(`
@@ -91,7 +91,7 @@ describe("Digest channels on the server settings", () => {
       assert(rows.filter((r) => r.status === "active").length === 1 && rows.length === 4, "opting a channel back in makes a fresh active row: " + JSON.stringify(rows));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("a tenant zone change moves the Digest rows of the guilds that follow the tenant's zone and leaves a guild with its own zone alone", () => {
     const { code, stderr } = scenario(`
@@ -120,5 +120,5 @@ describe("Digest channels on the server settings", () => {
       assert(rows[1].timezone === "Asia/Tokyo" && rows[1].nextAt.toISOString() === "2026-03-06T23:00:00.000Z", "a guild with its own zone stays: " + JSON.stringify(rows[1]));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 });

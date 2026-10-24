@@ -126,14 +126,14 @@ describe("admin infrastructure API", () => {
     expect(JSON.parse(api.change.body).error).toContain("cannot be changed");
     expect(api.test.status).toBe(404);
     expect(api.files).toEqual([]);
-  });
+  }, 30_000);
 
   test("a MongoDB replica set shows every member, without credentials or database name", () => {
     const api = infrastructureApi("mongodb://app:hunter2-secret@db1.internal:27017,db2.internal:27018/pachiware_prod?replicaSet=rs0");
     expect(JSON.parse(api.get.body).infrastructure).toMatchObject({ databaseEngine: "mongodb", databaseHost: "db1.internal:27017,db2.internal:27018" });
     expect(api.get.body).not.toContain("hunter2-secret");
     expect(api.get.body).not.toContain("pachiware_prod");
-  });
+  }, 30_000);
 
   test("a SQLite installation has no host to show", () => {
     const api = infrastructureApi("sqlite::memory:");

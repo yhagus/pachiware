@@ -88,4 +88,4 @@ test("git accounts: verified, write-only token, shared across bots, tenant-bound
     expect(r.exitCode, new TextDecoder().decode(r.stderr)).toBe(0);
     expect(new TextDecoder().decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 30_000);

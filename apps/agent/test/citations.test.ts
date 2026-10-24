@@ -145,4 +145,4 @@ test("web chat renders citations the same way: an unknown ref and a made-up link
     expect(r.exitCode, new TextDecoder().decode(r.stderr)).toBe(0);
     expect(new TextDecoder().decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 30_000);

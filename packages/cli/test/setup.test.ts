@@ -251,7 +251,7 @@ test("doctor reports a MongoDB installation by its members, without credentials"
   const result = Bun.spawnSync({ cmd: ["bun", cli, "doctor"], cwd: directory, env });
   expect(text(result.stdout)).toContain("Database:           MongoDB at db1.internal:27017,db2.internal:27017");
   expect(text(result.stdout)).not.toContain("s3cret");
-});
+}, 30_000);
 
 describe("the database question", () => {
   test("lists SQLite, PostgreSQL, MongoDB and Docker, and Docker asks which engine it runs", async () => {

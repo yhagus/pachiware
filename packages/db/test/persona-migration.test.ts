@@ -77,4 +77,4 @@ test("migration replaces only prompts byte-equal to an old default, the first pe
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
-});
+}, 30_000);

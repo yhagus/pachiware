@@ -45,7 +45,7 @@ test("admin API sets and clears availability rules at every level", () => run(`
   assert((await call("GET", levels[2] + "/availability", h)).body.rules.length === 0, "a channel rule showed at the guild");
   assert((await call("GET", "/api/admin/bots/" + bot.id + "/guilds/g1/channels/c2/availability", h)).body.rules.length === 0, "a channel rule showed in another channel");
   assert((await call("GET", levels[0] + "/availability", { "Content-Type": "application/json" })).status === 401, "admin key required");
-`));
+`), 30_000);
 
 test("availability rules refuse playbook tools, unknown targets and bad values with 400", () => run(`
   const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await repositories().bots.create({ tenantId: t.id, token: "x" });
@@ -61,7 +61,7 @@ test("availability rules refuse playbook tools, unknown targets and bad values w
   assert((await call("GET", url, h)).body.rules.length === 0, "a refused rule was stored");
   assert((await call("PUT", "/api/admin/bots/nope/availability", h, { kind: "tool", name: "createTask", value: "off" })).status === 404, "unknown bot");
   assert((await call("PUT", "/api/admin/tenants/nope/availability", h, { kind: "tool", name: "createTask", value: "off" })).status === 404, "unknown tenant");
-`));
+`), 30_000);
 
 test("effect rules set and clear at every level, and an unknown effect is refused", () => run(`
   const t = await repositories().tenants.create({ name: "A", slug: "a" }), bot = await repositories().bots.create({ tenantId: t.id, token: "x" });

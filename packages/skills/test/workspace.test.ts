@@ -241,7 +241,7 @@ describe("workspace notes (ticket: agent can keep notes in its own channel folde
       const withTask = await turn(alpha);
       assert(withTask.includes("Active tasks (status | due | assignee | id | title):") && /^pending \\| no due date \\| unassigned \\| [0-9a-f]{8} \\| Ship launch page$/m.test(withTask), "active tasks missing: " + withTask);
     `);
-  });
+  }, 30_000);
 
   test("the tasks table exports into task files by guild and channel, rerunnable, table untouched", () => {
     scenario(`

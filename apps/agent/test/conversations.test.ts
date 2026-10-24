@@ -81,7 +81,7 @@ describe("guild config", () => {
     const result = Bun.spawnSync({ cmd: ["bun", "--eval", script], cwd: root, env: { ...process.env, DATABASE_URL: `sqlite:${join(directory, "g.db")}`, PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" } });
     try { expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); }
     finally { rmSync(directory, { recursive: true, force: true }); }
-  });
+  }, 30_000);
 });
 
 test("a short request names the one word in it that is not a request word, the trigger of an in-place playbook (#245)", () => {

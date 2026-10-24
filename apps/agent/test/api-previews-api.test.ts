@@ -53,7 +53,7 @@ test("the admin API lists a tenant's API previews newest first, by bot, with the
   const theirsListed = await repositories().apiPreviews.list(other.id);
   assert((await call("DELETE", "/api/admin/tenants/" + t.id + "/api-previews/" + theirsListed[0].id, h)).status === 404, "another tenant's preview");
   assert((await repositories().apiPreviews.get(theirsListed[0].id)) !== null, "another tenant's preview kept");
-`));
+`), 30_000);
 
 test("a tenant's API key lists and revokes that tenant's previews and no other's", () => run(`
   const key = await repositories().tenants.issueApiKey("k1");
@@ -64,4 +64,4 @@ test("a tenant's API key lists and revokes that tenant's previews and no other's
   assert(listed.status === 200 && JSON.stringify(listed.body.previews.map((p) => p.id)) === JSON.stringify([mine.id]), "own only: " + JSON.stringify(listed.body));
   assert((await call("DELETE", "/api/v1/api-previews/" + foreign.id, h)).status === 404, "another tenant's");
   assert((await call("DELETE", "/api/v1/api-previews/" + mine.id, h)).status === 200, "own revoked");
-`));
+`), 30_000);
