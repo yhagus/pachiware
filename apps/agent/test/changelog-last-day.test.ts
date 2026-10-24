@@ -81,12 +81,14 @@ discordScenario("a draft pinned before its last day ended moves its head to that
   s.model.script(
     // The turn at 23:58 is still on the last day; it ends after midnight.
     (turn) => { states.push(briefOf(turn.messages)); s.clock.set("2026-10-23T00:01:00+07:00"); return "Every changed file is mapped and every candidate traced."; },
-    // The first turn after the day: the files changed since HEAD are read and mapped again, and tracing goes on.
-    async (turn) => { states.push(briefOf(turn.messages)); await pause(250); return [diff(ORDERS), diff(REFUND)]; },
+    // The first turn after the day: a mapping worker reads and maps again the files changed since HEAD, and tracing goes on.
+    async (turn) => { states.push(briefOf(turn.messages)); await pause(250); return { tool: "mapChangedFiles", args: { draft: DRAFT } }; },
+    [diff(REFUND), diff(ORDERS)],
     { tool: "putChangelogMapping", args: { draft: DRAFT, files: [
       { path: ORDERS, change: "list gains a status filter and a page size", endpoints: [{ method: "get", path: "/api/v2/orders" }] },
       { path: REFUND, change: "a new refund body", endpoints: [{ method: "post", path: "/api/v2/orders/{id}/refund" }] },
     ] } },
+    "Mapped.",
     { tool: "traceEndpoints", args: { draft: DRAFT } },
     { tool: "putChangelogOperation", args: { draft: DRAFT, method: "get", path: "/api/v2/orders", operation: operation("listOrders") } }, "Recorded GET /api/v2/orders.",
     { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/orders/{id}/refund", operation: operation("refundOrder") } }, "Recorded POST /api/v2/orders/{id}/refund.",

@@ -4,7 +4,7 @@ category: Git, code & APIs
 trigger: {"word": ["changelog"]}
 default: off
 requires: ["git_repositories", "openapi"]
-tools: ["playbookRepositories", "startChangelog", "stopChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "putChangelogMapping", "mapChangedFiles", "traceEndpoints", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]
+tools: ["playbookRepositories", "startChangelog", "stopChangelog", "readPlaybookFile", "repoCompare", "repoCommit", "repoTree", "repoSearchCode", "repoFindDefinition", "repoReadFile", "repoFileDiff", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "mapChangedFiles", "traceEndpoints", "finishChangelog", "askChangelogAsker", "sendFiles", "publishOpenApi"]
 repository: required
 budget: long
 ---

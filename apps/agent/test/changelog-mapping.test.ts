@@ -225,6 +225,22 @@ discordScenario("the progress message counts the changed files mapped and the ca
   }
 });
 
+discordScenario("the main loop's own putChangelogMapping is refused and maps nothing: only mapping workers record how a file ends (ADR 0026)", async (s) => {
+  await acmeApi(s);
+  let refusal = "", mapping: unknown;
+  s.model.script(
+    START, NOTE_CONVENTIONS,
+    // The controller's patch came with startChangelog, so only who calls it stands in the way.
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: CONTROLLER, none: "only a log line changed" }] } },
+    async (turn) => { refusal = turn.toolResults.at(-1).error; mapping = (await draftMeta(s)).mapping; return { tool: "stopChangelog", args: {} }; },
+    "Stopped the changelog.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(refusal).toBe("Only mapping workers record how changed files end: call mapChangedFiles with the draft, and its workers read the patches and map the files. Nothing was mapped.");
+  expect(mapping).toEqual({ [CONTROLLER]: { read: true } });
+});
+
 discordScenario("mapChangedFiles on a draft with no conventions summary maps nothing, starts no worker, and says to write it first (#370)", async (s) => {
   await acmeApi(s);
   let refusal = "";

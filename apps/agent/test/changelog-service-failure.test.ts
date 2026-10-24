@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, DRAFT, FINISH, FOLDER, HEAD, SOURCE, START, TRACE, WORKER, WRITE_CONVENTIONS, WRITTEN, WRITTEN_FILE, agentLog, contractDiffOn, draftMeta, pauses, warnings } from "./support/changelog";
+import { BASE, DRAFT, FINISH, FOLDER, HEAD, MAP_CHANGED, SOURCE, START, TRACE, WORKER, WRITE_CONVENTIONS, WRITTEN, WRITTEN_FILE, agentLog, contractDiffOn, draftMeta, mapper, pauses, reaches, warnings } from "./support/changelog";
 
 /** The changed files, none with a patch given: each can be mapped once it is read whole. */
 const DTOS = ["a", "b", "c"].map((n) => `src/users/dto/${n}.dto.ts`);
@@ -10,13 +10,14 @@ const THE_PROJECT = /^GET https:\/\/gitlab\.com\/api\/v4\/projects\/acme%2Fapi$/
 
 /**
  * acme/api on GitLab, open in this channel (no threads): main's last commit through 22 October is HEAD, its last before 1 October BASE, and
- * the three DTOs changed between them. Any file reads as SOURCE at any ref.
+ * the three DTOs changed between them. Any file reads as SOURCE at any ref. Workers run one at a time.
  */
 async function acmeOnGitLab(s: Scenario) {
   await s.guildSettings({ language: "en", useThreads: false });
   s.clock.set("2026-10-22T10:00:00+07:00");
   await s.git({ provider: "gitlab", repos: ["acme/*"] });
   await contractDiffOn(s);
+  expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
   s.http.on(THE_PROJECT, () => ({ default_branch: "main" }));
   s.http.on(`GET ${PROJECT}/repository/commits`, (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
     ? [{ id: BASE, committed_date: "2026-09-29T08:00:00Z" }] : [{ id: HEAD, committed_date: "2026-10-21T08:00:00Z" }]));
@@ -25,8 +26,8 @@ async function acmeOnGitLab(s: Scenario) {
 }
 /** Reads a changed DTO whole at head, so it can be mapped. */
 const read = (i: number) => ({ tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: DTOS[i] } });
-/** Maps the three DTOs, once each is read whole: each reaches POST /api/v2/users (#366). */
-const MAP = { tool: "putChangelogMapping", args: { draft: DRAFT, files: DTOS.map((path) => ({ path, change: "a body field changed", endpoints: [{ method: "post", path: "/api/v2/users" }] })) } };
+/** The mapping workers' steps once the three DTOs are read whole: GitLab gives no patch, so each is a group of its own, and each reaches POST /api/v2/users (#366). */
+const MAPPED = DTOS.flatMap((path) => mapper(reaches(path, "a body field changed")));
 const ASK = `changelog acme/api from 1 to 22 October`;
 type Step = Parameters<Scenario["model"]["script"]>[number];
 /** GitLab's answer to every file read from now on. */
@@ -145,12 +146,12 @@ discordScenario("two 502s then a read that succeeds, and a file that does not ex
     },
     saw(read(0)), read(0), read(1), read(1), read(1),
     { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: MISSING } }, saw(read(2)),
-    [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER, FINISH, `The acme/api changelog is written: ${WRITTEN}`,
+    [WRITE_CONVENTIONS, MAP_CHANGED, TRACE], ...MAPPED, ...WORKER, FINISH, `The acme/api changelog is written: ${WRITTEN}`,
   );
   await s.discord.send(`${s.discord.mention} ${ASK}`);
 
   expect(seen).toEqual([{ error: "gitlab returned 502: Bad Gateway" }, { error: `${MISSING} not found at ${HEAD}` }]);
-  expect(s.model.calls).toHaveLength(15);
+  expect(s.model.calls).toHaveLength(21);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`<@user-alice> The acme/api changelog is written: ${WRITTEN}`]);
   expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
   expect(await pauses(s)).toEqual([]);

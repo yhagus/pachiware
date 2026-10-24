@@ -1,12 +1,12 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { TRACE, WORKER, WRITE_CONVENTIONS } from "./support/changelog";
+import { MAP_CHANGED, TRACE, WORKER, WRITE_CONVENTIONS, mapper } from "./support/changelog";
 
 const BASE = "9f8e7d6".padEnd(40, "0"), HEAD = "a1b2c3d".padEnd(40, "0");
 const DRAFT = "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.draft.json", WRITTEN = DRAFT.replace(".draft.json", ".json");
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-/** Maps the one changed file, whose patch startChangelog gave, to the endpoint it reaches (#366). */
-const MAP = { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: "src/users/users.controller.ts", change: "@Post() became @Post('v2')", endpoints: [{ method: "post", path: "/api/v2/users" }] }] } };
+/** The mapping worker's steps for the one changed file, whose patch startChangelog gave: it reaches POST /api/v2/users (#366, #370). */
+const MAPPED = mapper({ path: "src/users/users.controller.ts", change: "@Post() became @Post('v2')", endpoints: [{ method: "post", path: "/api/v2/users" }] });
 
 /** acme/api on GitHub, open in this server: main's last commit through 22 October is HEAD, its last before 1 October BASE. */
 async function acmeApi(s: Scenario) {
@@ -31,9 +31,9 @@ discordScenario("changelog: opens a contract-diff thread whose turns carry the p
   const system = String(s.model.calls[0]![0]!.content);
   expect(system).toContain("### Playbook: contract-diff");
   expect(system).toContain("Never choose a scope, a first day or a last day for the person, and call no tool before you have their answer.");
-  // The thread offers only the tools the playbook names (ADR 0023), not every tool of the place.
+  // The thread offers only the tools the playbook names (ADR 0023), not every tool of the place; mapping workers alone map files (ADR 0026).
   expect([...s.model.tools[0]!].sort()).toEqual([
-    "askChangelogAsker", "finishChangelog", "mapChangedFiles", "playbookRepositories", "publishOpenApi", "putChangelogComponents", "putChangelogMapping", "putChangelogNotes", "putChangelogOperation", "readPlaybookFile",
+    "askChangelogAsker", "finishChangelog", "mapChangedFiles", "playbookRepositories", "publishOpenApi", "putChangelogComponents", "putChangelogNotes", "putChangelogOperation", "readPlaybookFile",
     "repoCommit", "repoCompare", "repoFileDiff", "repoFindDefinition", "repoReadFile", "repoSearchCode", "repoTree", "sendFiles", "startChangelog", "stopChangelog", "traceEndpoints",
   ]);
   expect(started.thread!.messages.filter((m) => m.author.bot).map((m) => m.content)).toEqual(["Should the changelog cover the whole history, or a range of days (from which day to which day)?"]);
@@ -44,8 +44,8 @@ discordScenario("a changelog asked for with a preview is written, validated, sen
   let link = "";
   s.model.script(
     { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } },
-    // The endpoint mapping kept goes to a worker, which records it (#369).
-    [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER,
+    // A mapping worker maps the changed file, and the endpoint it kept goes to a tracing worker, which records it (#369, #370).
+    [WRITE_CONVENTIONS, MAP_CHANGED, TRACE], ...MAPPED, ...WORKER,
     { tool: "finishChangelog", args: { draft: DRAFT } },
     [{ tool: "sendFiles", args: { paths: [WRITTEN] } }, { tool: "publishOpenApi", args: { path: WRITTEN } }],
     (turn) => { link = turn.toolResults.at(-1).url; return `3 breaking, 1 non-breaking. Preview: ${link}`; },
@@ -72,8 +72,8 @@ discordScenario("a changelog asked to be published from the start is published a
   let finished: any, link = "";
   s.model.script(
     { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22", publish: true } },
-    // The endpoint mapping kept goes to a worker, which records it (#369).
-    [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER,
+    // A mapping worker maps the changed file, and the endpoint it kept goes to a tracing worker, which records it (#369, #370).
+    [WRITE_CONVENTIONS, MAP_CHANGED, TRACE], ...MAPPED, ...WORKER,
     { tool: "finishChangelog", args: { draft: DRAFT } },
     (turn) => { finished = turn.toolResults.at(-1); link = finished.published.url; return `Published: ${link}`; },
   );

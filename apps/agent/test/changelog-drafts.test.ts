@@ -1,7 +1,7 @@
 import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { TRACE, WORKER, WRITE_CONVENTIONS, draftMeta } from "./support/changelog";
+import { MAP_CHANGED, TRACE, WORKER, WRITE_CONVENTIONS, draftMeta, mapper, oneWorkerATurn, outlasting } from "./support/changelog";
 
 /** The skill's example operation, completed into a valid document (packages/skills/test/openapi-validate.test.ts checks it). */
 const FIXTURE = JSON.parse(readFileSync(new URL("../../../packages/skills/test/fixtures/contract-diff/create-user.json", import.meta.url), "utf8"));
@@ -13,13 +13,14 @@ const DRAFT = "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.dra
 const results = (turn: any) => JSON.stringify(turn.toolResults.map((r: any) => r.error ?? r));
 const lastReply = (s: Scenario) => JSON.parse(s.discord.botMessages.at(-1)!.content);
 
-/** acme/api on GitHub: main's last commit through 22 October is HEAD, its last before 1 October is BASE, and two files changed between them. */
+/** acme/api on GitHub: main's last commit through 22 October is HEAD, its last before 1 October is BASE, and two files changed between them. Workers run one at a time. */
 async function acmeApi(s: Scenario) {
   await s.guildSettings({ language: "en", useThreads: false });
   s.clock.set("2026-10-22T10:00:00+07:00");
   await s.git({ repos: ["acme/*"] });
   // Like the other repository playbooks, contract-diff starts off until the tenant turns it on.
   await s.availability({ level: "tenant" }, { kind: "playbook", name: "contract-diff", value: "on" });
+  expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
   s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
   s.http.on("GET api.github.com/repos/acme/api/commits", (req) => {
     const until = new URL(req.url).searchParams.get("until")!;
@@ -54,13 +55,16 @@ async function pressStop(s: Scenario, clicks: Promise<unknown>[]) {
 const SOURCE = "export class CreateUserDto {\n  full_name: string;\n  phone: string;\n}";
 /** Reads the DTO whole at head: with the controller's patch startChangelog gave, every changed file can be mapped (#347, #366). */
 const READ_DTO = { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: "src/users/dto/create-user.dto.ts" } };
-/** Maps changed files with putChangelogMapping. */
+/** A mapping worker's step that maps changed files with putChangelogMapping. */
 const map = (...files: object[]) => ({ tool: "putChangelogMapping", args: { draft: DRAFT, files } });
 const CONTROLLER_REACHES = { path: "src/users/users.controller.ts", change: "@Post() became @Post('v2')", endpoints: [{ method: "post", path: "/api/v2/users" }] };
 const DTO_REACHES = { path: "src/users/dto/create-user.dto.ts", change: "CreateUserDto gains phone", endpoints: [{ method: "POST", path: "/api/v2/users" }] };
 
-/** Maps both changed files once both are read: each reaches POST /api/v2/users. */
-const MAP_BOTH = map(CONTROLLER_REACHES, DTO_REACHES);
+/**
+ * The mapping workers' steps once both changed files are read: each reaches POST /api/v2/users. The DTO, which the comparison gave no patch
+ * for, is a group of its own, and comes first by path.
+ */
+const MAPPED_BOTH = [...mapper(DTO_REACHES), ...mapper(CONTROLLER_REACHES)];
 
 type Step = Parameters<Scenario["model"]["script"]>[number];
 /**
@@ -77,8 +81,8 @@ async function turnThrough(s: Scenario, channel: string | undefined, steps: Step
 }
 const turnIn = (s: Scenario, channel: string | undefined, calls: Step, answer: Step, ...after: Step[]) => turnThrough(s, channel, [calls], answer, after);
 const turn = (s: Scenario, calls: Step, answer: Step, ...after: Step[]) => turnIn(s, undefined, calls, answer, ...after);
-/** A turn whose calls trace the candidates: `worker` is the steps of the one worker they start, which come before the turn's answer (#369). */
-const tracedTurn = (s: Scenario, calls: Step, worker: Step[], answer: Step, ...after: Step[]) => turnThrough(s, undefined, [calls, ...worker], answer, after);
+/** A turn whose calls start workers, mapping the changed files or tracing the candidates: `workers` is their steps, which come before the turn's answer (#369, #370). */
+const workersTurn = (s: Scenario, calls: Step, workers: Step[], answer: Step, ...after: Step[]) => turnThrough(s, undefined, [calls, ...workers], answer, after);
 
 /** A turn the model answers in words, in `channel`; returns the per-turn context it read. */
 async function contextAfter(s: Scenario, channel?: string) {
@@ -98,9 +102,9 @@ discordScenario("an open draft is named in every later turn of its place, from t
   s.discord.channel("channel-2");
   expect(await contextAfter(s, "channel-2")).not.toContain("Open API changelog");
 
-  await turn(s, [READ_DTO, MAP_BOTH], results);
+  await workersTurn(s, [READ_DTO, WRITE_CONVENTIONS, MAP_CHANGED], MAPPED_BOTH, results);
   expect(await contextAfter(s)).toContain(`${OPEN(2)} 0 endpoints recorded so far, 1 candidate endpoint waiting to be traced with traceEndpoints.`);
-  await tracedTurn(s, [WRITE_CONVENTIONS, TRACE], WORKER, results);
+  await workersTurn(s, TRACE, WORKER, results);
   expect(await contextAfter(s)).toContain(`${OPEN(2)} 1 endpoint recorded so far. Draft: ${DRAFT}`);
   await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(await contextAfter(s)).not.toContain("Open API changelog");
@@ -155,7 +159,7 @@ discordScenario("a draft pinned before its last day ended, asked for again after
   await acmeApi(s);
   // Pinned at 10:00 on its last day, the 22nd, with both files mapped to the one candidate they reach.
   await turn(s, SAME, results);
-  await turn(s, [READ_DTO, MAP_BOTH], results);
+  await workersTurn(s, [READ_DTO, WRITE_CONVENTIONS, MAP_CHANGED], MAPPED_BOTH, results);
   // That afternoon main gained two commits: the DTO changed again, and a refund DTO came.
   const LATER = "c4d5e6f".padEnd(40, "0"), REFUND = "src/orders/dto/refund.dto.ts";
   lastOn22(s, LATER, "2026-10-22T09:00:00Z");
@@ -221,7 +225,8 @@ discordScenario("a range becomes two commits, the operation and components go in
 
   // The endpoint both files reach goes to a worker, which records it with its components (#369).
   let components: any, saved: any;
-  await tracedTurn(s, [READ_DTO, MAP_BOTH, WRITE_CONVENTIONS, TRACE], [
+  await workersTurn(s, [READ_DTO, WRITE_CONVENTIONS, MAP_CHANGED, TRACE], [
+    ...MAPPED_BOTH,
     [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "POST", path: "/api/v2/users", operation: { ...OPERATION, "x-impact": undefined } } }],
     (t: any) => { [components, saved] = t.toolResults; return "Recorded POST /api/v2/users."; },
   ], results);
@@ -270,7 +275,8 @@ discordScenario("an operation's problems come back at once, and finishing refuse
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   const broken = { ...OPERATION, "x-changes": OPERATION["x-changes"].map((c: any, i: number) => (i === 2 ? { ...c, field: "phone_number" } : c)) };
   let saved: any;
-  await tracedTurn(s, [READ_DTO, MAP_BOTH, WRITE_CONVENTIONS, TRACE], [
+  await workersTurn(s, [READ_DTO, WRITE_CONVENTIONS, MAP_CHANGED, TRACE], [
+    ...MAPPED_BOTH,
     { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: broken, components: FIXTURE.components } },
     (t: any) => { saved = t.toolResults.at(-1); return "Recorded POST /api/v2/users."; },
   ], results);
@@ -283,7 +289,9 @@ discordScenario("an operation's problems come back at once, and finishing refuse
 discordScenario("a draft that records no change writes no changelog, and the whole history starts from the empty tree", async (s) => {
   await acmeApi(s);
   const none = (path: string) => ({ path, none: "it changes only a comment" });
-  await turn(s, [{ tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, READ_DTO, map(none("src/users/users.controller.ts"), none("src/users/dto/create-user.dto.ts"))], results);
+  await workersTurn(s, [{ tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, READ_DTO, WRITE_CONVENTIONS, MAP_CHANGED], [
+    ...mapper(none("src/users/dto/create-user.dto.ts")), ...mapper(none("src/users/users.controller.ts")),
+  ], results);
   const [nothing] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(nothing).toEqual({ written: false, note: "The draft records no frontend-visible change, so no changelog was written; the draft is gone. Say so, with how many changed files were mapped." });
   expect(await s.workspace.list(FOLDER)).toEqual([]);
@@ -298,6 +306,7 @@ discordScenario("a draft that records no change writes no changelog, and the who
 
 discordScenario("a changelog is written only when every changed file was mapped or set aside with a reason: finishing names the files left, and what was set aside is in it (#347, #366)", async (s) => {
   await acmeApi(s);
+  await oneWorkerATurn();
   s.discord.unlimited(s.discord.alice);
   const patch = (name: string) => `@@ -1 +1 @@\n-old ${name}\n+new ${name}`;
   s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 3, behind_by: 0, commits: [], files: [
@@ -311,7 +320,8 @@ discordScenario("a changelog is written only when every changed file was mapped 
   const [early] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(early).toEqual({ written: false, unmapped: 5, files: ["src/users/users.controller.ts", "README.md", "src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts", "src/users/users.controller.spec.ts"], fix });
 
-  await turn(s, map(CONTROLLER_REACHES, { path: "README.md", none: "documentation; nothing serves it" }), results);
+  // The README's mapping worker, the first by path, maps it and the controller, whose patches startChangelog gave, and leaves no time for another.
+  await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [map(CONTROLLER_REACHES, { path: "README.md", none: "documentation; nothing serves it" }), outlasting("Mapped.")], results);
   // Patterns that skip the work instead of naming files that need none.
   const aside = (pattern: string, reason = "too many files") => ({ tool: "putChangelogNotes", args: { draft: DRAFT, setAside: [{ pattern, reason }] } });
   const [everything, rest] = await turn(s, [aside("**"), aside("src/users/**")], results);
@@ -323,12 +333,11 @@ discordScenario("a changelog is written only when every changed file was mapped 
   const [still] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(still).toEqual({ written: false, unmapped: 2, files: ["src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts"], fix });
 
-  await tracedTurn(s, [
+  await workersTurn(s, [
     { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: "src/users/dto/create-user.dto.ts" } },
     { tool: "repoReadFile", args: { repo: "acme/api", ref: BASE, path: "src/users/dto/update-user.dto.ts" } },
-    map(DTO_REACHES, { path: "src/users/dto/update-user.dto.ts", none: "UpdateUserDto is imported by no controller" }),
-    WRITE_CONVENTIONS, TRACE,
-  ], WORKER, results);
+    MAP_CHANGED, TRACE,
+  ], [...mapper(DTO_REACHES), ...mapper({ path: "src/users/dto/update-user.dto.ts", none: "UpdateUserDto is imported by no controller" }), ...WORKER], results);
   // The conversation has passed its window by now, so the turn ends with a summary of its older talk.
   const [finished] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results, "Alice asked for the acme/api changelog of 1–22 October.");
   expect(finished).toMatchObject({ written: true, setAside: [{ pattern: "*.spec.ts", reason: "Tests; they are not served" }] });
@@ -341,29 +350,34 @@ discordScenario("a changed file is mapped only once its whole patch was read, an
   await acmeApi(s);
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   const dto = { repo: "acme/api", path: "src/users/dto/create-user.dto.ts" };
+  let unread = "", partly = "", mapped: any, meta: any, again: any, stranger = "", remapped: any, unmapped: unknown;
+  // The DTO's mapping worker, the first by path, maps both files; the controller's own worker then finds it mapped.
+  await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [
+    // The controller's patch came with startChangelog; the DTO's did not, so nothing is mapped.
+    map(CONTROLLER_REACHES, DTO_REACHES),
+    // A read at another ref, or of part of the file, reads nothing whole.
+    // A worker's tool results are all of its run's so far, the latest last.
+    (t: any) => { unread = t.toolResults.at(-1).error; return [{ tool: "repoReadFile", args: { ...dto, ref: "main" } }, { tool: "repoReadFile", args: { ...dto, ref: HEAD, toLine: 2 } }, map(DTO_REACHES)]; },
+    async (t: any) => { partly = t.toolResults.at(-1).error; unmapped = (await draftMeta(s)).candidates; return [{ tool: "repoReadFile", args: { ...dto, ref: HEAD.slice(0, 7), fromLine: 3 } }, map(CONTROLLER_REACHES, DTO_REACHES)]; },
+    // Mapped again, a file says anew how it ends, and its change leaves the candidate's note; a file the range did not change is refused.
+    async (t: any) => { mapped = t.toolResults.at(-1); meta = await draftMeta(s); return [map({ path: dto.path, none: "CreateUserDto is used by no route" }), map({ path: "src/main.ts", none: "unchanged" })]; },
+    async (t: any) => { [again, stranger] = t.toolResults.slice(-2).map((r: any) => r.error ?? r); remapped = await draftMeta(s); return "Mapped."; },
+    "Mapped.",
+  ], results);
 
-  // The controller's patch came with startChangelog; the DTO's did not, so nothing is mapped.
-  const [unread] = await turn(s, map(CONTROLLER_REACHES, DTO_REACHES), results);
   expect(unread).toBe("Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from 9f8e7d6 to a1b2c3d (or every line at either commit with repoReadFile):\n- src/users/dto/create-user.dto.ts");
-  // A read at another ref, or of part of the file, reads nothing whole.
-  const [, , partly] = await turn(s, [{ tool: "repoReadFile", args: { ...dto, ref: "main" } }, { tool: "repoReadFile", args: { ...dto, ref: HEAD, toLine: 2 } }, map(DTO_REACHES)], results);
   expect(partly).toBe("Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from 9f8e7d6 to a1b2c3d (or every line at either commit with repoReadFile):\n- src/users/dto/create-user.dto.ts (lines 1-2 of 4 read at head)");
-  expect((await draftMeta(s)).candidates).toBeUndefined();
+  expect(unmapped).toBeUndefined();
 
-  const [, mapped] = await turn(s, [{ tool: "repoReadFile", args: { ...dto, ref: HEAD.slice(0, 7), fromLine: 3 } }, map(CONTROLLER_REACHES, DTO_REACHES)], results);
   expect(mapped).toEqual({ mapped: ["src/users/users.controller.ts", "src/users/dto/create-user.dto.ts"], newCandidates: ["POST /api/v2/users"], candidates: 1, files: { mapped: 2, setAside: 0, left: 0 } });
-  const meta = await draftMeta(s);
   expect(meta.candidates).toEqual([{ method: "post", path: "/api/v2/users", note: "src/users/users.controller.ts: @Post() became @Post('v2')\nsrc/users/dto/create-user.dto.ts: CreateUserDto gains phone", state: "waiting" }]);
   expect(meta.mapping).toEqual({
     "src/users/users.controller.ts": { read: true, reaches: ["POST /api/v2/users"] },
     "src/users/dto/create-user.dto.ts": { read: true, reaches: ["POST /api/v2/users"] },
   });
 
-  // Mapped again, a file says anew how it ends, and its change leaves the candidate's note; a file the range did not change is refused.
-  const [again, stranger] = await turn(s, [map({ path: dto.path, none: "CreateUserDto is used by no route" }), map({ path: "src/main.ts", none: "unchanged" })], results);
   expect(again).toEqual({ mapped: ["src/users/dto/create-user.dto.ts"], newCandidates: [], candidates: 1, files: { mapped: 2, setAside: 0, left: 0 } });
   expect(stranger).toBe("Nothing was mapped: src/main.ts is not a changed file of this changelog.");
-  const remapped = await draftMeta(s);
   expect(remapped.candidates).toEqual([{ method: "post", path: "/api/v2/users", note: "src/users/users.controller.ts: @Post() became @Post('v2')", state: "waiting" }]);
   expect(remapped.mapping["src/users/dto/create-user.dto.ts"]).toEqual({ read: true, none: "CreateUserDto is used by no route" });
 });
@@ -380,7 +394,10 @@ discordScenario("a draft started before files were mapped has every changed file
     },
   }));
   expect(await contextAfter(s)).toContain(`${OPEN(0)} 0 endpoints recorded so far.`);
-  const [refused] = await turn(s, map(CONTROLLER_REACHES), results);
+  // The DTO's mapping worker, the first by path, tries the controller, and leaves no time for another.
+  await oneWorkerATurn();
+  let refused = "";
+  await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [map(CONTROLLER_REACHES), (t: any) => { refused = t.toolResults.at(-1).error; return outlasting("src/users/users.controller.ts: not read yet")(); }], results);
   expect(refused).toBe("Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from 9f8e7d6 to a1b2c3d (or every line at either commit with repoReadFile):\n- src/users/users.controller.ts");
   const [early] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(early).toMatchObject({ written: false, unmapped: 2, files: ["src/users/users.controller.ts", "src/users/dto/create-user.dto.ts"] });
@@ -395,7 +412,12 @@ discordScenario("files that change every endpoint alike are mapped to a global c
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   const prefix = { status: "CHANGED", impact: "breaking", in: "url", before: "/api", after: "/api/v2", note: "Every route moved under /api/v2." };
   // The second file names the same change with its keys in another order.
-  const [mapped] = await turn(s, map({ path: "src/config/routes.ts", global: prefix }, { path: "src/main.ts", global: { note: prefix.note, after: "/api/v2", before: "/api", in: "url", impact: "breaking", status: "CHANGED" } }), results);
+  let mapped: unknown;
+  // One mapping worker has both files, whose patches startChangelog gave.
+  await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [
+    map({ path: "src/config/routes.ts", global: prefix }, { path: "src/main.ts", global: { note: prefix.note, after: "/api/v2", before: "/api", in: "url", impact: "breaking", status: "CHANGED" } }),
+    (t: any) => { mapped = t.toolResults.at(-1); return "Mapped."; },
+  ], results);
   expect(mapped).toEqual({ mapped: ["src/config/routes.ts", "src/main.ts"], newCandidates: [], candidates: 0, globalChanges: 1, files: { mapped: 2, setAside: 0, left: 0 } });
   expect((await draftMeta(s)).candidates).toBeUndefined();
 
@@ -429,7 +451,7 @@ discordScenario("a draft nobody touched for 7 days is dropped unannounced the ne
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   s.clock.advance(6 * 24 * 3600_000);
   expect(await contextAfter(s)).toContain("Open API changelog in this place");
-  await turn(s, [READ_DTO, MAP_BOTH], results);
+  await workersTurn(s, [READ_DTO, WRITE_CONVENTIONS, MAP_CHANGED], MAPPED_BOTH, results);
   // Mapping the changed files touched it: 7 days from now on, not from the start.
   s.clock.advance(6 * 24 * 3600_000);
   expect(await contextAfter(s)).toContain("2 changed files: 2 mapped, 0 set aside, 0 left");

@@ -1004,13 +1004,17 @@ function leftToRead(meta: DraftMeta, file: ChangedFile) {
   return `- ${file.path}${partly.length ? ` (${partly.join("; ")})` : ""}`;
 }
 
+/** putChangelogMapping's refusal in the main loop, which maps no file itself (ADR 0026). */
+const MAPPED_BY_WORKERS = "Only mapping workers record how changed files end: call mapChangedFiles with the draft, and its workers read the patches and map the files. Nothing was mapped.";
+
 /**
- * putChangelogMapping: records how changed files of a range ended (ADR 0026), each only once its whole patch was read. A file reaching
- * endpoints keeps each as a waiting candidate, one per endpoint, whose note names every file's change that reaches it; a global change is
- * recorded once in the notes, and so is each route only in base that a file takes away, as a removed operation (#372). Mapping a file again
- * replaces what it said. A refusal maps nothing.
+ * putChangelogMapping: a mapping worker records how changed files of a range ended (ADR 0026), each only once its whole patch was read. A
+ * file reaching endpoints keeps each as a waiting candidate, one per endpoint, whose note names every file's change that reaches it; a
+ * global change is recorded once in the notes, and so is each route only in base that a file takes away, as a removed operation (#372).
+ * Mapping a file again replaces what it said. The main loop, which runs workers, is refused: it never holds the patches. A refusal maps nothing.
  */
 export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; files?: unknown }) {
+  if (ctx.workers) throw new Error(MAPPED_BY_WORKERS);
   const list = fromText(sent.files, "files");
   if (!Array.isArray(list) || !list.length) throw new Error(`files must be a list. ${MAPPING_SHAPE}`);
   const given = list.map(checkMapping);
@@ -1184,7 +1188,7 @@ function tracing(doc: Json, candidates: Candidate[]): NonNullable<OpenDraft["can
 }
 
 /** traceEndpoints' refusal of candidates the main loop passes: they come from mapping alone (#369, ADR 0026). */
-const CANDIDATES_PASSED = "traceEndpoints takes the draft alone and traces the candidate endpoints mapping kept: each endpoint a changed file reaches, as putChangelogMapping recorded it. Map the file whose change reaches an endpoint, naming that endpoint, then call traceEndpoints with the draft alone. Nothing was traced.";
+const CANDIDATES_PASSED = "traceEndpoints takes the draft alone and traces the candidate endpoints mapping kept: each endpoint a changed file reaches, as its mapping worker recorded it. Map any file left with mapChangedFiles, then call traceEndpoints with the draft alone. Nothing was traced.";
 /** traceEndpoints' refusal while the draft holds no conventions summary (#365, ADR 0026). */
 const NO_CONVENTIONS = "This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call traceEndpoints again. Nothing was traced.";
 

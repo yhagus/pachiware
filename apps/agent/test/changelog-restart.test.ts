@@ -1,8 +1,8 @@
 import { expect } from "bun:test";
 import { discordScenario, type FakeMessage, type Scenario } from "./support/discordScenario";
 import {
-  BASE, CONTROLLER, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, MAP, NAME, PROVIDER_DOWN, READ_REST, START, TRACE, WORKER, WRITE_CONVENTIONS, WRITTEN, WRITTEN_FILE,
-  acmeApi, draftMeta, fastProgress, mapDto, mapFiles, pause, read, written,
+  BASE, CONTROLLER, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, MAP_CHANGED, MAPPED, NAME, PROVIDER_DOWN, READ_REST, START, TRACE, WORKER, WRITE_CONVENTIONS, WRITTEN, WRITTEN_FILE,
+  acmeApi, draftMeta, fastProgress, mappers, pause, read, written,
 } from "./support/changelog";
 
 const STOP_ROW = { type: 1, components: [{ type: 2, custom_id: `changelogstop:${NAME}`, label: "Stop", style: 2 }] };
@@ -32,10 +32,11 @@ async function leftWorkedOn(s: Scenario, { work = { state: "worked-on" } as obje
 discordScenario("a draft an earlier agent process left worked on goes on by itself once the bot is back, in the progress message it showed, with no other message until the end (#362)", async (s) => {
   await acmeApi(s);
   const progress = await leftWorkedOn(s);
-  s.model.script(READ_REST, [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER, FINISH, written);
+  // The DTOs left are read, and their mapping workers map them.
+  s.model.script(READ_REST, [WRITE_CONVENTIONS, MAP_CHANGED, TRACE], ...mappers([1, 2, 3, 4, 5], false), ...WORKER, FINISH, written);
   await s.restart();
 
-  expect(s.model.calls).toHaveLength(6);
+  expect(s.model.calls).toHaveLength(16);
   expect(String(s.model.calls[0]!.at(-2)!.content)).toStartWith(DRAFT_TURN);
   const [shown, answer, ...rest] = s.discord.botMessages;
   expect(rest).toEqual([]);
@@ -94,7 +95,7 @@ discordScenario("a model retry pending when the bot restarted runs at its time f
   s.model.script(
     START, "Started the acme/api changelog.",
     async () => { await pause(300); return read(0); }, PROVIDER_DOWN,
-    READ_REST, [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER, FINISH, written,
+    READ_REST, [WRITE_CONVENTIONS, MAP_CHANGED, TRACE], ...MAPPED, ...WORKER, FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   const [progress] = s.discord.botMessages;
@@ -106,7 +107,7 @@ discordScenario("a model retry pending when the bot restarted runs at its time f
   s.clock.advance(1_000);
   await s.scheduler.tick();
 
-  expect(s.model.calls).toHaveLength(10);
+  expect(s.model.calls).toHaveLength(24);
   expect(String(s.model.calls[4]!.at(-2)!.content)).toStartWith(DRAFT_TURN);
   const [shown, answer, ...rest] = s.discord.botMessages;
   expect(rest).toEqual([]);
@@ -136,21 +137,21 @@ discordScenario("a scheduler pass adds no turn to work whose turn is running, an
   let restarted: Promise<void> | undefined;
   s.model.script(
     START, "Started the acme/api changelog.",
-    async () => { passes.push(s.scheduler.tick()); await pause(50); return [read(0), mapFiles([0])]; }, "Mapped the first DTO.",
-    async () => { restarted = s.restart(); await pause(50); return [read(1), mapDto(1)]; }, "Mapped the second DTO.",
-    READ_REST.slice(1), [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER, FINISH, written,
+    async () => { passes.push(s.scheduler.tick()); await pause(50); return [read(0), ...READ_REST, WRITE_CONVENTIONS, MAP_CHANGED]; }, ...MAPPED, "Mapped every changed file.",
+    async () => { restarted = s.restart(); await pause(50); return TRACE; }, ...WORKER, "Traced POST /api/v2/users.",
+    FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   await Promise.all([...passes, restarted]);
 
   // The turn that was running when the bot restarted ended; the work it handed on gave way, as the bot's start left the busy place alone.
-  expect(s.model.calls).toHaveLength(6);
+  expect(s.model.calls).toHaveLength(22);
   expect(s.discord.botMessages).toEqual([]);
   expect((await draftMeta(s)).work).toEqual({ state: "worked-on" });
 
   await s.scheduler.tick();
-  expect(s.model.calls).toHaveLength(12);
-  expect(String(s.model.calls[6]!.at(-2)!.content)).toStartWith(DRAFT_TURN);
+  expect(s.model.calls).toHaveLength(24);
+  expect(String(s.model.calls[22]!.at(-2)!.content)).toStartWith(DRAFT_TURN);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`<@user-alice> The acme/api changelog is written: ${WRITTEN}`]);
 });
 

@@ -4,6 +4,7 @@
  * rows of its pauses, the Agent log's warnings). Each value is a literal the scenarios check against, never one the code computes.
  */
 import { readFileSync } from "node:fs";
+import { expect } from "bun:test";
 import type { Scenario } from "./discordScenario";
 
 export const FOLDER = "guilds/guild-1/channels/channel-1/files/changelogs/acme-api";
@@ -32,6 +33,7 @@ export const contractDiffOn = (s: Scenario) => s.availability({ level: "tenant" 
 /**
  * acme/api on GitHub, open in this channel (no threads), at 10:00 on 22 October in Jakarta: main's last commit through that day is HEAD,
  * its last before 1 October BASE. Between them the controller changed, its patch given, and the six DTOs; any file reads as SOURCE.
+ * Workers run one at a time.
  */
 export async function acmeApi(s: Scenario) {
   await s.guildSettings({ language: "en", useThreads: false });
@@ -39,6 +41,7 @@ export async function acmeApi(s: Scenario) {
   process.env.PUBLIC_URL = "https://pachi.example.com";
   await s.git({ repos: ["acme/*"] });
   await contractDiffOn(s);
+  expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
   s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
   s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
     ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: HEAD, commit: { committer: { date: "2026-10-21T08:00:00Z" } } }]));
@@ -55,13 +58,21 @@ export const START = startChangelog();
 export const read = (i: number) => ({ tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: DTOS[i] } });
 export const READ_REST = [1, 2, 3, 4, 5].map(read);
 /** A changed file that reaches POST /api/v2/users, as putChangelogMapping takes it. */
-const reaches = (path: string, change: string) => ({ path, change, endpoints: [{ method: "post", path: "/api/v2/users" }] });
-/** Maps DTO i, once it is read whole: its field reaches POST /api/v2/users (#366). */
-export const mapDto = (i: number) => ({ tool: "putChangelogMapping", args: { draft: DRAFT, files: [reaches(DTOS[i]!, "a body field changed")] } });
-/** Maps the controller and the DTOs given, each once it is read whole: all reach POST /api/v2/users, one candidate whose note names each change (#366). */
-export const mapFiles = (dtos = [0, 1, 2, 3, 4, 5]) => ({ tool: "putChangelogMapping", args: { draft: DRAFT, files: [reaches(CONTROLLER, "@Post() became @Post('v2')"), ...dtos.map((i) => reaches(DTOS[i]!, "a body field changed"))] } });
-/** Maps every changed file, once all seven are read whole. */
-export const MAP = mapFiles();
+export const reaches = (path: string, change: string) => ({ path, change, endpoints: [{ method: "post", path: "/api/v2/users" }] });
+/** Has workers map the changed files neither mapped nor set aside: the main loop maps none itself (#370, ADR 0026). */
+export const MAP_CHANGED = { tool: "mapChangedFiles", args: { draft: DRAFT } };
+/** A mapping worker's steps once its files are read whole: it records how each ends, then answers. */
+export const mapper = (...files: object[]) => [{ tool: "putChangelogMapping", args: { draft: DRAFT, files } }, "Mapped."];
+/**
+ * The mapping workers' steps for the DTOs given and the controller, each read whole already and each reaching POST /api/v2/users, so one
+ * candidate whose note names each change (#366). A DTO, too large for a patch, is a group of its own, and the groups go by path: the DTOs,
+ * then the controller.
+ */
+export const mappers = (dtos = [0, 1, 2, 3, 4, 5], controller = true) => [
+  ...dtos.flatMap((i) => mapper(reaches(DTOS[i]!, "a body field changed"))), ...(controller ? mapper(reaches(CONTROLLER, "@Post() became @Post('v2')")) : []),
+];
+/** Every changed file's mapping worker, once all seven are read whole. */
+export const MAPPED = mappers();
 export const RECORD = [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION } }];
 /** The repository's conventions summary, which the draft holds before any endpoint is traced (#365). */
 export const WRITE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: "NestJS: routes from @Controller, no global prefix; bodies are returned as they are." } };
@@ -96,3 +107,18 @@ export async function fastProgress() {
   Object.assign(progressTiming, { showAfterMs: 150, everyMs: 40 });
 }
 export const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Shortens the turn to `turnMs` and the workers' budget for a scenario. Each scenario runs in a process of its own, so the shortened budgets
+ * never reach another.
+ */
+export async function budgets(turnMs: number, worker: Partial<{ steps: number; ms: number; leastMs: number }>) {
+  const { turnDeadline } = await import("../../src/loop/react.ts");
+  const { workerBudget } = await import("../../../../packages/skills/src/openapi/workers.ts");
+  turnDeadline.ms = turnMs;
+  Object.assign(workerBudget, worker);
+}
+/** A turn has 2 seconds, and a worker starts only with at least 1.5 left: the turn of a worker answering `outlasting` starts no other. */
+export const oneWorkerATurn = () => budgets(2000, { leastMs: 1500 });
+/** A worker's last step, answered once its turn has too little time left to start another worker (oneWorkerATurn). */
+export const outlasting = (step: string) => async () => { await pause(600); return step; };
