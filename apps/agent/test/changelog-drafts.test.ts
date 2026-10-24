@@ -172,7 +172,8 @@ discordScenario("a draft pinned before its last day ended, asked for again after
   expect([doc.info.version, doc.info["x-changelog"].head]).toEqual(["c4d5e6f", { ref: "main through 2026-10-22", commit: "c4d5e6f" }]);
   const meta = doc["x-draft"];
   expect(meta).toMatchObject({ head: LATER, commits: 5, changedFiles: 3 });
-  expect(meta.files).toEqual([{ path: "src/users/users.controller.ts", status: "modified" }, { path: "src/users/dto/create-user.dto.ts", status: "modified" }, { path: REFUND, status: "added" }]);
+  // The files as the comparison at the new head lists them, with the length of the one patch it gives, which mapping groups weigh (#370).
+  expect(meta.files).toEqual([{ path: "src/users/users.controller.ts", status: "modified", patchChars: 39 }, { path: "src/users/dto/create-user.dto.ts", status: "modified" }, { path: REFUND, status: "added" }]);
   // The controller did not change again and stays mapped; the DTO that did is unmapped and unread, and its change left the candidate's note.
   expect(meta.mapping).toEqual({ "src/users/users.controller.ts": { read: true, reaches: ["POST /api/v2/users"] } });
   expect(meta.candidates).toEqual([{ method: "post", path: "/api/v2/users", note: "src/users/users.controller.ts: @Post() became @Post('v2')", state: "waiting" }]);
