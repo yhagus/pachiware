@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, CONTROLLER, DRAFT, DRAFT_FILE, FINISH, FIXTURE, FOLDER, HEAD, contractDiffOn, draftMeta } from "./support/changelog";
+import { BASE, CONTROLLER, DRAFT, DRAFT_FILE, FINISH, FIXTURE, FOLDER, HEAD, contractDiffOn, draftMeta, fastProgress, pause } from "./support/changelog";
 
 /**
  * A range covers its last day to its end (#371, GLOSSARY): acme/api's changelog of 1 to 22 October, pinned at 10:00 on the 22nd at HEAD,
@@ -75,13 +75,14 @@ const diff = (path: string) => ({ tool: "repoFileDiff", args: { repo: "acme/api"
 discordScenario("a draft pinned before its last day ended moves its head to that day's last commit on its first turn after the day: only the files changed since are mapped again, and only the candidates they reach are traced again, against the new head (#371)", async (s) => {
   await acmeApi(s);
   await tracedBeforeTheDayEnded(s);
+  await fastProgress();
   const states: string[] = [];
   let candidates: any;
   s.model.script(
     // The turn at 23:58 is still on the last day; it ends after midnight.
     (turn) => { states.push(briefOf(turn.messages)); s.clock.set("2026-10-23T00:01:00+07:00"); return "Every changed file is mapped and every candidate traced."; },
     // The first turn after the day: the files changed since HEAD are read and mapped again, and tracing goes on.
-    (turn) => { states.push(briefOf(turn.messages)); return [diff(ORDERS), diff(REFUND)]; },
+    async (turn) => { states.push(briefOf(turn.messages)); await pause(250); return [diff(ORDERS), diff(REFUND)]; },
     { tool: "putChangelogMapping", args: { draft: DRAFT, files: [
       { path: ORDERS, change: "list gains a status filter and a page size", endpoints: [{ method: "get", path: "/api/v2/orders" }] },
       { path: REFUND, change: "a new refund body", endpoints: [{ method: "post", path: "/api/v2/orders/{id}/refund" }] },
@@ -101,6 +102,10 @@ discordScenario("a draft pinned before its last day ended moves its head to that
   expect(states[1]).toContain(`Draft: ${DRAFT} (acme/api, branch main, 2026-10-01 to 2026-10-22, commits 9f8e7d6..c4d5e6f)\nChanged files: 4: 2 mapped, 0 set aside, 2 left.\nMapped:\n- ${CONTROLLER} → POST /api/v2/users\n- ${HEALTH} → no endpoint (a script no route runs)\nLeft:\n- ${ORDERS} (modified)\n- ${REFUND} (added)\n`);
   expect(states[1]).toContain("Endpoints recorded (1):\n- POST /api/v2/users (breaking)\n");
   expect(states[1]).toContain("Candidate endpoints: 2: 1 traced, 0 failed, 1 waiting.\nWaiting to be traced: GET /api/v2/orders\n");
+
+  // The progress message of the work says in one line that the head moved, and how many commits that added.
+  const shown = s.discord.botMessages[0]!.edits.map((e) => e.content ?? "");
+  expect(shown.find((t) => t.includes("\n2 commits added through the end of 22 Oct\n"))).toContain("\n2 commits added through the end of 22 Oct\n5 commits · 2 of 4 changed files mapped · 2 candidates so far\n");
 
   expect(workerStarts(s).map(endpointOf)).toEqual(["GET /api/v2/orders", "POST /api/v2/orders/{id}/refund"]);
   for (const worker of workerStarts(s)) expect(briefOf(worker)).toContain(LATER);

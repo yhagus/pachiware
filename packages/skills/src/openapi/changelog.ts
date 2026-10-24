@@ -306,8 +306,8 @@ export type OpenDraft = {
   mapped?: number; setAside?: number; left?: number;
   progressMessage?: ProgressMessage;
   work?: WorkState;
-  /** For a range, how many commits it holds (#367). */
-  commits?: number;
+  /** For a range, how many commits it holds (#367), and how many of them moving its head to the end of its last day added (#371). */
+  commits?: number; addedCommits?: number;
   /**
    * How the tracing of its candidate endpoints stands, with the latest results, newest last (#343): how many wait, and those traced as a
    * Changed endpoint, unchanged, or failed and so unverified (#367).
@@ -343,6 +343,7 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "botId" | 
       ...(meta.progressMessage ? { progressMessage: meta.progressMessage } : {}),
       ...(meta.work ? { work: meta.work } : {}),
       ...(meta.commits !== undefined ? { commits: meta.commits } : {}),
+      ...(meta.lastDay?.commits ? { addedCommits: meta.lastDay.commits } : {}),
       ...(meta.candidates?.length ? { candidates: tracing(doc, meta.candidates) } : {}),
     });
   }

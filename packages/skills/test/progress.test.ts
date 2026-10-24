@@ -72,6 +72,15 @@ test("while a range's files are mapped, its line names the commits, the files ma
   expect(draftProgress({ changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "id")).toBe("2 dari 7 file berubah dipetakan");
 });
 
+test("a range whose head moved to the end of its last day says so in the line before its commits, with how many commits that added (#371)", () => {
+  const moved = { to: "2026-10-23", addedCommits: 12, commits: 46, changedFiles: 360, mapped: 170, setAside: 10, left: 180, candidates: { waiting: 52, changed: 0, unchanged: 0, failed: 0, latest: [] } };
+  expect(draftProgress(moved, "id")).toBe("12 commit ditambahkan sampai akhir 23 Okt\n46 commit · 180 dari 360 file berubah dipetakan · 52 kandidat sejauh ini");
+  expect(draftProgress(moved, "en")).toBe("12 commits added through the end of 23 Oct\n46 commits · 180 of 360 changed files mapped · 52 candidates so far");
+  expect(draftProgress({ to: "2026-10-22", addedCommits: 1, changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "en")).toBe("1 commit added through the end of 22 Oct\n2 of 7 changed files mapped");
+  // A head that did not move says nothing of it.
+  expect(draftProgress({ to: "2026-10-22", commits: 1, changedFiles: 7, mapped: 1, setAside: 1, left: 5 }, "en")).toBe("1 commit · 2 of 7 changed files mapped");
+});
+
 test("time reads in seconds under a minute and in whole minutes after", () => {
   expect(elapsed(12_400, "id")).toBe("12 detik");
   expect(elapsed(254_000, "id")).toBe("4 menit");

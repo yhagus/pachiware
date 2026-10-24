@@ -369,6 +369,8 @@ const en = {
     /** A changelog's range: how many commits it holds, which start its files line, and that line once every changed file is mapped (#366, #367). */
     commits: (n: number) => `${n} commit${n === 1 ? "" : "s"}`,
     filesDone: (total: number) => `${total} changed file${total === 1 ? "" : "s"}, all mapped`,
+    /** A range pinned before its last day ended, its head moved to that day's last commit (#371). */
+    lastDay: (commits: number, day: number, month: number) => `${commits} commit${commits === 1 ? "" : "s"} added through the end of ${day} ${MONTHS_EN[month - 1]}`,
     stop: "Stop",
     stopOnlyAsker: (who: string) => `Only ${who} can stop this.`,
     stopEnded: "This work has already ended.",
@@ -665,6 +667,7 @@ const id: typeof en = {
     unverified: (reason) => `tidak terverifikasi: ${reason}`,
     commits: (n) => `${n} commit`,
     filesDone: (total) => `${total} file berubah, semua dipetakan`,
+    lastDay: (commits, day, month) => `${commits} commit ditambahkan sampai akhir ${day} ${MONTHS_ID[month - 1]}`,
     stop: "Hentikan",
     stopOnlyAsker: (who) => `Hanya ${who} yang bisa menghentikan ini.`,
     stopEnded: "Pekerjaan ini sudah selesai.",

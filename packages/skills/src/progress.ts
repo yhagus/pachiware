@@ -84,9 +84,12 @@ const REASON_SHOWN = 100;
  * An open Changelog draft's lines in its progress message: the commits its range holds (#367), how many changed files are mapped with the
  * candidates found so far, or that all are (#366), and how far its candidate endpoints are traced, with the latest results as their
  * workers recorded them (#343). While files are left and none is traced, the files line alone counts the candidates. Null when it has neither.
+ * A range whose head moved to the end of its last day says so before all of it, with how many commits that added (#371).
  */
-export function draftProgress(d: Pick<OpenDraft, "commits" | "changedFiles" | "mapped" | "setAside" | "left" | "candidates">, language?: Language): string | null {
+export function draftProgress(d: Pick<OpenDraft, "commits" | "changedFiles" | "mapped" | "setAside" | "left" | "candidates"> & Partial<Pick<OpenDraft, "to" | "addedCommits">>, language?: Language): string | null {
   const t = textIn(language).progress, lines: string[] = [];
+  // A head moved to the end of the range's last day says so first, with the commits that added (#371).
+  if (d.addedCommits && d.to) lines.push(t.lastDay(d.addedCommits, Number(d.to.slice(8, 10)), Number(d.to.slice(5, 7))));
   const c = d.candidates, found = c ? c.waiting + c.changed + c.unchanged + c.failed : 0, mapping = !!d.left && d.changedFiles !== undefined;
   const files = d.left === undefined || d.changedFiles === undefined ? undefined : d.left === 0 ? t.filesDone(d.changedFiles) : t.files(d.mapped! + d.setAside!, d.changedFiles, found);
   const range = [d.commits !== undefined ? t.commits(d.commits) : undefined, files].filter((part): part is string => !!part);
