@@ -119,22 +119,64 @@ discordScenario("a place holds one open draft: another changelog is refused with
   expect(await contextAfter(s)).not.toContain("the whole history");
 });
 
+/** The changelog of 1 to 22 October asked for by its days, on any day after. */
+const SAME = { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } };
+/** main's last commit through 22 October once commits made later, or pushed later, carry that day: `sha`, at `date`. */
+const lastOn22 = (s: Scenario, sha: string, date: string) => s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
+  ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha, commit: { committer: { date } } }]));
+
 discordScenario("the same repository, branch and coverage asked for on a later day go on with the open draft at its own commits, though the days now pin another head (#368)", async (s) => {
   await acmeApi(s);
-  const SAME = { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } };
-  await turn(s, SAME, results);
-  // main gained a commit on the afternoon of 22 October, after the draft was started at 10:00.
-  const LATER = "c4d5e6f".padEnd(40, "0");
-  s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
-    ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: LATER, commit: { committer: { date: "2026-10-22T08:00:00Z" } } }]));
+  // Started on the 23rd, after its last day had ended: its head is that day's last commit, and stays it.
+  s.clock.set("2026-10-23T09:00:00+07:00");
+  const [started] = await turn(s, SAME, results);
+  const draft = "channel/files/changelogs/acme-api/2026-10-23_9f8e7d6..a1b2c3d.draft.json";
+  expect(started.draft).toBe(draft);
+  // A commit dated 22 October reached main afterwards, pushed late.
+  lastOn22(s, "c4d5e6f".padEnd(40, "0"), "2026-10-22T08:00:00Z");
   s.clock.set("2026-10-24T09:00:00+07:00");
 
   const [again] = await turn(s, SAME, results);
   expect(again).toMatchObject({
-    draft: DRAFT, base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: HEAD },
+    draft, base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: HEAD },
     goesOn: "This is the changelog already open here, for the same repository, branch and coverage: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to.",
   });
+  expect(again.lastDay).toBeUndefined();
+  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-23_9f8e7d6..a1b2c3d.draft.json`]);
+});
+
+discordScenario("a draft pinned before its last day ended, asked for again after that day, moves its head to that day's last commit once: the files changed since go back to unmapped, and the result says how many commits that added (#371)", async (s) => {
+  await acmeApi(s);
+  // Pinned at 10:00 on its last day, the 22nd, with both files mapped to the one candidate they reach.
+  await turn(s, SAME, results);
+  await turn(s, [READ_DTO, MAP_BOTH], results);
+  // That afternoon main gained two commits: the DTO changed again, and a refund DTO came.
+  const LATER = "c4d5e6f".padEnd(40, "0"), REFUND = "src/orders/dto/refund.dto.ts";
+  lastOn22(s, LATER, "2026-10-22T09:00:00Z");
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${HEAD}...${LATER}`, () => ({ ahead_by: 2, behind_by: 0, commits: [], files: [{ filename: "src/users/dto/create-user.dto.ts", status: "modified" }, { filename: REFUND, status: "added" }] }));
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${LATER}`, () => ({ ahead_by: 5, behind_by: 0, commits: [], files: [{ filename: "src/users/users.controller.ts", status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, { filename: "src/users/dto/create-user.dto.ts", status: "modified" }, { filename: REFUND, status: "added" }] }));
+  s.clock.set("2026-10-24T09:00:00+07:00");
+
+  const [again] = await turn(s, SAME, results);
+  expect(again).toMatchObject({ draft: DRAFT, base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: LATER }, changedFiles: { commits: 5, totalFiles: 3 } });
+  expect(again.lastDay).toBe("2026-10-22 had not ended when this changelog was pinned: its head moved from a1b2c3d to that day's last commit, c4d5e6f, adding 2 commits. The files they changed are to be mapped again, and the traced candidates those files reach are traced again. Say so in one line.");
+  // The draft keeps its name; what it compares is the new head.
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
+  const doc = JSON.parse((await s.workspace.read(`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`))!);
+  expect([doc.info.version, doc.info["x-changelog"].head]).toEqual(["c4d5e6f", { ref: "main through 2026-10-22", commit: "c4d5e6f" }]);
+  const meta = doc["x-draft"];
+  expect(meta).toMatchObject({ head: LATER, commits: 5, changedFiles: 3 });
+  expect(meta.files).toEqual([{ path: "src/users/users.controller.ts", status: "modified" }, { path: "src/users/dto/create-user.dto.ts", status: "modified" }, { path: REFUND, status: "added" }]);
+  // The controller did not change again and stays mapped; the DTO that did is unmapped and unread, and its change left the candidate's note.
+  expect(meta.mapping).toEqual({ "src/users/users.controller.ts": { read: true, reaches: ["POST /api/v2/users"] } });
+  expect(meta.candidates).toEqual([{ method: "post", path: "/api/v2/users", note: "src/users/users.controller.ts: @Post() became @Post('v2')", state: "waiting" }]);
+
+  // Asked again a day later, when a commit dated the 22nd was pushed late, the head stays where it moved.
+  lastOn22(s, "d7e8f90".padEnd(40, "0"), "2026-10-22T10:00:00Z");
+  s.clock.set("2026-10-25T09:00:00+07:00");
+  const [later] = await turn(s, SAME, results);
+  expect(later.head.commit).toBe(LATER);
+  expect(later.lastDay).toBeUndefined();
 });
 
 discordScenario("a different range asked for while a draft is open starts nothing, and the question to go on with the open one or stop it pauses the draft for it (#368)", async (s) => {

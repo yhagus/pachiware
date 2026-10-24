@@ -3,6 +3,7 @@ import { workspaceStore, MAX_BLOB_BYTES, WorkspaceConflict } from "../workspace/
 import { placeRoot, resolvePath, safeId } from "../workspace/paths.js";
 import { checkThreadWrite } from "../workspace/threads.js";
 import { browseTree, changedFileList, compareRefs, defaultBranch, EMPTY_TREE, goneFrom, lastCommitBy, type GitConn } from "../git.js";
+import { readRepo } from "../builtin/gitShared.js";
 import { DEFAULT_TIMEZONE, isoInZone, now, zonedTime } from "../clock.js";
 import { HTTP_METHODS, IMPACTS, OPENAPI_VERSION, changeCounts, escapePointer, iterOperations, mostSevere, recordsNothing, resolveLocal, validateChangelog, validateOperation } from "./validate.js";
 import { textIn } from "../language.js";
@@ -47,6 +48,11 @@ type DraftMeta = {
   candidates?: Candidate[];
   /** How many commits a range holds, from the comparison that pinned it; the progress message names them (#367). */
   commits?: number;
+  /**
+   * A range pinned before its last day ended reaches that day's last commit once it is worked on after the day (#371): the head it had
+   * then, and how many commits moving it added, 0 when the day held none later. Kept, so it moves once.
+   */
+  lastDay?: { from: string; commits: number };
 };
 type ProgressMessage = { channelId: string; messageId: string };
 /**
@@ -613,6 +619,75 @@ async function commitsOf(ctx: SkillContext, draft: string): Promise<{ base: Revi
   return { base: { ref: changelog.base.ref, commit: meta.base }, head: { ref: changelog.head.ref, commit: meta.head } };
 }
 
+/**
+ * Whether an open range draft's head is to move to the end of its last day (#371): it was started, so pinned, on that day, the day has
+ * ended since, and it has not moved yet. A draft that lists no changed files is left as it is.
+ */
+function lastDayToCover(doc: Json, today: string) {
+  const meta: DraftMeta | undefined = doc?.["x-draft"];
+  return !!meta && meta.scope === "range" && !!meta.files && !!meta.base && !!meta.head && !meta.lastDay && doc.info?.["x-changelog"]?.date === meta.to && today > meta.to;
+}
+
+/**
+ * The head moves to `head` (#371): the files changed going from the old head to it (`later`, at either path) go back to unmapped and
+ * unread, and leave the notes of the candidates they reached; the traced candidates among those go back to waiting without their records,
+ * to be traced against the new head. Every other candidate keeps its record. `all` is the range's comparison at the new head.
+ */
+function moveHead(doc: Json, head: string, later: { ahead: number; files: ChangedFile[] }, all: { ahead: number; files: ChangedFile[] }) {
+  const meta: DraftMeta = doc["x-draft"], from = meta.head!;
+  const again = new Set(later.files.flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path]))), reached = new Set<string>();
+  for (const path of again) {
+    meta.mapping?.[path]?.reaches?.forEach((e) => reached.add(e));
+    delete meta.mapping?.[path];
+    delete meta.reads?.[path];
+  }
+  for (const c of meta.candidates ?? []) {
+    const rest = (c.note ?? "").split("\n").filter((l) => l && ![...again].some((path) => l.startsWith(`${path}: `)));
+    if (rest.length) c.note = rest.join("\n"); else delete c.note;
+    if (c.state !== "traced" || !reached.has(endpointOf(c))) continue;
+    for (const r of c.recorded ?? []) { const [method, ...path] = r.split(" "); removeOperation(doc, path.join(" "), method!.toLowerCase()); }
+    c.state = "waiting";
+    delete c.recorded; delete c.unchanged; delete c.at;
+  }
+  Object.assign(meta, { head, files: all.files, changedFiles: all.files.length, commits: all.ahead, lastDay: { from, commits: later.ahead } });
+  doc.info["x-changelog"].head.commit = short(head);
+  doc.info.version = short(head);
+}
+
+/**
+ * A range covers its last day to its end (GLOSSARY): an open draft pinned before its last day ended moves its head to that day's last
+ * commit (`pinned`, or pinned here) the first time it is worked on after the day, and only then (#371). The draft keeps its name, which its
+ * Stop button, progress message and chain key on. Returns the head it had, the head it has and how many commits that added, or null when
+ * it was not to move.
+ */
+async function coverLastDayWith(ctx: DraftCaller, conn: GitConn, repo: string, draft: string, timezone: string, pinned?: string) {
+  const full = draftPath(ctx, draft), today = isoInZone(timezone).slice(0, 10), found = await readJson(ctx.tenantId, full);
+  if (!found || !lastDayToCover(found.doc, today)) return null;
+  const meta: DraftMeta = found.doc["x-draft"], from = meta.head!;
+  const head = pinned ?? (await lastCommitBy(conn, repo, meta.branch, isoInZone(timezone, zonedTime(timezone, `${meta.to}T23:59:59`)!)))?.sha;
+  if (!head) return null;
+  const compare = async (a: string) => ({ ahead: (await compareRefs(conn, repo, a, head)).ahead, files: await changedFileList(conn, repo, a, head) });
+  const [later, all] = head === from ? [{ ahead: 0, files: [] }, null] : await Promise.all([compare(from), compare(meta.base!)]);
+  return serial(`${ctx.tenantId}/${full}`, async () => {
+    const now = await readJson(ctx.tenantId, full);
+    if (!now || !lastDayToCover(now.doc, today) || now.doc["x-draft"].head !== from) return null;
+    if (all) moveHead(now.doc, head, later, all); else now.doc["x-draft"].lastDay = { from, commits: 0 };
+    await writeDraft(ctx.tenantId, full, now.doc, now.version);
+    return { from, head, commits: later.ahead };
+  });
+}
+
+/**
+ * The start of a turn that goes on by itself with an open draft (#371): a draft pinned before its last day ended, worked on after that day,
+ * moves its head to the day's last commit, read through the draft's own repository access. Null when it was not to move.
+ */
+export async function coverLastDay(ctx: SkillContext, draft: string) {
+  const timezone = ctx.timezone ?? DEFAULT_TIMEZONE, doc = (await readJson(ctx.tenantId, draftPath(ctx, draft)))?.doc;
+  if (!lastDayToCover(doc, isoInZone(timezone).slice(0, 10))) return null;
+  const meta: DraftMeta = doc["x-draft"];
+  return readRepo({ repo: meta.repo, account: meta.account }, ctx, (conn, repo) => coverLastDayWith(ctx, conn, repo, draft, timezone));
+}
+
 export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: string, args: { account?: string; branch?: unknown; scope?: unknown; from?: unknown; to?: unknown; publish?: unknown }) {
   const timezone = ctx.timezone ?? DEFAULT_TIMEZONE, today = isoInZone(timezone).slice(0, 10);
   const covers = changelogScope(args, today);
@@ -627,6 +702,8 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
   }
   // The days are pinned for the open draft's request too, so a branch gone since pauses it (#359); that draft goes on at the commits it keeps.
   const pinned = await changelogRevisions(conn, repo, branch, covers, timezone);
+  // Pinned before its last day ended, it now reaches that day's last commit, which the days just pinned (#371).
+  const moved = same ? await coverLastDayWith(ctx, conn, repo, same.draft, timezone, pinned.head.commit) : null;
   const { base, head } = (same && await commitsOf(ctx, same.draft)) ?? pinned;
   const at = changelogFiles(ctx, repo, base, { ref: head.ref, commit: head.commit }, today);
   const names = (await workspaceStore().list(ctx.tenantId, resolvePath(ctx, at.folder, true))).map((e) => e.path.split("/").pop()!);
@@ -684,6 +761,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     base: { ...base, commit: fromNothing ? "empty tree" : base.commit }, head,
     ...(fromNothing ? { note: "Nothing came before this changelog: every endpoint of head is NEW. Read head only." } : {}),
     ...(same ? { goesOn: "This is the changelog already open here, for the same repository, branch and coverage: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to." } : {}),
+    ...(moved && moved.head !== moved.from ? { lastDay: `${covers.to} had not ended when this changelog was pinned: its head moved from ${short(moved.from)} to that day's last commit, ${short(moved.head)}, adding ${moved.commits} commit${moved.commits === 1 ? "" : "s"}. The files they changed are to be mapped again, and the traced candidates those files reach are traced again. Say so in one line.` } : {}),
     changedFiles: changed,
     ...(seen.counted ? { mappingNote: `Before it is written, every changed file must be mapped with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile; the patches given here count), or set aside with a reason (putChangelogNotes setAside). Mapped so far: ${seen.counted.mapped} of ${seen.counted.files}.` } : {}),
     ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
@@ -720,6 +798,13 @@ function fromText(value: unknown, name: string): unknown {
   catch (e: any) { throw new Error(`${name} was sent as JSON text that does not parse (${e?.message ?? e}). Send it as an object, not as text.`); }
 }
 
+/** Removes one operation of a draft, and its path once no operation is left on it. */
+function removeOperation(doc: Json, path: string, method: string) {
+  if (!doc.paths?.[path]) return;
+  delete doc.paths[path][method];
+  if (!Object.keys(doc.paths[path]).some((k) => METHODS.has(k))) delete doc.paths[path];
+}
+
 /** Adds or replaces one operation of a draft (null removes it), with the components it brings; returns that operation's own problems. */
 export async function putOperation(ctx: SkillContext, sent: { draft?: unknown; method?: unknown; path?: unknown; operation?: unknown; components?: unknown }) {
   const args = { ...sent, operation: fromText(sent.operation, "operation"), components: fromText(sent.components, "components") };
@@ -737,7 +822,7 @@ export async function putOperation(ctx: SkillContext, sent: { draft?: unknown; m
   return withDraft(ctx, args.draft, (doc) => {
     doc.paths ??= {};
     if (operation === null) {
-      if (doc.paths[path]) { delete doc.paths[path][method]; if (!Object.keys(doc.paths[path]).some((k) => METHODS.has(k))) delete doc.paths[path]; }
+      removeOperation(doc, path, method);
       return { removed: where, operations: operationsOf(doc) };
     }
     const op = { ...(operation as Json) };
