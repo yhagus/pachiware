@@ -1,7 +1,7 @@
 import { readPlaybookFile } from "../playbooks.js";
 import { asUntrusted } from "../guardrails.js";
-import { draftName, listRouteFiles, mappedKind, mappingWork, settleFiles, weighFiles, type ChangedFile } from "./changelog.js";
-import { cutByTurn, fanOut, WORKER_READS, workerBudget, workerLimit } from "./workers.js";
+import { byPath, draftName, listRouteFiles, mappedKind, mappingWork, settleFiles, weighFiles, type ChangedFile } from "./changelog.js";
+import { cutByTurn, fanOut, ranOut, WORKER_READS, workerBudget, workerLimit } from "./workers.js";
 import type { SkillContext, WorkerOutcome } from "../types.js";
 
 /**
@@ -33,7 +33,7 @@ const weightOf = (f: Weighed) => f.patchChars ?? (f.status === "renamed" ? 0 : I
 export function mappingGroups<T extends Weighed>(files: T[]): T[][] {
   const groups: T[][] = [];
   let chars = 0;
-  for (const f of [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+  for (const f of [...files].sort(byPath)) {
     const weight = weightOf(f), last = groups.at(-1);
     if (last && last.length < GROUP_FILES && chars + weight <= GROUP_CHARS) { last.push(f); chars += weight; }
     else { groups.push([f]); chars = weight; }
@@ -70,8 +70,8 @@ function briefOf(work: Work, draft: string, group: ChangedFile[], recordedGlobal
 
 /** Why a worker that was not cut short left `path` unmapped: it ran out of steps or time, or its answer's line for the file, or its answer. */
 function whyUnmapped(outcome: WorkerOutcome, path: string) {
-  if (outcome.ranOut === "steps") return `its worker used all ${workerBudget.steps} steps before mapping it`;
-  if (outcome.ranOut === "time") return `its worker ran out of its ${Math.round(workerBudget.ms / 60_000)} minutes before mapping it`;
+  const spent = ranOut(outcome, "mapping it");
+  if (spent) return spent;
   const line = outcome.answer.split("\n").map((l) => l.trim().replace(/^[-*]\s*/, "")).find((l) => l.startsWith(`${path}:`));
   return (line ? line.slice(path.length + 1).trim() : outcome.answer.trim()).slice(0, REASON_CHARS) || "its worker ended without mapping it";
 }

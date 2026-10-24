@@ -24,6 +24,13 @@ export type Halt = NonNullable<WorkerOutcome["halted"]> | "time";
 /** Whether the turn's time, not the worker's own, cut it short: it was given less than its whole budget and ran out of it. */
 export const cutByTurn = (outcome: WorkerOutcome, ms: number) => outcome.ranOut === "time" && ms < workerBudget.ms;
 
+/** Why a worker ended before `doing` ("mapping it", "recording it") when it spent its own steps or time, as the draft keeps the reason; else null. */
+export function ranOut(outcome: WorkerOutcome, doing: string) {
+  if (outcome.ranOut === "steps") return `its worker used all ${workerBudget.steps} steps before ${doing}`;
+  if (outcome.ranOut === "time") return `its worker ran out of its ${Math.round(workerBudget.ms / 60_000)} minutes before ${doing}`;
+  return null;
+}
+
 /**
  * Runs workers on what `source` hands out, at most `limit` at once, each given the turn's time left up to its budget, while at least
  * `leastMs` is left. `work` runs one and says what halted it, if anything: then no more start. Returns the first halt, or null when the

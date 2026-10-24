@@ -211,6 +211,9 @@ function mergeComponents(doc: Json, components: Json) {
   }
 }
 
+/** Files in path order, as mapping groups them and the whole history lists its route files. */
+export const byPath = (a: { path: string }, b: { path: string }) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+
 /** A set-aside pattern as a test of a changed file: `**` crosses folders, `*` and `?` stay in one, and a pattern without a slash names a file at any depth. */
 function globTest(pattern: string) {
   const p = pattern.trim().replace(/^\.?\/+/, "");
@@ -227,7 +230,7 @@ function globTest(pattern: string) {
 export function routeFilesAt(tree: TreeFile[], given: string[]) {
   const tests = given.map((g) => ({ given: g, test: globTest(g) }));
   const files: ChangedFile[] = tree.filter((f) => tests.some((t) => t.test({ path: f.path, status: "added" })))
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).map((f) => ({ path: f.path, status: "added", patchChars: f.size ?? READ_PAGE }));
+    .sort(byPath).map((f) => ({ path: f.path, status: "added", patchChars: f.size ?? READ_PAGE }));
   return { files, unmatched: tests.filter((t) => !tree.some((f) => t.test({ path: f.path, status: "added" }))).map((t) => t.given) };
 }
 
@@ -238,6 +241,12 @@ function accounting(meta: DraftMeta, setAside: SetAside[] = []) {
   return { files: files.length, mapped: files.length - open.length, setAside: open.length - left.length, left };
 }
 
+/**
+ * The refusal of `tool`, which starts workers whose briefs carry the conventions summary, while the draft holds none (#365, #370, ADR 0026);
+ * `nothing` is what it did not do ("mapped", "traced").
+ */
+const noConventions = (tool: "mapChangedFiles" | "traceEndpoints", nothing: string) =>
+  `This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call ${tool} again. Nothing was ${nothing}.`;
 /** What a range's draft from before drafts listed their changed files must do before its files can be mapped or its endpoints traced. */
 const UNLISTED = "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage.";
 /** What a whole-history draft must do before anything is mapped, traced or written: list its route files (#373). */
@@ -670,6 +679,16 @@ function lastDayToCover(doc: Json, today: string) {
   return !!meta && meta.scope === "range" && !!meta.files && !!meta.base && !!meta.head && !meta.lastDay && doc.info?.["x-changelog"]?.date === meta.to && today > meta.to;
 }
 
+/** A candidate's note holds one line per file that reaches it, "path: change": the lines of the files other than `paths`. */
+function noteLinesBut(c: Candidate, paths: Iterable<string>) {
+  const gone = [...paths];
+  return (c.note ?? "").split("\n").filter((l) => l && !gone.some((path) => l.startsWith(`${path}: `)));
+}
+/** Keeps `lines` as a candidate's note, or no note when there are none. */
+function keepNote(c: Candidate, lines: string[]) {
+  if (lines.length) c.note = lines.join("\n"); else delete c.note;
+}
+
 /**
  * A candidate traced or failed goes back to waiting, to be traced against the draft's head (#371): the operations it recorded leave the
  * draft, and so does the unverified entry its failure listed.
@@ -702,8 +721,7 @@ function moveHead(doc: Json, head: string, later: { ahead: number; files: Change
   }
   dropNotesOf(doc, gone);
   for (const c of meta.candidates ?? []) {
-    const rest = (c.note ?? "").split("\n").filter((l) => l && ![...again].some((path) => l.startsWith(`${path}: `)));
-    if (rest.length) c.note = rest.join("\n"); else delete c.note;
+    keepNote(c, noteLinesBut(c, again));
     if (c.state !== "waiting" && reached.has(endpointOf(c))) retrace(doc, c);
   }
   Object.assign(meta, { head, files: all.files, changedFiles: all.files.length, commits: all.ahead, lastDay: { from, commits: later.ahead } });
@@ -785,7 +803,8 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     if (found) {
       const notes = found.doc.info["x-changelog"], meta: DraftMeta = found.doc["x-draft"];
       // A draft from before drafts listed their files learns them now.
-      if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files, changedFiles: meta.changedFiles ?? changed.totalFiles });      if (args.publish === true) meta.publish = true;
+      if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files, changedFiles: meta.changedFiles ?? changed.totalFiles });
+      if (args.publish === true) meta.publish = true;
       if ("commits" in changed) meta.commits = changed.commits;
       given.forEach((path) => markRead(meta, path));
       await writeDraft(ctx.tenantId, full, found.doc, found.version);
@@ -1034,11 +1053,9 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
     const added: string[] = [];
     for (const { file, change, endpoints, none, global, removed } of files) {
       const entry = meta.mapping![file.path]!;
-      // A candidate's note holds one line per file that reaches it: "path: change".
-      const othersOf = (c: Candidate) => (c.note ?? "").split("\n").filter((l) => l && !l.startsWith(`${file.path}: `));
       // A file mapped again says anew what it reaches: its change leaves the notes of the candidates it named before.
       const before = new Set(entry.reaches ?? []), was: FileMapping = { global: entry.global, removes: entry.removes };
-      for (const c of meta.candidates ?? []) if (before.has(endpointOf(c))) { const rest = othersOf(c); if (rest.length) c.note = rest.join("\n"); else delete c.note; }
+      for (const c of meta.candidates ?? []) if (before.has(endpointOf(c))) keepNote(c, noteLinesBut(c, [file.path]));
       delete entry.reaches; delete entry.none; delete entry.global; delete entry.removes;
       if (endpoints) {
         entry.reaches = [...new Set(endpoints.map(endpointOf))];
@@ -1049,7 +1066,7 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
           // A candidate traced or failed before this file reached it, such as one a file changed after the old head now reaches, was
           // traced without this change: it is traced again (#371).
           else if (c.state !== "waiting" && !before.has(endpointOf(e))) retrace(doc, c);
-          c.note = [...othersOf(c), `${file.path}: ${change}`].join("\n");
+          keepNote(c, [...noteLinesBut(c, [file.path]), `${file.path}: ${change}`]);
         }
       } else if (none !== undefined) entry.none = none;
       else if (global !== undefined) {
@@ -1091,8 +1108,6 @@ function listUnmappable(changelog: Json, path: string, why: string) {
  */
 const notesOf = (changelog: Json) => ({ globalChanges: (changelog.globalChanges ?? []).length as number, removedOperations: (changelog.removedOperations ?? []).length as number, recordedGlobal: (changelog.globalChanges ?? []) as Json[] });
 
-/** mapChangedFiles' refusal while the draft holds no conventions summary: its workers' briefs carry it (#370). */
-const NO_CONVENTIONS_TO_MAP = "This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call mapChangedFiles again. Nothing was mapped.";
 
 /**
  * What mapChangedFiles starts from (#370), read without changing the draft, so a refusal is no progress: the changed files neither mapped
@@ -1103,7 +1118,7 @@ export async function mappingWork(ctx: SkillContext, draft: unknown) {
   const doc = (await readJson(ctx.tenantId, draftPath(ctx, draft)))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
   if (!meta) throw new Error("No such draft: start it with startChangelog.");
   if (!meta.files && meta.scope === "range") throw new Error(`${UNLISTED} Nothing was mapped.`);
-  if (!meta.conventions) throw new Error(NO_CONVENTIONS_TO_MAP);
+  if (!meta.conventions) throw new Error(noConventions("mapChangedFiles", "mapped"));
   if (!meta.files) throw new Error(`${NO_ROUTE_FILES} Nothing was mapped.`);
   const changelog = doc.info["x-changelog"], counted = accounting(meta, changelog.setAside);
   return {
@@ -1147,7 +1162,7 @@ export async function listRouteFiles(ctx: SkillContext, draft: unknown, sent: { 
   const given = list.map((g: string) => g.trim()), doc = (await readJson(ctx.tenantId, draftPath(ctx, draft)))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
   if (!meta) throw new Error("No such draft: start it with startChangelog.");
   if (meta.scope !== "all") throw new Error("routeFiles is only for a changelog of the whole history: a range maps the files its commits changed. Call mapChangedFiles with the draft alone. Nothing was listed or mapped.");
-  if (!meta.conventions) throw new Error(NO_CONVENTIONS_TO_MAP);
+  if (!meta.conventions) throw new Error(noConventions("mapChangedFiles", "mapped"));
   if (!meta.head) throw new Error("This changelog of the whole history was started before drafts kept their head commit in full, so its route files cannot be listed: tell the person who started it to stop it and ask for it again. Nothing was listed or mapped.");
   const head = meta.head, tree = await readRepo({ repo: meta.repo, account: meta.account }, ctx, (conn, repo) => repoTree(conn, repo, head));
   const { files, unmatched } = routeFilesAt(tree.files, given);
@@ -1213,8 +1228,6 @@ function tracing(doc: Json, candidates: Candidate[]): NonNullable<OpenDraft["can
 
 /** traceEndpoints' refusal of candidates the main loop passes: they come from mapping alone (#369, ADR 0026). */
 const CANDIDATES_PASSED = "traceEndpoints takes the draft alone and traces the candidate endpoints mapping kept: each endpoint a changed file reaches, as its mapping worker recorded it. Map any file left with mapChangedFiles, then call traceEndpoints with the draft alone. Nothing was traced.";
-/** traceEndpoints' refusal while the draft holds no conventions summary (#365, ADR 0026). */
-const NO_CONVENTIONS = "This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call traceEndpoints again. Nothing was traced.";
 
 /**
  * The candidate endpoints traceEndpoints traces: those mapping kept, the traced ones never again (#343). Returns those waiting, with what a
@@ -1225,7 +1238,7 @@ export async function takeCandidates(ctx: SkillContext, draft: unknown, sent: un
   if (sent !== undefined && sent !== null) throw new Error(CANDIDATES_PASSED);
   return withDraft(ctx, draft, (doc) => {
     const meta: DraftMeta = doc["x-draft"], changelog = doc.info["x-changelog"];
-    if (!meta.conventions) throw new Error(NO_CONVENTIONS);
+    if (!meta.conventions) throw new Error(noConventions("traceEndpoints", "traced"));
     // Tracing waits until every changed file is mapped, so the total it starts from is final (#369, ADR 0026).
     // The whole history's candidates are the routes of the files it lists, so it waits for that list too (#373).
     if (!meta.files) throw new Error(`${meta.scope === "range" ? UNLISTED : NO_ROUTE_FILES} Nothing was traced.`);

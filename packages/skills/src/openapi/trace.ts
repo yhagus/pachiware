@@ -1,7 +1,7 @@
 import { readPlaybookFile } from "../playbooks.js";
 import { asUntrusted } from "../guardrails.js";
 import { draftName, settleCandidate, takeCandidates, type TraceResult } from "./changelog.js";
-import { cutByTurn, fanOut, WORKER_READS, workerBudget, workerLimit } from "./workers.js";
+import { cutByTurn, fanOut, ranOut, WORKER_READS, workerBudget, workerLimit } from "./workers.js";
 import type { SkillContext, WorkerOutcome } from "../types.js";
 
 /**
@@ -54,9 +54,7 @@ function settled(outcome: WorkerOutcome, ms: number): { recorded: string[] } | {
   const answer = outcome.answer.trim();
   if (!outcome.ranOut && UNCHANGED.test(answer)) return { unchanged: answer.replace(UNCHANGED, "").slice(0, REASON_CHARS) || "its contract did not change" };
   if (cutByTurn(outcome, ms)) return null;
-  if (outcome.ranOut === "steps") return { reason: `its worker used all ${workerBudget.steps} steps before recording it` };
-  if (outcome.ranOut === "time") return { reason: `its worker ran out of its ${Math.round(workerBudget.ms / 60_000)} minutes before recording it` };
-  return { reason: answer.slice(0, REASON_CHARS) || "its worker ended without recording it" };
+  return { reason: ranOut(outcome, "recording it") ?? (answer.slice(0, REASON_CHARS) || "its worker ended without recording it") };
 }
 
 /**
