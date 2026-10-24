@@ -125,6 +125,77 @@ discordScenario("a draft pinned before its last day ended moves its head to that
   expect(changelog.paths["/api/v2/orders"].get.operationId).toBe("listOrders");
 });
 
+const PHONE = "src/users/dto/phone.dto.ts";
+const isMapper = (call: any[]) => briefOf(call).startsWith("Map ");
+
+discordScenario("a file new after the old head that reaches candidates traced or failed before the day ended has them traced again against the new head, their old records and unverified entries gone (#371)", async (s) => {
+  await acmeApi(s);
+  await tracedBeforeTheDayEnded(s);
+  // Before the day ended GET /api/v2/users failed, so the notes list it as unverified.
+  const draft = JSON.parse((await s.workspace.read(DRAFT_FILE))!);
+  draft["x-draft"].candidates.push({ method: "get", path: "/api/v2/users", note: `${CONTROLLER}: the list moved to api/v2`, state: "failed", reason: "its route is built at runtime", at: "2026-10-22T03:50:00.000Z" });
+  draft["x-draft"].mapping[CONTROLLER].reaches.push("GET /api/v2/users");
+  draft.info["x-changelog"].unverified = [{ in: "operation", reason: "GET /api/v2/users could not be traced: its route is built at runtime" }];
+  await s.workspace.write(DRAFT_FILE, JSON.stringify(draft));
+  // That afternoon only a phone DTO came, which both users endpoints take.
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${HEAD}...${LATER}`, () => ({ ahead_by: 1, behind_by: 0, commits: [], files: [{ filename: PHONE, status: "added", patch: patch("export class PhoneDto { phone: string }") }] }));
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${LATER}`, () => ({ ahead_by: 4, behind_by: 0, commits: [], files: [
+    { filename: CONTROLLER, status: "modified", patch: patch("@Controller('api/v2/users')") }, { filename: ORDERS, status: "modified", patch: patch("@Get() list(@Query('status') status: string) {}") },
+    { filename: HEALTH, status: "modified", patch: patch("ping()") }, { filename: PHONE, status: "added", patch: patch("export class PhoneDto { phone: string }") },
+  ] }));
+  let moved: any, unverified: unknown;
+  s.model.script(
+    () => { s.clock.set("2026-10-23T00:01:00+07:00"); return "Every changed file is mapped and every candidate traced."; },
+    // The first turn after the day: the phone DTO alone is left to map, and its worker finds both users endpoints take it.
+    async () => { moved = (await draftMeta(s)).candidates; return { tool: "mapChangedFiles", args: { draft: DRAFT } }; },
+    { tool: "repoFileDiff", args: { repo: "acme/api", from: BASE, to: LATER, path: PHONE } },
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: PHONE, change: "a phone field comes", endpoints: [{ method: "post", path: "/api/v2/users" }, { method: "get", path: "/api/v2/users" }] }] } },
+    "Mapped.",
+    async () => { unverified = JSON.parse((await s.workspace.read(DRAFT_FILE))!).info["x-changelog"].unverified; return { tool: "traceEndpoints", args: { draft: DRAFT } }; },
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: operation("createUserWithPhone") } }, "Recorded POST /api/v2/users.",
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "get", path: "/api/v2/users", operation: operation("listUsersWithPhone") } }, "Recorded GET /api/v2/users.",
+    FINISH,
+    (turn) => `The acme/api changelog is written: ${turn.toolResults.at(-1).path}`,
+  );
+  await s.restart();
+
+  // Moving the head left both users endpoints as they were: the file that changed after it was not mapped yet.
+  expect(moved.map((c: any) => `${c.method.toUpperCase()} ${c.path}: ${c.state}`)).toEqual(["POST /api/v2/users: traced", "GET /api/v2/orders: traced", "GET /api/v2/users: failed"]);
+  expect(s.model.calls.filter((call) => isMapper(call) && !call.some((m: any) => m.role === "assistant")).map(briefOf)).toEqual([expect.stringContaining(`\n- ${PHONE} (added)`)]);
+  // Mapped, the phone DTO sent both back to waiting: the failure's unverified entry left the notes, and each was traced again at the new head.
+  expect(unverified).toEqual([]);
+  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users"]);
+  for (const worker of workerStarts(s)) expect(briefOf(worker)).toContain(LATER);
+  const changelog = JSON.parse((await s.workspace.read(`${FOLDER}/2026-10-22_9f8e7d6..c4d5e6f.json`))!);
+  expect([changelog.paths["/api/v2/users"].post.operationId, changelog.paths["/api/v2/users"].get.operationId, changelog.paths["/api/v2/orders"].get.operationId]).toEqual(["createUserWithPhone", "listUsersWithPhone", "listOrdersByStatus"]);
+  expect(changelog.info["x-changelog"].unverified).toEqual([]);
+});
+
+discordScenario("a candidate that failed before the day ended, reached by a file that changed again after the old head, goes back to waiting when the head moves, its unverified entry gone (#371)", async (s) => {
+  await acmeApi(s);
+  await tracedBeforeTheDayEnded(s);
+  // GET /api/v2/orders failed instead, so it is listed as unverified and nothing was recorded for it.
+  const draft = JSON.parse((await s.workspace.read(DRAFT_FILE))!);
+  draft["x-draft"].candidates[1] = { method: "get", path: "/api/v2/orders", note: `${ORDERS}: list gains a status filter`, state: "failed", reason: "its route is built at runtime", at: "2026-10-22T03:40:00.000Z" };
+  delete draft.paths["/api/v2/orders"];
+  draft.info["x-changelog"].unverified = [{ in: "operation", reason: "GET /api/v2/orders could not be traced: its route is built at runtime" }];
+  await s.workspace.write(DRAFT_FILE, JSON.stringify(draft));
+  let moved: any;
+  s.model.script(
+    () => { s.clock.set("2026-10-23T00:01:00+07:00"); return "Every changed file is mapped."; },
+    async () => { moved = JSON.parse((await s.workspace.read(DRAFT_FILE))!); return { tool: "askChangelogAsker", args: { draft: DRAFT, question: "Is the orders list still routed from config?" } }; },
+    "Is the orders list still routed from config?",
+  );
+  await s.restart();
+
+  expect(moved["x-draft"].head).toBe(LATER);
+  expect(moved["x-draft"].candidates).toEqual([
+    { method: "post", path: "/api/v2/users", note: `${CONTROLLER}: the controller moved to api/v2`, state: "traced", recorded: ["POST /api/v2/users"], at: "2026-10-22T03:30:00.000Z" },
+    { method: "get", path: "/api/v2/orders", state: "waiting" },
+  ]);
+  expect(moved.info["x-changelog"].unverified).toEqual([]);
+});
+
 discordScenario("a file two mapping workers could not map that changed again after the old head goes back to unmapped, its unverified entry gone; one that did not change again stays unverified (#370, #371)", async (s) => {
   await acmeApi(s);
   await tracedBeforeTheDayEnded(s);

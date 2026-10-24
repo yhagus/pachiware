@@ -669,9 +669,21 @@ function lastDayToCover(doc: Json, today: string) {
 }
 
 /**
+ * A candidate traced or failed goes back to waiting, to be traced against the draft's head (#371): the operations it recorded leave the
+ * draft, and so does the unverified entry its failure listed.
+ */
+function retrace(doc: Json, c: Candidate) {
+  for (const r of c.recorded ?? []) { const [method, ...path] = r.split(" "); removeOperation(doc, path.join(" "), method!.toLowerCase()); }
+  const changelog = doc.info["x-changelog"];
+  if (c.state === "failed") changelog.unverified = (changelog.unverified ?? []).filter((u: Json) => !String(u?.reason ?? "").startsWith(untraceable(c)));
+  c.state = "waiting";
+  delete c.recorded; delete c.unchanged; delete c.reason; delete c.at;
+}
+
+/**
  * The head moves to `head` (#371): the files changed going from the old head to it (`later`, at either path) go back to unmapped and
- * unread, and leave the notes of the candidates they reached; the traced candidates among those go back to waiting without their records,
- * to be traced against the new head. Every other candidate keeps its record. `all` is the range's comparison at the new head.
+ * unread, and leave the notes of the candidates they reached; those candidates, traced or failed, go back to waiting, to be traced against
+ * the new head. Every other candidate keeps its record. `all` is the range's comparison at the new head.
  */
 function moveHead(doc: Json, head: string, later: { ahead: number; files: ChangedFile[] }, all: { ahead: number; files: ChangedFile[] }) {
   const meta: DraftMeta = doc["x-draft"], from = meta.head!;
@@ -687,10 +699,7 @@ function moveHead(doc: Json, head: string, later: { ahead: number; files: Change
   for (const c of meta.candidates ?? []) {
     const rest = (c.note ?? "").split("\n").filter((l) => l && ![...again].some((path) => l.startsWith(`${path}: `)));
     if (rest.length) c.note = rest.join("\n"); else delete c.note;
-    if (c.state !== "traced" || !reached.has(endpointOf(c))) continue;
-    for (const r of c.recorded ?? []) { const [method, ...path] = r.split(" "); removeOperation(doc, path.join(" "), method!.toLowerCase()); }
-    c.state = "waiting";
-    delete c.recorded; delete c.unchanged; delete c.at;
+    if (c.state !== "waiting" && reached.has(endpointOf(c))) retrace(doc, c);
   }
   Object.assign(meta, { head, files: all.files, changedFiles: all.files.length, commits: all.ahead, lastDay: { from, commits: later.ahead } });
   doc.info["x-changelog"].head.commit = short(head);
@@ -1003,7 +1012,8 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
       // A candidate's note holds one line per file that reaches it: "path: change".
       const othersOf = (c: Candidate) => (c.note ?? "").split("\n").filter((l) => l && !l.startsWith(`${file.path}: `));
       // A file mapped again says anew what it reaches: its change leaves the notes of the candidates it named before.
-      for (const c of meta.candidates ?? []) if (entry.reaches?.includes(endpointOf(c))) { const rest = othersOf(c); if (rest.length) c.note = rest.join("\n"); else delete c.note; }
+      const before = new Set(entry.reaches ?? []);
+      for (const c of meta.candidates ?? []) if (before.has(endpointOf(c))) { const rest = othersOf(c); if (rest.length) c.note = rest.join("\n"); else delete c.note; }
       delete entry.reaches; delete entry.none; delete entry.global; delete entry.removes;
       if (endpoints) {
         entry.reaches = [...new Set(endpoints.map(endpointOf))];
@@ -1011,6 +1021,9 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
           const kept = (meta.candidates ??= []);
           let c = kept.find((k) => k.method === e.method && k.path === e.path);
           if (!c) { c = { ...e, state: "waiting" }; kept.push(c); added.push(endpointOf(e)); }
+          // A candidate traced or failed before this file reached it, such as one a file changed after the old head now reaches, was
+          // traced without this change: it is traced again (#371).
+          else if (c.state !== "waiting" && !before.has(endpointOf(e))) retrace(doc, c);
           c.note = [...othersOf(c), `${file.path}: ${change}`].join("\n");
         }
       } else if (none !== undefined) entry.none = none;
@@ -1180,10 +1193,12 @@ export async function takeCandidates(ctx: SkillContext, draft: unknown, sent: un
   });
 }
 
+/** The start of the unverified entry naming a candidate that failed. */
+const untraceable = (c: Candidate) => `${endpointOf(c)} could not be traced: `;
 /** An unverified entry naming a candidate that failed, unless the notes name it already. */
 function listUnverified(changelog: Json, c: Candidate) {
   const where = endpointOf(c), list: Json[] = (changelog.unverified ??= []);
-  if (!list.some((u) => `${u?.field ?? ""} ${u?.reason ?? ""}`.includes(where))) list.push({ in: "operation", reason: `${where} could not be traced: ${c.reason}` });
+  if (!list.some((u) => `${u?.field ?? ""} ${u?.reason ?? ""}`.includes(where))) list.push({ in: "operation", reason: `${untraceable(c)}${c.reason}` });
 }
 
 /**
