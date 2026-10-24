@@ -1,6 +1,7 @@
 import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
+import { draftMeta } from "./support/changelog";
 
 /** The skill's example operation, completed into a valid document (packages/skills/test/openapi-validate.test.ts checks it). */
 const FIXTURE = JSON.parse(readFileSync(new URL("../../../packages/skills/test/fixtures/contract-diff/create-user.json", import.meta.url), "utf8"));
@@ -97,7 +98,7 @@ discordScenario("a place holds one open draft: another changelog is refused with
   s.http.on(`GET api.github.com/repos/acme/api/git/trees/${HEAD}?recursive=1`, () => ({ tree: [{ path: "src/main.ts", type: "blob" }], truncated: false }));
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   const [refused] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "all" } }, results);
-  expect(refused).toBe(`Another API changelog is open here and nothing new was started: acme/api, branch main, 2026-10-01 to 2026-10-22, started by Alice, 0 endpoints recorded (draft ${DRAFT}). Tell the person and ask whether to go on with that one or stop it first.`);
+  expect(refused).toBe(`Another API changelog is open here and nothing new was started: acme/api, branch main, 2026-10-01 to 2026-10-22, started by Alice, 0 endpoints recorded (draft ${DRAFT}). This request was for acme/api, branch main, the whole history through 2026-10-22. Ask with askChangelogAsker, passing that draft, whether to go on with the open one or stop it first: it pauses the work until someone answers. Never ask it in plain text, or the work goes on without the answer.`);
   const [same] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   expect(same.draft).toBe(DRAFT);
 
@@ -109,6 +110,42 @@ discordScenario("a place holds one open draft: another changelog is refused with
   expect(thread).toContain("acme/api, branch main, the whole history through 2026-10-22");
   expect(thread).not.toContain(DRAFT);
   expect(await contextAfter(s)).not.toContain("the whole history");
+});
+
+discordScenario("the same repository, branch and days asked for on a later day go on with the open draft at its own commits, though the days now pin another head (#368)", async (s) => {
+  await acmeApi(s);
+  const SAME = { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } };
+  await turn(s, SAME, results);
+  // main gained a commit on the afternoon of 22 October, after the draft was started at 10:00.
+  const LATER = "c4d5e6f".padEnd(40, "0");
+  s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
+    ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: LATER, commit: { committer: { date: "2026-10-22T08:00:00Z" } } }]));
+  s.clock.set("2026-10-24T09:00:00+07:00");
+
+  const [again] = await turn(s, SAME, results);
+  expect(again).toMatchObject({
+    draft: DRAFT, base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: HEAD },
+    goesOn: "This is the changelog already open here, for the same repository, branch and days: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to.",
+  });
+  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
+});
+
+discordScenario("a different range asked for while a draft is open starts nothing, and the question to go on with the open one or stop it pauses the draft for it (#368)", async (s) => {
+  await acmeApi(s);
+  await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  const QUESTION = "The acme/api changelog of 1 to 22 October is still open. Go on with it, or stop it first and start 15 to 22 October?";
+  let refused = "";
+  s.model.script(
+    { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-15" } },
+    (t) => { refused = t.toolResults[0].error; return { tool: "askChangelogAsker", args: { draft: DRAFT, question: QUESTION } }; },
+    "Asked.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 15 October`);
+
+  expect(refused).toBe(`Another API changelog is open here and nothing new was started: acme/api, branch main, 2026-10-01 to 2026-10-22, started by Alice, 0 endpoints recorded (draft ${DRAFT}). This request was for acme/api, branch main, 2026-10-15 to 2026-10-22. Ask with askChangelogAsker, passing that draft, whether to go on with the open one or stop it first: it pauses the work until someone answers. Never ask it in plain text, or the work goes on without the answer.`);
+  expect(s.discord.botMessages.at(-1)!.content).toBe(QUESTION);
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
+  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
 });
 
 discordScenario("a range becomes two commits, the operation and components go into a draft, and finishing writes the validated changelog", async (s) => {

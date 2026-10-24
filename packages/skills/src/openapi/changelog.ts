@@ -582,22 +582,34 @@ export async function stopChangelog(ctx: SkillContext, args: { draft?: unknown }
   };
 }
 
+/**
+ * The two commits an open range draft keeps, with their refs as its changelog names them: what it goes on comparing when asked for
+ * again. Null for a draft that keeps them short only (the whole history, or a range from before drafts listed their files).
+ */
+async function commitsOf(ctx: SkillContext, draft: string): Promise<{ base: Revision; head: Revision } | null> {
+  const doc = (await readJson(ctx.tenantId, resolvePath(ctx, draft)))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"], changelog = doc?.info?.["x-changelog"];
+  if (!meta?.base || !meta.head || !changelog) return null;
+  return { base: { ref: changelog.base.ref, commit: meta.base }, head: { ref: changelog.head.ref, commit: meta.head } };
+}
+
 export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: string, args: { account?: string; branch?: unknown; scope?: unknown; from?: unknown; to?: unknown; publish?: unknown }) {
   const timezone = ctx.timezone ?? DEFAULT_TIMEZONE, today = isoInZone(timezone).slice(0, 10);
   const covers = changelogScope(args, today);
   const named = typeof args.branch === "string" && args.branch.trim() ? args.branch.trim() : null;
   const branch = named ?? await defaultBranch(conn, repo);
-  const { base, head } = await changelogRevisions(conn, repo, branch, covers, timezone);
+  // A place has one open draft at a time (GLOSSARY). Asked for again by its repository, branch and days, it goes on, whatever commits
+  // those days pin now; any other changelog is a question to its asker before anything else happens, asked so the work waits (#368).
+  const open = await openDrafts(ctx), same = open.find((d) => d.repo.toLowerCase() === repo.toLowerCase() && d.branch === branch && d.scope === covers.scope && d.from === covers.from && d.to === covers.to);
+  const other = open.find((d) => d !== same);
+  if (other) {
+    throw new Error(`Another API changelog is open here and nothing new was started: ${other.repo}, branch ${other.branch}, ${coverage(other)}, ${other.startedBy ? `started by ${other.startedBy.name ?? other.startedBy.id}` : "started earlier"}, ${other.operations} endpoint${other.operations === 1 ? "" : "s"} recorded (draft ${other.draft}). This request was for ${repo}, branch ${branch}, ${coverage(covers)}. Ask with askChangelogAsker, passing that draft, whether to go on with the open one or stop it first: it pauses the work until someone answers. Never ask it in plain text, or the work goes on without the answer.`);
+  }
+  const { base, head } = (same && await commitsOf(ctx, same.draft)) ?? await changelogRevisions(conn, repo, branch, covers, timezone);
   const at = changelogFiles(ctx, repo, base, { ref: head.ref, commit: head.commit }, today);
   const names = (await workspaceStore().list(ctx.tenantId, resolvePath(ctx, at.folder, true))).map((e) => e.path.split("/").pop()!);
   const draftFile = names.find((n) => n.endsWith(`_${at.stem}.draft.json`)), written = names.find((n) => n.endsWith(`_${at.stem}.json`));
-  const draft = draftFile ? `${at.folder}/${draftFile}` : at.draft, full = resolvePath(ctx, draft);
+  const draft = same?.draft ?? (draftFile ? `${at.folder}/${draftFile}` : at.draft), full = resolvePath(ctx, draft);
   checkThreadWrite(ctx, full);
-  // A place has one open draft at a time: another changelog waits until the person goes on with that one or stops it.
-  const other = (await openDrafts(ctx)).find((d) => d.draft !== draft);
-  if (other) {
-    throw new Error(`Another API changelog is open here and nothing new was started: ${other.repo}, branch ${other.branch}, ${coverage(other)}, ${other.startedBy ? `started by ${other.startedBy.name ?? other.startedBy.id}` : "started earlier"}, ${other.operations} endpoint${other.operations === 1 ? "" : "s"} recorded (draft ${other.draft}). Tell the person and ask whether to go on with that one or stop it first.`);
-  }
 
   // From the empty tree every file of head is new; otherwise the comparison lists what changed.
   const fromNothing = base.commit === EMPTY_TREE;
@@ -648,6 +660,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     ...(named ? {} : { branchNote: `No branch was named, so this is the repository's default branch, ${branch}. Name it when you tell the person you are starting, and in your answer.` }),
     base: { ...base, commit: fromNothing ? "empty tree" : base.commit }, head,
     ...(fromNothing ? { note: "Nothing came before this changelog: every endpoint of head is NEW. Read head only." } : {}),
+    ...(same ? { goesOn: "This is the changelog already open here, for the same repository, branch and days: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to." } : {}),
     changedFiles: changed,
     ...(seen.counted ? { examinedNote: `Before it is written, every changed file must be examined, its whole patch read with repoFileDiff or the whole file with repoReadFile at either commit, or set aside with a reason (putChangelogNotes setAside). Examined so far: ${seen.counted.examined} of ${seen.counted.files}; the patches given here count.` } : {}),
     ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
