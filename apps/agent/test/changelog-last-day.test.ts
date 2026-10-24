@@ -1,0 +1,121 @@
+import { expect } from "bun:test";
+import { discordScenario, type Scenario } from "./support/discordScenario";
+import { BASE, CONTROLLER, DRAFT, DRAFT_FILE, FINISH, FIXTURE, FOLDER, HEAD, contractDiffOn, draftMeta } from "./support/changelog";
+
+/**
+ * A range covers its last day to its end (#371, GLOSSARY): acme/api's changelog of 1 to 22 October, pinned at 10:00 on the 22nd at HEAD,
+ * when main gained two commits that afternoon. LATER is the last of them, so the last commit of the day.
+ */
+const LATER = "c4d5e6f".padEnd(40, "0");
+const ORDERS = "src/orders/orders.controller.ts", REFUND = "src/orders/dto/refund.dto.ts", HEALTH = "scripts/health.ts";
+const CONVENTIONS = "Routes: @Controller prefixes under api/v2. Envelope: { data } from TransformInterceptor.";
+const SOURCE = "@Controller('api/v2/orders')\nexport class OrdersController {}";
+const patch = (line: string) => `@@ -1 +1 @@\n-// before\n+${line}`;
+
+/** acme/api on GitHub at 23:58 on 22 October in Jakarta, one worker tracing at a time. */
+async function acmeApi(s: Scenario) {
+  await s.guildSettings({ language: "en", useThreads: false });
+  s.clock.set("2026-10-22T23:58:00+07:00");
+  await s.git({ repos: ["acme/*"] });
+  await contractDiffOn(s);
+  expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
+  s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
+  s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
+    ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: LATER, commit: { committer: { date: "2026-10-22T09:00:00Z" } } }]));
+  // That afternoon the orders controller changed again and a refund DTO came; the users controller and the health script did not change again.
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${HEAD}...${LATER}`, () => ({ ahead_by: 2, behind_by: 0, commits: [], files: [
+    { filename: ORDERS, status: "modified", patch: patch("@Get() list(@Query('page_size') size: number) {}") }, { filename: REFUND, status: "added", patch: patch("export class RefundDto { reason: string }") },
+  ] }));
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${LATER}`, () => ({ ahead_by: 5, behind_by: 0, commits: [], files: [
+    { filename: CONTROLLER, status: "modified", patch: patch("@Controller('api/v2/users')") }, { filename: ORDERS, status: "modified", patch: patch("@Get() list(@Query('status') status: string) {}") },
+    { filename: REFUND, status: "added", patch: patch("export class RefundDto { reason: string }") }, { filename: HEALTH, status: "modified", patch: patch("ping()") },
+  ] }));
+  s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
+}
+
+/** A new endpoint's operation, valid as it stands, with one change: what a worker records here. */
+const operation = (id: string) => ({
+  operationId: id, summary: id, security: [],
+  responses: { "200": { description: "OK", content: { "application/json": { schema: { type: "object", properties: { data: { type: "string" } }, required: ["data"] }, example: { data: "x" } } } } },
+  "x-changes": [{ status: "NEW", impact: "non-breaking", in: "operation" }],
+});
+
+/**
+ * Alice's draft as the work left it at 23:58 on its last day, worked on: pinned at 10:00 at HEAD, its three changed files mapped, and both
+ * candidates they reach traced and recorded, POST /api/v2/users at 10:30 and GET /api/v2/orders at 10:40.
+ */
+async function tracedBeforeTheDayEnded(s: Scenario) {
+  const changelog = { date: "2026-10-22", base: { ref: "main before 2026-10-01", commit: "9f8e7d6" }, head: { ref: "main through 2026-10-22", commit: "a1b2c3d" }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] };
+  await s.workspace.write(DRAFT_FILE, JSON.stringify({
+    openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog },
+    paths: { "/api/v2/users": { post: FIXTURE.paths["/api/v2/users"].post }, "/api/v2/orders": { get: { ...operation("listOrdersByStatus"), "x-impact": "non-breaking" } } }, components: FIXTURE.components,
+    "x-draft": {
+      repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", place: "channel-1", startedBy: { id: "user-alice", name: "Alice" }, changedFiles: 3, commits: 3,
+      base: BASE, head: HEAD, files: [CONTROLLER, ORDERS, HEALTH].map((path) => ({ path, status: "modified" })),
+      mapping: { [CONTROLLER]: { read: true, reaches: ["POST /api/v2/users"] }, [ORDERS]: { read: true, reaches: ["GET /api/v2/orders"] }, [HEALTH]: { read: true, none: "a script no route runs" } },
+      conventions: CONVENTIONS,
+      candidates: [
+        { method: "post", path: "/api/v2/users", note: `${CONTROLLER}: the controller moved to api/v2`, state: "traced", recorded: ["POST /api/v2/users"], at: "2026-10-22T03:30:00.000Z" },
+        { method: "get", path: "/api/v2/orders", note: `${ORDERS}: list gains a status filter`, state: "traced", recorded: ["GET /api/v2/orders"], at: "2026-10-22T03:40:00.000Z" },
+      ],
+      touchedAt: new Date(s.clock.now()).toISOString(), work: { state: "worked-on" },
+    },
+  }));
+}
+
+const text = (message: any) => (typeof message?.content === "string" ? message.content : JSON.stringify(message?.content));
+/** The first message after the system prompt: a worker's brief, or the turn's message, which for a turn going on by itself holds the draft's state. */
+const briefOf = (call: any[]) => text(call[1]);
+const isWorker = (call: any[]) => briefOf(call).startsWith("Trace one endpoint");
+/** The endpoint each worker traced, in the order they started. */
+const workerStarts = (s: Scenario) => s.model.calls.filter((call) => isWorker(call) && !call.some((m: any) => m.role === "assistant"));
+const endpointOf = (call: any[]) => briefOf(call).match(/^Your endpoint: (.+)$/m)?.[1];
+const diff = (path: string) => ({ tool: "repoFileDiff", args: { repo: "acme/api", from: BASE, to: LATER, path } });
+
+discordScenario("a draft pinned before its last day ended moves its head to that day's last commit on its first turn after the day: only the files changed since are mapped again, and only the candidates they reach are traced again, against the new head (#371)", async (s) => {
+  await acmeApi(s);
+  await tracedBeforeTheDayEnded(s);
+  const states: string[] = [];
+  let candidates: any;
+  s.model.script(
+    // The turn at 23:58 is still on the last day; it ends after midnight.
+    (turn) => { states.push(briefOf(turn.messages)); s.clock.set("2026-10-23T00:01:00+07:00"); return "Every changed file is mapped and every candidate traced."; },
+    // The first turn after the day: the files changed since HEAD are read and mapped again, and tracing goes on.
+    (turn) => { states.push(briefOf(turn.messages)); return [diff(ORDERS), diff(REFUND)]; },
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [
+      { path: ORDERS, change: "list gains a status filter and a page size", endpoints: [{ method: "get", path: "/api/v2/orders" }] },
+      { path: REFUND, change: "a new refund body", endpoints: [{ method: "post", path: "/api/v2/orders/{id}/refund" }] },
+    ] } },
+    { tool: "traceEndpoints", args: { draft: DRAFT } },
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "get", path: "/api/v2/orders", operation: operation("listOrders") } }, "Recorded GET /api/v2/orders.",
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/orders/{id}/refund", operation: operation("refundOrder") } }, "Recorded POST /api/v2/orders/{id}/refund.",
+    async () => { candidates = (await draftMeta(s)).candidates; return FINISH; },
+    (turn) => `The acme/api changelog is written: ${turn.toolResults.at(-1).path}`,
+  );
+  await s.restart();
+
+  // Before midnight the draft is as it was pinned.
+  expect(states[0]).toContain(`Draft: ${DRAFT} (acme/api, branch main, 2026-10-01 to 2026-10-22, commits 9f8e7d6..a1b2c3d)\nChanged files: 3: 3 mapped, 0 set aside, 0 left.`);
+  // After it, the head is the day's last commit: the orders controller, changed again, and the refund DTO, new, are left to map; the
+  // candidate the orders controller reached waits, and the one only the users controller reaches keeps its record.
+  expect(states[1]).toContain(`Draft: ${DRAFT} (acme/api, branch main, 2026-10-01 to 2026-10-22, commits 9f8e7d6..c4d5e6f)\nChanged files: 4: 2 mapped, 0 set aside, 2 left.\nMapped:\n- ${CONTROLLER} → POST /api/v2/users\n- ${HEALTH} → no endpoint (a script no route runs)\nLeft:\n- ${ORDERS} (modified)\n- ${REFUND} (added)\n`);
+  expect(states[1]).toContain("Endpoints recorded (1):\n- POST /api/v2/users (breaking)\n");
+  expect(states[1]).toContain("Candidate endpoints: 2: 1 traced, 0 failed, 1 waiting.\nWaiting to be traced: GET /api/v2/orders\n");
+
+  expect(workerStarts(s).map(endpointOf)).toEqual(["GET /api/v2/orders", "POST /api/v2/orders/{id}/refund"]);
+  for (const worker of workerStarts(s)) expect(briefOf(worker)).toContain(LATER);
+  expect(candidates).toEqual([
+    { method: "post", path: "/api/v2/users", note: `${CONTROLLER}: the controller moved to api/v2`, state: "traced", recorded: ["POST /api/v2/users"], at: "2026-10-22T03:30:00.000Z" },
+    { method: "get", path: "/api/v2/orders", note: `${ORDERS}: list gains a status filter and a page size`, state: "traced", recorded: ["GET /api/v2/orders"], at: "2026-10-22T17:01:00.000Z" },
+    { method: "post", path: "/api/v2/orders/{id}/refund", note: `${REFUND}: a new refund body`, state: "traced", recorded: ["POST /api/v2/orders/{id}/refund"], at: "2026-10-22T17:01:00.000Z" },
+  ]);
+
+  // The written changelog is named by the commits it compares, and holds the endpoint traced again as recorded against the new head.
+  const WRITTEN = "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..c4d5e6f.json";
+  expect(s.discord.botMessages.map((m) => m.content).at(-1)).toBe(`<@user-alice> The acme/api changelog is written: ${WRITTEN}`);
+  expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..c4d5e6f.json`]);
+  const changelog = JSON.parse((await s.workspace.read(`${FOLDER}/2026-10-22_9f8e7d6..c4d5e6f.json`))!);
+  expect([changelog.info.version, changelog.info["x-changelog"].head]).toEqual(["c4d5e6f", { ref: "main through 2026-10-22", commit: "c4d5e6f" }]);
+  expect(Object.keys(changelog.paths).sort()).toEqual(["/api/v2/orders", "/api/v2/orders/{id}/refund", "/api/v2/users"]);
+  expect(changelog.paths["/api/v2/orders"].get.operationId).toBe("listOrders");
+});

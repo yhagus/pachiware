@@ -10,7 +10,7 @@ import { loadGuildSettings } from "../loop/prompt.js";
 import { CacheService, tenantKey } from "../cache/redis.js";
 import { pendingOf, confirmMessage, handleConfirmButton, type ButtonLike } from "./gitConfirm.js";
 import { outgoingFiles, type OutgoingDiscordFile } from "./outgoingFiles.js";
-import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, openDrafts, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, serviceFailures, measureTurn, draftState, keepClosingSummary, draftProgress, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
+import { audit, failureOf, scheduleCardOf, listPlaybooks, playbookCatalogue, withLoads, onPlaybooksChanged, onAvailabilityChanged, boundPlaybook, readBinding, writeBinding, bindingPlace, rewriteBinding, availabilityPlace, skillRegistry, recordBriefInput, takeBriefInput, inputTurn, outsiderTurn, authorDecidesNote, presetPointsTurn, recordBriefImages, unseeBriefImages, replyLanguage, shownLanguage, languageOf, textIn, configuredLanguage, configuredTimezone, today, now, openDrafts, keepProgressMessage, isWorkedOn, goesOnWith, resumeDraft, serviceFailures, measureTurn, draftState, coverLastDay, keepClosingSummary, draftProgress, threadRepositoryOf, threadDocumentsOf, anyRepositoryAllowed, issueBatchReport, moveOldThreadFiles, minutesToTasks, describeImageInto, type Language, type Playbook, type PlaybookBinding } from "@pachiware/skills";
 import { guildCommands } from "./commands.js";
 import { causeText, playbookReport } from "./serverPlaybooks.js";
 import { forgetDeletedMessage } from "./dailyLog.js";
@@ -783,6 +783,9 @@ export class DiscordBotManager {
       const progressLanguage = shown ?? configuredLanguage(guild, agent);
       // The place's open Changelog draft as the turn finds it: what the turn does to it decides what follows (#361).
       const before = await openDraftOf(workPlace);
+      // A range pinned before its last day ended reaches that day's last commit the first time it goes on by itself after the day (#371).
+      const moved = fromDraft && before?.name === opts.draft ? await coverLastDay({ ...workPlace, timezone: configuredTimezone(guild, agent) }, before.draft).catch(() => null) : null;
+      if (moved && moved.head !== moved.from) console.info(`[changelog] Moved ${before!.repo} (branch ${before!.branch}, draft ${before!.name}) to the end of ${before!.to}: head ${moved.from.slice(0, 7)} → ${moved.head.slice(0, 7)}, ${moved.commits} commits added`);
       // A turn that goes on by itself is measured for the progress it makes; a person's turn never is (#357).
       countTurn = opts.draft && before?.name === opts.draft ? await measureTurn(workPlace, before.draft).catch(() => null) : null;
       // A turn that goes on by itself starts from the draft alone, not from the conversation, so turn 30 costs about what turn 2 did (#360).

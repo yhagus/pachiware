@@ -1119,7 +1119,8 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     if (report.errors.length) {
       return { written: false, errors: report.errors, ...(report.warnings.length ? { warnings: report.warnings } : {}), fix: "Fix each error (putChangelogOperation or putChangelogNotes) and call finishChangelog again." };
     }
-    const path = shown.replace(/\.draft\.json$/, ".json"), target = resolvePath(ctx, path);
+    // Named by the commits it compares: a head moved to the end of its last day names the new one, though the draft kept its name (#371).
+    const named = shown.replace(/\.draft\.json$/, ".json"), path = meta?.head ? named.replace(/\.\.[^./]+\.json$/, `..${short(meta.head)}.json`) : named, target = resolvePath(ctx, path);
     try { await writeJson(ctx.tenantId, target, doc, (await workspaceStore().readBytes(ctx.tenantId, target))?.version); }
     catch (e) { if (e instanceof WorkspaceConflict) throw new Error(`${path} changed while it was being written; call finishChangelog again.`); throw e; }
     await workspaceStore().remove(ctx.tenantId, full);
