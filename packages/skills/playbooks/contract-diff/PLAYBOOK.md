@@ -67,6 +67,12 @@ Every changed file is mapped before any endpoint is traced: its whole patch read
 
 Once every file is mapped, the draft holds the candidate endpoints, those only in head among them, and its notes the global changes and the endpoints only in base.
 
+**The whole history.** When base is the empty tree, nothing came before: the files mapped are those that declare routes at head, and every route they declare is a NEW candidate. Set nothing aside and compare no route tables.
+
+1. Choose the route files from the conventions summary (how routes are declared) and head's tree: `startChangelog` gave its first page, and `repoTree` with ref head lists the rest or one folder (pass path). Read none of them yourself.
+2. Call `mapChangedFiles` with the draft, routeFiles (their paths, or patterns such as `src/**/*.controller.ts`, matched against head's tree) and chosenBy (how you chose them, in a sentence or two). The draft lists them, and workers map them as above, in groups by size: each reads its files whole at head and keeps every route they declare as a candidate. The result says how many were listed. A name that matches no file of head lists nothing: fix it and call again.
+3. When files wait, call `mapChangedFiles` with the draft alone. Pass routeFiles again only to change the list: it replaces the one kept, and the files still listed keep their mapping.
+
 ## 4. Hand the candidates to workers
 
 Once every changed file is mapped or set aside, call `traceEndpoints` with the draft alone. It traces the candidates mapping kept, each worker starting from its candidate's note, and with every file mapped they are all there are. Before then it traces nothing and names the files left: map those first. Endpoints that exist only in head are candidates too (they are NEW), kept when the file that declares their route is mapped. Those that exist only in base are not: mapping listed them in the removed operations.
@@ -76,6 +82,7 @@ Each candidate gets a worker of its own, which follows tracing.md: it reads the 
 - The draft keeps every candidate. A traced one is never traced again, and one whose worker failed is listed as unverified in the notes and is not traced again either.
 - Workers run while the turn has time. When endpoints wait, the next turn goes on with them: call `traceEndpoints` again. A turn that goes on by itself sees in the draft which endpoints wait. `finishChangelog` refuses while any waits.
 - What the code could not settle for the whole changelog goes in the notes as unverified, with `putChangelogNotes`.
+- For the whole history, `traceEndpoints` waits until every route file the draft lists is mapped, and refuses while it lists none. Each candidate is NEW, and its worker reads head only.
 
 ## 5. Validate and write
 
