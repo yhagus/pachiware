@@ -392,6 +392,43 @@ describe("Anthropic profiles and image input", () => {
     expect(code, stderr).toBe(0);
   });
 
+  // The same kind of proxy on the Responses API (2026-10-24): unstreamed, a tool call comes back as a completed, empty message; streamed,
+  // each event is wrapped as {"event", "data"}, the call arrives as its own items, and the completed response holds no output or usage.
+  test("a Responses server that drops tool calls unless it streams is asked again streaming, remembered, and its wrapped events read", () => {
+    const { code, stderr } = scenario(`
+      const wrapped = (events) => new Response(events.map((e) => "data: " + JSON.stringify({ event: e.type, data: e }) + "\\n\\n").join("") + "data: [DONE]\\n\\n", { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      const message = (text) => ({ id: "msg_0", type: "message", role: "assistant", content: [{ type: "output_text", text }] });
+      const call = { id: "fc_c1", type: "function_call", call_id: "c1", name: "listFiles", arguments: '{"path":"channel"}' };
+      let streamed = "call";
+      reply = (c) => {
+        if (c.method === "GET") return json({ data: [{ id: "cbai-cli/deepseek-flash" }] });
+        if (c.body.stream !== true) return json({ object: "response", status: "completed", output: [message("")], usage: { input_tokens: 9, output_tokens: 7, total_tokens: 16 } });
+        const items = streamed === "call" ? [message("Checking."), call] : [message("Halo!")];
+        return wrapped([
+          { type: "response.created", response: { status: "in_progress", output: [] } },
+          ...items.map((item) => ({ type: "response.output_item.done", output_index: 0, item })),
+          { type: "response.completed", response: { status: "completed" } },
+        ]);
+      };
+      const profile = (await (await post("/tenants/" + tenant.id + "/profiles", { name: "Proxy", provider: "custom", apiFormat: "responses", model: "cbai-cli/deepseek-flash", baseUrl: "https://proxy.example/v1", apiKey: "k" })).json()).profile;
+      const bot = await repositories().bots.create({ tenantId: tenant.id, token: "t-proxy", isEnabled: false, profileId: profile.id });
+      const tools = [{ name: "listFiles", description: "List files", parameters: { type: "object", properties: { path: { type: "string" } } } }];
+      const ask = () => llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, botId: bot.id, tools });
+      const posts = () => calls.filter((c) => c.method === "POST");
+
+      const first = await ask();
+      assert(JSON.stringify(first.toolCalls) === JSON.stringify([{ id: "c1", name: "listFiles", arguments: { path: "channel" } }]), "the dropped tool call was not fetched again: " + JSON.stringify(first));
+      assert(first.finishReason === "tool_calls" && first.content === "Checking.", "the streamed answer was not assembled: " + JSON.stringify(first));
+      assert(posts().length === 2 && posts()[0].body.stream === false && posts()[1].body.stream === true, "not asked again streaming: " + JSON.stringify(posts().map((c) => c.body.stream)));
+
+      calls.length = 0; streamed = "text";
+      const next = await ask();
+      assert(posts().length === 1 && posts()[0].body.stream === true, "the server's need to stream was not remembered: " + JSON.stringify(posts().map((c) => c.body.stream)));
+      assert(next.content === "Halo!" && next.finishReason === "stop", "the streamed text was not read: " + JSON.stringify(next));
+    `);
+    expect(code, stderr).toBe(0);
+  }, 30_000);
+
   test("a Chat Completions answer that says it called a tool but holds no call or text, streamed or not, is a provider failure, never an empty reply", () => {
     const { code, stderr } = scenario(`
       const sse = (chunks) => new Response(chunks.map((c) => "data: " + JSON.stringify(c) + "\\n\\n").join("") + "data: [DONE]\\n\\n", { status: 200, headers: { "Content-Type": "text/event-stream" } });

@@ -19,7 +19,11 @@ function eventsOf(raw: string): Event[] {
     }
     const text = data.join("\n");
     if (!text || text === "[DONE]") continue;
-    try { events.push({ name, data: JSON.parse(text) }); } catch {}
+    let event: any;
+    try { event = JSON.parse(text); } catch { continue; }
+    // Some proxies wrap each event as {"event": name, "data": event} instead of sending the name on its own line.
+    if (event && typeof event.event === "string" && event.data && typeof event.data === "object" && !("type" in event)) ({ event: name, data: event } = event);
+    events.push({ name, data: event });
   }
   return events;
 }

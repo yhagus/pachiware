@@ -38,7 +38,10 @@ const finishOf = (cut: boolean, toolCalls: ToolCall[]): LLMResponse["finishReaso
 const withoutThink = (text: string | null | undefined) => text?.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, "") || null;
 // A Chat Completions answer that says the model called a tool ("tool_calls", or "tool_use" from proxies) yet holds neither the call nor text.
 const lostCall = (choice: any) => /^tool/.test(choice?.finish_reason ?? "") && !choice?.message?.tool_calls?.length && !withoutThink(choice?.message?.content);
-// Chat Completions servers that dropped a tool call unless they streamed, by base URL and model; asked streaming from then on, until restart.
+// A Responses answer to a request that offered tools, holding neither a call nor text: the same proxies drop the call this way, with no status to tell.
+const emptyOutput = (data: any) => !(data?.output ?? []).some((item: any) =>
+  item.type === "function_call" || (item.type === "message" && (item.content ?? []).some((c: any) => c.type === "output_text" && c.text?.trim())));
+// Servers that dropped a tool call unless they streamed, by API format, base URL and model; asked streaming from then on, until restart.
 const streamsOnly = new Set<string>();
 
 export class LLMRouter {
@@ -441,7 +444,7 @@ export class LLMRouter {
     }
 
     // Streaming is only for a server known to drop tool calls otherwise; it is asked for usage, which a stream leaves out by default.
-    const server = `${baseUrl}|${model}`;
+    const server = `chat_completions|${baseUrl}|${model}`;
     const send = (stream: boolean) => providerRequest(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -529,15 +532,28 @@ export class LLMRouter {
       if (options.toolChoice) body.tool_choice = options.toolChoice;
     }
 
+    const server = `responses|${baseUrl}|${model}`;
+    const send = (stream: boolean) => providerRequest(`${baseUrl}/responses`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...providerHeaders("custom", apiKey) },
+      body: JSON.stringify({ ...body, stream }),
+    }, options.deadline);
+
     try {
-      const response = await providerRequest(`${baseUrl}/responses`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...providerHeaders("custom", apiKey) },
-        body: JSON.stringify(body),
-      }, options.deadline);
+      const response = await send(streamsOnly.has(server));
       if (!response.ok) return this.rejected(response.status, messages, options);
 
-      const data = await readAnswer("responses", response);
+      let data = await readAnswer("responses", response);
+      if (body.tools && emptyOutput(data) && !streamsOnly.has(server)) {
+        const again = await send(true);
+        if (again.ok) {
+          const streamed = await readAnswer("responses", again);
+          if (!emptyOutput(streamed)) {
+            streamsOnly.add(server);
+            data = streamed;
+          }
+        }
+      }
       const toolCalls: ToolCall[] = [];
       let text = "";
       for (const item of data.output || []) {
