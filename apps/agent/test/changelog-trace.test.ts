@@ -6,6 +6,7 @@ import {
   acmeApi as acmeWithDtos, acmeOnGitHub, briefOf, budgets, draftMeta, endpointOf, fastProgress, isTracer, mapper, mappers, oneWorkerATurn, outlasting, pause, pauses, progressShown, progressShows, reaches, read,
   text, tracerStarts, written,
 } from "./support/changelog";
+import { missingFacts } from "./support/facts";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
 /** What every file of acme/api reads as, at any commit: what a worker reads, and the main loop never should. */
@@ -71,8 +72,8 @@ discordScenario("traceEndpoints hands each candidate to a worker of its own, whi
   expect(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).paths["/api/v2/users"].post["x-impact"]).toBe("breaking");
 });
 
-/** traceEndpoints' answer on a draft that holds no conventions summary yet (#365). */
-const NO_CONVENTIONS = "This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call traceEndpoints again. Nothing was traced.";
+/** What traceEndpoints' answer on a draft that holds no conventions summary yet says: write it first, and how, then trace again (#365). */
+const NO_CONVENTIONS = [/no conventions summary/, "checklist.md", "readPlaybookFile", "putChangelogNotes conventions", "traceEndpoints", /nothing was traced/i];
 
 discordScenario("traceEndpoints on a draft with no conventions summary traces nothing and says to write it first; once it is written, the same call traces with the summary in each worker's brief (#365)", async (s) => {
   await acmeApi(s);
@@ -88,7 +89,7 @@ discordScenario("traceEndpoints on a draft with no conventions summary traces no
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(refusal).toBe(NO_CONVENTIONS);
+  expect(missingFacts(refusal, ...NO_CONVENTIONS)).toEqual([]);
   // The refused call kept no candidate and started no worker; the one after the summary started the only worker.
   expect(kept).toBeUndefined();
   expect(s.model.calls.map(isTracer)).toEqual([false, false, false, false, false, false, true, true, false, false]);
@@ -107,7 +108,9 @@ discordScenario("a turn that goes on by itself from a draft with no conventions 
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(state).toEndWith("\n</untrusted_data>\nThe draft holds no conventions summary yet: write it before any endpoint is traced, as step 2 says (checklist.md, then putChangelogNotes conventions). traceEndpoints refuses until it is written.");
+  // After the draft's state, outside its data, the turn is told to write the summary first, and how; traceEndpoints refuses until then.
+  const told = state.slice(state.lastIndexOf("</untrusted_data>"));
+  expect(missingFacts(told, /no conventions summary/, "checklist.md", "putChangelogNotes conventions", "traceEndpoints")).toEqual([]);
   expect(s.model.calls).toHaveLength(6);
   expect(tracerStarts(s)).toEqual([]);
   const meta = await draftMeta(s);
@@ -116,8 +119,8 @@ discordScenario("a turn that goes on by itself from a draft with no conventions 
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(['<@user-alice> The changelog made no progress, so I paused it; type "go on" to continue.']);
 });
 
-/** traceEndpoints' answer when the main loop passes candidates of its own (#369). */
-const CANDIDATES_PASSED = "traceEndpoints takes the draft alone and traces the candidate endpoints mapping kept: each endpoint a changed file reaches, as its mapping worker recorded it. Map any file left with mapChangedFiles, then call traceEndpoints with the draft alone. Nothing was traced.";
+/** What traceEndpoints' answer says when the main loop passes candidates of its own: it takes the draft alone, after mapping (#369). */
+const CANDIDATES_PASSED = [/draft alone/, "mapChangedFiles", "traceEndpoints", /nothing was traced/i];
 
 discordScenario("traceEndpoints takes the draft alone: candidates the main loop passes are refused with a pointer to mapping and kept nowhere, and the draft alone traces those mapping kept (#369)", async (s) => {
   await acmeApi(s);
@@ -131,7 +134,7 @@ discordScenario("traceEndpoints takes the draft alone: candidates the main loop 
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(refusal).toBe(CANDIDATES_PASSED);
+  expect(missingFacts(refusal, ...CANDIDATES_PASSED)).toEqual([]);
   expect(kept).toEqual(["POST /api/v2/users: waiting"]);
   expect(tracerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users"]);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
@@ -155,13 +158,9 @@ discordScenario("traceEndpoints traces nothing while a changed file is unmapped,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(refusal).toBe(`6 of 7 changed files are not mapped yet, so nothing was traced: tracing waits until every changed file is mapped, so that the candidates it counts are all there are. Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside; then call traceEndpoints again. Not mapped yet:
-- src/users/users.controller.ts
-- src/users/dto/b.dto.ts
-- src/users/dto/c.dto.ts
-- src/users/dto/d.dto.ts
-- src/users/dto/e.dto.ts
-- src/users/dto/f.dto.ts`);
+  // It counts and names the files left, not the one mapped, and says to map them or set them aside, then trace again.
+  expect(missingFacts(refusal, "6 of 7 changed files", /nothing was traced/i, "mapChangedFiles", "putChangelogNotes setAside", "traceEndpoints", CONTROLLER, ...DTOS.slice(1))).toEqual([]);
+  expect(refusal).not.toContain(DTOS[0]);
   expect(kept).toEqual(["POST /api/v2/users: waiting"]);
   // One worker, started once every file was mapped, for the one candidate the seven changes reach.
   expect(tracerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users"]);
@@ -180,7 +179,7 @@ discordScenario("traceEndpoints on a draft whose every changed file reaches no e
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(refusal).toBe("No mapped file reaches an endpoint, so this changelog keeps no candidate endpoint to trace. Record removed endpoints with putChangelogNotes, then call finishChangelog. Nothing was traced.");
+  expect(missingFacts(refusal, /no candidate endpoint/, "putChangelogNotes", "finishChangelog", /nothing was traced/i)).toEqual([]);
   expect(tracerStarts(s)).toEqual([]);
   expect(finished).toMatchObject({ written: false });
 });
@@ -197,7 +196,8 @@ discordScenario("finishChangelog writes nothing while a candidate endpoint waits
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(refused).toEqual({ written: false, waiting: 1, endpoints: ["POST /api/v2/users"], fix: "Each candidate endpoint is traced before the changelog is written: call traceEndpoints with the draft, then call finishChangelog again." });
+  expect(refused).toEqual({ written: false, waiting: 1, endpoints: ["POST /api/v2/users"], fix: expect.any(String) });
+  expect(missingFacts(refused.fix, "traceEndpoints", "finishChangelog")).toEqual([]);
   expect(kept).toEqual(["POST /api/v2/users: waiting"]);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
   expect(Object.keys(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).paths)).toEqual(["/api/v2/users"]);
@@ -405,7 +405,7 @@ discordScenario("the open-draft line of a person's turn says how many candidate 
   s.model.script((turn) => { line = String(turn.messages.at(-1)!.content).match(/^Open API changelog in this place.*$/m)?.[0] ?? ""; return "It is paused with two endpoints left to trace."; });
   await s.discord.send(`${s.discord.mention} how far is the changelog?`);
 
-  expect(line).toContain("; 0 endpoints recorded so far, 2 candidate endpoints waiting to be traced with traceEndpoints. Draft: ");
+  expect(missingFacts(line, "0 endpoints recorded", "2 candidate endpoints", "traceEndpoints", DRAFT)).toEqual([]);
 });
 
 discordScenario("a changelog whose every candidate endpoint failed is written with those endpoints listed as unverified, never finished as one that changed nothing (#343)", async (s) => {

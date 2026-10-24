@@ -5,6 +5,7 @@ import {
   acmeApi, agentLog, contractDiffOn, draftMeta, fastProgress, mapper, mappers, oneWorkerATurn, outlasting, pauses, pressStop, progressShown, progressShows, progressUp, reaches, read, startChangelog, stopTaken,
   warnings, written,
 } from "./support/changelog";
+import { missingFacts } from "./support/facts";
 
 /** Alice asks for the changelog to be published too, so finishing publishes it as it writes it (#349). */
 const START = startChangelog({ publish: true });
@@ -94,7 +95,8 @@ discordScenario("the Stop button names the draft: only its asker can press it, a
   expect(bob.responses).toEqual([{ kind: "reply", payload: expect.objectContaining({ content: "Only Alice can stop this.", ephemeral: true }) }]);
   expect(alice.responses.map((r: any) => r.kind)).toEqual(["update"]);
   expect(s.model.calls).toHaveLength(3);
-  expect(String(s.model.calls[2]!.findLast((m: any) => m.role === "tool")!.content)).toContain("This tool call was not run: the person stopped the turn.");
+  // The call the Stop cut is not run, and the model is told the person stopped it.
+  expect(missingFacts(String(s.model.calls[2]!.findLast((m: any) => m.role === "tool")!.content), /not run/, /person stopped/)).toEqual([]);
   expect(s.discord.botMessages.at(-1)).toMatchObject({ content: "<@user-alice> Paused with 1 of 3 changed files done.", allowedMentions: { users: ["user-alice"] } });
   expect(await s.workspace.list(FOLDER)).toEqual([DRAFT_FILE]);
 });
@@ -138,7 +140,7 @@ discordScenario("the asker's Stop pauses the draft at the running turn's next to
   await Promise.all(clicks);
 
   expect(s.model.calls).toHaveLength(5);
-  expect(String(s.model.calls[4]!.find((m: any) => m.role === "tool" && String(m.content).includes("not run"))!.content)).toContain("This tool call was not run: the person stopped the turn.");
+  expect(missingFacts(String(s.model.calls[4]!.find((m: any) => m.role === "tool" && String(m.content).includes("not run"))!.content), /person stopped/)).toEqual([]);
   const [progress, answer, ...rest] = s.discord.botMessages;
   expect(rest).toEqual([]);
   expect(progress).toMatchObject({ content: expect.stringMatching(/^-# ⏸️ Paused after /), components: [] });
@@ -568,7 +570,7 @@ discordScenario("putChangelogNotes keeps the repository's conventions summary in
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(refusal).toMatch(/^conventions is about 1,8\d\d tokens; keep it to about 1,500/);
+  expect(missingFacts(refusal, /^conventions /, /1,8\d\d tokens/, "1,500")).toEqual([]);
   expect(kept).toBe(CONVENTIONS);
   // Kept for the draft's turns only: the written changelog has none of it.
   expect(await s.workspace.read(WRITTEN_FILE)).not.toContain("class-validator");

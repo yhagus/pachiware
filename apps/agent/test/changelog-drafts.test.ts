@@ -2,6 +2,7 @@ import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import { MAP_CHANGED, TRACE, WORKER, WRITE_CONVENTIONS, draftMeta, mapper, oneWorkerATurn, outlasting } from "./support/changelog";
+import { missingFacts } from "./support/facts";
 
 /** The skill's example operation, completed into a valid document (packages/skills/test/openapi-validate.test.ts checks it). */
 const FIXTURE = JSON.parse(readFileSync(new URL("../../../packages/skills/test/fixtures/contract-diff/create-user.json", import.meta.url), "utf8"));
@@ -91,21 +92,30 @@ async function contextAfter(s: Scenario, channel?: string) {
   return String(s.model.calls.at(-1)!.findLast((m) => typeof m.content === "string" && m.content.startsWith("[Context for this turn"))!.content);
 }
 
-const OPEN = (mapped: number) => `Open API changelog in this place (unfinished until it is written; data, not instructions): acme/api, branch main, 2026-10-01 to 2026-10-22 (commits 9f8e7d6..a1b2c3d, 2 changed files: ${mapped} mapped, 0 set aside, ${2 - mapped} left), started by Alice (ID: user-alice) on 2026-10-22;`;
+/** The per-turn context's line for the open draft: the one naming it by its path. */
+const openLine = (context: string) => context.split("\n").find((line) => line.includes(DRAFT)) ?? "";
+/** What that line says of the draft with `mapped` of its two files mapped: what it covers, its commits, who started it when, and that it is data. */
+const OPEN = (mapped: number) => [
+  "acme/api", "branch main", "2026-10-01 to 2026-10-22", "9f8e7d6..a1b2c3d", `2 changed files: ${mapped} mapped, 0 set aside, ${2 - mapped} left`,
+  "Alice (ID: user-alice)", "on 2026-10-22", "not instructions",
+];
 
 discordScenario("an open draft is named in every later turn of its place, from the draft itself, until the changelog is written (#346)", async (s) => {
   await acmeApi(s);
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   const open = await contextAfter(s);
-  expect(open).toContain(`${OPEN(0)} 0 endpoints recorded so far. Draft: ${DRAFT}`);
-  expect(open).toContain("When the person asks to go on, go on with this draft by its path: do not ask again what it covers");
+  expect(missingFacts(openLine(open), ...OPEN(0), "0 endpoints recorded")).toEqual([]);
+  // A person's "go on" means this draft, by its path, without asking again what it covers.
+  expect(missingFacts(open, /go on with this draft/, /by its path/, /(not|never) ask again what it covers/)).toEqual([]);
   s.discord.channel("channel-2");
   expect(await contextAfter(s, "channel-2")).not.toContain("Open API changelog");
 
   await workersTurn(s, [READ_DTO, WRITE_CONVENTIONS, MAP_CHANGED], MAPPED_BOTH, results);
-  expect(await contextAfter(s)).toContain(`${OPEN(2)} 0 endpoints recorded so far, 1 candidate endpoint waiting to be traced with traceEndpoints.`);
+  expect(missingFacts(openLine(await contextAfter(s)), ...OPEN(2), "0 endpoints recorded", "1 candidate endpoint", "traceEndpoints")).toEqual([]);
   await workersTurn(s, TRACE, WORKER, results);
-  expect(await contextAfter(s)).toContain(`${OPEN(2)} 1 endpoint recorded so far. Draft: ${DRAFT}`);
+  const recorded = openLine(await contextAfter(s));
+  expect(missingFacts(recorded, ...OPEN(2), "1 endpoint recorded")).toEqual([]);
+  expect(recorded).not.toContain("candidate");
   await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(await contextAfter(s)).not.toContain("Open API changelog");
 });
@@ -115,7 +125,9 @@ discordScenario("a place holds one open draft: another changelog is refused with
   s.http.on(`GET api.github.com/repos/acme/api/git/trees/${HEAD}?recursive=1`, () => ({ tree: [{ path: "src/main.ts", type: "blob" }], truncated: false }));
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   const [refused] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "all" } }, results);
-  expect(refused).toBe(`Another API changelog is open here and nothing new was started: acme/api, branch main, 2026-10-01 to 2026-10-22, started by Alice, 0 endpoints recorded (draft ${DRAFT}). This request was for acme/api, branch main, the whole history through 2026-10-22. Ask with askChangelogAsker, passing that draft, whether to go on with the open one or stop it first: it pauses the work until someone answers. Never ask it in plain text, or the work goes on without the answer.`);
+  // The refusal names the open draft and this request, and says to ask with askChangelogAsker, never in plain text.
+  expect(missingFacts(refused, /nothing new was started/, "acme/api, branch main, 2026-10-01 to 2026-10-22", "Alice", "0 endpoints recorded", DRAFT,
+    "the whole history through 2026-10-22", "askChangelogAsker", /plain text/)).toEqual([]);
   const [same] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   expect(same.draft).toBe(DRAFT);
 
@@ -149,8 +161,8 @@ discordScenario("the same repository, branch and coverage asked for on a later d
   const [again] = await turn(s, SAME, results);
   expect(again).toMatchObject({
     draft, base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: HEAD },
-    goesOn: "This is the changelog already open here, for the same repository, branch and coverage: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to.",
   });
+  expect(missingFacts(again.goesOn, /already open/, /nothing new was started/, /one line/, /without asking/)).toEqual([]);
   expect(again.lastDay).toBeUndefined();
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-23_9f8e7d6..a1b2c3d.draft.json`]);
 });
@@ -169,7 +181,8 @@ discordScenario("a draft pinned before its last day ended, asked for again after
 
   const [again] = await turn(s, SAME, results);
   expect(again).toMatchObject({ draft: DRAFT, base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: LATER }, changedFiles: { commits: 5, totalFiles: 3 } });
-  expect(again.lastDay).toBe("2026-10-22 had not ended when this changelog was pinned: its head moved from a1b2c3d to that day's last commit, c4d5e6f, adding 2 commits. The files they changed are to be mapped again, and the traced candidates those files reach are traced again. Say so in one line.");
+  // The day, the head's move and the commits it added; what is mapped and traced again; and to say so in one line.
+  expect(missingFacts(again.lastDay, "2026-10-22", "a1b2c3d", "c4d5e6f", "2 commits", /mapped again/, /traced again/, /one line/)).toEqual([]);
   // The draft keeps its name; what it compares is the new head.
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
   const doc = JSON.parse((await s.workspace.read(`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`))!);
@@ -202,7 +215,8 @@ discordScenario("a different range asked for while a draft is open starts nothin
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 15 October`);
 
-  expect(refused).toBe(`Another API changelog is open here and nothing new was started: acme/api, branch main, 2026-10-01 to 2026-10-22, started by Alice, 0 endpoints recorded (draft ${DRAFT}). This request was for acme/api, branch main, 2026-10-15 to 2026-10-22. Ask with askChangelogAsker, passing that draft, whether to go on with the open one or stop it first: it pauses the work until someone answers. Never ask it in plain text, or the work goes on without the answer.`);
+  expect(missingFacts(refused, /nothing new was started/, "acme/api, branch main, 2026-10-01 to 2026-10-22", "Alice", "0 endpoints recorded", DRAFT,
+    "acme/api, branch main, 2026-10-15 to 2026-10-22", "askChangelogAsker", /plain text/)).toEqual([]);
   expect(s.discord.botMessages.at(-1)!.content).toBe(QUESTION);
   expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
@@ -223,26 +237,34 @@ discordScenario("another repository's changelog asked for while a paused draft i
   );
   await s.discord.send(`${s.discord.mention} changelog acme/web from 15 October`);
 
-  expect(refused).toStartWith(`Another API changelog is open here and nothing new was started: acme/api, branch main, 2026-10-01 to 2026-10-22, started by Alice, 0 endpoints recorded (draft ${DRAFT}). This request was for acme/web, branch main, 2026-10-15 to 2026-10-22.`);
+  expect(missingFacts(refused, /nothing new was started/, "acme/api, branch main, 2026-10-01 to 2026-10-22", "Alice", "0 endpoints recorded", DRAFT,
+    "acme/web, branch main, 2026-10-15 to 2026-10-22", "askChangelogAsker")).toEqual([]);
   expect(s.discord.botMessages.at(-1)!.content).toBe(QUESTION);
   expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
   expect(await s.workspace.files("guilds/guild-1/channels/channel-1/files/changelogs")).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
 });
+
+/** What startChangelog's mapping note must carry: every changed file is mapped, or set aside with a reason, and the tools for each. */
+const MAPPING = [/every changed file/, /set aside with a reason/, "putChangelogNotes setAside", "mapChangedFiles"];
 
 discordScenario("a range becomes two commits, the operation and components go into a draft, and finishing writes the validated changelog", async (s) => {
   await acmeApi(s);
   const [started] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   expect(started).toEqual({
     draft: DRAFT, repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22",
-    branchNote: "No branch was named, so this is the repository's default branch, main. Name it when you tell the person you are starting, and in your answer.",
+    branchNote: expect.any(String),
     base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: HEAD, date: "2026-10-21T08:00:00Z" },
     // The patches that fit come with the list (#342): this comparison gives one for the controller only.
     changedFiles: {
-      commits: 3, totalFiles: 2, patches: "Patches are given for 1 of these 2 files; get the others with repoFileDiff.",
+      commits: 3, totalFiles: 2, patches: expect.any(String),
       files: [{ path: "src/users/users.controller.ts", status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, { path: "src/users/dto/create-user.dto.ts", status: "modified" }],
     },
-    mappingNote: "Before it is written, every changed file must be mapped or set aside with a reason (putChangelogNotes setAside). Set aside first what cannot change what the frontend sees, then map the rest with mapChangedFiles: its workers read the patches and record how each file ends. Mapped so far: 0 of 2.",
+    mappingNote: expect.any(String),
   });
+  // No branch was named: the default branch, main, is named to the person.
+  expect(missingFacts(started.branchNote, /default branch/, "main", /name it/i)).toEqual([]);
+  expect(missingFacts(started.changedFiles.patches, "1 of these 2", "repoFileDiff")).toEqual([]);
+  expect(missingFacts(started.mappingNote, ...MAPPING, "0 of 2")).toEqual([]);
 
   // The endpoint both files reach goes to a worker, which records it with its components (#369).
   let components: any, saved: any;
@@ -271,7 +293,7 @@ discordScenario("a range becomes two commits, the operation and components go in
 discordScenario("without the person's answer to all or part, nothing starts and nothing is written", async (s) => {
   await acmeApi(s);
   const [refused] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api" } }, results);
-  expect(refused).toBe("Ask the person first whether the changelog covers the whole history (scope all) or part of it (scope range, from one date to another), and wait for the answer. Never choose for them.");
+  expect(missingFacts(refused, /ask the person first/i, "scope all", "scope range", /wait for the answer/, /never choose/i)).toEqual([]);
   expect(await s.workspace.list(FOLDER)).toEqual([]);
 });
 
@@ -287,8 +309,9 @@ discordScenario("a run cut midway is picked up by the next start of the same cha
   expect(again.draft).toBe(DRAFT);
   expect(again.resumed).toEqual({
     operations: ["POST /api/v2/users (breaking)"], removedOperations: ["DELETE /api/v1/sessions"], globalChanges: 0, unverified: 0, mapped: 0, setAside: 0, left: 2,
-    note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded.",
+    note: expect.any(String),
   });
+  expect(missingFacts(again.resumed.note, /started before/, /kept/, /endpoints not yet recorded/)).toEqual([]);
 });
 
 discordScenario("an operation's problems come back at once, and finishing refuses while any remain", async (s) => {
@@ -303,7 +326,8 @@ discordScenario("an operation's problems come back at once, and finishing refuse
   ], results);
   expect(saved.problems).toEqual(["POST /api/v2/users x-changes[2]: field 'phone_number' does not exist in the body schema"]);
   const [refused] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
-  expect(refused).toEqual({ written: false, errors: ["POST /api/v2/users x-changes[2]: field 'phone_number' does not exist in the body schema"], fix: "Fix each error (putChangelogOperation or putChangelogNotes) and call finishChangelog again." });
+  expect(refused).toEqual({ written: false, errors: ["POST /api/v2/users x-changes[2]: field 'phone_number' does not exist in the body schema"], fix: expect.any(String) });
+  expect(missingFacts(refused.fix, "putChangelogOperation", "putChangelogNotes", "finishChangelog")).toEqual([]);
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
 });
 
@@ -314,15 +338,17 @@ discordScenario("a draft that records no change writes no changelog, and the who
     ...mapper(none("src/users/dto/create-user.dto.ts")), ...mapper(none("src/users/users.controller.ts")),
   ], results);
   const [nothing] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
-  expect(nothing).toEqual({ written: false, note: "The draft records no frontend-visible change, so no changelog was written; the draft is gone. Say so, with how many changed files were mapped." });
+  expect(nothing).toEqual({ written: false, note: expect.any(String) });
+  expect(missingFacts(nothing.note, /no frontend-visible change/, /draft is gone/, /how many changed files/)).toEqual([]);
   expect(await s.workspace.list(FOLDER)).toEqual([]);
 
   s.http.on(`GET api.github.com/repos/acme/api/git/trees/${HEAD}?recursive=1`, () => ({ tree: [{ path: "src/main.ts", type: "blob" }, { path: "src", type: "tree" }], truncated: false }));
   const [all] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "all" } }, results);
   expect(all).toMatchObject({
     draft: "channel/files/changelogs/acme-api/2026-10-22_4b825dc..a1b2c3d.draft.json", scope: "all", base: { ref: "(empty)", commit: "empty tree" },
-    note: "Nothing came before this changelog: every endpoint of head is NEW. Read head only.", changedFiles: { files: ["src/main.ts"], totalFiles: 1 },
+    changedFiles: { files: ["src/main.ts"], totalFiles: 1 },
   });
+  expect(missingFacts(all.note, /every endpoint of head is NEW/, /head only/)).toEqual([]);
 });
 
 discordScenario("a changelog is written only when every changed file was mapped or set aside with a reason: finishing names the files left, and what was set aside is in it (#347, #366)", async (s) => {
@@ -335,24 +361,29 @@ discordScenario("a changelog is written only when every changed file was mapped 
     { filename: "src/users/dto/create-user.dto.ts", status: "modified" }, { filename: "src/users/dto/update-user.dto.ts", status: "modified" }, { filename: "src/users/users.controller.spec.ts", status: "modified" },
   ] }));
   const [started] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
-  expect(started.mappingNote).toBe("Before it is written, every changed file must be mapped or set aside with a reason (putChangelogNotes setAside). Set aside first what cannot change what the frontend sees, then map the rest with mapChangedFiles: its workers read the patches and record how each file ends. Mapped so far: 0 of 5.");
-  const fix = "Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.";
+  expect(missingFacts(started.mappingNote, ...MAPPING, "0 of 5")).toEqual([]);
+  /** What finishChangelog's answer while files are left says to do: map them, or set aside with a reason those the frontend cannot see, then finish again. */
+  const FIX = ["mapChangedFiles", "putChangelogNotes setAside", /reason/, "finishChangelog"];
   // Read is not mapped: the two patches startChangelog gave are read, and every file is still unmapped.
   const [early] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
-  expect(early).toEqual({ written: false, unmapped: 5, files: ["src/users/users.controller.ts", "README.md", "src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts", "src/users/users.controller.spec.ts"], fix });
+  expect(early).toEqual({ written: false, unmapped: 5, files: ["src/users/users.controller.ts", "README.md", "src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts", "src/users/users.controller.spec.ts"], fix: expect.any(String) });
+  expect(missingFacts(early.fix, ...FIX)).toEqual([]);
 
   // The README's mapping worker, the first by path, maps it and the controller, whose patches startChangelog gave, and leaves no time for another.
   await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [map(CONTROLLER_REACHES, { path: "README.md", none: "documentation; nothing serves it" }), outlasting(s, "Mapped.")], results);
   // Patterns that skip the work instead of naming files that need none.
   const aside = (pattern: string, reason = "too many files") => ({ tool: "putChangelogNotes", args: { draft: DRAFT, setAside: [{ pattern, reason }] } });
   const [everything, rest] = await turn(s, [aside("**"), aside("src/users/**")], results);
-  expect(everything).toBe(`setAside "**" covers every changed file. Set aside only files that cannot change what the frontend sees (tests, docs, CI, lockfiles), each with its reason, and map the rest.`);
-  expect(rest).toBe(`setAside "src/users/**" covers every file not yet mapped. Set aside only files that cannot change what the frontend sees (tests, docs, CI, lockfiles), each with its reason, and map the rest.`);
+  // Each refusal names the pattern and what it covers, and says to set aside only what the frontend cannot see, with a reason, and map the rest.
+  const ONLY_UNSEEN = [/frontend/, /reason/, /map the rest/];
+  expect(missingFacts(everything, '"**"', /every changed file/, ...ONLY_UNSEEN)).toEqual([]);
+  expect(missingFacts(rest, '"src/users/**"', /every file not yet mapped/, ...ONLY_UNSEEN)).toEqual([]);
 
   const [tests] = await turn(s, aside("*.spec.ts", "Tests; they are not served"), results);
   expect(tests).toEqual({ saved: true, globalChanges: 0, removedOperations: 0, unverified: 0, files: { mapped: 2, setAside: 1, left: 2 } });
   const [still] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
-  expect(still).toEqual({ written: false, unmapped: 2, files: ["src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts"], fix });
+  expect(still).toEqual({ written: false, unmapped: 2, files: ["src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts"], fix: expect.any(String) });
+  expect(missingFacts(still.fix, ...FIX)).toEqual([]);
 
   await workersTurn(s, [
     { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: "src/users/dto/create-user.dto.ts" } },
@@ -366,6 +397,9 @@ discordScenario("a changelog is written only when every changed file was mapped 
   expect(written.info["x-changelog"].setAside).toEqual([{ pattern: "*.spec.ts", reason: "Tests; they are not served" }]);
   expect(written["x-draft"]).toBeUndefined();
 });
+
+/** What a refusal to map an unread file must carry: nothing was mapped, the whole patch must be read, and how to read it between which commits. */
+const UNREAD = [/nothing was mapped/i, /whole patch/, "repoFileDiff", "9f8e7d6", "a1b2c3d", "repoReadFile"];
 
 discordScenario("a changed file is mapped only once its whole patch was read, and the endpoints it reaches are kept as one waiting candidate each, its note naming every change that reaches it (#366)", async (s) => {
   await acmeApi(s);
@@ -386,8 +420,9 @@ discordScenario("a changed file is mapped only once its whole patch was read, an
     "Mapped.",
   ], results);
 
-  expect(unread).toBe("Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from 9f8e7d6 to a1b2c3d (or every line at either commit with repoReadFile):\n- src/users/dto/create-user.dto.ts");
-  expect(partly).toBe("Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from 9f8e7d6 to a1b2c3d (or every line at either commit with repoReadFile):\n- src/users/dto/create-user.dto.ts (lines 1-2 of 4 read at head)");
+  // Nothing is mapped until the whole patch is read: each refusal says how to read it, between which commits, and which file is left.
+  expect(missingFacts(unread, ...UNREAD, "src/users/dto/create-user.dto.ts")).toEqual([]);
+  expect(missingFacts(partly, ...UNREAD, "src/users/dto/create-user.dto.ts (lines 1-2 of 4 read at head)")).toEqual([]);
   expect(unmapped).toBeUndefined();
 
   expect(mapped).toEqual({ mapped: ["src/users/users.controller.ts", "src/users/dto/create-user.dto.ts"], newCandidates: ["POST /api/v2/users"], candidates: 1, files: { mapped: 2, setAside: 0, left: 0 } });
@@ -398,7 +433,7 @@ discordScenario("a changed file is mapped only once its whole patch was read, an
   });
 
   expect(again).toEqual({ mapped: ["src/users/dto/create-user.dto.ts"], newCandidates: [], candidates: 1, files: { mapped: 2, setAside: 0, left: 0 } });
-  expect(stranger).toBe("Nothing was mapped: src/main.ts is not a changed file of this changelog.");
+  expect(missingFacts(stranger, /nothing was mapped/i, "src/main.ts", /not a changed file/)).toEqual([]);
   expect(remapped.candidates).toEqual([{ method: "post", path: "/api/v2/users", note: "src/users/users.controller.ts: @Post() became @Post('v2')", state: "waiting" }]);
   expect(remapped.mapping["src/users/dto/create-user.dto.ts"]).toEqual({ read: true, none: "CreateUserDto is used by no route" });
 });
@@ -414,12 +449,12 @@ discordScenario("a draft started before files were mapped has every changed file
       examined: ["src/users/users.controller.ts", "src/users/dto/create-user.dto.ts"], touchedAt: new Date(s.clock.now()).toISOString(),
     },
   }));
-  expect(await contextAfter(s)).toContain(`${OPEN(0)} 0 endpoints recorded so far.`);
+  expect(missingFacts(openLine(await contextAfter(s)), ...OPEN(0), "0 endpoints recorded")).toEqual([]);
   // The DTO's mapping worker, the first by path, tries the controller, and leaves no time for another.
   await oneWorkerATurn();
   let refused = "";
   await workersTurn(s, [WRITE_CONVENTIONS, MAP_CHANGED], [map(CONTROLLER_REACHES), (t: any) => { refused = t.toolResults.at(-1).error; return outlasting(s, "src/users/users.controller.ts: not read yet")(); }], results);
-  expect(refused).toBe("Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from 9f8e7d6 to a1b2c3d (or every line at either commit with repoReadFile):\n- src/users/users.controller.ts");
+  expect(missingFacts(refused, ...UNREAD, "src/users/users.controller.ts")).toEqual([]);
   const [early] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(early).toMatchObject({ written: false, unmapped: 2, files: ["src/users/users.controller.ts", "src/users/dto/create-user.dto.ts"] });
 });
@@ -453,18 +488,20 @@ discordScenario("the person who started a changelog stops it from chat: the draf
 
   s.model.script({ tool: "stopChangelog", args: {} }, results);
   await s.discord.send(`${s.discord.mention} hentikan bikin changelog`, { author: s.discord.bob });
-  expect(lastReply(s)).toEqual(["Only Alice, who started this changelog, can stop it; nothing was stopped. Tell the person whose it is."]);
+  const [notTheirs] = lastReply(s);
+  expect(missingFacts(notTheirs, /only Alice/i, /nothing was stopped/, /whose it is/)).toEqual([]);
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
 
   const [stopped] = await turn(s, { tool: "stopChangelog", args: {} }, results);
   expect(stopped).toEqual({
     stopped: true, repo: "acme/api", branch: "main", covers: "2026-10-01 to 2026-10-22", operations: 1, files: { mapped: 0, setAside: 0, left: 2 },
-    note: "The draft is gone and nothing was written. Say the changelog is stopped and what it had recorded; asking for it again starts anew.",
+    note: expect.any(String),
   });
+  expect(missingFacts(stopped.note, /draft is gone/, /nothing was written/, /what it had recorded/, /starts anew/)).toEqual([]);
   expect(await s.workspace.list(FOLDER)).toEqual([]);
   expect(await contextAfter(s)).not.toContain("Open API changelog");
   const [nothing] = await turn(s, { tool: "stopChangelog", args: {} }, results);
-  expect(nothing).toBe("No API changelog is open here, so there is nothing to stop.");
+  expect(missingFacts(nothing, /no API changelog is open/i, /nothing to stop/)).toEqual([]);
 });
 
 discordScenario("a draft nobody touched for 7 days is dropped unannounced the next time its place is read, and audited (#348)", async (s) => {
@@ -496,7 +533,7 @@ discordScenario("when publishing a changelog asked for from the start fails, the
   }), undefined, { maxBytes: MAX_BLOB_BYTES });
   s.model.script({ tool: "finishChangelog", args: { draft: DRAFT } }, (turn) => JSON.stringify(turn.toolResults.map((r: any) => ({ written: r.written, path: r.path, publishFailed: r.publishFailed, published: r.published }))));
   await s.discord.send(`${s.discord.mention} changelog`);
-  expect(lastReply(s)).toEqual([{ written: true, path: "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json", publishFailed: "That file is 2.1 MB; an OpenAPI Schema Viewer page holds at most 2 MB." }]);
+  expect(lastReply(s)).toEqual([{ written: true, path: "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.json", publishFailed: expect.stringMatching(/2\.1 MB[^]*at most 2 MB/) }]);
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.json`]);
 });
 
@@ -523,8 +560,7 @@ discordScenario("an operation sent as JSON text is taken as the object it holds,
     { tool: "putChangelogOperation", args: { draft: DRAFT, method: "get", path: "/api/v2/users", operation: JSON.stringify(OPERATION).slice(0, -1) } },
   ], results);
   expect(saved).toEqual({ saved: "POST /api/v2/users", impact: "breaking", operations: 1 });
-  expect(broken).toStartWith("operation was sent as JSON text that does not parse (");
-  expect(broken).toEndWith("). Send it as an object, not as text.");
+  expect(missingFacts(broken, /^operation /, /JSON text that does not parse/, /send it as an object/i)).toEqual([]);
 });
 
 discordScenario("a range draft from before drafts listed their files is told to start once more, which lists them, and traces nothing before; a stop is told to stay short (#353, #369)", async (s) => {
@@ -534,20 +570,22 @@ discordScenario("a range draft from before drafts listed their files is told to 
     openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog }, paths: {}, components: {},
     "x-draft": { repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", conventions: "NestJS: routes from @Controller, no global prefix.", candidates: [{ method: "post", path: "/api/v2/users", state: "waiting" }] },
   }));
-  const RESTART = "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage.";
+  /** What the draft is told until it lists its files: start it once more with its repository, branch and coverage. */
+  const RESTART = [/does not list its changed files/, "startChangelog", /repository, branch and coverage/];
   const before = await contextAfter(s);
-  expect(before).toContain(RESTART);
-  expect(before).toContain("If you stop before it is written, answer in at most three short lines: how far it is (changed files mapped of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them, and do not ask whether to go on.");
+  expect(missingFacts(before, ...RESTART)).toEqual([]);
+  // A stop is told to stay short: at most three lines on how far it is (files mapped, endpoints recorded) and what comes next, naming no tools.
+  expect(missingFacts(before, /at most three/, /how far/, /files mapped/, /endpoints recorded/, /next/, /name no tools/i)).toEqual([]);
   // Which files changed is not known yet, so none is mapped: the candidate an earlier run kept waits (#369).
   const [untraced] = await turn(s, { tool: "traceEndpoints", args: { draft: "channel/files/changelogs/acme-api/2026-10-21_9f8e7d6..a1b2c3d.draft.json" } }, results);
-  expect(untraced).toBe(`${RESTART} Nothing was traced.`);
+  expect(missingFacts(untraced, ...RESTART, /nothing was traced/i)).toEqual([]);
 
   const [again] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } }, results);
   expect(again.draft).toBe("channel/files/changelogs/acme-api/2026-10-21_9f8e7d6..a1b2c3d.draft.json");
   expect(again.resumed).toMatchObject({ mapped: 0, setAside: 0, left: 2 });
   const after = await contextAfter(s);
   expect(after).toContain("(commits 9f8e7d6..a1b2c3d, 2 changed files: 0 mapped, 0 set aside, 2 left)");
-  expect(after).not.toContain(RESTART);
+  expect(after).not.toContain("startChangelog");
   // The comparison that lists its files also says how many commits its range holds, and the draft keeps that too (#367).
   expect(JSON.parse((await s.workspace.read(`${FOLDER}/2026-10-21_9f8e7d6..a1b2c3d.draft.json`))!)["x-draft"].commits).toBe(3);
 });

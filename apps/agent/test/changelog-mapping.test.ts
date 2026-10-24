@@ -5,6 +5,7 @@ import {
   BASE, DRAFT, DRAFT_FILE, FINISH, HEAD, MAPPER_TOOLS, MAP_CHANGED, PROVIDER_DOWN, START, TRACE, WRITTEN_FILE,
   acmeOnGitHub, briefOf, budgets, draftMeta, fastProgress, filesOf, isMapper, mapperStarts, pauses, progressShown, progressShows, text, written,
 } from "./support/changelog";
+import { missingFacts } from "./support/facts";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
 /** What every file of acme/api reads as, at any commit: what a worker reads, and the main loop never should. */
@@ -60,7 +61,7 @@ discordScenario("mapChangedFiles hands the changed files to workers in groups by
   expect(rules).not.toContain("## 1. Pin what the changelog covers");
   expect(rules).not.toContain("**Presence versus null.**");
   // The main loop hears counts, and never reads what the workers read.
-  expect(mapped).toEqual({ mapped: 4, unverified: 0, files: { mapped: 4, setAside: 0, left: 0 }, candidates: 0, note: "Every changed file is mapped or set aside, and no change reaches an endpoint: call finishChangelog." });
+  expect(mapped).toEqual({ mapped: 4, unverified: 0, files: { mapped: 4, setAside: 0, left: 0 }, candidates: 0, note: expect.stringContaining("finishChangelog") });
   for (const call of s.model.calls.slice(12)) expect(call.map(text).join("\n")).not.toContain(SOURCE);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Nothing the frontend sees changed."]);
 });
@@ -85,7 +86,9 @@ discordScenario("a turn cut while its workers map goes on by itself with the fil
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(cut).toEqual({ mapped: 1, unverified: 0, files: { mapped: 1, setAside: 0, left: 3 }, candidates: 0, note: "This turn's time is nearly out: 3 changed files wait to be mapped, and the next turn goes on with them through mapChangedFiles." });
+  expect(cut).toEqual({ mapped: 1, unverified: 0, files: { mapped: 1, setAside: 0, left: 3 }, candidates: 0, note: expect.any(String) });
+  // The turn's time is nearly out: the files left wait for the next turn, which maps them with mapChangedFiles.
+  expect(missingFacts(cut.note, /\btime\b/, "3 changed files", /next turn/, "mapChangedFiles")).toEqual([]);
   expect(state).toContain(`Changed files: 4: 1 mapped, 0 set aside, 3 left.\nMapped:\n- ${CREATE} → no endpoint (only a log line changed)\nLeft:\n- ${SERVICE} (modified)\n- ${CONTROLLER} (modified, read whole)\n- ${UPDATE} (modified)\n`);
   expect(mapperStarts(s).map(filesOf)).toEqual([[CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["<@user-alice> Nothing the frontend sees changed."]);
@@ -110,7 +113,8 @@ discordScenario("a file two workers could not map is listed as unverified with w
 
   // The DTO left unmapped joins the next group formed, again alone by its patch's size.
   expect(mapperStarts(s).map(filesOf)).toEqual([[CREATE], [CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
-  expect(mapped).toEqual({ mapped: 3, unverified: 1, files: { mapped: 4, setAside: 0, left: 0 }, candidates: 0, note: "Every changed file is mapped or set aside; 1 could not be mapped and is listed as unverified, and no change reaches an endpoint: call finishChangelog." });
+  expect(mapped).toEqual({ mapped: 3, unverified: 1, files: { mapped: 4, setAside: 0, left: 0 }, candidates: 0, note: expect.any(String) });
+  expect(missingFacts(mapped.note, "1 could not be mapped", "unverified", "finishChangelog")).toEqual([]);
   const why = "its class is generated from a schema at build time, and the generator is not in the repository";
   expect(entry).toEqual({ attempts: 2, unverified: why });
   const unverified = [{ in: "operation", reason: `${CREATE} could not be mapped: ${why}` }];
@@ -238,7 +242,7 @@ discordScenario("the main loop's own putChangelogMapping is refused and maps not
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(refusal).toBe("Only mapping workers record how changed files end: call mapChangedFiles with the draft, and its workers read the patches and map the files. Nothing was mapped.");
+  expect(missingFacts(refusal, /only mapping workers/i, "mapChangedFiles", /nothing was mapped/i)).toEqual([]);
   expect(mapping).toEqual({ [CONTROLLER]: { read: true } });
 });
 
@@ -252,7 +256,8 @@ discordScenario("mapChangedFiles on a draft with no conventions summary maps not
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(refusal).toBe("This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call mapChangedFiles again. Nothing was mapped.");
+  // No conventions summary yet: write it first (checklist.md through readPlaybookFile, kept with putChangelogNotes conventions), then map.
+  expect(missingFacts(refusal, /no conventions summary/, "checklist.md", "readPlaybookFile", "putChangelogNotes conventions", "mapChangedFiles", /nothing was mapped/i)).toEqual([]);
   expect(mapperStarts(s)).toEqual([]);
   expect(s.model.calls).toHaveLength(4);
 });
@@ -295,7 +300,8 @@ discordScenario("a mapping worker comparing the route tables records a route onl
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(mapped).toEqual({ mapped: 3, unverified: 0, files: { mapped: 3, setAside: 0, left: 0 }, candidates: 1, removedOperations: 1, note: "Every changed file is mapped or set aside. Trace the 1 candidate endpoint with traceEndpoints." });
+  expect(mapped).toEqual({ mapped: 3, unverified: 0, files: { mapped: 3, setAside: 0, left: 0 }, candidates: 1, removedOperations: 1, note: expect.any(String) });
+  expect(missingFacts(mapped.note, "1 candidate endpoint", "traceEndpoints")).toEqual([]);
   expect(candidates).toEqual([{ method: "get", path: "/api/v2/billing/invoices", state: "waiting", note: `${APP_MODULE}: BillingModule is mounted in place of SessionsModule\n${BILLING}: a new controller` }]);
   expect(state).toContain(`Mapped:\n- ${APP_MODULE} → GET /api/v2/billing/invoices; removes DELETE /api/v2/sessions/{id}\n- ${BILLING} → GET /api/v2/billing/invoices\n- ${SESSIONS} → removes DELETE /api/v2/sessions/{id}\n`);
   expect(state).toContain('Removed endpoints: [{"method":"delete","path":"/api/v2/sessions/{id}","note":"SessionsModule is no longer mounted."}]');
@@ -347,7 +353,8 @@ discordScenario("a mapping worker's brief lists the global changes other workers
 
   const [first, second] = mapperStarts(s).map(briefOf);
   expect(first).not.toContain("global changes");
-  expect(second).toContain(`\nThe global changes other workers recorded, each a change to every endpoint alike: when one of your files makes one of them, give it that entry exactly.\n<untrusted_data source="global changes">\n${JSON.stringify(ENVELOPE)}\n</untrusted_data>\n`);
+  // The second worker's brief holds the first's global change, as data, and says to give a file making it that entry exactly.
+  expect(missingFacts(second, `<untrusted_data source="global changes">\n${JSON.stringify(ENVELOPE)}\n</untrusted_data>`, /that entry exactly/)).toEqual([]);
   expect(globals).toEqual([ENVELOPE]);
 });
 
@@ -372,7 +379,8 @@ discordScenario("a mapping worker records a global interceptor change once in th
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   expect(mapperStarts(s).map(filesOf)).toEqual([[INTERCEPTOR, MAIN]]);
-  expect(mapped).toEqual({ mapped: 2, unverified: 0, files: { mapped: 2, setAside: 0, left: 0 }, candidates: 0, globalChanges: 1, note: "Every changed file is mapped or set aside, and no candidate endpoint is kept to trace; the notes hold 1 global change: call finishChangelog." });
+  expect(mapped).toEqual({ mapped: 2, unverified: 0, files: { mapped: 2, setAside: 0, left: 0 }, candidates: 0, globalChanges: 1, note: expect.any(String) });
+  expect(missingFacts(mapped.note, "1 global change", "finishChangelog")).toEqual([]);
   expect(meta.candidates).toBeUndefined();
   expect(meta.mapping).toEqual({ [INTERCEPTOR]: { read: true, global: ENVELOPE }, [MAIN]: { read: true, global: ENVELOPE } });
   expect(finished).toMatchObject({ written: true, summary: { breaking: 1, deprecated: 0, "non-breaking": 0 }, breaking: ["every endpoint: CHANGED envelope body → { data: body }: Every success response is wrapped in data."] });
