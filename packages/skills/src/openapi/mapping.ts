@@ -84,7 +84,7 @@ export async function mapChangedFiles(ctx: SkillContext, args: { draft?: unknown
   // The files still to map; those a worker has are busy, and one it leaves unmapped goes back, to join the next group formed.
   let pool = [...work.files];
   const busy = new Set<string>(), next = () => mappingGroups(pool.filter((f) => !busy.has(f.path)))[0];
-  let mapped = 0, unverified = 0, stands = { files: work.counted, candidates: work.candidates };
+  let mapped = 0, unverified = 0, stands = { files: work.counted, candidates: work.candidates, globalChanges: work.globalChanges, removedOperations: work.removedOperations };
 
   const halted = await fanOut(workers, limit, { more: () => !!next(), take: () => { const group = next()!; group.forEach((f) => busy.add(f.path)); return group; } }, async (group, ms) => {
     const outcome = await workers.run({ playbook, rules, brief: briefOf(work, draft, group), tools: MAPPING_TOOLS, steps: workerBudget.steps, ms, cacheKey: `changelog-mapping:${draft}` });
@@ -94,12 +94,12 @@ export async function mapChangedFiles(ctx: SkillContext, args: { draft?: unknown
     pool = pool.filter((f) => !group.includes(f) || settled.left.includes(f.path));
     mapped += group.length - settled.left.length - settled.unverified.length;
     unverified += settled.unverified.length;
-    stands = { files: settled.files, candidates: settled.candidates };
+    stands = { files: settled.files, candidates: settled.candidates, globalChanges: settled.globalChanges, removedOperations: settled.removedOperations };
     console.info(`[changelog] Mapping worker on ${files(group.length)} (${work.repo}, draft ${draftName(draft)}): ${outcome.calls.length} tool call${outcome.calls.length === 1 ? "" : "s"}, ${group.length - settled.left.length - settled.unverified.length} mapped${settled.unverified.length ? `, ${settled.unverified.length} unverified` : ""}${settled.left.length ? `, ${settled.left.length} ${cut ? "left waiting" : "for a later group"}` : ""}`);
     return cut;
   });
 
-  const waiting = stands.files.left, { candidates } = stands;
+  const waiting = stands.files.left, { candidates, globalChanges, removedOperations } = stands;
   const listed = unverified ? `; ${unverified} could not be mapped and ${unverified === 1 ? "is" : "are"} listed as unverified` : "";
   const note = halted === "model" ? "The model could not be reached, so the changed files not mapped wait for the next turn. Say nothing more now."
     : halted === "service" ? "A service the work reads failed, so the work paused; the changed files not mapped wait."
@@ -107,5 +107,5 @@ export async function mapChangedFiles(ctx: SkillContext, args: { draft?: unknown
     : waiting ? `This turn's time is nearly out: ${files(waiting)} wait${waiting === 1 ? "s" : ""} to be mapped, and the next turn goes on with ${waiting === 1 ? "it" : "them"} through mapChangedFiles.`
     : candidates ? `Every changed file is mapped or set aside${listed}. Trace the ${candidates} candidate endpoint${candidates === 1 ? "" : "s"} with traceEndpoints.`
     : `Every changed file is mapped or set aside${listed}, and no change reaches an endpoint: call finishChangelog.`;
-  return { mapped, unverified, files: stands.files, candidates, note };
+  return { mapped, unverified, files: stands.files, candidates, ...(globalChanges ? { globalChanges } : {}), ...(removedOperations ? { removedOperations } : {}), note };
 }

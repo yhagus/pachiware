@@ -79,11 +79,12 @@ export type ChangedFile = { path: string; oldPath?: string; status: string; patc
 /**
  * How far a changed file is mapped (ADR 0026), kept by its path at head: `read` once its whole patch was read, and only then how it ended.
  * It reaches the candidate endpoints `reaches` names ("POST /api/v2/users"), reaches none for the reason `none` gives, or makes `global`, a
- * change to every endpoint alike that the notes record once. A file set aside by pattern has no state of its own. `attempts` counts the
+ * change to every endpoint alike that the notes record once. `removes` names the routes only in base it takes away, which the notes list as
+ * removed operations (#372), alone or beside what it reaches. A file set aside by pattern has no state of its own. `attempts` counts the
  * mapping workers that ended without mapping it; the second lists it as `unverified`, with why, which counts as mapped (#370).
  */
-export type FileMapping = { read?: true; reaches?: string[]; none?: string; global?: Json; attempts?: number; unverified?: string };
-const isMapped = (m: FileMapping | undefined) => !!m && (m.reaches !== undefined || m.none !== undefined || m.global !== undefined || m.unverified !== undefined);
+export type FileMapping = { read?: true; reaches?: string[]; none?: string; global?: Json; removes?: string[]; attempts?: number; unverified?: string };
+const isMapped = (m: FileMapping | undefined) => !!m && (m.reaches !== undefined || m.none !== undefined || m.global !== undefined || m.removes !== undefined || m.unverified !== undefined);
 type Side = "base" | "head";
 /** Files set aside unmapped, each pattern with why; kept in the written changelog, so a reader sees what was not read. */
 type SetAside = { pattern: string; reason: string };
@@ -478,7 +479,7 @@ const NO_PROGRESS_TURNS = 2;
 const progressOf = (doc: Json) => {
   const changelog = doc.info?.["x-changelog"] ?? {};
   const candidates = (doc["x-draft"]?.candidates ?? []).map((c: Candidate) => [c.method, c.path, c.state]);
-  const mapped = Object.entries<FileMapping>(doc["x-draft"]?.mapping ?? {}).filter(([, m]) => isMapped(m)).map(([path, m]) => [path, m.reaches, m.none, m.global, m.unverified]);
+  const mapped = Object.entries<FileMapping>(doc["x-draft"]?.mapping ?? {}).filter(([, m]) => isMapped(m)).map(([path, m]) => [path, m.reaches, m.none, m.global, m.removes, m.unverified]);
   const held = [mapped, changelog.setAside ?? [], changelog.removedOperations ?? [], doc.paths ?? {}, doc.components ?? {}, candidates];
   return createHash("sha256").update(JSON.stringify(held)).digest("base64");
 };
@@ -548,8 +549,8 @@ const upTo = (items: string[]) => (items.length > STATE_ITEMS ? [...items.slice(
 
 /** How a mapped file ended, in a line of the draft's state. */
 function mappedLine(path: string, m: FileMapping) {
-  const ended = m.reaches ? m.reaches.join(", ") : m.none !== undefined ? `no endpoint (${m.none})` : m.global !== undefined ? `a global change: ${JSON.stringify(m.global)}` : `unverified: two workers could not map it (${m.unverified})`;
-  return `- ${path} → ${ended}`;
+  const ended = m.reaches ? m.reaches.join(", ") : m.none !== undefined ? `no endpoint (${m.none})` : m.global !== undefined ? `a global change: ${JSON.stringify(m.global)}` : m.unverified !== undefined ? `unverified: two workers could not map it (${m.unverified})` : "";
+  return `- ${path} → ${[ended, m.removes ? `removes ${m.removes.join(", ")}` : ""].filter(Boolean).join("; ")}`;
 }
 
 /**
@@ -896,21 +897,41 @@ export async function putNotes(ctx: SkillContext, sent: { draft?: unknown; globa
   });
 }
 
-const MAPPING_SHAPE = 'Each file is one of {"path": "src/users/dto/create-user.dto.ts", "change": "what changed in it", "endpoints": [{"method": "post", "path": "/api/v2/users"}]}, {"path": "...", "none": "why it reaches no endpoint"} or {"path": "...", "global": {a change entry, as globalChanges takes it}}. Nothing was mapped.';
-type Mapped = { path: string; change?: string; endpoints?: { method: string; path: string }[]; none?: string; global?: Json };
+const MAPPING_SHAPE = 'Each file is one of {"path": "src/users/dto/create-user.dto.ts", "change": "what changed in it", "endpoints": [{"method": "post", "path": "/api/v2/users"}]}, {"path": "...", "none": "why it reaches no endpoint"} or {"path": "...", "global": {a change entry, as globalChanges takes it}}. A file whose change takes away routes, so they are only in base, also gives them, or gives only them: {"path": "src/app.module.ts", "removed": [{"method": "delete", "path": "/api/v2/sessions/{id}"}]}. Nothing was mapped.';
+type Removed = { method: string; path: string; replacedBy?: string; note?: string };
+type Mapped = { path: string; change?: string; endpoints?: { method: string; path: string }[]; none?: string; global?: Json; removed?: Removed[] };
 
-/** One file as putChangelogMapping takes it: its path, and exactly one of the endpoints it reaches with its change, none with why, or a global change. */
+const textOf = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+
+/** The routes a file takes away, as removed operations: each its method and full path, with what replaced it and a note when given. */
+function checkRemoved(value: unknown): Removed[] {
+  const list = fromText(value, "removed");
+  if (!Array.isArray(list) || !list.length) throw new Error(MAPPING_SHAPE);
+  return list.map((r: Json) => {
+    const method = typeof r?.method === "string" ? r.method.trim().toLowerCase() : "", path = typeof r?.path === "string" ? r.path.trim() : "";
+    if (!METHODS.has(method) || !path.startsWith("/")) throw new Error(`Each removed endpoint is {"method": "delete", "path": "/api/v2/sessions/{id}"}: its method and its full path at base, with replacedBy when another route takes its place and a note when there is more to say. ${MAPPING_SHAPE}`);
+    const replacedBy = textOf(r.replacedBy), note = textOf(r.note);
+    return { method, path, ...(replacedBy ? { replacedBy } : {}), ...(note ? { note } : {}) };
+  });
+}
+
+/**
+ * One file as putChangelogMapping takes it: its path, and exactly one of the endpoints it reaches with its change, none with why, or a
+ * global change; the routes it takes away come beside the endpoints or the global change, or alone, never beside none.
+ */
 function checkMapping(item: Json): Mapped {
-  const path = typeof item?.path === "string" ? item.path.trim() : "", text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const path = typeof item?.path === "string" ? item.path.trim() : "";
   const kinds = ["endpoints", "none", "global"].filter((k) => item?.[k] !== undefined && item?.[k] !== null);
-  if (!path || kinds.length !== 1) throw new Error(MAPPING_SHAPE);
-  if (kinds[0] === "none") { const none = text(item.none); if (!none) throw new Error(MAPPING_SHAPE); return { path, none }; }
-  if (kinds[0] === "global") { if (typeof item.global !== "object" || Array.isArray(item.global)) throw new Error(MAPPING_SHAPE); return { path, global: item.global }; }
-  const change = text(item.change), list = fromText(item.endpoints, "endpoints");
+  const removed = item?.removed !== undefined && item?.removed !== null ? { removed: checkRemoved(item.removed) } : null;
+  if (!path || kinds.length > 1 || (!kinds.length && !removed) || (removed && kinds[0] === "none")) throw new Error(MAPPING_SHAPE);
+  if (!kinds.length) return { path, ...removed };
+  if (kinds[0] === "none") { const none = textOf(item.none); if (!none) throw new Error(MAPPING_SHAPE); return { path, none }; }
+  if (kinds[0] === "global") { if (typeof item.global !== "object" || Array.isArray(item.global)) throw new Error(MAPPING_SHAPE); return { path, global: item.global, ...removed }; }
+  const change = textOf(item.change), list = fromText(item.endpoints, "endpoints");
   if (!change || !Array.isArray(list) || !list.length) throw new Error(MAPPING_SHAPE);
   const endpoints = list.map((e: Json) => ({ method: typeof e?.method === "string" ? e.method.trim().toLowerCase() : "", path: typeof e?.path === "string" ? e.path.trim() : "" }));
   if (endpoints.some((e) => !METHODS.has(e.method) || !e.path.startsWith("/"))) throw new Error(`Each endpoint is {"method": "post", "path": "/api/v2/users"}: its method, and its full path as the frontend calls it. ${MAPPING_SHAPE}`);
-  return { path, change: change.slice(0, NOTE_CHARS), endpoints };
+  return { path, change: change.slice(0, NOTE_CHARS), endpoints, ...removed };
 }
 
 /** The same JSON whatever the order of its keys: a global change named again is the one already recorded. */
@@ -925,7 +946,8 @@ function leftToRead(meta: DraftMeta, file: ChangedFile) {
 /**
  * putChangelogMapping: records how changed files of a range ended (ADR 0026), each only once its whole patch was read. A file reaching
  * endpoints keeps each as a waiting candidate, one per endpoint, whose note names every file's change that reaches it; a global change is
- * recorded once in the notes. Mapping a file again replaces what it said. A refusal maps nothing.
+ * recorded once in the notes, and so is each route only in base that a file takes away, as a removed operation (#372). Mapping a file again
+ * replaces what it said. A refusal maps nothing.
  */
 export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; files?: unknown }) {
   const list = fromText(sent.files, "files");
@@ -941,13 +963,13 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
       throw new Error(`Nothing was mapped: a file is mapped only once its whole patch was read. Read first, with repoFileDiff from ${short(meta.base!)} to ${short(meta.head!)} (or every line at either commit with repoReadFile):\n${unread.map((f) => leftToRead(meta, f)).join("\n")}`);
     }
     const added: string[] = [];
-    for (const { file, change, endpoints, none, global } of files) {
+    for (const { file, change, endpoints, none, global, removed } of files) {
       const entry = meta.mapping![file.path]!;
       // A candidate's note holds one line per file that reaches it: "path: change".
       const othersOf = (c: Candidate) => (c.note ?? "").split("\n").filter((l) => l && !l.startsWith(`${file.path}: `));
       // A file mapped again says anew what it reaches: its change leaves the notes of the candidates it named before.
       for (const c of meta.candidates ?? []) if (entry.reaches?.includes(endpointOf(c))) { const rest = othersOf(c); if (rest.length) c.note = rest.join("\n"); else delete c.note; }
-      delete entry.reaches; delete entry.none; delete entry.global;
+      delete entry.reaches; delete entry.none; delete entry.global; delete entry.removes;
       if (endpoints) {
         entry.reaches = [...new Set(endpoints.map(endpointOf))];
         for (const e of endpoints) {
@@ -957,15 +979,22 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
           c.note = [...othersOf(c), `${file.path}: ${change}`].join("\n");
         }
       } else if (none !== undefined) entry.none = none;
-      else {
+      else if (global !== undefined) {
         entry.global = global;
         if (!(changelog.globalChanges ??= []).some((g: Json) => canonical(g) === canonical(global))) changelog.globalChanges.push(global);
+      }
+      if (removed) {
+        // A route only in base is one removed operation, however many files take it away; a later file's replacedBy or note is added to it.
+        entry.removes = [...new Set(removed.map(endpointOf))];
+        const kept: Removed[] = (changelog.removedOperations ??= []);
+        for (const r of removed) { const same = kept.find((k) => k.method === r.method && k.path === r.path); if (same) Object.assign(same, r); else kept.push(r); }
       }
     }
     const counted = accounting(meta, changelog.setAside);
     return {
       mapped: files.map((f) => f.file.path), newCandidates: added, candidates: meta.candidates?.length ?? 0,
       ...(files.some((f) => f.global) ? { globalChanges: changelog.globalChanges.length } : {}),
+      ...(files.some((f) => f.removed) ? { removedOperations: changelog.removedOperations.length } : {}),
       files: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length },
     };
   });
@@ -980,6 +1009,9 @@ function listUnmappable(changelog: Json, path: string, why: string) {
   const list: Json[] = (changelog.unverified ??= []);
   if (!list.some((u) => String(u?.reason ?? "").startsWith(unmappable(path)))) list.push({ in: "operation", reason: `${unmappable(path)}${why}` });
 }
+
+/** How many global changes and removed operations the notes hold, which mapping records beside the candidates (#372). */
+const notesOf = (changelog: Json) => ({ globalChanges: (changelog.globalChanges ?? []).length as number, removedOperations: (changelog.removedOperations ?? []).length as number });
 
 /** mapChangedFiles' refusal while the draft holds no conventions summary: its workers' briefs carry it (#370). */
 const NO_CONVENTIONS_TO_MAP = "This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call mapChangedFiles again. Nothing was mapped.";
@@ -996,7 +1028,7 @@ export async function mappingWork(ctx: SkillContext, draft: unknown) {
   if (!meta.conventions) throw new Error(NO_CONVENTIONS_TO_MAP);
   const changelog = doc.info["x-changelog"], counted = accounting(meta, changelog.setAside);
   return {
-    files: counted.left, counted: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0,
+    files: counted.left, counted: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0, ...notesOf(changelog),
     repo: meta.repo, ...(meta.account ? { account: meta.account } : {}), branch: meta.branch, conventions: meta.conventions,
     base: { commit: meta.base!, ref: changelog.base?.ref as string }, head: { commit: meta.head!, ref: changelog.head?.ref as string },
   };
@@ -1020,7 +1052,7 @@ export async function settleFiles(ctx: SkillContext, draft: unknown, paths: stri
       left.push(path);
     }
     const counted = accounting(meta, changelog.setAside);
-    return { left, unverified, files: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0 };
+    return { left, unverified, files: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0, ...notesOf(changelog) };
   });
 }
 

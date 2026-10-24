@@ -1,7 +1,7 @@
 import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, DRAFT, DRAFT_FILE, FINISH, HEAD, PROVIDER_DOWN, START, WRITTEN_FILE, contractDiffOn, draftMeta, fastProgress, pauses } from "./support/changelog";
+import { BASE, DRAFT, DRAFT_FILE, FINISH, HEAD, PROVIDER_DOWN, START, TRACE, WRITTEN_FILE, contractDiffOn, draftMeta, fastProgress, pauses, written } from "./support/changelog";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
 /** What every file of acme/api reads as, at any commit: what a worker reads, and the main loop never should. */
@@ -238,4 +238,51 @@ discordScenario("mapChangedFiles on a draft with no conventions summary maps not
   expect(refusal).toBe("This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call mapChangedFiles again. Nothing was mapped.");
   expect(workerStarts(s)).toEqual([]);
   expect(s.model.calls).toHaveLength(4);
+});
+
+const APP_MODULE = "src/app.module.ts", BILLING = "src/billing/billing.controller.ts", SESSIONS = "src/sessions/sessions.controller.ts";
+/** acme/api's changed files between BASE and HEAD instead of the users module's, each with its patch, which startChangelog gives and so reads. */
+const changed = (s: Scenario, files: { filename: string; status: string; patch: string }[]) =>
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 1, behind_by: 0, commits: [], files }));
+/** A new endpoint's operation, valid as it stands: what a tracing worker records for a route only in head. */
+const recordNew = (method: string, path: string, id: string) => ({ tool: "putChangelogOperation", args: { draft: DRAFT, method, path, operation: {
+  operationId: id, summary: id, security: [],
+  responses: { "200": { description: "OK", content: { "application/json": { schema: { type: "object", properties: { data: { type: "string" } }, required: ["data"] }, example: { data: "x" } } } } },
+  "x-changes": [{ status: "NEW", impact: "non-breaking", in: "operation" }],
+} } });
+
+discordScenario("a mapping worker comparing the route tables records a route only in base in the removed operations, once however many files name it, and a route only in head as a candidate traced as NEW (#372)", async (s) => {
+  await acmeApi(s);
+  // SessionsModule leaves the app and its controller goes; BillingModule comes in with a new controller.
+  changed(s, [
+    { filename: APP_MODULE, status: "modified", patch: "@@ -9,2 +9,2 @@\n-    SessionsModule,\n+    BillingModule," },
+    { filename: BILLING, status: "added", patch: "@@ -0,0 +1,5 @@\n+@Controller('billing')\n+export class BillingController {\n+  @Get('invoices')\n+  list() {}\n+}" },
+    { filename: SESSIONS, status: "removed", patch: "@@ -1,5 +0,0 @@\n-@Controller('sessions')\n-export class SessionsController {\n-  @Delete(':id')\n-  revoke() {}\n-}" },
+  ]);
+  const INVOICES = { method: "get", path: "/api/v2/billing/invoices" }, REVOKED = { method: "delete", path: "/api/v2/sessions/{id}", note: "SessionsModule is no longer mounted." };
+  let mapped: any, state = "", candidates: any;
+  s.model.script(
+    START, NOTE_CONVENTIONS, MAP_FILES,
+    // One worker has all three files, whose patches startChangelog gave: the route table at head lacks DELETE /api/v2/sessions/{id} and gains GET /api/v2/billing/invoices.
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [
+      { path: APP_MODULE, change: "BillingModule is mounted in place of SessionsModule", endpoints: [INVOICES], removed: [{ ...REVOKED, method: "DELETE" }] },
+      { path: BILLING, change: "a new controller", endpoints: [INVOICES] },
+      { path: SESSIONS, removed: [{ method: "delete", path: "/api/v2/sessions/{id}" }] },
+    ] } },
+    "Mapped.",
+    (turn) => { mapped = turn.toolResults.at(-1); return "Every changed file is mapped; one endpoint waits to be traced."; },
+    // The turn that goes on by itself starts from the draft.
+    async (turn) => { state = text(turn.messages[1]); candidates = (await draftMeta(s)).candidates; return TRACE; },
+    recordNew("get", "/api/v2/billing/invoices", "listInvoices"), "Recorded GET /api/v2/billing/invoices.",
+    FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(mapped).toEqual({ mapped: 3, unverified: 0, files: { mapped: 3, setAside: 0, left: 0 }, candidates: 1, removedOperations: 1, note: "Every changed file is mapped or set aside. Trace the 1 candidate endpoint with traceEndpoints." });
+  expect(candidates).toEqual([{ method: "get", path: "/api/v2/billing/invoices", state: "waiting", note: `${APP_MODULE}: BillingModule is mounted in place of SessionsModule\n${BILLING}: a new controller` }]);
+  expect(state).toContain(`Mapped:\n- ${APP_MODULE} → GET /api/v2/billing/invoices; removes DELETE /api/v2/sessions/{id}\n- ${BILLING} → GET /api/v2/billing/invoices\n- ${SESSIONS} → removes DELETE /api/v2/sessions/{id}\n`);
+  expect(state).toContain('Removed endpoints: [{"method":"delete","path":"/api/v2/sessions/{id}","note":"SessionsModule is no longer mounted."}]');
+  const changelog = JSON.parse((await s.workspace.read(WRITTEN_FILE))!);
+  expect(changelog.info["x-changelog"]).toMatchObject({ summary: { breaking: 1, deprecated: 0, "non-breaking": 1 }, removedOperations: [REVOKED] });
+  expect(Object.keys(changelog.paths)).toEqual(["/api/v2/billing/invoices"]);
 });
