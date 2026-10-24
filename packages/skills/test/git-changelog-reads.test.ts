@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { browseCommits, browseTree, compareRefs, definitionsIn, fileDiff, findDefinition, readFilePage } from "../src/git.js";
+import { browseCommits, browseTree, changedFileList, compareRefs, definitionsIn, fileDiff, findDefinition, readFilePage } from "../src/git.js";
 
 const github = { provider: "github" as const, baseUrl: null, token: "t" };
 const gitlab = { provider: "gitlab" as const, baseUrl: null, token: "t" };
@@ -111,6 +111,21 @@ test("repoCompare with a patch budget gives source files their patches first, ea
       { path: "src/c.ts", status: "modified" },
       { path: "logo.png", status: "modified" },
     ]);
+  });
+});
+
+test("the changed file list keeps each patch's length, never the patch, on both providers; a file given no patch has none (#370)", async () => {
+  await withFetch({ "/repos/o/r/compare/a...b": { files: [
+    { filename: "src/a.ts", status: "modified", patch: "a".repeat(3000) }, { filename: "logo.png", status: "modified" }, { filename: "src/b.ts", previous_filename: "src/old-b.ts", status: "renamed" },
+  ] } }, async () => {
+    expect(await changedFileList(github, "o/r", "a", "b")).toEqual([
+      { path: "src/a.ts", status: "modified", patchChars: 3000 }, { path: "logo.png", status: "modified" }, { path: "src/b.ts", oldPath: "src/old-b.ts", status: "renamed" },
+    ]);
+  });
+  await withFetch({ "/projects/g%2Fp/repository/compare": { commits: [], diffs: [
+    { new_path: "src/a.ts", old_path: "src/a.ts", diff: "a".repeat(1200) }, { new_path: "src/big.ts", old_path: "src/big.ts", diff: "", too_large: true },
+  ] } }, async () => {
+    expect(await changedFileList(gitlab, "g/p", "a", "b")).toEqual([{ path: "src/a.ts", status: "modified", patchChars: 1200 }, { path: "src/big.ts", status: "modified" }]);
   });
 });
 

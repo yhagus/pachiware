@@ -763,9 +763,12 @@ export async function compareRefs(c: GitConn, repo: string, from: string, to: st
     ...(gh && files.length >= GITHUB_COMPARE_FILES ? { filesCapped: `GitHub lists at most ${GITHUB_COMPARE_FILES} changed files in a comparison; files past them are not listed.` } : {}),
   };
 }
-/** Every file changed going from `from` to `to` as far as the provider lists them (GitHub stops at 300), without their patches. */
-export async function changedFileList(c: GitConn, repo: string, from: string, to: string) {
-  return (await compared(c, repo, from, to)).files.map(({ patch: _, ...f }) => f);
+/**
+ * Every file changed going from `from` to `to` as far as the provider lists them (GitHub stops at 300), without their patches: only each
+ * patch's length, `patchChars`, when the provider gave one, which is what a mapping worker is given by (ADR 0026).
+ */
+export async function changedFileList(c: GitConn, repo: string, from: string, to: string): Promise<{ path: string; oldPath?: string; status: string; patchChars?: number }[]> {
+  return (await compared(c, repo, from, to)).files.map(({ patch, ...f }) => (patch ? { ...f, patchChars: patch.length } : f));
 }
 /** One file's patch between two refs, the file named by its path at either ref; when the provider gives none, why. */
 export async function fileDiff(c: GitConn, repo: string, from: string, to: string, path: string) {
