@@ -287,6 +287,31 @@ discordScenario("a mapping worker comparing the route tables records a route onl
   expect(Object.keys(changelog.paths)).toEqual(["/api/v2/billing/invoices"]);
 });
 
+discordScenario("a file mapped again takes out of the notes the global change and the removed endpoints only it recorded; those another file still records stay (#372)", async (s) => {
+  await acmeApi(s);
+  const INTERCEPTOR = "src/common/transform.interceptor.ts", MAIN = "src/main.ts";
+  changed(s, [APP_MODULE, SESSIONS, INTERCEPTOR, MAIN].map((filename) => ({ filename, status: "modified", patch: "@@ -1 +1 @@\n-a\n+b" })));
+  const ENVELOPE = { status: "CHANGED", impact: "breaking", in: "envelope", before: "body", after: "{ data: body }" };
+  const REQUEST_ID = { status: "NEW", impact: "non-breaking", in: "header", field: "X-Request-Id" };
+  const REVOKE = { method: "delete", path: "/api/v2/sessions/{id}" }, TOKENS = { method: "delete", path: "/api/v2/tokens" };
+  let notes: any;
+  s.model.script(
+    START, NOTE_CONVENTIONS, MAP_FILES,
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [
+      { path: APP_MODULE, removed: [REVOKE, TOKENS] }, { path: SESSIONS, removed: [REVOKE] }, { path: INTERCEPTOR, global: ENVELOPE }, { path: MAIN, global: ENVELOPE },
+    ] } },
+    // On a second look the app module only reorders its imports, and the bootstrap adds the request id header.
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: APP_MODULE, none: "its imports were only reordered" }, { path: MAIN, global: REQUEST_ID }] } },
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: MAIN, none: "the header is set only in tests" }] } },
+    "Mapped.",
+    async () => { notes = JSON.parse((await s.workspace.read(DRAFT_FILE))!).info["x-changelog"]; return { tool: "stopChangelog", args: {} }; },
+    "Stopped the changelog.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(notes).toMatchObject({ globalChanges: [ENVELOPE], removedOperations: [REVOKE] });
+});
+
 discordScenario("a mapping worker records a global interceptor change once in the notes and no candidate for it, its files count as mapped, and the main loop hears to finish (#372)", async (s) => {
   await acmeApi(s);
   const INTERCEPTOR = "src/common/transform.interceptor.ts", MAIN = "src/main.ts";

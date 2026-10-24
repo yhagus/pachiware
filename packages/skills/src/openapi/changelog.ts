@@ -689,13 +689,16 @@ function moveHead(doc: Json, head: string, later: { ahead: number; files: Change
   const meta: DraftMeta = doc["x-draft"], from = meta.head!;
   const again = new Set(later.files.flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path]))), reached = new Set<string>();
   const changelog = doc.info["x-changelog"];
+  const gone: FileMapping[] = [];
   for (const path of again) {
     meta.mapping?.[path]?.reaches?.forEach((e) => reached.add(e));
     // One two workers could not map is mapped afresh too, so what they could not settle no longer stands (#370).
     if (meta.mapping?.[path]?.unverified !== undefined) changelog.unverified = (changelog.unverified ?? []).filter((u: Json) => !String(u?.reason ?? "").startsWith(unmappable(path)));
+    if (meta.mapping?.[path]) gone.push(meta.mapping[path]);
     delete meta.mapping?.[path];
     delete meta.reads?.[path];
   }
+  dropNotesOf(doc, gone);
   for (const c of meta.candidates ?? []) {
     const rest = (c.note ?? "").split("\n").filter((l) => l && ![...again].some((path) => l.startsWith(`${path}: `)));
     if (rest.length) c.note = rest.join("\n"); else delete c.note;
@@ -979,6 +982,19 @@ function checkMapping(item: Json): Mapped {
 /** The same JSON whatever the order of its keys: a global change named again is the one already recorded. */
 const canonical = (value: Json) => JSON.stringify(value, (_key, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v));
 
+/**
+ * Takes out of the notes the global changes and removed operations that mappings now replaced or reset (`gone`) recorded, unless a file's
+ * mapping still records them (#372): the notes mapping wrote stand only while a file says so.
+ */
+function dropNotesOf(doc: Json, gone: FileMapping[]) {
+  const meta: DraftMeta = doc["x-draft"], changelog = doc.info["x-changelog"], kept = Object.values(meta.mapping ?? {});
+  const globals = new Set(kept.filter((m) => m.global !== undefined).map((m) => canonical(m.global))), removes = new Set(kept.flatMap((m) => m.removes ?? []));
+  for (const m of gone) {
+    if (m.global !== undefined && !globals.has(canonical(m.global))) changelog.globalChanges = (changelog.globalChanges ?? []).filter((g: Json) => canonical(g) !== canonical(m.global));
+    for (const r of m.removes ?? []) if (!removes.has(r)) changelog.removedOperations = (changelog.removedOperations ?? []).filter((o: Json) => `${String(o?.method).toUpperCase()} ${o?.path}` !== r);
+  }
+}
+
 /** What a file read whole still lacks before it can be mapped, as the refusal names it. */
 function leftToRead(meta: DraftMeta, file: ChangedFile) {
   const partly = Object.entries(meta.reads?.[file.path] ?? {}).map(([side, r]) => `lines ${r!.read.map(([a, b]) => `${a}-${b}`).join(", ")} of ${r!.total} read at ${side}`);
@@ -1012,7 +1028,7 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
       // A candidate's note holds one line per file that reaches it: "path: change".
       const othersOf = (c: Candidate) => (c.note ?? "").split("\n").filter((l) => l && !l.startsWith(`${file.path}: `));
       // A file mapped again says anew what it reaches: its change leaves the notes of the candidates it named before.
-      const before = new Set(entry.reaches ?? []);
+      const before = new Set(entry.reaches ?? []), was: FileMapping = { global: entry.global, removes: entry.removes };
       for (const c of meta.candidates ?? []) if (before.has(endpointOf(c))) { const rest = othersOf(c); if (rest.length) c.note = rest.join("\n"); else delete c.note; }
       delete entry.reaches; delete entry.none; delete entry.global; delete entry.removes;
       if (endpoints) {
@@ -1037,6 +1053,8 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
         const kept: Removed[] = (changelog.removedOperations ??= []);
         for (const r of removed) { const same = kept.find((k) => k.method === r.method && k.path === r.path); if (same) Object.assign(same, r); else kept.push(r); }
       }
+      // What it recorded in the notes before and no longer says leaves them, unless another file still says it.
+      dropNotesOf(doc, [was]);
     }
     const counted = accounting(meta, changelog.setAside);
     return {

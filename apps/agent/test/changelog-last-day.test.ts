@@ -196,6 +196,40 @@ discordScenario("a candidate that failed before the day ended, reached by a file
   expect(moved.info["x-changelog"].unverified).toEqual([]);
 });
 
+discordScenario("files that changed again after the old head take out of the notes the global changes and removed endpoints only they recorded when the head moves; those another file still records stay (#371, #372)", async (s) => {
+  await acmeApi(s);
+  await tracedBeforeTheDayEnded(s);
+  const MAIN = "src/main.ts", INTERCEPTOR = "src/common/transform.interceptor.ts";
+  const ENVELOPE = { status: "CHANGED", impact: "breaking", in: "envelope", before: "body", after: "{ data: body }" };
+  const REQUEST_ID = { status: "NEW", impact: "non-breaking", in: "header", field: "X-Request-Id", note: "Every response carries it." };
+  const SESSIONS = { method: "delete", path: "/api/v2/sessions", replacedBy: "POST /api/v2/sessions/revoke" }, ORDER = { method: "delete", path: "/api/v2/orders/{id}" };
+  // Before the day ended the health script added a header to every response and the interceptor and bootstrap the envelope; the orders
+  // controller took away DELETE /api/v2/orders/{id}, and with the users controller DELETE /api/v2/sessions.
+  const draft = JSON.parse((await s.workspace.read(DRAFT_FILE))!);
+  draft["x-draft"].files.push({ path: MAIN, status: "modified" }, { path: INTERCEPTOR, status: "added" });
+  Object.assign(draft["x-draft"].mapping, {
+    [CONTROLLER]: { read: true, reaches: ["POST /api/v2/users"], removes: ["DELETE /api/v2/sessions"] }, [ORDERS]: { read: true, reaches: ["GET /api/v2/orders"], removes: ["DELETE /api/v2/orders/{id}", "DELETE /api/v2/sessions"] },
+    [HEALTH]: { read: true, global: REQUEST_ID }, [MAIN]: { read: true, global: ENVELOPE }, [INTERCEPTOR]: { read: true, global: ENVELOPE },
+  });
+  Object.assign(draft.info["x-changelog"], { globalChanges: [ENVELOPE, REQUEST_ID], removedOperations: [ORDER, SESSIONS] });
+  await s.workspace.write(DRAFT_FILE, JSON.stringify(draft));
+  // That afternoon the orders controller, the health script and the interceptor changed again.
+  const files = (...paths: string[]) => paths.map((filename) => ({ filename, status: "modified", patch: patch(filename) }));
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${HEAD}...${LATER}`, () => ({ ahead_by: 2, behind_by: 0, commits: [], files: files(ORDERS, HEALTH, INTERCEPTOR) }));
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${LATER}`, () => ({ ahead_by: 5, behind_by: 0, commits: [], files: files(CONTROLLER, ORDERS, HEALTH, MAIN, INTERCEPTOR) }));
+  let moved: any;
+  s.model.script(
+    () => { s.clock.set("2026-10-23T00:01:00+07:00"); return "Every changed file is mapped."; },
+    async () => { moved = JSON.parse((await s.workspace.read(DRAFT_FILE))!); return { tool: "askChangelogAsker", args: { draft: DRAFT, question: "Is the request id header still sent?" } }; },
+    "Is the request id header still sent?",
+  );
+  await s.restart();
+
+  expect(moved["x-draft"].head).toBe(LATER);
+  expect(Object.keys(moved["x-draft"].mapping)).toEqual([CONTROLLER, MAIN]);
+  expect(moved.info["x-changelog"]).toMatchObject({ globalChanges: [ENVELOPE], removedOperations: [SESSIONS] });
+});
+
 discordScenario("a file two mapping workers could not map that changed again after the old head goes back to unmapped, its unverified entry gone; one that did not change again stays unverified (#370, #371)", async (s) => {
   await acmeApi(s);
   await tracedBeforeTheDayEnded(s);
