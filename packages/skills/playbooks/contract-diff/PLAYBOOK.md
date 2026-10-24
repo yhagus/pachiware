@@ -41,6 +41,7 @@ Then call `startChangelog` with the repository, the scope, and for a range from 
 
 - When it refuses, say why in one line and stop. When it refuses because another changelog is open here, ask with `askChangelogAsker`, passing that draft, whether to go on with it or stop it first, naming both changelogs. Never ask this in plain text: the work goes on without the answer.
 - When it says goesOn, the changelog asked for is the one open here, with the same repository, branch and coverage: say so in one line and go on with it, without asking.
+- When it says lastDay, the range's last day had not ended when its draft was pinned: the head moved to that day's last commit, so say so in one line with how many commits that added, then map the files it left unmapped and trace the candidates waiting again.
 - When no branch was named, it uses the default branch: name it when you say you are starting, and in your answer.
 - When it says resumed, an earlier run recorded the operations it lists: go on with the endpoints not yet recorded.
 - When it says alreadyWritten, a changelog of the same commits exists: offer it with `sendFiles`, unless the person asked to write it again.
