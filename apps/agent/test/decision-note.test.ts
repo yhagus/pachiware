@@ -11,7 +11,7 @@ discordScenario("the persona says how a Decision and a Note are filed, and names
   const prompt = systemPrompt(s.model.calls[0]!);
   expect(prompt).toMatch(/decisions\/<yyyy-mm-dd>-<slug>\.md/);
   expect(prompt).toMatch(/context[^.\n]*reason/i);
-  expect(prompt).toMatch(/only when (someone )?ask/i);
+  expect(prompt).toMatch(/a Decision only when (someone )?asks/i);
   expect(prompt).toMatch(/remember line/i);
   expect(prompt).toMatch(/notes\/[^.\n]*(their|the person's) (own )?words/i);
   for (const name of ["listReminders", "cancelReminder"]) expect(prompt).toContain(name);
