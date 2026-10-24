@@ -234,11 +234,14 @@ export function routeFilesAt(tree: TreeFile[], given: string[]) {
   return { files, unmatched: tests.filter((t) => !tree.some((f) => t.test({ path: f.path, status: "added" }))).map((t) => t.given) };
 }
 
-/** What a range's draft has done with its changed files: how many it mapped, how many it set aside unmapped, and the files left. */
+/**
+ * What a range's draft has done with its changed files: how many it lists, the files left, and `counts`, how many it mapped, set aside
+ * unmapped and has left, as its tools and the per-turn context give them.
+ */
 function accounting(meta: DraftMeta, setAside: SetAside[] = []) {
   const files = meta.files ?? [], tests = setAside.map((s) => globTest(s.pattern));
   const open = files.filter((f) => !isMapped(meta.mapping?.[f.path])), left = open.filter((f) => !tests.some((t) => t(f)));
-  return { files: files.length, mapped: files.length - open.length, setAside: open.length - left.length, left };
+  return { files: files.length, left, counts: { mapped: files.length - open.length, setAside: open.length - left.length, left: left.length } };
 }
 
 /**
@@ -384,7 +387,7 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "botId" | 
       draft: `${root}${file.path.slice(storeRoot.length)}`, name: draftName(file.path), repo: meta.repo, branch: meta.branch, scope: meta.scope, ...(meta.from ? { from: meta.from } : {}), to: meta.to,
       base: changelog.base?.commit, head: changelog.head?.commit, ...(meta.startedBy ? { startedBy: meta.startedBy } : {}), ...(changelog.date ? { startedOn: changelog.date } : {}),
       operations: [...iterOperations(doc)].length, ...(meta.changedFiles !== undefined ? { changedFiles: meta.changedFiles } : {}),
-      ...(counted ? { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length } : {}),
+      ...(counted ? counted.counts : {}),
       ...(meta.progressMessage ? { progressMessage: meta.progressMessage } : {}),
       ...(meta.work ? { work: meta.work } : {}),
       ...(meta.commits !== undefined ? { commits: meta.commits } : {}),
@@ -600,7 +603,7 @@ export async function draftState(ctx: DraftCaller, draft: string) {
   if (!meta) return null;
   const changelog = doc.info?.["x-changelog"] ?? {}, lines = [`Draft: ${draft} (${meta.repo}, branch ${meta.branch}, ${coverage(meta)}, commits ${changelog.base?.commit}..${changelog.head?.commit})`];
   if (meta.files) {
-    const counted = accounting(meta, changelog.setAside), mapped = meta.files.filter((f) => isMapped(meta.mapping?.[f.path])), stand = `${counted.mapped} mapped, ${counted.setAside} set aside, ${counted.left.length} left.`;
+    const counted = accounting(meta, changelog.setAside), mapped = meta.files.filter((f) => isMapped(meta.mapping?.[f.path])), stand = `${counted.counts.mapped} mapped, ${counted.counts.setAside} set aside, ${counted.counts.left} left.`;
     // The whole history's files are the route files the main loop listed, each added: how they were chosen says what the list covers (#373).
     lines.push(meta.routeFiles ? `Route files: ${counted.files} of the ${meta.changedFiles} files at head (${meta.routeFiles.given.join(", ")}): ${stand} How they were chosen: ${meta.routeFiles.chosenBy}` : `Changed files: ${counted.files}: ${stand}`);
     if (mapped.length) lines.push("Mapped:", ...upTo(mapped.map((f) => mappedLine(f.path, meta.mapping![f.path]!))));
@@ -812,7 +815,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
       resumed = {
         operations: operationsOf(found.doc), removedOperations: (notes.removedOperations ?? []).map((r: Json) => `${String(r.method).toUpperCase()} ${r.path}`),
         globalChanges: (notes.globalChanges ?? []).length, unverified: (notes.unverified ?? []).length,
-        ...(seen.counted ? { mapped: seen.counted.mapped, setAside: seen.counted.setAside, left: seen.counted.left.length } : {}),
+        ...(seen.counted ? seen.counted.counts : {}),
       };
       return;
     }
@@ -841,8 +844,8 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     ...(same ? { goesOn: "This is the changelog already open here, for the same repository, branch and coverage: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to." } : {}),
     ...(moved && moved.head !== moved.from ? { lastDay: `${covers.to} had not ended when this changelog was pinned: its head moved from ${short(moved.from)} to that day's last commit, ${short(moved.head)}, adding ${moved.commits} commit${moved.commits === 1 ? "" : "s"}. The files they changed are to be mapped again, and the traced candidates those files reach are traced again. Say so in one line.` } : {}),
     changedFiles: changed,
-    ...(covers.scope === "all" ? { mappingNote: seen.counted ? `Its route files are listed: ${seen.counted.mapped} of ${seen.counted.files} mapped so far. Call mapChangedFiles with the draft to go on with the rest.` : LIST_ROUTE_FILES }
-      : seen.counted ? { mappingNote: `Before it is written, every changed file must be mapped or set aside with a reason (putChangelogNotes setAside). Set aside first what cannot change what the frontend sees, then map the rest with mapChangedFiles: its workers read the patches and record how each file ends. Mapped so far: ${seen.counted.mapped} of ${seen.counted.files}.` } : {}),
+    ...(covers.scope === "all" ? { mappingNote: seen.counted ? `Its route files are listed: ${seen.counted.counts.mapped} of ${seen.counted.files} mapped so far. Call mapChangedFiles with the draft to go on with the rest.` : LIST_ROUTE_FILES }
+      : seen.counted ? { mappingNote: `Before it is written, every changed file must be mapped or set aside with a reason (putChangelogNotes setAside). Set aside first what cannot change what the frontend sees, then map the rest with mapChangedFiles: its workers read the patches and record how each file ends. Mapped so far: ${seen.counted.counts.mapped} of ${seen.counted.files}.` } : {}),
     ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
     ...(written ? { alreadyWritten: `${at.folder}/${written}`, alreadyNote: "A changelog of these same commits was written before. Offer it with sendFiles unless the person asked to write it again." } : {}),
   };
@@ -961,7 +964,7 @@ export async function putNotes(ctx: SkillContext, sent: { draft?: unknown; globa
     const counted = meta.files ? accounting(meta, changelog.setAside) : null;
     return {
       saved: true, globalChanges: changelog.globalChanges.length, removedOperations: changelog.removedOperations.length, unverified: changelog.unverified.length,
-      ...(counted ? { files: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length } } : {}),
+      ...(counted ? { files: counted.counts } : {}),
     };
   });
 }
@@ -1087,7 +1090,7 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
       mapped: files.map((f) => f.file.path), newCandidates: added, candidates: meta.candidates?.length ?? 0,
       ...(files.some((f) => f.global) ? { globalChanges: changelog.globalChanges.length } : {}),
       ...(files.some((f) => f.removed) ? { removedOperations: changelog.removedOperations.length } : {}),
-      files: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length },
+      files: counted.counts,
     };
   });
 }
@@ -1122,7 +1125,7 @@ export async function mappingWork(ctx: SkillContext, draft: unknown) {
   if (!meta.files) throw new Error(`${NO_ROUTE_FILES} Nothing was mapped.`);
   const changelog = doc.info["x-changelog"], counted = accounting(meta, changelog.setAside);
   return {
-    scope: meta.scope, files: counted.left, counted: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0, ...notesOf(changelog),
+    scope: meta.scope, files: counted.left, counted: counted.counts, candidates: meta.candidates?.length ?? 0, ...notesOf(changelog),
     repo: meta.repo, ...(meta.account ? { account: meta.account } : {}), branch: meta.branch, conventions: meta.conventions,
     // The whole history has no base: its workers read head only, and know how its route files were chosen (#373).
     base: meta.base ? { commit: meta.base, ref: changelog.base?.ref as string } : null, head: { commit: meta.head!, ref: changelog.head?.ref as string },
@@ -1195,7 +1198,7 @@ export async function settleFiles(ctx: SkillContext, draft: unknown, paths: stri
       left.push(path);
     }
     const counted = accounting(meta, changelog.setAside);
-    return { left, unverified, files: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0, ...notesOf(changelog) };
+    return { left, unverified, files: counted.counts, candidates: meta.candidates?.length ?? 0, ...notesOf(changelog) };
   });
 }
 
