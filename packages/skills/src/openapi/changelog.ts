@@ -44,7 +44,7 @@ type DraftMeta = {
    */
   conventions?: string;
   closingSummary?: string;
-  /** The candidate endpoints traceEndpoints was given, each with how its tracing went, so a later turn goes on with the rest (#343). */
+  /** The candidate endpoints mapping kept, each with how its tracing went, so a later turn goes on with the rest (#343, #369). */
   candidates?: Candidate[];
   /** How many commits a range holds, from the comparison that pinned it; the progress message names them (#367). */
   commits?: number;
