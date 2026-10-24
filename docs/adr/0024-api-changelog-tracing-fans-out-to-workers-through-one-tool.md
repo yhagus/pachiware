@@ -21,3 +21,7 @@ The API changelog of 2026-10-22 covered one commit, eight files and one to three
 ## Amended by ADR 0025
 
 A changelog of a thousand endpoints does not fit one turn, so the draft keeps each candidate endpoint as waiting, traced or failed, and `traceEndpoints` traces waiting ones while the turn has time; a later turn goes on with the rest. A worker that fails because the model could not be reached leaves its candidate waiting, and the draft pauses. Any other failure stays failed and is listed as unverified, and the candidate is never traced again by itself. The conventions summary is kept in the draft, where turns that go on by themselves read it too.
+
+## Amended by ADR 0026
+
+The main loop no longer finds the candidate endpoints. Mapping workers map every changed file first, and `traceEndpoints` refuses until each one is mapped and the draft holds the conventions summary. Candidates are no longer handed over as soon as they are found.

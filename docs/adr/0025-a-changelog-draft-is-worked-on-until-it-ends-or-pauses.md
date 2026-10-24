@@ -29,3 +29,7 @@ Any turn there that goes on with a paused draft, from anyone, has it worked on a
 - A pause answer names only where it failed ("GitLab", "Plane", "model AI"). The host, status and error go to the Agent log and the audit event `changelog_draft_paused`.
 - Only Changelog drafts work this way; other long playbooks keep two continuations. There is no limit on how many drafts a tenant works on at once; each place has at most one.
 - For Changelog drafts this replaces the continuation rules of #351 (grilling Q12, Q18, Q21, Q23). ADR 0024's workers trace candidates that the draft keeps across turns; see its amendment.
+
+## Amended by ADR 0026
+
+A turn that only maps changed files adds to the draft: "mapped" replaces "examined" in the two-turns rule and in what a turn that goes on by itself starts from.

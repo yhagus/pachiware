@@ -173,8 +173,16 @@ An OpenAPI document the bot wrote from a repository's source code, recording eve
 _Avoid_: Contract diff (the playbook that writes one), API docs, Swagger, release notes
 
 **Changelog draft**:
-An API changelog still being made: one repository, branch and coverage, started by one person. It stays open until the changelog is written (or published, when the asker asked for that too), the asker stops it, or every changed file was examined and none changed what the frontend sees. While open it is either worked on, the bot going on with it by itself turn after turn, whoever else talks there, or paused: when it asked its asker something, its asker paused it, the model or a service it reads (GitLab, GitHub or Plane) failed, or two turns in a row added nothing. Anyone in the place can say to go on with a paused one, and it is then worked on again until it ends or pauses. One nobody touches for a week is dropped.
+An API changelog still being made: one repository, branch and coverage, started by one person. It stays open until the changelog is written (or published, when the asker asked for that too), the asker stops it, or every changed file was mapped and no Candidate endpoint turned out a Changed endpoint. While open it is either worked on, the bot going on with it by itself turn after turn, whoever else talks there, or paused: when it asked its asker something, its asker paused it, the model or a service it reads (GitLab, GitHub or Plane) failed, or two turns in a row added nothing. Anyone in the place can say to go on with a paused one, and it is then worked on again until it ends or pauses. One nobody touches for a week is dropped.
 _Avoid_: Changelog run, unfinished changelog, job
+
+**Candidate endpoint**:
+An endpoint that code changed in a Changelog draft's range may reach (every endpoint, when it covers the whole history), kept in the draft until its contract at the two commits is compared: it then turns out a Changed endpoint, unchanged, or unsettled, and an unsettled one is listed as unverified. Being reached by a change does not mean its contract changed.
+_Avoid_: Affected endpoint, impacted endpoint, endpoint terdampak
+
+**Changed endpoint**:
+An endpoint whose frontend-facing contract differs between an API changelog's two commits; only these are recorded in it. When the changelog covers the whole history, every endpoint is one, as NEW.
+_Avoid_: Affected endpoint, impacted endpoint, endpoint terdampak
 
 **OpenAPI Schema Viewer**:
 A public page showing one OpenAPI document as it was when the bot published it, which anyone with its link can open without signing in, until it is revoked in the console. Publishing again makes another; a later change to the file never reaches it.
@@ -231,7 +239,9 @@ _Avoid_: Scope (reserved for git scope), origin, channel (a source can be a thre
 - A mirrored **Document** is kept under `files/docs/` of the channel an admin chose, and refreshed only while that channel's **Git scope** allows its repository.
 - A **Decision** and a **Note** are files in the channel's **Workspace** folder; **Memory** points at a Decision, never repeats it.
 - An **API changelog** is written in a **Playbook thread** bound to one repository the **Git scope** allows, and kept in the **Workspace** folder of the thread's channel (or the DM's).
-- A place has at most one open **Changelog draft**. One that covers a range of days becomes an **API changelog** only when every file that changed between its two commits was examined or set aside with a reason; one that covers the whole history has no earlier commit to compare with.
+- A place has at most one open **Changelog draft**. One that covers a range of days becomes an **API changelog** only when every file that changed between its two commits was mapped: its whole change read and followed to the **Candidate endpoints** it reaches, or found to reach none, with why, or found to change every endpoint alike, which the changelog records once, or set aside with a reason; one that covers the whole history has no earlier commit to compare with.
+- A range of days covers its last day to its end: a **Changelog draft** started before that day was over reaches the day's last commit once it is worked on after the day ends.
+- Asking for an **API changelog** of the same repository, branch and coverage as the place's open **Changelog draft** goes on with that draft; asking for a different one is a question to the asker before anything else happens.
 - An **OpenAPI Schema Viewer** page belongs to the **Bot** that published it and to the channel or DM it was asked in. It holds a copy of the document, never a link to the file, and it is made only from a file the asker may read there, under the rules of quoting a **Source**.
 - A **Daily log** is written by one **Bot** of the tenant, following a **Playbook** that only the schedule starts; it covers one channel and one day, with the channel's public threads; a private thread and a DM never get one. The messages stay in Discord: the Daily log links to them and keeps no copy, and what rests only on a deleted message leaves it.
 - **Minutes**, **Daily logs**, **Decisions**, **Notes** and **Documents** of a channel can be read from another channel of the same guild, or from a DM, by someone who can view that channel, unless an **Availability rule** turns the Workspace off there; only a **Public channel**'s may be quoted in a channel other than their own. **Memory** is never read this way.
