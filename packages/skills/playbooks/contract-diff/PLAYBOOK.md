@@ -22,7 +22,7 @@ Produce an OpenAPI document that holds only the endpoints whose frontend-facing 
 
 **Ask for reads together.** Every step you take costs the person time. When reads do not depend on each other, such as the diffs of all the changed files, or one file at base and at head, call them all in one response.
 
-**Record as you go.** What you found but did not record is lost when the turn runs out: the next turn starts from the draft, not from what you read. Map each changed file with `putChangelogMapping` as soon as you have followed its patch. Hand candidates to `traceEndpoints` as soon as you have them, and record removed endpoints and files set aside with `putChangelogNotes`.
+**Record as you go.** What you found but did not record is lost when the turn runs out: the next turn starts from the draft, not from what you read. Map each changed file with `putChangelogMapping` as soon as you have followed its patch, and record removed endpoints and files set aside with `putChangelogNotes`. Tracing starts only once every changed file is mapped (step 4).
 
 **Keep going until it is written.** While the changelog is open, the turn's context names its draft. Go on with that draft when the person says to; never ask again what it covers. Ending a turn that works on the changelog stops nothing: the work goes on by itself until it is written, so never ask whether to continue. When only the person who started it can answer something, such as which branch to read or whether a folder is set aside, ask them with `askChangelogAsker`: it is the only way you pause the work, and the question is your whole answer. When the person who started the changelog asks to stop it, in any words, call `stopChangelog` and say what was dropped; a message that only pauses stops nothing. When a turn ends before the changelog is written, answer in at most three short lines: how far it is (changed files mapped of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them.
 
@@ -69,13 +69,12 @@ You now have the candidate endpoints in the draft, plus any endpoints that exist
 
 ## 4. Hand the candidates to workers
 
-Call `traceEndpoints` with the draft and every candidate: its method, its full path as the frontend calls it, and in note where its route is declared and what changed that reaches it, so its worker starts from there. Endpoints that exist only in head are candidates too (they are NEW). Those that exist only in base are not: record them in the removed operations with `putChangelogNotes`.
+Once every changed file is mapped or set aside, call `traceEndpoints` with the draft alone. It traces the candidates mapping kept, each worker starting from its candidate's note, and with every file mapped they are all there are. Before then it traces nothing and names the files left: map those first. Endpoints that exist only in head are candidates too (they are NEW), kept when the file that declares their route is mapped. Those that exist only in base are not: record them in the removed operations with `putChangelogNotes`.
 
 Each candidate gets a worker of its own, which follows tracing.md: it reads the code at both commits, records its endpoint in the draft with `putChangelogOperation` and `putChangelogComponents`, marking what it could not prove as unverified, and says what it recorded. You never read what it read, so do not trace or record endpoints yourself. The result gives each endpoint's outcome: what was recorded, with its impact and number of changes, or why its worker failed.
 
 - The draft keeps every candidate. A traced one is never traced again, and one whose worker failed is listed as unverified in the notes and is not traced again either.
-- Workers run while the turn has time. When endpoints wait, the next turn goes on with them: call `traceEndpoints` with the draft alone. A turn that goes on by itself sees in the draft which endpoints wait.
-- Candidates you find later, such as on the next page of changed files, go to `traceEndpoints` too; those already kept keep their state.
+- Workers run while the turn has time. When endpoints wait, the next turn goes on with them: call `traceEndpoints` again. A turn that goes on by itself sees in the draft which endpoints wait. `finishChangelog` refuses while any waits.
 - What the code could not settle for the whole changelog goes in the notes as unverified, with `putChangelogNotes`.
 
 ## 5. Validate and write
