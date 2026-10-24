@@ -137,6 +137,7 @@ export interface Scenario {
     /**
      * Resolves once the bot has handled every message and click sent so far: a message in a shared channel is queued for its turn, though
      * no turn need have ended. A model step uses it after sending or clicking, so that is handled before the turn the step belongs to ends.
+     * Not in a thread or a DM, where handling a message runs its turn: wait on what the step needs to see instead.
      */
     handled(): Promise<void>;
     /**

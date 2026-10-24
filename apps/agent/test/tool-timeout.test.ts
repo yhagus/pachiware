@@ -86,7 +86,8 @@ discordScenario("a result that arrives after the ceiling is dropped: it never re
 discordScenario("a write that timed out before a provider failure is listed as uncertain, not as done", async (s) => {
   await s.guildSettings({ language: "en", useThreads: false });
   await slowSkill(s, {});
-  await ceiling(40);
+  // Long enough for createTask to answer on a loaded machine, so only the hung save times out.
+  await ceiling(1000);
   s.model.script({ tool: "createTask", args: { title: "Book the venue" } }, { tool: "slowSave", args: { text: "venue" } }, { error: "I couldn't reach the model provider just now." });
   await s.discord.send(`${s.discord.mention} add a task and save the venue`);
   expect(s.discord.botMessages.at(-1)!.content).toBe(
@@ -100,7 +101,7 @@ discordScenario("a recall part that hangs is reported under unavailable with the
   s.http.on("GET api.github.com/user/repos", () => NEVER);
   await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-01-loudness.md", "# Loudness\nAudio normalization targets -14 LUFS.\n");
   // Long enough for the kept search to finish on a loaded machine, so only the hung git part times out.
-  await ceiling(400);
+  await ceiling(2000);
   let result: any;
   s.model.script({ tool: "recall", args: { queries: ["audio normalization", "normalisasi audio"] } }, (turn) => { result = turn.toolResults[0]; return "done"; });
   await s.discord.send(`${s.discord.mention} is audio normalization done?`);
@@ -137,8 +138,9 @@ afterEach(async () => {
 discordScenario("past the turn's deadline the next tool call is not run and the turn ends with a summary of what was done", async (s) => {
   await s.guildSettings({ language: "en", useThreads: false });
   let saved = false;
-  // The lookup outlasts the deadline by a wide margin, so a loaded machine cannot reach the deadline before the first model call.
-  await slowSkill(s, { slowLookup: () => new Promise((resolve) => setTimeout(() => resolve({ venue: "Hall B" }), 1500)), slowSave: async () => { saved = true; return { saved: true }; } });
+  // The turn's time runs on the scenario's clock, which only the lookup moves: it takes 1.5 s of the turn's 0.6 s.
+  s.clock.set("2026-10-14T09:00:00+07:00");
+  await slowSkill(s, { slowLookup: async () => { s.clock.advance(1500); return { venue: "Hall B" }; }, slowSave: async () => { saved = true; return { saved: true }; } });
   await deadline(600);
   let asked: any[] = [];
   s.model.script([{ tool: "slowLookup", args: {} }, { tool: "slowSave", args: { text: "Hall B" } }], (turn) => { asked = turn.messages; return "I found Hall B but ran out of time before saving it."; });
@@ -160,8 +162,9 @@ discordScenario("past the turn's deadline the next tool call is not run and the 
 discordScenario("a tool's own model call made past the turn's deadline gets no answer and never reaches the model", async (s) => {
   await s.guildSettings({ language: "en", useThreads: false });
   let answer: unknown = "not asked";
-  // The tool asks only after waiting longer than the whole turn may last, so its call is made past the deadline however loaded the machine is.
-  await slowSkill(s, { slowAsk: async (ctx) => { await new Promise((resolve) => setTimeout(resolve, 900)); answer = await ctx.complete({ system: "Name the venue in one word.", user: "Hall B or Hall C?" }); return { asked: true }; } });
+  // The tool asks only after 0.9 s of the turn's 0.6 s on the scenario's clock, which only the tool moves, so its call is made past the deadline.
+  s.clock.set("2026-10-14T09:00:00+07:00");
+  await slowSkill(s, { slowAsk: async (ctx) => { s.clock.advance(900); answer = await ctx.complete({ system: "Name the venue in one word.", user: "Hall B or Hall C?" }); return { asked: true }; } });
   await deadline(600);
   s.model.script({ tool: "slowAsk", args: {} }, "I ran out of time before the venue was named.");
   await s.discord.send(`${s.discord.mention} which hall is the venue?`);

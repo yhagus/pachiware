@@ -1,5 +1,5 @@
 import { afterEach, expect } from "bun:test";
-import { discordScenario, type Scenario } from "./support/discordScenario";
+import { discordScenario, until, type Scenario } from "./support/discordScenario";
 
 /** A tenant playbook started by "@bot <word>: ...", with `budget: long` or without. */
 async function playbook(s: Scenario, name: string, long: boolean) {
@@ -77,9 +77,11 @@ discordScenario("a long playbook's turn is told once to record what it finished,
   await s.guildSettings({ language: "en" });
   await playbook(s, "trace", true);
   await longDeadline(4000);
-  const lookupFor = (ms: number) => async () => { await new Promise((resolve) => setTimeout(resolve, ms)); return { tool: "listFiles", args: { path: "channel" } }; };
-  // 3.3 s of 4 s is past 80%: the next call carries the instruction, and the one after it does not get it again.
-  s.model.script(lookupFor(3300), { tool: "listFiles", args: { path: "channel" } }, "Recorded GET /users; POST /users is left.");
+  // The turn's time runs on the scenario's clock, which only the first call moves: 3.3 s of 4 s is past 80%, so the next call carries the
+  // instruction, and the one after it does not get it again.
+  s.clock.set("2026-10-14T09:00:00+07:00");
+  const lookupTaking = (ms: number) => () => { s.clock.advance(ms); return { tool: "listFiles", args: { path: "channel" } }; };
+  s.model.script(lookupTaking(3300), { tool: "listFiles", args: { path: "channel" } }, "Recorded GET /users; POST /users is left.");
   const started = await s.discord.send(`${s.discord.mention} trace: the users API`);
 
   expect(s.model.calls.map(lastSent).filter((c) => c === RECORD_NOW)).toHaveLength(1);
@@ -210,12 +212,13 @@ discordScenario("the asker's Stop on the progress message cuts the turn before i
   const clicks: Promise<any>[] = [];
   s.model.script(
     async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      const progress = s.discord.botMessages.find((m) => m.components.length)!;
+      const up = () => s.discord.botMessages.find((m) => m.components.length);
+      await until("the progress message", up);
+      const progress = up()!;
       clicks.push(s.discord.click(progress, "Stop", { user: s.discord.bob }));
-      await new Promise((resolve) => setTimeout(resolve, 50));
       clicks.push(s.discord.click(progress, "Stop"));
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // The asker's Stop is taken once its button comes off.
+      await until("the Stop to be taken", () => !progress.components.length);
       return { tool: "listFiles", args: { path: "channel" } };
     },
     "Paused after the first files; say go on when you want the rest.",

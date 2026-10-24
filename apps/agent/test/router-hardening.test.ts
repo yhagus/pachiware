@@ -105,7 +105,8 @@ describe("Router hardening", () => {
       const hung = await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, deadline: Date.now() + 60 });
       const elapsed = performance.now() - started;
       assert(hung.finishReason === "error" && calls.length === 1 && calls[0].aborted, "hung request retried past the deadline: " + calls.length);
-      assert(elapsed >= 50 && elapsed < 1000, "not cut at the deadline: " + elapsed);
+      // An uncut request would hang for the 60 s attempt timeout.
+      assert(elapsed >= 50 && elapsed < 5000, "not cut at the deadline: " + elapsed);
 
       calls.length = 0; waits.length = 0; reply = () => json({ error: { message: "overloaded" } }, 503);
       const down = await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, deadline: Date.now() + 200 });
@@ -122,15 +123,15 @@ describe("Router hardening", () => {
     const { code, stderr } = scenario(`
       await useOpenAI(tenant.id);
       const { botCompletion } = await import(${src("apps/agent/src/llm/completion.ts")});
-      // A short attempt timeout, so a call that ignored the deadline still ends here, well after it.
-      retryPolicy.timeoutMs = 1500; retryPolicy.retries = 0;
+      // An attempt timeout past the bound below, so a call that ignored the deadline still ends, but after it.
+      retryPolicy.timeoutMs = 10_000; retryPolicy.retries = 0;
       const ask = { system: "Name the venue in one word.", user: "Hall B or Hall C?" };
       reply = () => HANG;
       const started = performance.now();
       const hung = await botCompletion({ tenantId: tenant.id, language: "en" }, Date.now() + 60)(ask);
       const elapsed = performance.now() - started;
       assert(hung === null && calls.length === 1 && calls[0].aborted, "hung call not given up: " + JSON.stringify(hung) + " / " + calls.length);
-      assert(elapsed >= 50 && elapsed < 1000, "not cut at the deadline: " + elapsed);
+      assert(elapsed >= 50 && elapsed < 5000, "not cut at the deadline: " + elapsed);
 
       calls.length = 0; reply = () => json(openai("Hall B"));
       const late = await botCompletion({ tenantId: tenant.id, language: "en" }, Date.now() - 1)(ask);
@@ -145,7 +146,7 @@ describe("Router hardening", () => {
     const { code, stderr } = scenario(`
       await useOpenAI(tenant.id);
       const { botCompletion } = await import(${src("apps/agent/src/llm/completion.ts")});
-      retryPolicy.timeoutMs = 1500; retryPolicy.retries = 0;
+      retryPolicy.timeoutMs = 10_000; retryPolicy.retries = 0;
       const ask = { system: "Name the venue in one word.", user: "Hall B or Hall C?" };
       const turn = botCompletion({ tenantId: tenant.id, language: "en" }, Date.now() + 60_000);
       reply = () => HANG;
@@ -153,7 +154,7 @@ describe("Router hardening", () => {
       const hung = await turn({ ...ask, deadline: Date.now() + 60 });
       const elapsed = performance.now() - started;
       assert(hung === null && calls.length === 1 && calls[0].aborted, "hung call not given up: " + JSON.stringify(hung) + " / " + calls.length);
-      assert(elapsed >= 50 && elapsed < 1000, "not cut at its own deadline: " + elapsed);
+      assert(elapsed >= 50 && elapsed < 5000, "not cut at its own deadline: " + elapsed);
 
       calls.length = 0; reply = () => json(openai("Hall B"));
       const late = await turn({ ...ask, deadline: Date.now() - 1 });

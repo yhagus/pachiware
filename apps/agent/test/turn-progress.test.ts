@@ -3,10 +3,10 @@ import { discordScenario, type Scenario } from "./support/discordScenario";
 
 // The wait and the edit pace are shortened, so a turn of three slow model calls shows its progress.
 let shipped: { showAfterMs: number; everyMs: number } | undefined;
-async function fastProgress() {
+async function fastProgress(showAfterMs = 150) {
   const { progressTiming } = await import("../src/discord/progress.ts");
   shipped ??= { ...progressTiming };
-  Object.assign(progressTiming, { showAfterMs: 150, everyMs: 40 });
+  Object.assign(progressTiming, { showAfterMs, everyMs: 40 });
 }
 afterEach(async () => {
   if (!shipped) return;
@@ -42,7 +42,8 @@ discordScenario("a turn still working after the wait posts one progress message 
 
 discordScenario("a turn that answers before the wait posts no progress message", async (s) => {
   await keptNotes(s);
-  await fastProgress();
+  // A wait far longer than the turn takes, however loaded the machine.
+  await fastProgress(5000);
   s.model.script({ tool: "listFiles", args: { path: "channel" } }, "Two notes.");
   await s.discord.send(`${s.discord.mention} what do we have kept here?`);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Two notes."]);
