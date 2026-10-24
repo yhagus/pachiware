@@ -2,8 +2,10 @@ import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
 
 discordScenario("Write minutes on a message covers it and everything after it, posted as one embed replying in place", async (s) => {
+  // Minutes are named by the date in Jakarta; a pinned clock keeps the run on one day.
+  s.clock.set("2026-10-14T10:00:00+07:00");
   const { alice, bob } = s.discord;
-  const minute = 60_000, now = Date.now();
+  const minute = 60_000, now = s.clock.now();
   const [, start, , agreed] = s.discord.history([
     { content: "lunch at noon?", author: bob, at: now - 60 * minute },
     { content: "Which day do we release?", author: alice, at: now - 30 * minute },
@@ -33,7 +35,7 @@ discordScenario("Write minutes on a message covers it and everything after it, p
   expect(embed.description).toMatch(/Bob.*Write the release notes.*Thursday/);
   expect(embed.description).toContain("Alice, Bob");
 
-  const day = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); // Jakarta, UTC+7 all year
+  const day = "2026-10-14";
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toEqual([`guilds/guild-1/channels/channel-1/minutes/${day}-release-day.md`]);
   expect(await s.workspace.read(`guilds/guild-1/channels/channel-1/minutes/${day}-release-day.md`)).toContain("Release on Friday");
 });
@@ -237,8 +239,9 @@ discordScenario("minutes too long for one embed post Decided and Action items, w
 });
 
 discordScenario("the requester's reply corrects the minutes in place; anyone else's is recorded as input", async (s) => {
+  s.clock.set("2026-10-14T10:00:00+07:00");
   const { alice, bob } = s.discord;
-  const now = Date.now();
+  const now = s.clock.now();
   const [start, agreed] = s.discord.history([
     { content: "Release Friday?", author: alice, at: now - 120_000 },
     { content: "Friday, agreed", author: bob, at: now - 60_000 },
@@ -246,8 +249,7 @@ discordScenario("the requester's reply corrects the minutes in place; anyone els
   s.model.script(JSON.stringify({ title: "Release day", decided: [{ text: "Release on Friday", ref: 2 }], open: [], actions: [] }));
   await s.discord.contextMenu("Write minutes", start!);
   const minutes = s.discord.botMessages[0]!;
-  const day = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); // Jakarta, UTC+7 all year
-  const file = `guilds/guild-1/channels/channel-1/minutes/${day}-release-day.md`;
+  const file = "guilds/guild-1/channels/channel-1/minutes/2026-10-14-release-day.md";
 
   const other = await s.discord.send("point 1 was not decided", { author: bob, replyTo: minutes });
   expect(minutes.edits).toEqual([]);
@@ -269,8 +271,9 @@ discordScenario("the requester's reply corrects the minutes in place; anyone els
 });
 
 discordScenario("the requester's reply asking for something other than a correction leaves the minutes alone and goes to the assistant, which sees them (#245)", async (s) => {
+  s.clock.set("2026-10-14T10:00:00+07:00");
   const { alice, bob } = s.discord;
-  const now = Date.now();
+  const now = s.clock.now();
   const [start] = s.discord.history([
     { content: "Release Friday? Bob, can you book the venue?", author: alice, at: now - 120_000 },
     { content: "Friday, agreed. I'll book it", author: bob, at: now - 60_000 },
@@ -278,8 +281,7 @@ discordScenario("the requester's reply asking for something other than a correct
   s.model.script(JSON.stringify({ title: "Release day", decided: [{ text: "Release on Friday", ref: 2 }], open: [], actions: [{ owner: "Bob", task: "Book the venue", due: null, ref: 2 }] }));
   await s.discord.contextMenu("Write minutes", start!);
   const minutes = s.discord.botMessages[0]!, before = structuredClone(minutes.embeds);
-  const day = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); // Jakarta, UTC+7 all year
-  const file = `guilds/guild-1/channels/channel-1/minutes/${day}-release-day.md`, stored = await s.workspace.read(file);
+  const file = "guilds/guild-1/channels/channel-1/minutes/2026-10-14-release-day.md", stored = await s.workspace.read(file);
 
   // A request for tasks goes straight to tasksFromMinutes (#253); a question is still the assistant's.
   s.model.script(JSON.stringify({ notACorrection: true }), "Mau saya buatkan tugas Book the venue untuk Bob?");

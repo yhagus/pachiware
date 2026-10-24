@@ -7,13 +7,15 @@ const said = (turn: any) => { const r = turn.toolResults[0]; return r.error ? `r
 const show = (turn: any) => { const r = turn.toolResults[0]; return r.error ? `refused: ${r.error}` : JSON.stringify(r); };
 
 discordScenario("minutes written in a private thread go to the thread's folder, are read from inside it, and take corrections there", async (s) => {
+  // Minutes are named by the date in Jakarta; a pinned clock keeps the run on one day.
+  s.clock.set("2026-10-14T10:00:00+07:00");
   const { alice } = s.discord;
   const thread = s.discord.channel("thread-p", { thread: true, private: true, parentId: "channel-1", members: [alice.id] });
-  s.discord.history([{ content: "We ship pricing v2 on Monday, agreed", author: alice, at: Date.now() - 60_000 }], { channel: thread });
+  s.discord.history([{ content: "We ship pricing v2 on Monday, agreed", author: alice, at: s.clock.now() - 60_000 }], { channel: thread });
   s.model.script(JSON.stringify({ title: "Pricing", decided: [{ text: "Ship pricing v2 on Monday", ref: 1 }], open: [], actions: [] }));
   await s.discord.send(`${s.discord.mention} minutes`, { channel: thread });
 
-  const file = `${new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10)}-pricing.md`; // named by the date in Jakarta, UTC+7 all year
+  const file = "2026-10-14-pricing.md";
   expect(await s.workspace.list("guilds/guild-1/channels/channel-1/minutes")).toEqual([]);
   expect(await s.workspace.list(`${THREAD}/minutes`)).toEqual([`${THREAD}/minutes/${file}`]);
 

@@ -339,8 +339,10 @@ discordScenario("recall finds what was said today, since midnight in the place's
 
 discordScenario("when a kept file answers well, today's talk is not read", async (s) => {
   await s.guildSettings({ useThreads: false, language: "en" });
+  // Noon in Jakarta, so the message half an hour before is today's talk.
+  s.clock.set("2026-10-14T05:00:00Z");
   await s.workspace.write("guilds/guild-1/channels/channel-1/minutes/2026-10-01-loudness.md", "# Loudness\nAudio normalization targets -14 LUFS.\n");
-  s.discord.history([{ content: "audio normalization is merged", author: s.discord.bob, at: Date.now() - 60_000 * 30 }]);
+  s.discord.history([{ content: "audio normalization is merged", author: s.discord.bob, at: s.clock.now() - 60_000 * 30 }]);
   let result: any;
   s.model.script({ tool: "recall", args: { queries: ["audio normalization"] } }, (turn) => { result = turn.toolResults[0]; return "ok"; });
   await s.discord.send(`${s.discord.mention} is audio normalization done?`);
