@@ -81,6 +81,51 @@ discordScenario("traceEndpoints hands each candidate to a worker of its own, whi
   expect(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).paths["/api/v2/users"].post["x-impact"]).toBe("breaking");
 });
 
+/** traceEndpoints' answer on a draft that holds no conventions summary yet (#365). */
+const NO_CONVENTIONS = "This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call traceEndpoints again. Nothing was traced.";
+
+discordScenario("traceEndpoints on a draft with no conventions summary traces nothing and says to write it first; once it is written, the same call traces with the summary in each worker's brief (#365)", async (s) => {
+  await acmeApi(s);
+  let refusal = "", kept: unknown = "not read";
+  s.model.script(
+    START,
+    trace(candidate("post", "/api/v2/users")),
+    async (turn) => { refusal = turn.toolResults.at(-1).error; kept = (await draftMeta(s)).candidates; return NOTE_CONVENTIONS; },
+    trace(candidate("post", "/api/v2/users")),
+    // The worker.
+    record("post", "/api/v2/users"), "Recorded POST /api/v2/users.",
+    FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(refusal).toBe(NO_CONVENTIONS);
+  // The refused call kept no candidate and started no worker; the one after the summary started the only worker.
+  expect(kept).toBeUndefined();
+  expect(s.model.calls.map(isWorker)).toEqual([false, false, false, false, true, true, false, false]);
+  expect(briefOf(s.model.calls[4]!)).toContain(`<untrusted_data source="conventions summary">\n${CONVENTIONS}\n</untrusted_data>`);
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
+});
+
+discordScenario("a turn that goes on by itself from a draft with no conventions summary is told to write it first, and a refused traceEndpoints adds nothing: two such turns in a row pause the draft (#365, #357)", async (s) => {
+  await acmeApi(s);
+  let state = "";
+  s.model.script(
+    START, "Started the acme/api changelog.",
+    // Both turns that go on by themselves hand the candidate over without writing the summary.
+    (turn) => { state = text(turn.messages[1]); return trace(candidate("post", "/api/v2/users")); }, "The endpoint waits for the conventions.",
+    trace(candidate("post", "/api/v2/users")), "It still waits.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(state).toEndWith("\n</untrusted_data>\nThe draft holds no conventions summary yet: write it before any endpoint is traced, as step 2 says (checklist.md, then putChangelogNotes conventions). traceEndpoints refuses until it is written.");
+  expect(s.model.calls).toHaveLength(6);
+  expect(workerStarts(s)).toEqual([]);
+  const meta = await draftMeta(s);
+  expect(meta.candidates).toBeUndefined();
+  expect(meta.work).toEqual({ state: "paused", reason: "no-progress", since: "2026-10-22T03:00:00.000Z" });
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual(['<@user-alice> The changelog made no progress, so I paused it; type "go on" to continue.']);
+});
+
 /** A new endpoint's operation, valid as it stands, with one change: what a worker records for any endpoint but the example's. */
 const newOperation = (id: string) => ({
   operationId: id, summary: id, security: [],
@@ -114,7 +159,7 @@ discordScenario("a turn cut while its workers trace goes on by itself with the c
   await budgets(3000, { leastMs: 1000 });
   let state = "";
   s.model.script(
-    START,
+    START, NOTE_CONVENTIONS,
     trace(candidate("post", "/api/v2/users"), EXPORT, SESSIONS),
     // The first worker records its endpoint and answers once the turn's time is gone.
     record("post", "/api/v2/users"), async () => { await pause(3200); return "Recorded POST /api/v2/users."; },
@@ -138,14 +183,14 @@ const states = async (s: Scenario) => (await draftMeta(s)).candidates.map((c: an
 discordScenario("a worker that cannot reach the model leaves its endpoint waiting, and the draft goes through the model's rule: one retry after the tenant's wait, then a pause (#343)", async (s) => {
   await acmeApi(s);
   s.model.script(
-    START, "Started the acme/api changelog.",
+    START, NOTE_CONVENTIONS, "Started the acme/api changelog.",
     trace(candidate("post", "/api/v2/users"), EXPORT), PROVIDER_DOWN,
     trace(), PROVIDER_DOWN,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   // The worker's failure ends the turn that went on by itself, which then waits the tenant's 60 seconds; no other worker started.
-  expect(s.model.calls).toHaveLength(4);
+  expect(s.model.calls).toHaveLength(5);
   expect(await states(s)).toEqual(["POST /api/v2/users: waiting", "GET /api/v2/users/export: waiting"]);
   expect((await draftMeta(s)).work).toEqual({ state: "worked-on", retryAt: "2026-10-22T03:01:00.000Z" });
   expect(s.discord.botMessages).toEqual([]);
@@ -168,7 +213,7 @@ discordScenario("a worker that fails otherwise has its endpoint listed as unveri
   await acmeApi(s);
   let failed: any;
   s.model.script(
-    START,
+    START, NOTE_CONVENTIONS,
     trace(candidate("post", "/api/v2/users"), EXPORT),
     "Its route is registered from config at runtime, so its path cannot be read from the code.",
     recordNew("get", "/api/v2/users/export", "exportUsers"), "Recorded GET /api/v2/users/export.",
@@ -193,7 +238,7 @@ discordScenario("the progress message shows each endpoint's result as its worker
   await fastProgress();
   const slowly = (step: unknown) => async () => { await pause(250); return step as any; };
   s.model.script(
-    slowly(START),
+    slowly(START), NOTE_CONVENTIONS,
     trace(candidate("post", "/api/v2/users"), EXPORT, SESSIONS),
     record("post", "/api/v2/users"), slowly("Recorded POST /api/v2/users."),
     recordNew("get", "/api/v2/users/export", "exportUsers"), slowly("Recorded GET /api/v2/users/export."),
@@ -231,7 +276,7 @@ discordScenario("with the tenant's playbookWorkers at 2, two workers trace at on
     return recordNew(method!.toLowerCase(), path!, ids[endpoint]!);
   };
   s.model.script(
-    START,
+    START, NOTE_CONVENTIONS,
     trace(EXPORT, SESSIONS, candidate("get", "/api/v2/health")),
     ...Array(6).fill(workerStep),
     FINISH, written,
@@ -247,7 +292,7 @@ discordScenario("with the tenant's playbookWorkers at 2, two workers trace at on
 discordScenario("a turn that goes on by itself and only settles candidates made progress: two such turns in a row do not pause the draft (#343)", async (s) => {
   await acmeApi(s);
   s.model.script(
-    START, "Started the acme/api changelog.",
+    START, NOTE_CONVENTIONS, "Started the acme/api changelog.",
     trace(candidate("post", "/api/v2/users")), "Its route is built at runtime.", "One endpoint could not be traced.",
     trace(EXPORT), "Its handler comes from another service.", "Another endpoint could not be traced.",
     FINISH, written,
@@ -255,21 +300,21 @@ discordScenario("a turn that goes on by itself and only settles candidates made 
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   expect(await pauses(s)).toEqual([]);
-  expect(s.model.calls).toHaveLength(10);
+  expect(s.model.calls).toHaveLength(11);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`<@user-alice> The acme/api changelog is written: ${WRITTEN}`]);
 });
 
 discordScenario("a worker that GitHub refuses leaves its endpoint waiting and pauses the draft, naming only GitHub, as the turn's own read would (#343, #359)", async (s) => {
   await acmeApi(s);
   s.model.script(
-    START, "Started the acme/api changelog.",
+    START, NOTE_CONVENTIONS, "Started the acme/api changelog.",
     trace(candidate("post", "/api/v2/users"), EXPORT),
     () => { s.http.on("GET api.github.com/repos/acme/api/contents/", () => Response.json({ message: "Bad credentials" }, { status: 401 })); return readController; },
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   // The refusal ends the worker and the turn: the model is asked nothing more, and no other worker starts.
-  expect(s.model.calls).toHaveLength(4);
+  expect(s.model.calls).toHaveLength(5);
   expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
     { content: '<@user-alice> Changelog paused: GitHub could not be reached. Type "go on" to continue.', pinged: ["user-alice"] },
   ]);
@@ -302,7 +347,7 @@ discordScenario("a changelog whose every candidate endpoint failed is written wi
   await acmeApi(s);
   let finished: any;
   s.model.script(
-    START,
+    START, NOTE_CONVENTIONS,
     trace(candidate("post", "/api/v2/users"), EXPORT),
     // Neither worker records its endpoint.
     "Its route is registered from config at runtime.",

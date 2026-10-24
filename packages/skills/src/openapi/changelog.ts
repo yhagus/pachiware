@@ -542,7 +542,8 @@ export async function draftState(ctx: DraftCaller, draft: string) {
   }
   if (meta.conventions) lines.push(`Repository conventions: ${meta.conventions}`);
   if (meta.closingSummary) lines.push(`How the last turn ended: ${meta.closingSummary}`);
-  return `This turn starts from the draft alone: what earlier turns read is not here, only what they recorded in it.\n${asUntrusted("changelog draft", lines.join("\n"))}`;
+  const noConventions = meta.conventions ? "" : "\nThe draft holds no conventions summary yet: write it before any endpoint is traced, as step 2 says (checklist.md, then putChangelogNotes conventions). traceEndpoints refuses until it is written.";
+  return `This turn starts from the draft alone: what earlier turns read is not here, only what they recorded in it.\n${asUntrusted("changelog draft", lines.join("\n"))}${noConventions}`;
 }
 
 /** Keeps how a turn on an open draft ended, for the next turn that goes on by itself; like the work state, it leaves the touch time alone. */
@@ -791,14 +792,20 @@ function checkCandidates(sent: unknown) {
   });
 }
 
+/** traceEndpoints' refusal while the draft holds no conventions summary (#365, ADR 0026). */
+const NO_CONVENTIONS = "This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call traceEndpoints again. Nothing was traced.";
+
 /**
  * Keeps the candidate endpoints traceEndpoints was given: a new one waits, and one kept already keeps its state, so a traced one is never
- * traced again (#343). Returns those waiting, with what a worker's brief needs of the draft.
+ * traced again (#343). Returns those waiting, with what a worker's brief needs of the draft. A draft with no conventions summary keeps
+ * nothing and is refused (#365), so the refusal is no progress.
  */
 export async function takeCandidates(ctx: SkillContext, draft: unknown, sent: unknown) {
   const given = checkCandidates(sent);
   return withDraft(ctx, draft, (doc) => {
-    const meta: DraftMeta = doc["x-draft"], changelog = doc.info["x-changelog"], kept = (meta.candidates ??= []);
+    const meta: DraftMeta = doc["x-draft"], changelog = doc.info["x-changelog"];
+    if (!meta.conventions) throw new Error(NO_CONVENTIONS);
+    const kept = (meta.candidates ??= []);
     for (const c of given) {
       const found = kept.find((k) => k.method === c.method && k.path === c.path);
       if (!found) kept.push({ ...c, state: "waiting" });
@@ -807,7 +814,7 @@ export async function takeCandidates(ctx: SkillContext, draft: unknown, sent: un
     if (!kept.length) throw new Error("This changelog keeps no candidate endpoints yet: pass candidates, every endpoint you found that may have changed. Nothing was traced.");
     return {
       waiting: kept.filter((k) => k.state === "waiting").map(({ method, path, note }) => ({ method, path, ...(note ? { note } : {}) })),
-      repo: meta.repo, ...(meta.account ? { account: meta.account } : {}), branch: meta.branch, ...(meta.conventions ? { conventions: meta.conventions } : {}),
+      repo: meta.repo, ...(meta.account ? { account: meta.account } : {}), branch: meta.branch, conventions: meta.conventions,
       base: changelog.base?.ref === "(empty)" ? null : { commit: meta.base ?? changelog.base?.commit, ref: changelog.base?.ref }, head: { commit: meta.head ?? changelog.head?.commit, ref: changelog.head?.ref },
     };
   });

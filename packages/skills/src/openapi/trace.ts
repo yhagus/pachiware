@@ -35,7 +35,7 @@ function briefOf(kept: BriefSource, draft: string, extensions: string, c: Endpoi
     `Draft: ${draft}. Pass it to putChangelogOperation and putChangelogComponents.`,
     "",
     "The repository's conventions, as the changelog's main work wrote them down:",
-    "conventions" in kept ? asUntrusted("conventions summary", kept.conventions!) : "None were written down: find what the endpoint needs from the code.",
+    asUntrusted("conventions summary", kept.conventions),
     "",
     extensions,
     "",
