@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, DRAFT, FINISH, FOLDER, HEAD, RECORD, SOURCE, START, WRITTEN, WRITTEN_FILE, agentLog, contractDiffOn, draftMeta, pauses, warnings } from "./support/changelog";
+import { BASE, DRAFT, FINISH, FOLDER, HEAD, SOURCE, START, TRACE, WORKER, WRITE_CONVENTIONS, WRITTEN, WRITTEN_FILE, agentLog, contractDiffOn, draftMeta, pauses, warnings } from "./support/changelog";
 
 /** The changed files, none with a patch given: each can be mapped once it is read whole. */
 const DTOS = ["a", "b", "c"].map((n) => `src/users/dto/${n}.dto.ts`);
@@ -145,12 +145,12 @@ discordScenario("two 502s then a read that succeeds, and a file that does not ex
     },
     saw(read(0)), read(0), read(1), read(1), read(1),
     { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: MISSING } }, saw(read(2)),
-    [MAP, ...RECORD], FINISH, `The acme/api changelog is written: ${WRITTEN}`,
+    [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER, FINISH, `The acme/api changelog is written: ${WRITTEN}`,
   );
   await s.discord.send(`${s.discord.mention} ${ASK}`);
 
   expect(seen).toEqual([{ error: "gitlab returned 502: Bad Gateway" }, { error: `${MISSING} not found at ${HEAD}` }]);
-  expect(s.model.calls).toHaveLength(13);
+  expect(s.model.calls).toHaveLength(15);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`<@user-alice> The acme/api changelog is written: ${WRITTEN}`]);
   expect(await s.workspace.list(FOLDER)).toEqual([WRITTEN_FILE]);
   expect(await pauses(s)).toEqual([]);

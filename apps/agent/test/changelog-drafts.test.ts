@@ -1,7 +1,7 @@
 import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { draftMeta } from "./support/changelog";
+import { TRACE, WORKER, WRITE_CONVENTIONS, draftMeta } from "./support/changelog";
 
 /** The skill's example operation, completed into a valid document (packages/skills/test/openapi-validate.test.ts checks it). */
 const FIXTURE = JSON.parse(readFileSync(new URL("../../../packages/skills/test/fixtures/contract-diff/create-user.json", import.meta.url), "utf8"));
@@ -64,17 +64,21 @@ const MAP_BOTH = map(CONTROLLER_REACHES, DTO_REACHES);
 
 type Step = Parameters<Scenario["model"]["script"]>[number];
 /**
- * One turn of Alice's in `channel`: its tool calls, its answer, and what the model is asked after the turn. As the answer comes she presses
- * Stop, so a draft the turn worked on pauses there (#361) and her next message is the next turn, instead of the work going on by itself.
+ * One turn of Alice's in `channel`: its model calls before the answer (its tool calls, and the steps of any worker they start), its answer,
+ * and what the model is asked after the turn. As the answer comes she presses Stop, so a draft the turn worked on pauses there (#361) and
+ * her next message is the next turn, instead of the work going on by itself.
  */
-async function turnIn(s: Scenario, channel: string | undefined, calls: Step, answer: Step, ...after: Step[]) {
+async function turnThrough(s: Scenario, channel: string | undefined, steps: Step[], answer: Step, after: Step[]) {
   const clicks: Promise<unknown>[] = [];
-  s.model.script(calls, async (t) => { await pressStop(s, clicks); return typeof answer === "function" ? answer(t) : answer; }, ...after);
+  s.model.script(...steps, async (t) => { await pressStop(s, clicks); return typeof answer === "function" ? answer(t) : answer; }, ...after);
   await s.discord.send(`${s.discord.mention} changelog`, channel ? { channel } : {});
   await Promise.all(clicks);
   return lastReply(s);
 }
+const turnIn = (s: Scenario, channel: string | undefined, calls: Step, answer: Step, ...after: Step[]) => turnThrough(s, channel, [calls], answer, after);
 const turn = (s: Scenario, calls: Step, answer: Step, ...after: Step[]) => turnIn(s, undefined, calls, answer, ...after);
+/** A turn whose calls trace the candidates: `worker` is the steps of the one worker they start, which come before the turn's answer (#369). */
+const tracedTurn = (s: Scenario, calls: Step, worker: Step[], answer: Step, ...after: Step[]) => turnThrough(s, undefined, [calls, ...worker], answer, after);
 
 /** A turn the model answers in words, in `channel`; returns the per-turn context it read. */
 async function contextAfter(s: Scenario, channel?: string) {
@@ -94,8 +98,10 @@ discordScenario("an open draft is named in every later turn of its place, from t
   s.discord.channel("channel-2");
   expect(await contextAfter(s, "channel-2")).not.toContain("Open API changelog");
 
-  await turn(s, [{ tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } }, READ_DTO, MAP_BOTH], results);
-  expect(await contextAfter(s)).toContain(`${OPEN(2)} 1 endpoint recorded so far, 1 candidate endpoint waiting to be traced with traceEndpoints.`);
+  await turn(s, [READ_DTO, MAP_BOTH], results);
+  expect(await contextAfter(s)).toContain(`${OPEN(2)} 0 endpoints recorded so far, 1 candidate endpoint waiting to be traced with traceEndpoints.`);
+  await tracedTurn(s, [WRITE_CONVENTIONS, TRACE], WORKER, results);
+  expect(await contextAfter(s)).toContain(`${OPEN(2)} 1 endpoint recorded so far. Draft: ${DRAFT}`);
   await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(await contextAfter(s)).not.toContain("Open API changelog");
 });
@@ -212,9 +218,12 @@ discordScenario("a range becomes two commits, the operation and components go in
     mappingNote: "Before it is written, every changed file must be mapped with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile; the patches given here count), or set aside with a reason (putChangelogNotes setAside). Mapped so far: 0 of 2.",
   });
 
-  const [components, saved] = await turn(s,
-    [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "POST", path: "/api/v2/users", operation: { ...OPERATION, "x-impact": undefined } } }, READ_DTO, MAP_BOTH],
-    results);
+  // The endpoint both files reach goes to a worker, which records it with its components (#369).
+  let components: any, saved: any;
+  await tracedTurn(s, [READ_DTO, MAP_BOTH, WRITE_CONVENTIONS, TRACE], [
+    [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "POST", path: "/api/v2/users", operation: { ...OPERATION, "x-impact": undefined } } }],
+    (t: any) => { [components, saved] = t.toolResults; return "Recorded POST /api/v2/users."; },
+  ], results);
   expect(components.saved).toEqual(["#/components/securitySchemes/bearerAuth", "#/components/schemas/NewUser", "#/components/schemas/User", "#/components/schemas/UserEnvelope", "#/components/schemas/Error"]);
   expect(saved).toEqual({ saved: "POST /api/v2/users", impact: "breaking", operations: 1 });
 
@@ -259,7 +268,11 @@ discordScenario("an operation's problems come back at once, and finishing refuse
   await acmeApi(s);
   await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
   const broken = { ...OPERATION, "x-changes": OPERATION["x-changes"].map((c: any, i: number) => (i === 2 ? { ...c, field: "phone_number" } : c)) };
-  const [saved] = await turn(s, [{ tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: broken, components: FIXTURE.components } }, READ_DTO, MAP_BOTH], results);
+  let saved: any;
+  await tracedTurn(s, [READ_DTO, MAP_BOTH, WRITE_CONVENTIONS, TRACE], [
+    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: broken, components: FIXTURE.components } },
+    (t: any) => { saved = t.toolResults.at(-1); return "Recorded POST /api/v2/users."; },
+  ], results);
   expect(saved.problems).toEqual(["POST /api/v2/users x-changes[2]: field 'phone_number' does not exist in the body schema"]);
   const [refused] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(refused).toEqual({ written: false, errors: ["POST /api/v2/users x-changes[2]: field 'phone_number' does not exist in the body schema"], fix: "Fix each error (putChangelogOperation or putChangelogNotes) and call finishChangelog again." });
@@ -309,12 +322,12 @@ discordScenario("a changelog is written only when every changed file was mapped 
   const [still] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(still).toEqual({ written: false, unmapped: 2, files: ["src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts"], fix });
 
-  await turn(s, [
+  await tracedTurn(s, [
     { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: "src/users/dto/create-user.dto.ts" } },
     { tool: "repoReadFile", args: { repo: "acme/api", ref: BASE, path: "src/users/dto/update-user.dto.ts" } },
     map(DTO_REACHES, { path: "src/users/dto/update-user.dto.ts", none: "UpdateUserDto is imported by no controller" }),
-    { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION, components: FIXTURE.components } },
-  ], results);
+    WRITE_CONVENTIONS, TRACE,
+  ], WORKER, results);
   // The conversation has passed its window by now, so the turn ends with a summary of its older talk.
   const [finished] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results, "Alice asked for the acme/api changelog of 1–22 October.");
   expect(finished).toMatchObject({ written: true, setAside: [{ pattern: "*.spec.ts", reason: "Tests; they are not served" }] });

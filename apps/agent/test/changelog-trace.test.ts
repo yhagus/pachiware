@@ -195,6 +195,24 @@ discordScenario("traceEndpoints on a draft whose every changed file reaches no e
   expect(finished).toMatchObject({ written: false });
 });
 
+discordScenario("finishChangelog writes nothing while a candidate endpoint waits to be traced and points to traceEndpoints, so a draft mapped but not traced is never finished as one that changed nothing (#369)", async (s) => {
+  await acmeApi(s);
+  let refused: any, kept: unknown;
+  s.model.script(
+    START, [NOTE_CONVENTIONS, mapController()],
+    FINISH,
+    async (turn) => { refused = turn.toolResults.at(-1); kept = await states(s); return TRACE; },
+    record("post", "/api/v2/users"), "Recorded POST /api/v2/users.",
+    FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(refused).toEqual({ written: false, waiting: 1, endpoints: ["POST /api/v2/users"], fix: "Each candidate endpoint is traced before the changelog is written: call traceEndpoints with the draft, then call finishChangelog again." });
+  expect(kept).toEqual(["POST /api/v2/users: waiting"]);
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
+  expect(Object.keys(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).paths)).toEqual(["/api/v2/users"]);
+});
+
 /** A new endpoint's operation, valid as it stands, with one change: what a worker records for any endpoint but the example's. */
 const newOperation = (id: string) => ({
   operationId: id, summary: id, security: [],

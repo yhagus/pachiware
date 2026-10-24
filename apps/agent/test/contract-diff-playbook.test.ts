@@ -1,8 +1,7 @@
 import { expect } from "bun:test";
-import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
+import { TRACE, WORKER, WRITE_CONVENTIONS } from "./support/changelog";
 
-const FIXTURE = JSON.parse(readFileSync(new URL("../../../packages/skills/test/fixtures/contract-diff/create-user.json", import.meta.url), "utf8"));
 const BASE = "9f8e7d6".padEnd(40, "0"), HEAD = "a1b2c3d".padEnd(40, "0");
 const DRAFT = "channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..a1b2c3d.draft.json", WRITTEN = DRAFT.replace(".draft.json", ".json");
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -42,11 +41,11 @@ discordScenario("changelog: opens a contract-diff thread whose turns carry the p
 
 discordScenario("a changelog asked for with a preview is written, validated, sent as a file and published, in one run of the thread", async (s) => {
   await acmeApi(s);
-  const { "x-impact": _, ...operation } = FIXTURE.paths["/api/v2/users"].post;
   let link = "";
   s.model.script(
     { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } },
-    [MAP, { tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation } }],
+    // The endpoint mapping kept goes to a worker, which records it (#369).
+    [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER,
     { tool: "finishChangelog", args: { draft: DRAFT } },
     [{ tool: "sendFiles", args: { paths: [WRITTEN] } }, { tool: "publishOpenApi", args: { path: WRITTEN } }],
     (turn) => { link = turn.toolResults.at(-1).url; return `3 breaking, 1 non-breaking. Preview: ${link}`; },
@@ -70,11 +69,11 @@ discordScenario("a changelog asked for with a preview is written, validated, sen
 
 discordScenario("a changelog asked to be published from the start is published as it is written, in the same step (#349)", async (s) => {
   await acmeApi(s);
-  const { "x-impact": _, ...operation } = FIXTURE.paths["/api/v2/users"].post;
   let finished: any, link = "";
   s.model.script(
     { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22", publish: true } },
-    [MAP, { tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation } }],
+    // The endpoint mapping kept goes to a worker, which records it (#369).
+    [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER,
     { tool: "finishChangelog", args: { draft: DRAFT } },
     (turn) => { finished = turn.toolResults.at(-1); link = finished.published.url; return `Published: ${link}`; },
   );

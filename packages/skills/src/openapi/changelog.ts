@@ -215,10 +215,10 @@ function accounting(meta: DraftMeta, setAside: SetAside[] = []) {
 
 /** What a range's draft from before drafts listed their changed files must do before its files can be mapped or its endpoints traced. */
 const UNLISTED = "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage.";
-/** How many of the files left a refusal names. */
-const NAMED_FILES = 10;
+/** How many of the files or candidate endpoints left a refusal names. */
+const NAMED_LEFT = 10;
 /** The files left, one "- path" line each, as a refusal names them. */
-const namedFiles = (left: ChangedFile[]) => [...left.slice(0, NAMED_FILES).map((f) => `- ${f.path}`), ...(left.length > NAMED_FILES ? [`… and ${left.length - NAMED_FILES} more`] : [])].join("\n");
+const namedFiles = (left: ChangedFile[]) => [...left.slice(0, NAMED_LEFT).map((f) => `- ${f.path}`), ...(left.length > NAMED_LEFT ? [`… and ${left.length - NAMED_LEFT} more`] : [])].join("\n");
 
 /**
  * A set-aside list as putChangelogNotes takes it. A pattern covering two or more files skips the work instead of naming files that need
@@ -1089,8 +1089,16 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     const left = meta?.files ? accounting(meta, changelog.setAside).left : [];
     if (left.length) {
       return {
-        written: false, unmapped: left.length, files: left.slice(0, NAMED_FILES).map((f) => f.path),
+        written: false, unmapped: left.length, files: left.slice(0, NAMED_LEFT).map((f) => f.path),
         fix: "Map each one with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile), or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.",
+      };
+    }
+    // Every candidate traced or failed too: one still waiting may be a Changed endpoint, so finishing now could say nothing changed (#369).
+    const waiting = (meta?.candidates ?? []).filter((c: Candidate) => c.state === "waiting");
+    if (waiting.length) {
+      return {
+        written: false, waiting: waiting.length, endpoints: waiting.slice(0, NAMED_LEFT).map(endpointOf),
+        fix: "Each candidate endpoint is traced before the changelog is written: call traceEndpoints with the draft, then call finishChangelog again.",
       };
     }
     // A candidate that failed is listed as unverified, even when the notes were set again since (#343).

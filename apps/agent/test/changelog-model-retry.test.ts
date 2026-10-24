@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, DRAFT_FILE, FINISH, FOLDER, HEAD, MAP, PROVIDER_DOWN, READ_REST, RECORD, START, WRITTEN, WRITTEN_FILE, acmeApi, draftMeta, fastProgress, mapFiles, pause, pauses, read, written } from "./support/changelog";
+import { BASE, DRAFT_FILE, FINISH, FOLDER, HEAD, MAP, PROVIDER_DOWN, READ_REST, START, TRACE, WORKER, WRITTEN, WRITTEN_FILE, WRITE_CONVENTIONS, acmeApi, draftMeta, fastProgress, mapFiles, pause, pauses, read, written } from "./support/changelog";
 
 /** Every changed DTO, read whole at head. */
 const READ_ALL = [read(0), ...READ_REST];
@@ -10,7 +10,7 @@ discordScenario("a turn that goes on by itself and cannot reach the model runs o
   s.model.script(
     START, "Started the acme/api changelog.",
     PROVIDER_DOWN,
-    READ_ALL, [MAP, ...RECORD], FINISH, written,
+    READ_ALL, [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER, FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
@@ -27,7 +27,7 @@ discordScenario("a turn that goes on by itself and cannot reach the model runs o
 
   s.clock.advance(1_000);
   await s.scheduler.tick();
-  expect(s.model.calls).toHaveLength(7);
+  expect(s.model.calls).toHaveLength(9);
   // The same continuation runs again, from where the work stopped: from the draft alone, as the failed one did (#360).
   expect(s.model.calls[3]!.at(-2)!.content).toBe(s.model.calls[2]!.at(-2)!.content);
   expect(s.model.calls[3]!.map((m: any) => m.role)).toEqual(["system", "user", "user"]);
@@ -146,7 +146,7 @@ discordScenario("once the model answers again, a later outage gets a retry of it
     PROVIDER_DOWN,
     [...READ_ALL.slice(0, 3), mapFiles([0, 1, 2])], "Mapped three DTOs.",
     PROVIDER_DOWN,
-    READ_ALL.slice(3), [MAP, ...RECORD], FINISH, written,
+    READ_ALL.slice(3), [MAP, WRITE_CONVENTIONS, TRACE], ...WORKER, FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
   s.clock.advance(60_000);
@@ -158,7 +158,7 @@ discordScenario("once the model answers again, a later outage gets a retry of it
 
   s.clock.advance(60_000);
   await s.scheduler.tick();
-  expect(s.model.calls).toHaveLength(10);
+  expect(s.model.calls).toHaveLength(12);
   expect(s.discord.botMessages).toEqual([expect.objectContaining({ content: `<@user-alice> The acme/api changelog is written: ${WRITTEN}` })]);
 });
 

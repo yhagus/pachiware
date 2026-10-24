@@ -63,6 +63,12 @@ export const mapFiles = (dtos = [0, 1, 2, 3, 4, 5]) => ({ tool: "putChangelogMap
 /** Maps every changed file, once all seven are read whole. */
 export const MAP = mapFiles();
 export const RECORD = [{ tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } }, { tool: "putChangelogOperation", args: { draft: DRAFT, method: "post", path: "/api/v2/users", operation: OPERATION } }];
+/** The repository's conventions summary, which the draft holds before any endpoint is traced (#365). */
+export const WRITE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: "NestJS: routes from @Controller, no global prefix; bodies are returned as they are." } };
+/** Traces the candidates mapping kept, once every changed file is mapped: traceEndpoints takes the draft alone (#369). */
+export const TRACE = { tool: "traceEndpoints", args: { draft: DRAFT } };
+/** The worker tracing POST /api/v2/users, the one candidate the changed files reach: it records the example operation and says so. */
+export const WORKER = [RECORD, "Recorded POST /api/v2/users."];
 export const FINISH = { tool: "finishChangelog", args: { draft: DRAFT } };
 /** The model's answer once finishChangelog wrote the changelog, naming the path it was written to. */
 export const written = (turn: any) => `The acme/api changelog is written: ${turn.toolResults.at(-1).path}`;
