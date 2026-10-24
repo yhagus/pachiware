@@ -43,7 +43,7 @@ const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const list = (items: string[], and: string) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} ${and} ${items.at(-1)}`);
 /** A count's parts after a colon, those that are zero (falsy) left out; nothing when all are. */
-const split = (parts: (string | 0)[]) => {
+const nonZeroParts = (parts: (string | 0)[]) => {
   const shown = parts.filter((p): p is string => !!p);
   return shown.length ? `: ${shown.join(", ")}` : "";
 };
@@ -356,23 +356,23 @@ const en = {
     minutes: (n: number) => `${n} min`,
     recorded: (n: number) => `${n} endpoint${n === 1 ? "" : "s"} recorded`,
     /** How many of a range's changed files are mapped, with the candidate endpoints found so far (#366). */
-    files: (done: number, total: number, candidates: number) => `${done} of ${total} changed file${total === 1 ? "" : "s"} mapped${candidates ? ` · ${candidates} candidate${candidates === 1 ? "" : "s"} so far` : ""}`,
+    files: (done: number, total: number, candidates: number) => `${done} of ${plural(total, "changed file")} mapped${candidates ? ` · ${plural(candidates, "candidate")} so far` : ""}`,
     /**
      * How far a changelog's candidate endpoints are traced, split by how they turned out, the parts that are zero left out (#367); and
      * each one's result as its worker recorded it (#343).
      */
     endpoints: (done: number, total: number, { changed, unchanged, unverified }: { changed: number; unchanged: number; unverified: number }) =>
-      `${done} of ${total} candidate${total === 1 ? "" : "s"} traced${split([changed && `${changed} changed`, unchanged && `${unchanged} unchanged`, unverified && `${unverified} unverified`])}`,
+      `${done} of ${plural(total, "candidate")} traced${nonZeroParts([changed && `${changed} changed`, unchanged && `${unchanged} unchanged`, unverified && `${unverified} unverified`])}`,
     traced: (impact: string | undefined, changes: number) => `${impact ? `${impact}, ` : ""}${changes} change${changes === 1 ? "" : "s"}`,
     unchanged: "no change",
     unverified: (reason: string) => `unverified: ${reason}`,
     /** A changelog's range: how many commits it holds, which start its files line, and that line once every changed file is mapped (#366, #367). */
-    commits: (n: number) => `${n} commit${n === 1 ? "" : "s"}`,
-    filesDone: (total: number) => `${total} changed file${total === 1 ? "" : "s"}, all mapped`,
+    commits: (n: number) => plural(n, "commit"),
+    filesDone: (total: number) => `${plural(total, "changed file")}, all mapped`,
     /** How many of the whole history's route files are mapped, of those its draft lists, with the candidate endpoints found (#373). */
-    routeFiles: (done: number, total: number, candidates: number) => `${done} of ${total} route file${total === 1 ? "" : "s"} mapped${candidates ? ` · ${candidates} candidate${candidates === 1 ? "" : "s"}` : ""}`,
+    routeFiles: (done: number, total: number, candidates: number) => `${done} of ${plural(total, "route file")} mapped${candidates ? ` · ${plural(candidates, "candidate")}` : ""}`,
     /** A range pinned before its last day ended, its head moved to that day's last commit (#371). */
-    lastDay: (commits: number, day: number, month: number) => `${commits} commit${commits === 1 ? "" : "s"} added through the end of ${day} ${MONTHS_EN[month - 1]}`,
+    lastDay: (commits: number, day: number, month: number) => `${plural(commits, "commit")} added through the end of ${day} ${MONTHS_EN[month - 1]}`,
     stop: "Stop",
     stopOnlyAsker: (who: string) => `Only ${who} can stop this.`,
     stopEnded: "This work has already ended.",
@@ -663,7 +663,7 @@ const id: typeof en = {
     recorded: (n) => `${n} endpoint tercatat`,
     files: (done, total, candidates) => `${done} dari ${total} file berubah dipetakan${candidates ? ` · ${candidates} kandidat sejauh ini` : ""}`,
     endpoints: (done, total, { changed, unchanged, unverified }) =>
-      `${done} dari ${total} kandidat ditelusuri${split([changed && `${changed} berubah`, unchanged && `${unchanged} tidak berubah`, unverified && `${unverified} tidak terverifikasi`])}`,
+      `${done} dari ${total} kandidat ditelusuri${nonZeroParts([changed && `${changed} berubah`, unchanged && `${unchanged} tidak berubah`, unverified && `${unverified} tidak terverifikasi`])}`,
     traced: (impact, changes) => `${impact ? `${impact}, ` : ""}${changes} perubahan`,
     unchanged: "tidak berubah",
     unverified: (reason) => `tidak terverifikasi: ${reason}`,
