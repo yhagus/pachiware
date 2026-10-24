@@ -1,7 +1,7 @@
 import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, DRAFT, DRAFT_FILE, FINISH, HEAD, PROVIDER_DOWN, START, WRITTEN_FILE, contractDiffOn, draftMeta, pauses } from "./support/changelog";
+import { BASE, DRAFT, DRAFT_FILE, FINISH, HEAD, PROVIDER_DOWN, START, WRITTEN_FILE, contractDiffOn, draftMeta, fastProgress, pauses } from "./support/changelog";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
 /** What every file of acme/api reads as, at any commit: what a worker reads, and the main loop never should. */
@@ -198,4 +198,29 @@ discordScenario("a worker that GitHub refuses leaves its files unmapped and paus
   expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "service", service: "GitHub", since: "2026-10-22T03:00:00.000Z" });
   expect((await draftMeta(s)).mapping).toEqual({ [CONTROLLER]: { read: true } });
   expect(await pauses(s)).toEqual([expect.objectContaining({ reason: "service", service: "GitHub", host: "api.github.com", status: 401, tool: "repoReadFile", file: CREATE })]);
+});
+
+discordScenario("the progress message counts the changed files mapped and the candidates found as the workers record them (#370)", async (s) => {
+  await acmeApi(s);
+  await fastProgress();
+  const slowly = (step: unknown) => async () => { await pause(250); return step as any; };
+  const reaches = { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: CREATE, change: "CreateUserDto gains phone", endpoints: [{ method: "post", path: "/api/v2/users" }] }] } };
+  s.model.script(
+    slowly(START), NOTE_CONVENTIONS, MAP_FILES,
+    read(CREATE), reaches, slowly("Mapped."),
+    read(UPDATE), mapNone(UPDATE, CONTROLLER), slowly("Mapped."),
+    read(SERVICE), mapNone(SERVICE), slowly("Mapped."),
+    // The asker's own turn may stop it, so this one ends here.
+    { tool: "stopChangelog", args: {} }, "Stopped the changelog.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  const [progress, answer, ...rest] = s.discord.botMessages;
+  expect(rest).toEqual([]);
+  expect(answer!.content).toBe("Stopped the changelog.");
+  const shown = progress!.edits.map((e) => e.content ?? "");
+  // One message, edited in place as each worker records its files.
+  for (const detail of ["3 commits · 1 of 4 changed files mapped · 1 candidate so far", "3 commits · 3 of 4 changed files mapped · 1 candidate so far", "3 commits · 4 changed files, all mapped\n0 of 1 candidate traced"]) {
+    expect([detail, shown.includes(`🧠 Working…\n${detail}\n-# ✓ Checking what changed in acme/api`)]).toEqual([detail, true]);
+  }
 });
