@@ -67,21 +67,27 @@ discordScenario("on Plane's rate limit the request waits once when the window re
   });
   const results: any[] = [];
   const ask = () => s.model.script({ tool: "planeAccounts" }, (turn) => { results.push(turn.toolResults[0]); return "done"; });
+  const { setPlaneRateLimitWait } = await import("../../../packages/skills/src/plane/client.ts");
+  const waits: number[] = [];
+  setPlaneRateLimitWait(async (ms) => { waits.push(ms); });
+  try {
+    ask();
+    await s.discord.send(`${s.discord.mention} which Plane projects?`);
+    expect(calls).toBe(2);
+    expect(waits).toEqual([1000]);
+    expect(results[0].accounts[0].projects.map((p: any) => p.identifier)).toEqual(["ENG"]);
 
-  ask();
-  const started = Date.now();
-  await s.discord.send(`${s.discord.mention} which Plane projects?`);
-  expect(calls).toBe(2);
-  expect(Date.now() - started).toBeGreaterThanOrEqual(900);
-  expect(results[0].accounts[0].projects.map((p: any) => p.identifier)).toEqual(["ENG"]);
-
-  ask();
-  wait = "30";
-  calls = 0;
-  await s.discord.send(`${s.discord.mention} again?`);
-  expect(calls).toBe(1);
-  expect(results[1].accounts[0].error).toContain("Try again in about 30 seconds");
-}, 30000);
+    ask();
+    wait = "30";
+    calls = 0;
+    await s.discord.send(`${s.discord.mention} again?`);
+    expect(calls).toBe(1);
+    expect(waits).toEqual([1000]);
+    expect(results[1].accounts[0].error).toContain("Try again in about 30 seconds");
+  } finally {
+    setPlaneRateLimitWait(null);
+  }
+});
 
 discordScenario("Allowed hosts is checked again on every call, so a host taken off the list is no longer reached", async (s) => {
   const { saveAllowedHosts } = await import("../../../packages/db/src/index.ts");

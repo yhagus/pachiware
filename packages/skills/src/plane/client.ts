@@ -14,6 +14,13 @@ const CLOUD_HOSTS = new Set(["api.plane.so", "app.plane.so", "plane.so"]);
 const MAX_RATE_LIMIT_WAIT_S = 10;
 const TIMEOUT_MS = 15_000;
 
+const realWait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+let rateLimitWait = realWait;
+/** Tests only: how the one rate-limit wait is spent, so a test sees the wait it asked for without spending it; `null` restores the timer. */
+export function setPlaneRateLimitWait(wait: ((ms: number) => Promise<void>) | null): void {
+  rateLimitWait = wait ?? realWait;
+}
+
 /** What a request needs: never shown to the model, which names an account instead. */
 export type PlaneConn = { baseUrl: string | null; workspaceSlug: string; apiKey: string; version: PlaneVersion };
 /** A connection to a Plane server as the key's user, before a Plane workspace is chosen: enough for `users/me/`. */
@@ -93,7 +100,7 @@ export async function planeRequest<T = any>(conn: PlaneServerConn, path: string,
   if (res.status === 429) {
     const wait = retryAfter(res);
     if (wait > MAX_RATE_LIMIT_WAIT_S) throw new PlaneRateLimited(wait);
-    await new Promise((r) => setTimeout(r, wait * 1000));
+    await rateLimitWait(wait * 1000);
     res = await send();
     if (res.status === 429) throw new PlaneRateLimited(Math.max(1, retryAfter(res)));
   }
