@@ -646,8 +646,11 @@ function lastDayToCover(doc: Json, today: string) {
 function moveHead(doc: Json, head: string, later: { ahead: number; files: ChangedFile[] }, all: { ahead: number; files: ChangedFile[] }) {
   const meta: DraftMeta = doc["x-draft"], from = meta.head!;
   const again = new Set(later.files.flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path]))), reached = new Set<string>();
+  const changelog = doc.info["x-changelog"];
   for (const path of again) {
     meta.mapping?.[path]?.reaches?.forEach((e) => reached.add(e));
+    // One two workers could not map is mapped afresh too, so what they could not settle no longer stands (#370).
+    if (meta.mapping?.[path]?.unverified !== undefined) changelog.unverified = (changelog.unverified ?? []).filter((u: Json) => !String(u?.reason ?? "").startsWith(unmappable(path)));
     delete meta.mapping?.[path];
     delete meta.reads?.[path];
   }

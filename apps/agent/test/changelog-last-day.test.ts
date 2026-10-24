@@ -124,3 +124,26 @@ discordScenario("a draft pinned before its last day ended moves its head to that
   expect(Object.keys(changelog.paths).sort()).toEqual(["/api/v2/orders", "/api/v2/orders/{id}/refund", "/api/v2/users"]);
   expect(changelog.paths["/api/v2/orders"].get.operationId).toBe("listOrders");
 });
+
+discordScenario("a file two mapping workers could not map that changed again after the old head goes back to unmapped, its unverified entry gone; one that did not change again stays unverified (#370, #371)", async (s) => {
+  await acmeApi(s);
+  await tracedBeforeTheDayEnded(s);
+  // Two workers could map neither the orders controller nor the health script before the day ended.
+  const draft = JSON.parse((await s.workspace.read(DRAFT_FILE))!);
+  const why: Record<string, string> = { [ORDERS]: "its routes are registered from config at runtime", [HEALTH]: "its runner comes from another repository" };
+  Object.assign(draft["x-draft"].mapping, { [ORDERS]: { read: true, attempts: 2, unverified: why[ORDERS] }, [HEALTH]: { read: true, attempts: 2, unverified: why[HEALTH] } });
+  draft.info["x-changelog"].unverified = [ORDERS, HEALTH].map((path) => ({ in: "operation", reason: `${path} could not be mapped: ${why[path]}` }));
+  await s.workspace.write(DRAFT_FILE, JSON.stringify(draft));
+  let moved: any;
+  s.model.script(
+    () => { s.clock.set("2026-10-23T00:01:00+07:00"); return "Every changed file is mapped."; },
+    // The first turn after the day: the head moved, and the draft is read before anything else.
+    async () => { moved = JSON.parse((await s.workspace.read(DRAFT_FILE))!); return { tool: "askChangelogAsker", args: { draft: DRAFT, question: "Is the orders module still routed from config?" } }; },
+    "Is the orders module still routed from config?",
+  );
+  await s.restart();
+
+  expect(moved["x-draft"].head).toBe(LATER);
+  expect(moved["x-draft"].mapping).toEqual({ [CONTROLLER]: { read: true, reaches: ["POST /api/v2/users"] }, [HEALTH]: { read: true, attempts: 2, unverified: why[HEALTH] } });
+  expect(moved.info["x-changelog"].unverified).toEqual([{ in: "operation", reason: `${HEALTH} could not be mapped: ${why[HEALTH]}` }]);
+});
