@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, CONTROLLER, DRAFT, DRAFT_FILE, FINISH, FIXTURE, FOLDER, HEAD, contractDiffOn, draftMeta, fastProgress, pause } from "./support/changelog";
+import {
+  BASE, CONTROLLER, DRAFT, DRAFT_FILE, FINISH, FIXTURE, FOLDER, HEAD, acmeOnGitHub, briefOf, draftMeta, endpointOf, fastProgress, mapperStarts, pause, tracerStarts,
+} from "./support/changelog";
 
 /**
  * A range covers its last day to its end (#371, GLOSSARY): acme/api's changelog of 1 to 22 October, pinned at 10:00 on the 22nd at HEAD,
@@ -12,16 +14,9 @@ const CONVENTIONS = "Routes: @Controller prefixes under api/v2. Envelope: { data
 const SOURCE = "@Controller('api/v2/orders')\nexport class OrdersController {}";
 const patch = (line: string) => `@@ -1 +1 @@\n-// before\n+${line}`;
 
-/** acme/api on GitHub at 23:58 on 22 October in Jakarta, one worker tracing at a time. */
+/** acme/api on GitHub at 23:58 on 22 October in Jakarta, as acmeOnGitHub has it, its last commit of the day LATER; one worker at a time. */
 async function acmeApi(s: Scenario) {
-  await s.guildSettings({ language: "en", useThreads: false });
-  s.clock.set("2026-10-22T23:58:00+07:00");
-  await s.git({ repos: ["acme/*"] });
-  await contractDiffOn(s);
-  expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
-  s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
-  s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
-    ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: LATER, commit: { committer: { date: "2026-10-22T09:00:00Z" } } }]));
+  await acmeOnGitHub(s, { at: "2026-10-22T23:58:00+07:00", head: LATER, headDate: "2026-10-22T09:00:00Z", source: SOURCE });
   // That afternoon the orders controller changed again and a refund DTO came; the users controller and the health script did not change again.
   s.http.on(`GET api.github.com/repos/acme/api/compare/${HEAD}...${LATER}`, () => ({ ahead_by: 2, behind_by: 0, commits: [], files: [
     { filename: ORDERS, status: "modified", patch: patch("@Get() list(@Query('page_size') size: number) {}") }, { filename: REFUND, status: "added", patch: patch("export class RefundDto { reason: string }") },
@@ -30,7 +25,6 @@ async function acmeApi(s: Scenario) {
     { filename: CONTROLLER, status: "modified", patch: patch("@Controller('api/v2/users')") }, { filename: ORDERS, status: "modified", patch: patch("@Get() list(@Query('status') status: string) {}") },
     { filename: REFUND, status: "added", patch: patch("export class RefundDto { reason: string }") }, { filename: HEALTH, status: "modified", patch: patch("ping()") },
   ] }));
-  s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
 }
 
 /** A new endpoint's operation, valid as it stands, with one change: what a worker records here. */
@@ -63,13 +57,6 @@ async function tracedBeforeTheDayEnded(s: Scenario) {
   }));
 }
 
-const text = (message: any) => (typeof message?.content === "string" ? message.content : JSON.stringify(message?.content));
-/** The first message after the system prompt: a worker's brief, or the turn's message, which for a turn going on by itself holds the draft's state. */
-const briefOf = (call: any[]) => text(call[1]);
-const isWorker = (call: any[]) => briefOf(call).startsWith("Trace one endpoint");
-/** The endpoint each worker traced, in the order they started. */
-const workerStarts = (s: Scenario) => s.model.calls.filter((call) => isWorker(call) && !call.some((m: any) => m.role === "assistant"));
-const endpointOf = (call: any[]) => briefOf(call).match(/^Your endpoint: (.+)$/m)?.[1];
 const diff = (path: string) => ({ tool: "repoFileDiff", args: { repo: "acme/api", from: BASE, to: LATER, path } });
 
 discordScenario("a draft pinned before its last day ended moves its head to that day's last commit on its first turn after the day: only the files changed since are mapped again, and only the candidates they reach are traced again, against the new head (#371)", async (s) => {
@@ -109,8 +96,8 @@ discordScenario("a draft pinned before its last day ended moves its head to that
   const shown = s.discord.botMessages[0]!.edits.map((e) => e.content ?? "");
   expect(shown.find((t) => t.includes("\n2 commits added through the end of 22 Oct\n"))).toContain("\n2 commits added through the end of 22 Oct\n5 commits · 2 of 4 changed files mapped · 2 candidates so far\n");
 
-  expect(workerStarts(s).map(endpointOf)).toEqual(["GET /api/v2/orders", "POST /api/v2/orders/{id}/refund"]);
-  for (const worker of workerStarts(s)) expect(briefOf(worker)).toContain(LATER);
+  expect(tracerStarts(s).map(endpointOf)).toEqual(["GET /api/v2/orders", "POST /api/v2/orders/{id}/refund"]);
+  for (const worker of tracerStarts(s)) expect(briefOf(worker)).toContain(LATER);
   expect(candidates).toEqual([
     { method: "post", path: "/api/v2/users", note: `${CONTROLLER}: the controller moved to api/v2`, state: "traced", recorded: ["POST /api/v2/users"], at: "2026-10-22T03:30:00.000Z" },
     { method: "get", path: "/api/v2/orders", note: `${ORDERS}: list gains a status filter and a page size`, state: "traced", recorded: ["GET /api/v2/orders"], at: "2026-10-22T17:01:00.000Z" },
@@ -128,7 +115,6 @@ discordScenario("a draft pinned before its last day ended moves its head to that
 });
 
 const PHONE = "src/users/dto/phone.dto.ts";
-const isMapper = (call: any[]) => briefOf(call).startsWith("Map ");
 
 discordScenario("a file new after the old head that reaches candidates traced or failed before the day ended has them traced again against the new head, their old records and unverified entries gone (#371)", async (s) => {
   await acmeApi(s);
@@ -163,11 +149,11 @@ discordScenario("a file new after the old head that reaches candidates traced or
 
   // Moving the head left both users endpoints as they were: the file that changed after it was not mapped yet.
   expect(moved.map((c: any) => `${c.method.toUpperCase()} ${c.path}: ${c.state}`)).toEqual(["POST /api/v2/users: traced", "GET /api/v2/orders: traced", "GET /api/v2/users: failed"]);
-  expect(s.model.calls.filter((call) => isMapper(call) && !call.some((m: any) => m.role === "assistant")).map(briefOf)).toEqual([expect.stringContaining(`\n- ${PHONE} (added)`)]);
+  expect(mapperStarts(s).map(briefOf)).toEqual([expect.stringContaining(`\n- ${PHONE} (added)`)]);
   // Mapped, the phone DTO sent both back to waiting: the failure's unverified entry left the notes, and each was traced again at the new head.
   expect(unverified).toEqual([]);
-  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users"]);
-  for (const worker of workerStarts(s)) expect(briefOf(worker)).toContain(LATER);
+  expect(tracerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users"]);
+  for (const worker of tracerStarts(s)) expect(briefOf(worker)).toContain(LATER);
   const changelog = JSON.parse((await s.workspace.read(`${FOLDER}/2026-10-22_9f8e7d6..c4d5e6f.json`))!);
   expect([changelog.paths["/api/v2/users"].post.operationId, changelog.paths["/api/v2/users"].get.operationId, changelog.paths["/api/v2/orders"].get.operationId]).toEqual(["createUserWithPhone", "listUsersWithPhone", "listOrdersByStatus"]);
   expect(changelog.info["x-changelog"].unverified).toEqual([]);
@@ -256,11 +242,11 @@ discordScenario("a person's turn that first works on a draft after its last day 
   );
   await s.discord.send(`${s.discord.mention} lanjut`);
 
-  const mappers = s.model.calls.filter((call) => isMapper(call) && !call.some((m: any) => m.role === "assistant")).map(briefOf);
+  const mappers = mapperStarts(s).map(briefOf);
   expect(mappers).toEqual([expect.stringContaining(`\nBase: ${BASE} (main before 2026-10-01); head: ${LATER} (main through 2026-10-22).`)]);
   expect(mappers[0]).toContain(`\n- ${REFUND} (added)\n- ${ORDERS} (modified)\n`);
-  expect(workerStarts(s).map(endpointOf)).toEqual(["GET /api/v2/orders", "POST /api/v2/orders/{id}/refund"]);
-  for (const worker of workerStarts(s)) expect(briefOf(worker)).toContain(LATER);
+  expect(tracerStarts(s).map(endpointOf)).toEqual(["GET /api/v2/orders", "POST /api/v2/orders/{id}/refund"]);
+  for (const worker of tracerStarts(s)) expect(briefOf(worker)).toContain(LATER);
   expect(s.discord.botMessages.map((m) => m.content).at(-1)).toBe("The acme/api changelog is written: channel/files/changelogs/acme-api/2026-10-22_9f8e7d6..c4d5e6f.json");
 });
 

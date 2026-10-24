@@ -1,6 +1,8 @@
-import { afterEach, expect } from "bun:test";
+import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { FIXTURE, FOLDER, HEAD, OPERATION, contractDiffOn, fastProgress, pause } from "./support/changelog";
+import {
+  FIXTURE, FOLDER, HEAD, MAPPER_TOOLS, OPERATION, acmeOnGitHub, briefOf, budgets, draftMeta as metaOf, fastProgress, filesOf, mapperStarts, pause, text, tracerStarts,
+} from "./support/changelog";
 
 /** acme/api's changelog of the whole history through 22 October: its draft and written file, named by the empty tree and HEAD. */
 const NAME = "2026-10-22_4b825dc..a1b2c3d";
@@ -12,23 +14,16 @@ const CONVENTIONS = "Routes: @Controller classes in *.controller.ts under src, n
 const CHOSEN = "The conventions say routes are declared by @Controller classes in *.controller.ts files, so every one of those under src at head.";
 
 /**
- * acme/api on GitHub, open in this channel (no threads), at 10:00 on 22 October in Jakarta: main's last commit is HEAD, and its tree there
- * holds six files, three of them controllers of 2,000, 15,000 and 30,000 bytes. Workers run one at a time.
+ * acme/api on GitHub at 10:00 on 22 October in Jakarta, as acmeOnGitHub has it: main's last commit is HEAD, and its tree there holds six
+ * files, three of them controllers of 2,000, 15,000 and 30,000 bytes. Workers run one at a time.
  */
 async function acmeApi(s: Scenario) {
-  await s.guildSettings({ language: "en", useThreads: false });
-  s.clock.set("2026-10-22T10:00:00+07:00");
-  await s.git({ repos: ["acme/*"] });
-  await contractDiffOn(s);
-  expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
-  s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
-  s.http.on("GET api.github.com/repos/acme/api/commits", () => [{ sha: HEAD, commit: { committer: { date: "2026-10-21T08:00:00Z" } } }]);
+  await acmeOnGitHub(s, { source: SOURCE });
   s.http.on(`GET api.github.com/repos/acme/api/git/trees/${HEAD}?recursive=1`, () => ({ truncated: false, tree: [
     { path: "package.json", type: "blob", sha: "b1", size: 700 }, { path: "src", type: "tree", sha: "t1" }, { path: APP, type: "blob", sha: "b2", size: 2_000 },
     { path: "src/main.ts", type: "blob", sha: "b3", size: 400 }, { path: ORDERS, type: "blob", sha: "b4", size: 15_000 },
     { path: "src/users/dto/create-user.dto.ts", type: "blob", sha: "b5", size: 300 }, { path: USERS, type: "blob", sha: "b6", size: 30_000 },
   ] }));
-  s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
 }
 const START = { tool: "startChangelog", args: { repo: "acme/api", scope: "all" } };
 const NOTE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: CONVENTIONS } };
@@ -41,16 +36,8 @@ const read = (path: string) => ({ tool: "repoReadFile", args: { repo: "acme/api"
 /** A route file that declares `endpoints` ("GET /path"), as a worker records it: every one NEW. */
 const declares = (path: string, ...endpoints: string[]) => ({ path, change: "NEW", endpoints: endpoints.map((e) => ({ method: e.split(" ")[0]!.toLowerCase(), path: e.split(" ")[1]! })) });
 const map = (...files: object[]) => ({ tool: "putChangelogMapping", args: { draft: DRAFT, files } });
-/** The five tools a mapping worker is offered (#370). */
-const WORKER_TOOLS = ["putChangelogMapping", "repoFileDiff", "repoReadFile", "repoSearchCode", "repoTree"];
-const text = (message: any) => (typeof message?.content === "string" ? message.content : JSON.stringify(message?.content));
-const briefOf = (call: any[]) => text(call[1]);
-const isWorker = (call: any[]) => briefOf(call).startsWith("Map ");
-/** The first model call of each mapping worker, in the order they started. */
-const workerStarts = (s: Scenario) => s.model.calls.filter((call) => isWorker(call) && !call.some((m: any) => m.role === "assistant"));
-/** The route files a worker's brief gives it. */
-const filesOf = (call: any[]) => [...briefOf(call).matchAll(/^- (\S+)$/gm)].map((m) => m[1]);
-const draftMeta = async (s: Scenario) => JSON.parse((await s.workspace.read(DRAFT_FILE))!)["x-draft"];
+/** The whole history's draft metadata as the Workspace holds it. */
+const draftMeta = (s: Scenario) => metaOf(s, DRAFT_FILE);
 
 discordScenario("a whole-history draft lists the files that declare routes at head as the main loop chose them, and workers map them in groups by size, keeping every route as a NEW candidate (#373)", async (s) => {
   await acmeApi(s);
@@ -83,10 +70,10 @@ discordScenario("a whole-history draft lists the files that declare routes at he
   // The draft lists the route files as the main loop named them and why, each weighed by its size at head.
   expect(meta.routeFiles).toEqual({ given: ["src/**/*.controller.ts"], chosenBy: CHOSEN });
   expect(meta.files).toEqual([{ path: APP, status: "added", patchChars: 2_000 }, { path: ORDERS, status: "added", patchChars: 15_000 }, { path: USERS, status: "added", patchChars: 30_000 }]);
-  expect(workerStarts(s).map(filesOf)).toEqual([[APP, ORDERS], [USERS]]);
-  for (const call of workerStarts(s)) expect([...s.model.tools[s.model.calls.indexOf(call)]!].sort()).toEqual(WORKER_TOOLS);
+  expect(mapperStarts(s).map(filesOf)).toEqual([[APP, ORDERS], [USERS]]);
+  for (const call of mapperStarts(s)) expect([...s.model.tools[s.model.calls.indexOf(call)]!].sort()).toEqual(MAPPER_TOOLS);
   // A worker reads head only, and is told every route of its files is NEW.
-  const brief = briefOf(workerStarts(s)[0]!);
+  const brief = briefOf(mapperStarts(s)[0]!);
   expect(brief).toStartWith("Map 2 route files of the API changelog of acme/api, branch main, and record how each ends in the changelog's draft before you stop.\n");
   expect(brief).toContain(`\nHead: ${HEAD} (main). Nothing came before this changelog: it covers the whole history, so every route your files declare is NEW. Read them at head by passing it as the ref.\n`);
   expect(brief).toContain(`\nYour 2 route files, which the changelog's main work chose as follows:\n<untrusted_data source="how the route files were chosen">\n${CHOSEN}\n</untrusted_data>\n`);
@@ -106,24 +93,8 @@ discordScenario("a whole-history draft lists the files that declare routes at he
   }
 });
 
-// Budgets are shortened for a scenario and put back after it.
-let shipped: { turn: number; worker: { steps: number; ms: number; leastMs: number } } | undefined;
-async function budgets(turnMs: number, worker: Partial<{ steps: number; ms: number; leastMs: number }>) {
-  const { turnDeadline } = await import("../src/loop/react.ts");
-  const { workerBudget } = await import("../../../packages/skills/src/openapi/workers.ts");
-  shipped ??= { turn: turnDeadline.ms, worker: { ...workerBudget } };
-  turnDeadline.ms = turnMs;
-  Object.assign(workerBudget, worker);
-}
-afterEach(async () => {
-  if (!shipped) return;
-  (await import("../src/loop/react.ts")).turnDeadline.ms = shipped.turn;
-  Object.assign((await import("../../../packages/skills/src/openapi/workers.ts")).workerBudget, shipped.worker);
-  shipped = undefined;
-});
 /** A NEW endpoint as its tracing worker records it, with what it needs to be valid and nothing else. */
 const NEW_ORDERS = { operationId: "listOrders", summary: "List orders", security: [], responses: { "200": { description: "The orders" } }, "x-changes": [{ status: "NEW", impact: "non-breaking", in: "operation" }] };
-const isTracer = (call: any[]) => briefOf(call).startsWith("Trace one endpoint");
 
 discordScenario("tracing a whole-history draft waits until every route file it lists is mapped, and a turn going on by itself sees which are left; each candidate is then traced as NEW (#373)", async (s) => {
   await acmeApi(s);
@@ -155,8 +126,8 @@ discordScenario("tracing a whole-history draft waits until every route file it l
     { written: false, unmapped: 1, files: [USERS], fix: "Map them with mapChangedFiles; then call finishChangelog again." },
   ]);
   // Mapping went on with the file left alone; then every candidate was traced, each as NEW, from the file that declares it.
-  expect(workerStarts(s).map(filesOf)).toEqual([[ORDERS], [USERS]]);
-  const tracers = s.model.calls.filter((call) => isTracer(call) && !call.some((m: any) => m.role === "assistant")).map(briefOf);
+  expect(mapperStarts(s).map(filesOf)).toEqual([[ORDERS], [USERS]]);
+  const tracers = tracerStarts(s).map(briefOf);
   expect(tracers.map((brief) => brief.split("\n").find((l: string) => l.startsWith("Your endpoint:")))).toEqual(["Your endpoint: GET /api/v2/orders", "Your endpoint: POST /api/v2/users"]);
   for (const brief of tracers) expect(brief).toContain(`\nHead: ${HEAD} (main). Nothing came before this changelog: the endpoint is NEW. Read head only.\n`);
   expect(tracers[1]).toContain(`Why it is a candidate: <untrusted_data source="candidate note">\n${USERS}: NEW\n</untrusted_data>`);

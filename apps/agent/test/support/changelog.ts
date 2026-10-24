@@ -31,24 +31,32 @@ export const PROVIDER_DOWN = { error: "I can't reach the AI service right now. T
 export const contractDiffOn = (s: Scenario) => s.availability({ level: "tenant" }, { kind: "playbook", name: "contract-diff", value: "on" });
 
 /**
- * acme/api on GitHub, open in this channel (no threads), at 10:00 on 22 October in Jakarta: main's last commit through that day is HEAD,
- * its last before 1 October BASE. Between them the controller changed, its patch given, and the six DTOs; any file reads as SOURCE.
- * Workers run one at a time.
+ * acme/api on GitHub, open in this channel (no threads), at `at` in Jakarta, its workers running one at a time: what each scenario's own
+ * comparison goes with. main's last commit before 1 October is BASE and its last through any later day `head`, made at `headDate`; any file
+ * reads as `source` at any commit.
  */
-export async function acmeApi(s: Scenario) {
+export async function acmeOnGitHub(s: Scenario, { at = "2026-10-22T10:00:00+07:00", head = HEAD, headDate = "2026-10-21T08:00:00Z", source = SOURCE } = {}) {
   await s.guildSettings({ language: "en", useThreads: false });
-  s.clock.set("2026-10-22T10:00:00+07:00");
-  process.env.PUBLIC_URL = "https://pachi.example.com";
+  s.clock.set(at);
   await s.git({ repos: ["acme/*"] });
   await contractDiffOn(s);
   expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
   s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
   s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
-    ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: HEAD, commit: { committer: { date: "2026-10-21T08:00:00Z" } } }]));
+    ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: head, commit: { committer: { date: headDate } } }]));
+  s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(source).toString("base64") }));
+}
+
+/**
+ * acme/api on GitHub at 10:00 on 22 October in Jakarta, as acmeOnGitHub has it: between BASE and HEAD the controller changed, its patch
+ * given, and the six DTOs; any file reads as SOURCE.
+ */
+export async function acmeApi(s: Scenario) {
+  await acmeOnGitHub(s);
+  process.env.PUBLIC_URL = "https://pachi.example.com";
   s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 3, behind_by: 0, commits: [], files: [
     { filename: CONTROLLER, status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, ...DTOS.map((filename) => ({ filename, status: "modified" })),
   ] }));
-  s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
 }
 
 /** Starts the changelog from 1 October through today; `publish` asks for it to be published as it is written (#349). */
@@ -84,8 +92,8 @@ export const FINISH = { tool: "finishChangelog", args: { draft: DRAFT } };
 /** The model's answer once finishChangelog wrote the changelog, naming the path it was written to. */
 export const written = (turn: any) => `The acme/api changelog is written: ${turn.toolResults.at(-1).path}`;
 
-/** The draft's metadata as the Workspace holds it. */
-export const draftMeta = async (s: Scenario) => JSON.parse((await s.workspace.read(DRAFT_FILE))!)["x-draft"];
+/** The draft's metadata as the Workspace holds it: this changelog's, or the draft `file`'s. */
+export const draftMeta = async (s: Scenario, file = DRAFT_FILE) => JSON.parse((await s.workspace.read(file))!)["x-draft"];
 /** The audit rows of the draft's pauses, oldest first. */
 export const pauses = async (s: Scenario) => {
   const { repositories } = await import("@pachiware/db");
@@ -122,3 +130,21 @@ export async function budgets(turnMs: number, worker: Partial<{ steps: number; m
 export const oneWorkerATurn = () => budgets(2000, { leastMs: 1500 });
 /** A worker's last step, answered once its turn has too little time left to start another worker (oneWorkerATurn). */
 export const outlasting = (step: string) => async () => { await pause(600); return step; };
+
+/** What a message to the model says, as text. */
+export const text = (message: any) => (typeof message?.content === "string" ? message.content : JSON.stringify(message?.content));
+/** The first message after the system prompt: a worker's brief, or the turn's message. */
+export const briefOf = (call: any[]) => text(call[1]);
+/** Whether a model call is a mapping worker's (#370), or a tracing worker's (ADR 0024), by how its brief starts. */
+export const isMapper = (call: any[]) => briefOf(call).startsWith("Map ");
+export const isTracer = (call: any[]) => briefOf(call).startsWith("Trace one endpoint");
+/** The first model call of each mapping worker, or tracing worker, in the order they started. */
+export const mapperStarts = (s: Scenario) => s.model.calls.filter((call) => isMapper(call) && !call.some((m: any) => m.role === "assistant"));
+export const tracerStarts = (s: Scenario) => s.model.calls.filter((call) => isTracer(call) && !call.some((m: any) => m.role === "assistant"));
+/** The files a mapping worker's brief gives it: a range's changed files with their status, or the whole history's route files. */
+export const filesOf = (call: any[]) => [...briefOf(call).matchAll(/^- (\S+)(?: \(|$)/gm)].map((m) => m[1]);
+/** The endpoint a tracing worker's brief names. */
+export const endpointOf = (call: any[]) => briefOf(call).match(/^Your endpoint: (.+)$/m)?.[1];
+/** The tools a mapping worker is offered (#370), and a tracing worker (ADR 0024), whatever the place offers. */
+export const MAPPER_TOOLS = ["putChangelogMapping", "repoFileDiff", "repoReadFile", "repoSearchCode", "repoTree"];
+export const TRACER_TOOLS = ["putChangelogComponents", "putChangelogOperation", "repoFileDiff", "repoReadFile", "repoSearchCode", "repoTree"];

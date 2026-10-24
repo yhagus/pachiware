@@ -1,9 +1,10 @@
-import { afterEach, expect } from "bun:test";
+import { expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import {
-  BASE, CONTROLLER, DRAFT, DRAFT_FILE, DTOS, FINISH, FIXTURE, FOLDER, HEAD, MAP_CHANGED, OPERATION, PROVIDER_DOWN, READ_REST, START, WRITTEN, WRITTEN_FILE,
-  acmeApi as acmeWithDtos, contractDiffOn, draftMeta, fastProgress, mapper, mappers, oneWorkerATurn, outlasting, pause, pauses, reaches, read, written,
+  BASE, CONTROLLER, DRAFT, DRAFT_FILE, DTOS, FINISH, FIXTURE, FOLDER, HEAD, MAP_CHANGED, OPERATION, PROVIDER_DOWN, READ_REST, START, TRACE, TRACER_TOOLS, WRITTEN, WRITTEN_FILE,
+  acmeApi as acmeWithDtos, acmeOnGitHub, briefOf, budgets, draftMeta, endpointOf, fastProgress, isTracer, mapper, mappers, oneWorkerATurn, outlasting, pause, pauses, reaches, read,
+  text, tracerStarts, written,
 } from "./support/changelog";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
@@ -12,22 +13,14 @@ const SOURCE = "@Controller('api/v2/users')\nexport class UsersController {\n  @
 const CONVENTIONS = "Routes: @Controller prefixes, no global prefix. Envelope: { data } from TransformInterceptor. Errors: HttpExceptionFilter gives { code, message }.";
 
 /**
- * acme/api on GitHub, open in this channel (no threads), at 10:00 on 22 October in Jakarta: main's last commit through that day is HEAD,
- * its last before 1 October BASE, and between them two commits changed only the users controller, its patch given. Workers trace one at a time.
+ * acme/api on GitHub at 10:00 on 22 October in Jakarta, as acmeOnGitHub has it: between BASE and HEAD two commits changed only the users
+ * controller, its patch given. Workers trace one at a time.
  */
 async function acmeApi(s: Scenario) {
-  await s.guildSettings({ language: "en", useThreads: false });
-  s.clock.set("2026-10-22T10:00:00+07:00");
-  await s.git({ repos: ["acme/*"] });
-  await contractDiffOn(s);
-  expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
-  s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
-  s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
-    ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: HEAD, commit: { committer: { date: "2026-10-21T08:00:00Z" } } }]));
+  await acmeOnGitHub(s, { source: SOURCE });
   s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 2, behind_by: 0, commits: [], files: [
     { filename: CONTROLLER, status: "modified", patch: "@@ -1 +1 @@\n-@Controller('api/v1/users')\n+@Controller('api/v2/users')" },
   ] }));
-  s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
 }
 const NOTE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: CONVENTIONS } };
 const candidate = (method: string, path: string, note?: string) => ({ method, path, ...(note ? { note } : {}) });
@@ -36,22 +29,12 @@ const candidate = (method: string, path: string, note?: string) => ({ method, pa
  * /api/v2/users unless named), each kept as a candidate, so the changelog can be traced and finished (#366, #370).
  */
 const mapController = (...endpoints: ReturnType<typeof candidate>[]) => mapper({ path: CONTROLLER, change: "the controller moved to api/v2", endpoints: endpoints.length ? endpoints : [candidate("post", "/api/v2/users")] });
-/** Traces the candidates mapping kept: traceEndpoints takes the draft alone (#369). */
-const TRACE = { tool: "traceEndpoints", args: { draft: DRAFT } };
 /** A worker's step that records `method path` as the example operation. */
 const record = (method: string, path: string) => [
   { tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } },
   { tool: "putChangelogOperation", args: { draft: DRAFT, method, path, operation: OPERATION } },
 ];
 const readController = { tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path: CONTROLLER } };
-/** The six tools a worker is offered, whatever the place offers (ADR 0024). */
-const WORKER_TOOLS = ["putChangelogComponents", "putChangelogOperation", "repoFileDiff", "repoReadFile", "repoSearchCode", "repoTree"];
-const text = (message: any) => (typeof message?.content === "string" ? message.content : JSON.stringify(message?.content));
-/** The first message after the system prompt: a worker's brief, or the turn's message. */
-const briefOf = (call: any[]) => text(call[1]);
-const isWorker = (call: any[]) => briefOf(call).startsWith("Trace one endpoint");
-/** The first model call of each worker, in the order they started. */
-const workerStarts = (s: Scenario) => s.model.calls.filter((call) => isWorker(call) && !call.some((m: any) => m.role === "assistant"));
 
 discordScenario("traceEndpoints hands each candidate to a worker of its own, which starts from a brief and six tools and records its endpoint in the draft; what the worker read never reaches the main loop (#343)", async (s) => {
   await acmeApi(s);
@@ -69,8 +52,8 @@ discordScenario("traceEndpoints hands each candidate to a worker of its own, whi
 
   expect(s.model.calls).toHaveLength(10);
   const worker = s.model.calls[5]!;
-  expect(s.model.calls.map(isWorker)).toEqual([false, false, false, false, false, true, true, true, false, false]);
-  expect([...s.model.tools[5]!].sort()).toEqual(WORKER_TOOLS);
+  expect(s.model.calls.map(isTracer)).toEqual([false, false, false, false, false, true, true, true, false, false]);
+  expect([...s.model.tools[5]!].sort()).toEqual(TRACER_TOOLS);
   // Its brief: the repository, both commits, the draft, the conventions the main loop kept, the extension reference, and its endpoint.
   const brief = briefOf(worker);
   for (const part of ["acme/api", "branch main", BASE, HEAD, DRAFT, CONVENTIONS, readFileSync(new URL("extensions.md", PLAYBOOK), "utf8").trim(), "POST /api/v2/users", "the controller moved to api/v2"]) expect([part, brief.includes(part)]).toEqual([part, true]);
@@ -108,7 +91,7 @@ discordScenario("traceEndpoints on a draft with no conventions summary traces no
   expect(refusal).toBe(NO_CONVENTIONS);
   // The refused call kept no candidate and started no worker; the one after the summary started the only worker.
   expect(kept).toBeUndefined();
-  expect(s.model.calls.map(isWorker)).toEqual([false, false, false, false, false, false, true, true, false, false]);
+  expect(s.model.calls.map(isTracer)).toEqual([false, false, false, false, false, false, true, true, false, false]);
   expect(briefOf(s.model.calls[6]!)).toContain(`<untrusted_data source="conventions summary">\n${CONVENTIONS}\n</untrusted_data>`);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
 });
@@ -126,7 +109,7 @@ discordScenario("a turn that goes on by itself from a draft with no conventions 
 
   expect(state).toEndWith("\n</untrusted_data>\nThe draft holds no conventions summary yet: write it before any endpoint is traced, as step 2 says (checklist.md, then putChangelogNotes conventions). traceEndpoints refuses until it is written.");
   expect(s.model.calls).toHaveLength(6);
-  expect(workerStarts(s)).toEqual([]);
+  expect(tracerStarts(s)).toEqual([]);
   const meta = await draftMeta(s);
   expect(meta.candidates).toBeUndefined();
   expect(meta.work).toEqual({ state: "paused", reason: "no-progress", since: "2026-10-22T03:00:00.000Z" });
@@ -150,7 +133,7 @@ discordScenario("traceEndpoints takes the draft alone: candidates the main loop 
 
   expect(refusal).toBe(CANDIDATES_PASSED);
   expect(kept).toEqual(["POST /api/v2/users: waiting"]);
-  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users"]);
+  expect(tracerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users"]);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
 });
 
@@ -181,8 +164,8 @@ discordScenario("traceEndpoints traces nothing while a changed file is unmapped,
 - src/users/dto/f.dto.ts`);
   expect(kept).toEqual(["POST /api/v2/users: waiting"]);
   // One worker, started once every file was mapped, for the one candidate the seven changes reach.
-  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users"]);
-  expect(briefOf(workerStarts(s)[0]!)).toContain("src/users/dto/f.dto.ts: a body field changed");
+  expect(tracerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users"]);
+  expect(briefOf(tracerStarts(s)[0]!)).toContain("src/users/dto/f.dto.ts: a body field changed");
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`<@user-alice> The acme/api changelog is written: ${WRITTEN}`]);
 });
 
@@ -198,7 +181,7 @@ discordScenario("traceEndpoints on a draft whose every changed file reaches no e
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   expect(refusal).toBe("No mapped file reaches an endpoint, so this changelog keeps no candidate endpoint to trace. Record removed endpoints with putChangelogNotes, then call finishChangelog. Nothing was traced.");
-  expect(workerStarts(s)).toEqual([]);
+  expect(tracerStarts(s)).toEqual([]);
   expect(finished).toMatchObject({ written: false });
 });
 
@@ -228,24 +211,6 @@ const newOperation = (id: string) => ({
 });
 const recordNew = (method: string, path: string, id: string) => ({ tool: "putChangelogOperation", args: { draft: DRAFT, method, path, operation: newOperation(id) } });
 const EXPORT = candidate("get", "/api/v2/users/export"), SESSIONS = candidate("delete", "/api/v2/sessions");
-/** The endpoint a worker's brief names. */
-const endpointOf = (call: any[]) => briefOf(call).match(/^Your endpoint: (.+)$/m)?.[1];
-
-// Budgets are shortened for a scenario and put back after it.
-let shipped: { turn: number; worker: { steps: number; ms: number; leastMs: number } } | undefined;
-async function budgets(turnMs: number, worker: Partial<{ steps: number; ms: number; leastMs: number }>) {
-  const { turnDeadline } = await import("../src/loop/react.ts");
-  const { workerBudget } = await import("../../../packages/skills/src/openapi/trace.ts");
-  shipped ??= { turn: turnDeadline.ms, worker: { ...workerBudget } };
-  turnDeadline.ms = turnMs;
-  Object.assign(workerBudget, worker);
-}
-afterEach(async () => {
-  if (!shipped) return;
-  (await import("../src/loop/react.ts")).turnDeadline.ms = shipped.turn;
-  Object.assign((await import("../../../packages/skills/src/openapi/trace.ts")).workerBudget, shipped.worker);
-  shipped = undefined;
-});
 
 discordScenario("a turn cut while its workers trace goes on by itself with the candidates still waiting, and never traces one again (#343)", async (s) => {
   await acmeApi(s);
@@ -266,7 +231,7 @@ discordScenario("a turn cut while its workers trace goes on by itself with the c
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users/export", "DELETE /api/v2/sessions"]);
+  expect(tracerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users/export", "DELETE /api/v2/sessions"]);
   expect(state).toContain("Candidate endpoints: 3: 1 traced, 0 failed, 2 waiting.\nWaiting to be traced: GET /api/v2/users/export, DELETE /api/v2/sessions\n");
   expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([{ content: `<@user-alice> The acme/api changelog is written: ${WRITTEN}`, pinged: ["user-alice"] }]);
   expect(Object.keys(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).paths).sort()).toEqual(["/api/v2/sessions", "/api/v2/users", "/api/v2/users/export"]);
@@ -293,7 +258,7 @@ discordScenario("a worker that cannot reach the model leaves its endpoint waitin
   await s.scheduler.tick();
 
   // The retry goes on with the same endpoint, whose worker fails again: the draft pauses, and the endpoints still wait.
-  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "POST /api/v2/users"]);
+  expect(tracerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "POST /api/v2/users"]);
   expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
     { content: "<@user-alice> The AI model can't be reached; say go on to carry on.", pinged: ["user-alice"] },
   ]);
@@ -320,7 +285,7 @@ discordScenario("a worker that fails otherwise has its endpoint listed as unveri
 
   const reason = "Its route is registered from config at runtime, so its path cannot be read from the code.";
   expect(failed).toEqual([{ endpoint: "POST /api/v2/users", failed: reason }]);
-  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users/export"]);
+  expect(tracerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users/export"]);
   const changelog = JSON.parse((await s.workspace.read(WRITTEN_FILE))!);
   expect(changelog.info["x-changelog"].unverified).toEqual([{ in: "operation", reason: `POST /api/v2/users could not be traced: ${reason}` }]);
   expect(Object.keys(changelog.paths)).toEqual(["/api/v2/users/export"]);
@@ -396,7 +361,7 @@ discordScenario("a turn that goes on by itself and only settles candidates made 
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users/export"]);
+  expect(tracerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users/export"]);
   expect(await pauses(s)).toEqual([]);
   expect(s.model.calls).toHaveLength(13);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`<@user-alice> The acme/api changelog is written: ${WRITTEN}`]);

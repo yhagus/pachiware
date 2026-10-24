@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import {
-  BASE, CONTROLLER, DRAFT, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, MAP_CHANGED, MAPPED, READ_REST, TRACE, WORKER, WRITE_CONVENTIONS, WRITTEN, WRITTEN_FILE,
+  BASE, DRAFT, DRAFT_FILE, DRAFT_TURN, DTOS, FINISH, FOLDER, HEAD, MAP_CHANGED, MAPPED, READ_REST, TRACE, WORKER, WRITE_CONVENTIONS, WRITTEN, WRITTEN_FILE,
   acmeApi, agentLog, contractDiffOn, draftMeta, fastProgress, mapper, mappers, oneWorkerATurn, outlasting, pause, pauses, reaches, read, startChangelog, warnings, written,
 } from "./support/changelog";
 

@@ -1,7 +1,10 @@
-import { afterEach, expect } from "bun:test";
+import { expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, DRAFT, DRAFT_FILE, FINISH, HEAD, PROVIDER_DOWN, START, TRACE, WRITTEN_FILE, contractDiffOn, draftMeta, fastProgress, pauses, written } from "./support/changelog";
+import {
+  BASE, DRAFT, DRAFT_FILE, FINISH, HEAD, MAPPER_TOOLS, MAP_CHANGED, PROVIDER_DOWN, START, TRACE, WRITTEN_FILE,
+  acmeOnGitHub, briefOf, budgets, draftMeta, fastProgress, filesOf, isMapper, mapperStarts, pause, pauses, text, written,
+} from "./support/changelog";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
 /** What every file of acme/api reads as, at any commit: what a worker reads, and the main loop never should. */
@@ -12,47 +15,28 @@ const CREATE = "src/users/dto/create-user.dto.ts", UPDATE = "src/users/dto/updat
 const patchOf = (chars: number) => "@@ -1,9 +1,9 @@\n".padEnd(chars, "+");
 
 /**
- * acme/api on GitHub, open in this channel (no threads), at 10:00 on 22 October in Jakarta: main's last commit through that day is HEAD,
- * its last before 1 October BASE. Between them four files of the users module changed, listed out of path order, with patches of 45,000,
- * 12,000, 1,000 and 30,000 characters; only the controller's fits startChangelog's result. Workers map one group at a time.
+ * acme/api on GitHub at 10:00 on 22 October in Jakarta, as acmeOnGitHub has it: between BASE and HEAD four files of the users module
+ * changed, listed out of path order, with patches of 45,000, 12,000, 1,000 and 30,000 characters; only the controller's fits
+ * startChangelog's result. Workers map one group at a time.
  */
 async function acmeApi(s: Scenario) {
-  await s.guildSettings({ language: "en", useThreads: false });
-  s.clock.set("2026-10-22T10:00:00+07:00");
-  await s.git({ repos: ["acme/*"] });
-  await contractDiffOn(s);
-  expect((await s.admin("PUT", `/api/admin/tenants/${s.tenant.id}/settings`, { playbookWorkers: 1 })).status).toBe(200);
-  s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
-  s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
-    ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: HEAD, commit: { committer: { date: "2026-10-21T08:00:00Z" } } }]));
+  await acmeOnGitHub(s, { source: SOURCE });
   s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 3, behind_by: 0, commits: [], files: [
     { filename: SERVICE, status: "modified", patch: patchOf(45_000) }, { filename: CREATE, status: "modified", patch: patchOf(12_000) },
     { filename: CONTROLLER, status: "modified", patch: patchOf(1_000) }, { filename: UPDATE, status: "modified", patch: patchOf(30_000) },
   ] }));
-  s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
 }
 const NOTE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conventions: CONVENTIONS } };
-const MAP_FILES = { tool: "mapChangedFiles", args: { draft: DRAFT } };
 /** A worker's read of a changed file whole at head, which lets it map the file. */
 const read = (path: string) => ({ tool: "repoReadFile", args: { repo: "acme/api", ref: HEAD, path } });
 /** A worker's step that maps each file given as reaching no endpoint. */
 const mapNone = (...paths: string[]) => ({ tool: "putChangelogMapping", args: { draft: DRAFT, files: paths.map((path) => ({ path, none: "only a log line changed" })) } });
-/** The five tools a mapping worker is offered, whatever the place offers (#370). */
-const WORKER_TOOLS = ["putChangelogMapping", "repoFileDiff", "repoReadFile", "repoSearchCode", "repoTree"];
-const text = (message: any) => (typeof message?.content === "string" ? message.content : JSON.stringify(message?.content));
-/** The first message after the system prompt: a worker's brief, or the turn's message. */
-const briefOf = (call: any[]) => text(call[1]);
-const isWorker = (call: any[]) => briefOf(call).startsWith("Map ");
-/** The first model call of each worker, in the order they started. */
-const workerStarts = (s: Scenario) => s.model.calls.filter((call) => isWorker(call) && !call.some((m: any) => m.role === "assistant"));
-/** The changed files a worker's brief gives it. */
-const filesOf = (call: any[]) => [...briefOf(call).matchAll(/^- (\S+) \(/gm)].map((m) => m[1]);
 
 discordScenario("mapChangedFiles hands the changed files to workers in groups by path within the patch bound, an oversized file alone; each worker starts from a brief and five tools, and the main loop hears only counts (#370)", async (s) => {
   await acmeApi(s);
   let mapped: any;
   s.model.script(
-    START, NOTE_CONVENTIONS, MAP_FILES,
+    START, NOTE_CONVENTIONS, MAP_CHANGED,
     // 12,000 characters; the next file's 30,000 would pass 40,000.
     read(CREATE), mapNone(CREATE), "Mapped.",
     // 30,000 and 1,000; the controller's patch came with startChangelog, so it is read already.
@@ -64,14 +48,14 @@ discordScenario("mapChangedFiles hands the changed files to workers in groups by
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(s.model.calls.map(isWorker)).toEqual([false, false, false, true, true, true, true, true, true, true, true, true, false, false]);
-  expect(workerStarts(s).map(filesOf)).toEqual([[CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
-  for (const call of workerStarts(s)) expect([...s.model.tools[s.model.calls.indexOf(call)]!].sort()).toEqual(WORKER_TOOLS);
+  expect(s.model.calls.map(isMapper)).toEqual([false, false, false, true, true, true, true, true, true, true, true, true, false, false]);
+  expect(mapperStarts(s).map(filesOf)).toEqual([[CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
+  for (const call of mapperStarts(s)) expect([...s.model.tools[s.model.calls.indexOf(call)]!].sort()).toEqual(MAPPER_TOOLS);
   // Its brief: the repository, both commits, the draft, the conventions the main loop kept, and its files.
-  const brief = briefOf(workerStarts(s)[1]!);
+  const brief = briefOf(mapperStarts(s)[1]!);
   for (const part of ["acme/api", "branch main", BASE, HEAD, DRAFT, `<untrusted_data source="conventions summary">\n${CONVENTIONS}\n</untrusted_data>`]) expect([part, brief.includes(part)]).toEqual([part, true]);
   // It follows the mapping rules alone: not the main loop's steps, and not the tracing rules.
-  const rules = text(workerStarts(s)[0]![0]);
+  const rules = text(mapperStarts(s)[0]![0]);
   expect(rules).toContain(readFileSync(new URL("mapping.md", PLAYBOOK), "utf8").trim());
   expect(rules).not.toContain("## 1. Pin what the changelog covers");
   expect(rules).not.toContain("**Presence versus null.**");
@@ -81,22 +65,6 @@ discordScenario("mapChangedFiles hands the changed files to workers in groups by
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Nothing the frontend sees changed."]);
 });
 
-// Budgets are shortened for a scenario and put back after it.
-let shipped: { turn: number; worker: { steps: number; ms: number; leastMs: number } } | undefined;
-async function budgets(turnMs: number, worker: Partial<{ steps: number; ms: number; leastMs: number }>) {
-  const { turnDeadline } = await import("../src/loop/react.ts");
-  const { workerBudget } = await import("../../../packages/skills/src/openapi/workers.ts");
-  shipped ??= { turn: turnDeadline.ms, worker: { ...workerBudget } };
-  turnDeadline.ms = turnMs;
-  Object.assign(workerBudget, worker);
-}
-afterEach(async () => {
-  if (!shipped) return;
-  (await import("../src/loop/react.ts")).turnDeadline.ms = shipped.turn;
-  Object.assign((await import("../../../packages/skills/src/openapi/workers.ts")).workerBudget, shipped.worker);
-  shipped = undefined;
-});
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 discordScenario("a turn cut while its workers map goes on by itself with the files still unmapped only, and never maps one again (#370)", async (s) => {
   await acmeApi(s);
@@ -104,13 +72,13 @@ discordScenario("a turn cut while its workers map goes on by itself with the fil
   await budgets(3000, { leastMs: 1000 });
   let cut: any, state = "";
   s.model.script(
-    START, NOTE_CONVENTIONS, MAP_FILES,
+    START, NOTE_CONVENTIONS, MAP_CHANGED,
     // The first worker maps its file and answers once the turn's time is gone, so no other worker starts.
     read(CREATE), mapNone(CREATE), async () => { await pause(3200); return "Mapped."; },
     // Out of time, the main loop is asked for its answer after the tool's result.
     (turn) => { cut = JSON.parse(text(turn.messages.findLast((m: any) => m.role === "tool")).replace(/<\/?untrusted_data[^>]*>/g, "")); return "One of four changed files is mapped; three wait."; },
     // The turn that goes on by itself starts from the draft, which lists the files left.
-    (turn) => { state = text(turn.messages[1]); return MAP_FILES; },
+    (turn) => { state = text(turn.messages[1]); return MAP_CHANGED; },
     read(UPDATE), mapNone(UPDATE, CONTROLLER), "Mapped.",
     read(SERVICE), mapNone(SERVICE), "Mapped.",
     FINISH, "Nothing the frontend sees changed.",
@@ -119,7 +87,7 @@ discordScenario("a turn cut while its workers map goes on by itself with the fil
 
   expect(cut).toEqual({ mapped: 1, unverified: 0, files: { mapped: 1, setAside: 0, left: 3 }, candidates: 0, note: "This turn's time is nearly out: 3 changed files wait to be mapped, and the next turn goes on with them through mapChangedFiles." });
   expect(state).toContain(`Changed files: 4: 1 mapped, 0 set aside, 3 left.\nMapped:\n- ${CREATE} → no endpoint (only a log line changed)\nLeft:\n- ${SERVICE} (modified)\n- ${CONTROLLER} (modified, read whole)\n- ${UPDATE} (modified)\n`);
-  expect(workerStarts(s).map(filesOf)).toEqual([[CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
+  expect(mapperStarts(s).map(filesOf)).toEqual([[CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["<@user-alice> Nothing the frontend sees changed."]);
 }, 30000);
 
@@ -127,7 +95,7 @@ discordScenario("a file two workers could not map is listed as unverified with w
   await acmeApi(s);
   let mapped: any, entry: any, finished: any;
   s.model.script(
-    START, NOTE_CONVENTIONS, MAP_FILES,
+    START, NOTE_CONVENTIONS, MAP_CHANGED,
     // Neither worker given the DTO maps it; the second's line for it says why.
     "Its class is generated at build time.",
     `${CREATE}: its class is generated from a schema at build time, and the generator is not in the repository`,
@@ -141,7 +109,7 @@ discordScenario("a file two workers could not map is listed as unverified with w
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   // The DTO left unmapped joins the next group formed, again alone by its patch's size.
-  expect(workerStarts(s).map(filesOf)).toEqual([[CREATE], [CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
+  expect(mapperStarts(s).map(filesOf)).toEqual([[CREATE], [CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
   expect(mapped).toEqual({ mapped: 3, unverified: 1, files: { mapped: 4, setAside: 0, left: 0 }, candidates: 0, note: "Every changed file is mapped or set aside; 1 could not be mapped and is listed as unverified, and no change reaches an endpoint: call finishChangelog." });
   const why = "its class is generated from a schema at build time, and the generator is not in the repository";
   expect(entry).toEqual({ attempts: 2, unverified: why });
@@ -154,8 +122,8 @@ discordScenario("a worker that cannot reach the model leaves its files unmapped,
   await acmeApi(s);
   s.model.script(
     START, NOTE_CONVENTIONS, "Started the acme/api changelog.",
-    MAP_FILES, PROVIDER_DOWN,
-    MAP_FILES, PROVIDER_DOWN,
+    MAP_CHANGED, PROVIDER_DOWN,
+    MAP_CHANGED, PROVIDER_DOWN,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
@@ -171,7 +139,7 @@ discordScenario("a worker that cannot reach the model leaves its files unmapped,
   await s.scheduler.tick();
 
   // The retry gives the same file to a worker, which fails again: the draft pauses, and every file is still unmapped.
-  expect(workerStarts(s).map(filesOf)).toEqual([[CREATE], [CREATE]]);
+  expect(mapperStarts(s).map(filesOf)).toEqual([[CREATE], [CREATE]]);
   expect(s.discord.botMessages.map((m) => ({ content: m.content, pinged: m.allowedMentions?.users ?? [] }))).toEqual([
     { content: "<@user-alice> The AI model can't be reached; say go on to carry on.", pinged: ["user-alice"] },
   ]);
@@ -185,7 +153,7 @@ discordScenario("a worker that GitHub refuses leaves its files unmapped and paus
   await acmeApi(s);
   s.model.script(
     START, NOTE_CONVENTIONS, "Started the acme/api changelog.",
-    MAP_FILES,
+    MAP_CHANGED,
     () => { s.http.on("GET api.github.com/repos/acme/api/contents/", () => Response.json({ message: "Bad credentials" }, { status: 401 })); return read(CREATE); },
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
@@ -206,7 +174,7 @@ discordScenario("the progress message counts the changed files mapped and the ca
   const slowly = (step: unknown) => async () => { await pause(250); return step as any; };
   const reaches = { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: CREATE, change: "CreateUserDto gains phone", endpoints: [{ method: "post", path: "/api/v2/users" }] }] } };
   s.model.script(
-    slowly(START), NOTE_CONVENTIONS, MAP_FILES,
+    slowly(START), NOTE_CONVENTIONS, MAP_CHANGED,
     read(CREATE), reaches, slowly("Mapped."),
     read(UPDATE), mapNone(UPDATE, CONTROLLER), slowly("Mapped."),
     read(SERVICE), mapNone(SERVICE), slowly("Mapped."),
@@ -240,7 +208,7 @@ discordScenario("a draft from before changed files kept their patches' lengths h
   }));
   let weighed: unknown;
   s.model.script(
-    MAP_FILES,
+    MAP_CHANGED,
     mapNone(CREATE), "Mapped.",
     mapNone(UPDATE, CONTROLLER), "Mapped.",
     mapNone(SERVICE), "Mapped.",
@@ -250,7 +218,7 @@ discordScenario("a draft from before changed files kept their patches' lengths h
   await s.discord.send(`${s.discord.mention} lanjut`);
 
   // As the first scenario groups them: 12,000; then 30,000 and 1,000; then 45,000 alone.
-  expect(workerStarts(s).map(filesOf)).toEqual([[CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
+  expect(mapperStarts(s).map(filesOf)).toEqual([[CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
   expect(weighed).toEqual([
     { path: SERVICE, status: "modified", patchChars: 45_000 }, { path: CREATE, status: "modified", patchChars: 12_000 },
     { path: CONTROLLER, status: "modified", patchChars: 1_000 }, { path: UPDATE, status: "modified", patchChars: 30_000 },
@@ -277,14 +245,14 @@ discordScenario("mapChangedFiles on a draft with no conventions summary maps not
   await acmeApi(s);
   let refusal = "";
   s.model.script(
-    START, MAP_FILES,
+    START, MAP_CHANGED,
     (turn) => { refusal = turn.toolResults.at(-1).error; return { tool: "stopChangelog", args: {} }; },
     "Stopped the changelog.",
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
   expect(refusal).toBe("This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call mapChangedFiles again. Nothing was mapped.");
-  expect(workerStarts(s)).toEqual([]);
+  expect(mapperStarts(s)).toEqual([]);
   expect(s.model.calls).toHaveLength(4);
 });
 
@@ -310,7 +278,7 @@ discordScenario("a mapping worker comparing the route tables records a route onl
   const INVOICES = { method: "get", path: "/api/v2/billing/invoices" }, REVOKED = { method: "delete", path: "/api/v2/sessions/{id}", note: "SessionsModule is no longer mounted." };
   let mapped: any, state = "", candidates: any;
   s.model.script(
-    START, NOTE_CONVENTIONS, MAP_FILES,
+    START, NOTE_CONVENTIONS, MAP_CHANGED,
     // One worker has all three files, whose patches startChangelog gave: the route table at head lacks DELETE /api/v2/sessions/{id} and gains GET /api/v2/billing/invoices.
     { tool: "putChangelogMapping", args: { draft: DRAFT, files: [
       { path: APP_MODULE, change: "BillingModule is mounted in place of SessionsModule", endpoints: [INVOICES], removed: [{ ...REVOKED, method: "DELETE" }] },
@@ -344,7 +312,7 @@ discordScenario("a file mapped again takes out of the notes the global change an
   const REVOKE = { method: "delete", path: "/api/v2/sessions/{id}" }, TOKENS = { method: "delete", path: "/api/v2/tokens" };
   let notes: any;
   s.model.script(
-    START, NOTE_CONVENTIONS, MAP_FILES,
+    START, NOTE_CONVENTIONS, MAP_CHANGED,
     { tool: "putChangelogMapping", args: { draft: DRAFT, files: [
       { path: APP_MODULE, removed: [REVOKE, TOKENS] }, { path: SESSIONS, removed: [REVOKE] }, { path: INTERCEPTOR, global: ENVELOPE }, { path: MAIN, global: ENVELOPE },
     ] } },
@@ -368,7 +336,7 @@ discordScenario("a mapping worker's brief lists the global changes other workers
   const ENVELOPE = { status: "CHANGED", impact: "breaking", in: "envelope", before: "body", after: "{ data: body }", note: "Every success response is wrapped in data." };
   let globals: unknown;
   s.model.script(
-    START, NOTE_CONVENTIONS, MAP_FILES,
+    START, NOTE_CONVENTIONS, MAP_CHANGED,
     { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: INTERCEPTOR, global: ENVELOPE }] } }, "Mapped.",
     read(MAIN), { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: MAIN, global: ENVELOPE }] } }, "Mapped.",
     async () => { globals = JSON.parse((await s.workspace.read(DRAFT_FILE))!).info["x-changelog"].globalChanges; return { tool: "stopChangelog", args: {} }; },
@@ -376,7 +344,7 @@ discordScenario("a mapping worker's brief lists the global changes other workers
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  const [first, second] = workerStarts(s).map(briefOf);
+  const [first, second] = mapperStarts(s).map(briefOf);
   expect(first).not.toContain("global changes");
   expect(second).toContain(`\nThe global changes other workers recorded, each a change to every endpoint alike: when one of your files makes one of them, give it that entry exactly.\n<untrusted_data source="global changes">\n${JSON.stringify(ENVELOPE)}\n</untrusted_data>\n`);
   expect(globals).toEqual([ENVELOPE]);
@@ -393,7 +361,7 @@ discordScenario("a mapping worker records a global interceptor change once in th
   const ENVELOPE = { status: "CHANGED", impact: "breaking", in: "envelope", before: "body", after: "{ data: body }", note: "Every success response is wrapped in data." };
   let mapped: any, meta: any, finished: any;
   s.model.script(
-    START, NOTE_CONVENTIONS, MAP_FILES,
+    START, NOTE_CONVENTIONS, MAP_CHANGED,
     // One worker has both files, whose patches startChangelog gave: both make the one change to every endpoint.
     { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: INTERCEPTOR, global: ENVELOPE }, { path: MAIN, global: ENVELOPE }] } },
     "Mapped.",
@@ -402,7 +370,7 @@ discordScenario("a mapping worker records a global interceptor change once in th
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(workerStarts(s).map(filesOf)).toEqual([[INTERCEPTOR, MAIN]]);
+  expect(mapperStarts(s).map(filesOf)).toEqual([[INTERCEPTOR, MAIN]]);
   expect(mapped).toEqual({ mapped: 2, unverified: 0, files: { mapped: 2, setAside: 0, left: 0 }, candidates: 0, globalChanges: 1, note: "Every changed file is mapped or set aside, and no candidate endpoint is kept to trace; the notes hold 1 global change: call finishChangelog." });
   expect(meta.candidates).toBeUndefined();
   expect(meta.mapping).toEqual({ [INTERCEPTOR]: { read: true, global: ENVELOPE }, [MAIN]: { read: true, global: ENVELOPE } });

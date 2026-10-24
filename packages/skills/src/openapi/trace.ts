@@ -9,8 +9,6 @@ import type { SkillContext, WorkerOutcome } from "../types.js";
  * `playbookWorkers` at once, each recording its own endpoint in the draft, so the main loop's context never holds the files they read.
  */
 
-/** The budget every worker of a changelog has (workers.ts), where tests have shortened it. */
-export { workerBudget } from "./workers.js";
 /** What a worker is offered: its repository reads and the two tools that record into the draft. */
 export const WORKER_TOOLS = [...WORKER_READS, "putChangelogOperation", "putChangelogComponents"];
 /** A worker that finds its endpoint's contract unchanged ends its answer with this word first, and why. */
