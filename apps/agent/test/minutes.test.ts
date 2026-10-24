@@ -282,6 +282,7 @@ discordScenario("the requester's reply asking for something other than a correct
   await s.discord.contextMenu("Write minutes", start!);
   const minutes = s.discord.botMessages[0]!, before = structuredClone(minutes.embeds);
   const file = "guilds/guild-1/channels/channel-1/minutes/2026-10-14-release-day.md", stored = await s.workspace.read(file);
+  expect(stored).toContain("Release on Friday");
 
   // A request for tasks goes straight to tasksFromMinutes (#253); a question is still the assistant's.
   s.model.script(JSON.stringify({ notACorrection: true }), "Mau saya buatkan tugas Book the venue untuk Bob?");
