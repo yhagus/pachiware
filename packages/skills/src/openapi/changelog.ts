@@ -845,16 +845,19 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
     }
     const added: string[] = [];
     for (const { file, change, endpoints, none, global } of files) {
-      const entry = meta.mapping![file.path]!, line = (c: Candidate) => (c.note ?? "").split("\n").filter((l) => l && !l.startsWith(`${file.path}: `));
+      const entry = meta.mapping![file.path]!;
+      // A candidate's note holds one line per file that reaches it: "path: change".
+      const othersOf = (c: Candidate) => (c.note ?? "").split("\n").filter((l) => l && !l.startsWith(`${file.path}: `));
       // A file mapped again says anew what it reaches: its change leaves the notes of the candidates it named before.
-      for (const c of meta.candidates ?? []) if (entry.reaches?.includes(endpointOf(c))) { const rest = line(c); if (rest.length) c.note = rest.join("\n"); else delete c.note; }
+      for (const c of meta.candidates ?? []) if (entry.reaches?.includes(endpointOf(c))) { const rest = othersOf(c); if (rest.length) c.note = rest.join("\n"); else delete c.note; }
       delete entry.reaches; delete entry.none; delete entry.global;
       if (endpoints) {
         entry.reaches = [...new Set(endpoints.map(endpointOf))];
         for (const e of endpoints) {
-          const kept = (meta.candidates ??= []), found = kept.find((k) => k.method === e.method && k.path === e.path);
-          const c = found ?? (kept.push({ ...e, state: "waiting" }), added.push(endpointOf(e)), kept.at(-1)!);
-          c.note = [...line(c), `${file.path}: ${change}`].join("\n");
+          const kept = (meta.candidates ??= []);
+          let c = kept.find((k) => k.method === e.method && k.path === e.path);
+          if (!c) { c = { ...e, state: "waiting" }; kept.push(c); added.push(endpointOf(e)); }
+          c.note = [...othersOf(c), `${file.path}: ${change}`].join("\n");
         }
       } else if (none !== undefined) entry.none = none;
       else {

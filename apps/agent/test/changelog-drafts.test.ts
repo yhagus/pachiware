@@ -302,6 +302,14 @@ discordScenario("a changed file is mapped only once its whole patch was read, an
     "src/users/users.controller.ts": { read: true, reaches: ["POST /api/v2/users"] },
     "src/users/dto/create-user.dto.ts": { read: true, reaches: ["POST /api/v2/users"] },
   });
+
+  // Mapped again, a file says anew how it ends, and its change leaves the candidate's note; a file the range did not change is refused.
+  const [again, stranger] = await turn(s, [map({ path: dto.path, none: "CreateUserDto is used by no route" }), map({ path: "src/main.ts", none: "unchanged" })], results);
+  expect(again).toEqual({ mapped: ["src/users/dto/create-user.dto.ts"], newCandidates: [], candidates: 1, files: { mapped: 2, setAside: 0, left: 0 } });
+  expect(stranger).toBe("Nothing was mapped: src/main.ts is not a changed file of this changelog.");
+  const remapped = await draftMeta(s);
+  expect(remapped.candidates).toEqual([{ method: "post", path: "/api/v2/users", note: "src/users/users.controller.ts: @Post() became @Post('v2')", state: "waiting" }]);
+  expect(remapped.mapping["src/users/dto/create-user.dto.ts"]).toEqual({ read: true, none: "CreateUserDto is used by no route" });
 });
 
 discordScenario("a draft started before files were mapped has every changed file unmapped and unread: its examined list is not carried over (#366)", async (s) => {
