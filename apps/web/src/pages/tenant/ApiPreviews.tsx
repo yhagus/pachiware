@@ -88,8 +88,6 @@ function PreviewList({ tenant, bot }: { tenant: Tenant; bot?: Bot }) {
                     <dt>Where</dt><dd className="break-all">{where(p)}</dd>
                     <dt>Published by</dt><dd>{p.createdByName ?? p.createdById ?? "Unknown"}</dd>
                     <dt>When</dt><dd>{new Date(p.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</dd>
-                    <dt>From</dt><dd className="break-all font-mono">{p.sourcePath}</dd>
-                    <dt>Link</dt><dd className="break-all font-mono">{p.url}</dd>
                   </dl>
                 </div>
                 <div className="flex shrink-0 gap-1 self-start">
