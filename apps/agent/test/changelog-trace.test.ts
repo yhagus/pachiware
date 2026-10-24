@@ -13,7 +13,7 @@ const CONVENTIONS = "Routes: @Controller prefixes, no global prefix. Envelope: {
 
 /**
  * acme/api on GitHub, open in this channel (no threads), at 10:00 on 22 October in Jakarta: main's last commit through that day is HEAD,
- * its last before 1 October BASE, and between them only the users controller changed, its patch given. Workers trace one at a time.
+ * its last before 1 October BASE, and between them two commits changed only the users controller, its patch given. Workers trace one at a time.
  */
 async function acmeApi(s: Scenario) {
   await s.guildSettings({ language: "en", useThreads: false });
@@ -24,7 +24,7 @@ async function acmeApi(s: Scenario) {
   s.http.on("GET api.github.com/repos/acme/api", () => ({ default_branch: "main" }));
   s.http.on("GET api.github.com/repos/acme/api/commits", (req) => (new URL(req.url).searchParams.get("until")! < "2026-10-01"
     ? [{ sha: BASE, commit: { committer: { date: "2026-09-29T08:00:00Z" } } }] : [{ sha: HEAD, commit: { committer: { date: "2026-10-21T08:00:00Z" } } }]));
-  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 1, behind_by: 0, commits: [], files: [
+  s.http.on(`GET api.github.com/repos/acme/api/compare/${BASE}...${HEAD}`, () => ({ ahead_by: 2, behind_by: 0, commits: [], files: [
     { filename: CONTROLLER, status: "modified", patch: "@@ -1 +1 @@\n-@Controller('api/v1/users')\n+@Controller('api/v2/users')" },
   ] }));
   s.http.on("GET api.github.com/repos/acme/api/contents/", (req) => ({ type: "file", path: new URL(req.url).pathname.split("/contents/")[1], encoding: "base64", content: Buffer.from(SOURCE).toString("base64") }));
@@ -233,7 +233,7 @@ discordScenario("a worker that fails otherwise has its endpoint listed as unveri
 });
 
 
-discordScenario("the progress message shows each endpoint's result as its worker records it: the impact and how many changes, or unverified with why (#343)", async (s) => {
+discordScenario("the progress message names the range's commits and changed files, and shows each endpoint's result as its worker records it: the impact and how many changes, or unverified with why (#343, #367)", async (s) => {
   await acmeApi(s);
   await fastProgress();
   const slowly = (step: unknown) => async () => { await pause(250); return step as any; };
@@ -251,7 +251,8 @@ discordScenario("the progress message shows each endpoint's result as its worker
   expect(rest).toEqual([]);
   expect(answer!.content).toBe(`The acme/api changelog is written: ${WRITTEN}`);
   const shown = progress!.edits.map((e) => e.content ?? "");
-  expect(shown.find((t) => t.includes("1 of 3 candidates traced: 1 changed\n"))).toContain("\n-# POST /api/v2/users · breaking, 4 changes");
+  // The comparison that pinned the range said it holds two commits; its one changed file came whole with startChangelog.
+  expect(shown.find((t) => t.includes("\n2 commits · 1 changed file, all done\n1 of 3 candidates traced: 1 changed\n"))).toContain("\n-# POST /api/v2/users · breaking, 4 changes");
   expect(shown.find((t) => t.includes("2 of 3 candidates traced: 2 changed\n"))).toContain("\n-# POST /api/v2/users · breaking, 4 changes\n-# GET /api/v2/users/export · non-breaking, 1 change");
   expect(shown.find((t) => t.includes("3 of 3 candidates traced: 2 changed, 1 unverified\n"))).toContain("\n-# DELETE /api/v2/sessions · unverified: Its route is registered from config at runtime.");
   expect(shown.at(-1)).toMatch(/^-# 🧠 Done in /);

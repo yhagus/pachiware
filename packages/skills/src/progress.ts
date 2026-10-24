@@ -81,12 +81,14 @@ export function elapsed(ms: number, language?: Language): string {
 const REASON_SHOWN = 100;
 
 /**
- * An open Changelog draft's lines in its progress message: how many changed files are done, and how far its candidate endpoints are
- * traced, with the latest results as their workers recorded them (#343). Null when it has neither.
+ * An open Changelog draft's lines in its progress message: the commits its range holds and how many changed files are done (#367), and
+ * how far its candidate endpoints are traced, with the latest results as their workers recorded them (#343). Null when it has neither.
  */
-export function draftProgress(d: Pick<OpenDraft, "changedFiles" | "examined" | "setAside" | "left" | "candidates">, language?: Language): string | null {
+export function draftProgress(d: Pick<OpenDraft, "commits" | "changedFiles" | "examined" | "setAside" | "left" | "candidates">, language?: Language): string | null {
   const t = textIn(language).progress, lines: string[] = [];
-  if (d.left !== undefined && d.changedFiles !== undefined) lines.push(t.files(d.examined! + d.setAside!, d.changedFiles));
+  const files = d.left === undefined || d.changedFiles === undefined ? undefined : d.left === 0 ? t.filesDone(d.changedFiles) : t.files(d.examined! + d.setAside!, d.changedFiles);
+  const range = [d.commits !== undefined ? t.commits(d.commits) : undefined, files].filter((part): part is string => !!part);
+  if (range.length) lines.push(range.join(" · "));
   const c = d.candidates;
   if (c) {
     const done = c.changed + c.unchanged + c.failed;

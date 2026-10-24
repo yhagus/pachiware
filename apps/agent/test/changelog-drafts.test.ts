@@ -337,4 +337,6 @@ discordScenario("a range draft from before drafts listed their files is told to 
   const after = await contextAfter(s);
   expect(after).toContain("(commits 9f8e7d6..a1b2c3d, 2 changed files: 1 examined, 0 set aside, 1 left)");
   expect(after).not.toContain(RESTART);
+  // The comparison that lists its files also says how many commits its range holds, and the draft keeps that too (#367).
+  expect(JSON.parse((await s.workspace.read(`${FOLDER}/2026-10-21_9f8e7d6..a1b2c3d.draft.json`))!)["x-draft"].commits).toBe(3);
 });

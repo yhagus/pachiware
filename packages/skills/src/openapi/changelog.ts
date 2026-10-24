@@ -42,6 +42,8 @@ type DraftMeta = {
   closingSummary?: string;
   /** The candidate endpoints traceEndpoints was given, each with how its tracing went, so a later turn goes on with the rest (#343). */
   candidates?: Candidate[];
+  /** How many commits a range holds, from the comparison that pinned it; the progress message names them (#367). */
+  commits?: number;
 };
 type ProgressMessage = { channelId: string; messageId: string };
 /**
@@ -284,6 +286,8 @@ export type OpenDraft = {
   examined?: number; setAside?: number; left?: number;
   progressMessage?: ProgressMessage;
   work?: WorkState;
+  /** For a range, how many commits it holds (#367). */
+  commits?: number;
   /**
    * How the tracing of its candidate endpoints stands, with the latest results, newest last (#343): how many wait, and those traced as a
    * Changed endpoint, unchanged, or failed and so unverified (#367).
@@ -318,6 +322,7 @@ export async function openDrafts(ctx: Pick<SkillContext, "tenantId" | "botId" | 
       ...(counted ? { examined: counted.examined, setAside: counted.setAside, left: counted.left.length } : {}),
       ...(meta.progressMessage ? { progressMessage: meta.progressMessage } : {}),
       ...(meta.work ? { work: meta.work } : {}),
+      ...(meta.commits !== undefined ? { commits: meta.commits } : {}),
       ...(meta.candidates?.length ? { candidates: tracing(doc, meta.candidates) } : {}),
     });
   }
@@ -610,6 +615,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
       // A draft from before drafts listed their files learns them now.
       if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files, changedFiles: meta.changedFiles ?? changed.totalFiles });
       if (args.publish === true) meta.publish = true;
+      if ("commits" in changed) meta.commits = changed.commits;
       given.forEach((path) => examine(meta, path));
       await writeDraft(ctx.tenantId, full, found.doc, found.version);
       if (meta.files) seen.counted = accounting(meta, notes.setAside);
@@ -624,6 +630,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
       repo, ...(args.account ? { account: args.account } : {}), branch, scope: covers.scope, ...(covers.from ? { from: covers.from } : {}), to: covers.to,
       ...(ctx.channelId ? { place: ctx.channelId } : {}), ...(ctx.userId ? { startedBy: { id: ctx.userId, ...(ctx.userName ? { name: ctx.userName } : {}) } } : {}), changedFiles: changed.totalFiles,
       ...(files ? { base: base.commit, head: head.commit, files } : {}), ...(args.publish === true ? { publish: true } : {}),
+      ...("commits" in changed ? { commits: changed.commits } : {}),
       // Started, it is worked on until it ends or pauses (#361).
       work: { state: "worked-on" },
     };
