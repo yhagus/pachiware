@@ -4,7 +4,7 @@ The validator behind `finishChangelog` holds the JSON Schema for these extension
 
 ## `info.x-changelog`
 
-`startChangelog` writes it; `putChangelogNotes` sets its lists.
+`startChangelog` writes it. The mapping workers add its global changes and removed operations as they map the changed files (`putChangelogMapping`); `putChangelogNotes` sets its lists whole.
 
 ```json
 {

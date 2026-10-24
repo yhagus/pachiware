@@ -22,6 +22,22 @@ Follow each change to every route it reaches. A changed DTO, serializer, model, 
 
 Name each endpoint as the frontend calls it: its method, and its full path with the prefixes and versioning the conventions describe and path parameters in braces, such as `/api/v2/users/{id}`.
 
+### Changes to every endpoint alike
+
+A change made for the whole app reaches every endpoint alike: a global prefix or versioning; a guard, interceptor, pipe, filter or middleware registered globally; the response envelope or the error format every endpoint shares; a header or auth every request now needs; the bootstrap. Record it once, as the file's global change, never as a candidate per endpoint: a repository can hold hundreds of routes. When several of your files make the same change, give each the same entry.
+
+No tracing worker follows a global change: the changelog holds it as you record it. So read its code at both commits and record what changed for the frontend as one change entry: `status` (`CHANGED`, `NEW`, `REMOVED` or `DEPRECATED`), `impact` (`breaking`, `deprecated` or `non-breaking`), `in` (such as `url`, `header`, `security`, `envelope` or `response.4XX`), `before` and `after` for a change, `field` for a header, and a short `note`. When the global code changed but nothing the frontend sees did, such as logging or metrics, the file reaches no endpoint: say why.
+
+A change that reaches only some endpoints is not global, however widely its code is shared: a guard, interceptor or pipe bound to one controller, module or route; a base class some controllers extend; a DTO or helper several routes use. Follow it to the routes it reaches and name each one.
+
+### Routes added, taken away or moved
+
+When one of your files is where routes are mounted, prefixed or versioned (the app's bootstrap, a module or router that mounts others, a global prefix or versioning setting, as the conventions summary names them), compare the full route tables of base and head: list the route, controller and router files at each commit with `repoTree` (pass path for a folder) and read their routes at each commit, since a one-line change there can add, move or take away many endpoints. When none of your files is, the route table differs only in your changed controller and route files: compare just their routes, at both commits.
+
+- A route only in head is NEW: name it among the file's endpoints, so it becomes a candidate.
+- A route only in base is taken away: name it in the file's removed list, with replacedBy when another route took its place. The routes of a removed controller or route file are only in base, unless another file declares them at head.
+- A route whose handler stayed but whose path or method changed has moved: name it at its new path among the endpoints, the change saying where it was; it is not taken away. When every route moved alike, such as under a new global prefix, that is one global change instead.
+
 ## 3. Record how each file ends
 
 Call `putChangelogMapping` with the draft and, for each file you followed, one of:
@@ -29,6 +45,8 @@ Call `putChangelogMapping` with the draft and, for each file you followed, one o
 - the endpoints its change reaches, with what changed in that file in a few words: `{"path": "src/users/dto/create-user.dto.ts", "change": "CreateUserDto gains phone", "endpoints": [{"method": "post", "path": "/api/v2/users"}]}`;
 - none, with why, when its change reaches no endpoint, such as a seed, a script or a scheduled job: `{"path": "src/seed.ts", "none": "a seed script; no route runs it"}`;
 - a global change, when it changes every endpoint alike, such as a global prefix or versioning, a global guard, interceptor or pipe, the envelope, or the bootstrap: `{"path": "src/main.ts", "global": {"status": "CHANGED", "impact": "breaking", "in": "url", "before": "/api", "after": "/api/v2", "note": "..."}}`. The changelog records it once, however many files make it.
+
+A file whose change takes routes away also gives them in removed, beside its endpoints or global change, or alone: `{"path": "src/app.module.ts", "change": "BillingModule is mounted in place of SessionsModule", "endpoints": [{"method": "get", "path": "/api/v2/billing/invoices"}], "removed": [{"method": "delete", "path": "/api/v2/sessions/{id}", "note": "..."}]}`. The changelog lists each route taken away once, as a removed operation, however many files name it.
 
 Each endpoint you name is kept in the draft as a candidate waiting to be traced; one reached from several files is one candidate, its note naming each change. Mapping a file again replaces what it said. Write the change and the reasons in the language of the conventions summary.
 
