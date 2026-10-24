@@ -470,17 +470,20 @@ discordScenario("an operation sent as JSON text is taken as the object it holds,
   expect(broken).toEndWith("). Send it as an object, not as text.");
 });
 
-discordScenario("a range draft from before drafts listed their files is told to start once more, which lists them; a stop is told to stay short (#353)", async (s) => {
+discordScenario("a range draft from before drafts listed their files is told to start once more, which lists them, and traces nothing before; a stop is told to stay short (#353, #369)", async (s) => {
   await acmeApi(s);
   const changelog = { date: "2026-10-21", base: { ref: "main before 2026-10-01", commit: "9f8e7d6" }, head: { ref: "main through 2026-10-22", commit: "a1b2c3d" }, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, globalChanges: [], removedOperations: [], unverified: [] };
   await s.workspace.write(`${FOLDER}/2026-10-21_9f8e7d6..a1b2c3d.draft.json`, JSON.stringify({
     openapi: "3.1.2", info: { title: "acme/api API changes", version: "a1b2c3d", "x-changelog": changelog }, paths: {}, components: {},
-    "x-draft": { repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22" },
+    "x-draft": { repo: "acme/api", branch: "main", scope: "range", from: "2026-10-01", to: "2026-10-22", conventions: "NestJS: routes from @Controller, no global prefix.", candidates: [{ method: "post", path: "/api/v2/users", state: "waiting" }] },
   }));
   const RESTART = "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage.";
   const before = await contextAfter(s);
   expect(before).toContain(RESTART);
   expect(before).toContain("If you stop before it is written, answer in at most three short lines: how far it is (changed files mapped of all, endpoints recorded) and what comes next. Name no tools and no failed calls unless the person must act on them, and do not ask whether to go on.");
+  // Which files changed is not known yet, so none is mapped: the candidate an earlier run kept waits (#369).
+  const [untraced] = await turn(s, { tool: "traceEndpoints", args: { draft: "channel/files/changelogs/acme-api/2026-10-21_9f8e7d6..a1b2c3d.draft.json" } }, results);
+  expect(untraced).toBe(`${RESTART} Nothing was traced.`);
 
   const [again] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } }, results);
   expect(again.draft).toBe("channel/files/changelogs/acme-api/2026-10-21_9f8e7d6..a1b2c3d.draft.json");

@@ -150,8 +150,8 @@ discordScenario("dry run: changelog-lanjut goes on with yesterday's open draft f
       { tool: "putChangelogNotes", args: { draft, conventions: "NestJS: routes from @Controller, no global prefix. Success bodies are returned as they are; errors are { statusCode, message }." } },
       { tool: "putChangelogMapping", args: { draft, files: [{ path: "src/users/users.controller.ts", change: "the controller moved to api/v2", endpoints: [{ method: "post", path: "/api/v2/users" }] }] } },
     ],
-    // The endpoint goes to a worker of its own, which records it (#343).
-    { tool: "traceEndpoints", args: { draft, candidates: [{ method: "post", path: "/api/v2/users", note: "src/users/users.controller.ts: the controller moved to api/v2" }] } },
+    // The endpoint mapping kept goes to a worker of its own, which records it (#343, #369).
+    { tool: "traceEndpoints", args: { draft } },
     { tool: "putChangelogOperation", args: { draft, method: "post", path: "/api/v2/users", operation: example.paths["/api/v2/users"].post, components: example.components } },
     "Recorded POST /api/v2/users.",
     { tool: "finishChangelog", args: { draft } },

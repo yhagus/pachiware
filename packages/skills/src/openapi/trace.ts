@@ -62,9 +62,10 @@ function settled(outcome: WorkerOutcome, ms: number): { recorded: string[] } | {
 }
 
 /**
- * traceEndpoints: keeps the candidates given, then hands each waiting one to a worker while the turn has time, at most the tenant's
- * `playbookWorkers` at once. A worker that could not reach the model, or that a service failed for good, leaves its endpoint waiting and no
- * more start; the turn then ends as the host's rules for those say (#358, #359). Returns what each worker recorded, never what it read.
+ * traceEndpoints: once every changed file is mapped, hands each candidate mapping kept that still waits to a worker while the turn has
+ * time, at most the tenant's `playbookWorkers` at once (#369); candidates passed to it are refused. A worker that could not reach the
+ * model, or that a service failed for good, leaves its endpoint waiting and no more start; the turn then ends as the host's rules for those
+ * say (#358, #359). Returns what each worker recorded, never what it read.
  */
 export async function traceEndpoints(ctx: SkillContext, args: { draft?: unknown; candidates?: unknown }, playbook: string) {
   const workers = ctx.workers;

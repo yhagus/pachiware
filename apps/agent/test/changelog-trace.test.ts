@@ -2,8 +2,8 @@ import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
 import {
-  BASE, CONTROLLER, DRAFT, DRAFT_FILE, FINISH, FIXTURE, FOLDER, HEAD, OPERATION, PROVIDER_DOWN, START, WRITTEN, WRITTEN_FILE,
-  contractDiffOn, draftMeta, fastProgress, pause, pauses, written,
+  BASE, CONTROLLER, DRAFT, DRAFT_FILE, FINISH, FIXTURE, FOLDER, HEAD, MAP, OPERATION, PROVIDER_DOWN, READ_REST, START, WRITTEN, WRITTEN_FILE,
+  acmeApi as acmeWithDtos, contractDiffOn, draftMeta, fastProgress, mapFiles, pause, pauses, read, written,
 } from "./support/changelog";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
@@ -33,7 +33,8 @@ const NOTE_CONVENTIONS = { tool: "putChangelogNotes", args: { draft: DRAFT, conv
 const candidate = (method: string, path: string, note?: string) => ({ method, path, ...(note ? { note } : {}) });
 /** Maps the changed controller, whose patch came with startChangelog, to the endpoints it reaches (POST /api/v2/users unless named), so the changelog can be finished (#366). */
 const mapController = (...endpoints: ReturnType<typeof candidate>[]) => ({ tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: CONTROLLER, change: "the controller moved to api/v2", endpoints: endpoints.length ? endpoints : [candidate("post", "/api/v2/users")] }] } });
-const trace = (...candidates: ReturnType<typeof candidate>[]) => ({ tool: "traceEndpoints", args: { draft: DRAFT, ...(candidates.length ? { candidates } : {}) } });
+/** Traces the candidates mapping kept: traceEndpoints takes the draft alone (#369). */
+const TRACE = { tool: "traceEndpoints", args: { draft: DRAFT } };
 /** A worker's step that records `method path` as the example operation. */
 const record = (method: string, path: string) => [
   { tool: "putChangelogComponents", args: { draft: DRAFT, components: FIXTURE.components } },
@@ -54,8 +55,8 @@ discordScenario("traceEndpoints hands each candidate to a worker of its own, whi
   let traced: any, candidates: any;
   s.model.script(
     START, [NOTE_CONVENTIONS, mapController()],
-    // The candidate mapping kept, passed again: it keeps its note.
-    trace(candidate("post", "/api/v2/users")),
+    // The candidate mapping kept, with its note.
+    TRACE,
     // The worker.
     readController, record("post", "/api/v2/users"), "Recorded POST /api/v2/users.",
     async (turn) => { traced = turn.toolResults.at(-1); candidates = (await draftMeta(s)).candidates; return FINISH; },
@@ -92,9 +93,9 @@ discordScenario("traceEndpoints on a draft with no conventions summary traces no
   let refusal = "", kept: unknown = "not read";
   s.model.script(
     START,
-    trace(candidate("post", "/api/v2/users")),
+    TRACE,
     async (turn) => { refusal = turn.toolResults.at(-1).error; kept = (await draftMeta(s)).candidates; return [NOTE_CONVENTIONS, mapController()]; },
-    trace(candidate("post", "/api/v2/users")),
+    TRACE,
     // The worker.
     record("post", "/api/v2/users"), "Recorded POST /api/v2/users.",
     FINISH, written,
@@ -115,8 +116,8 @@ discordScenario("a turn that goes on by itself from a draft with no conventions 
   s.model.script(
     START, "Started the acme/api changelog.",
     // Both turns that go on by themselves hand the candidate over without writing the summary.
-    (turn) => { state = text(turn.messages[1]); return trace(candidate("post", "/api/v2/users")); }, "The endpoint waits for the conventions.",
-    trace(candidate("post", "/api/v2/users")), "It still waits.",
+    (turn) => { state = text(turn.messages[1]); return TRACE; }, "The endpoint waits for the conventions.",
+    TRACE, "It still waits.",
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
@@ -127,6 +128,71 @@ discordScenario("a turn that goes on by itself from a draft with no conventions 
   expect(meta.candidates).toBeUndefined();
   expect(meta.work).toEqual({ state: "paused", reason: "no-progress", since: "2026-10-22T03:00:00.000Z" });
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(['<@user-alice> The changelog made no progress, so I paused it; type "go on" to continue.']);
+});
+
+/** traceEndpoints' answer when the main loop passes candidates of its own (#369). */
+const CANDIDATES_PASSED = "traceEndpoints takes the draft alone and traces the candidate endpoints mapping kept: each endpoint a changed file reaches, as putChangelogMapping recorded it. Map the file whose change reaches an endpoint, naming that endpoint, then call traceEndpoints with the draft alone. Nothing was traced.";
+
+discordScenario("traceEndpoints takes the draft alone: candidates the main loop passes are refused with a pointer to mapping and kept nowhere, and the draft alone traces those mapping kept (#369)", async (s) => {
+  await acmeApi(s);
+  let refusal = "", kept: unknown;
+  s.model.script(
+    START, [NOTE_CONVENTIONS, mapController()],
+    { tool: "traceEndpoints", args: { draft: DRAFT, candidates: [candidate("get", "/api/v2/users/export", "users.controller.ts")] } },
+    async (turn) => { refusal = turn.toolResults.at(-1).error; kept = (await draftMeta(s)).candidates.map((c: any) => `${c.method.toUpperCase()} ${c.path}: ${c.state}`); return TRACE; },
+    record("post", "/api/v2/users"), "Recorded POST /api/v2/users.",
+    FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(refusal).toBe(CANDIDATES_PASSED);
+  expect(kept).toEqual(["POST /api/v2/users: waiting"]);
+  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users"]);
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
+});
+
+discordScenario("traceEndpoints traces nothing while a changed file is unmapped, answering how many are left and which; once every file is mapped it traces the candidates mapping kept (#369)", async (s) => {
+  // The controller, its patch given, and six DTOs, each read whole before it is mapped.
+  await acmeWithDtos(s);
+  let refusal = "", kept: unknown;
+  s.model.script(
+    START, [NOTE_CONVENTIONS, mapFiles([])],
+    TRACE,
+    async (turn) => { refusal = turn.toolResults.at(-1).error; kept = (await draftMeta(s)).candidates.map((c: any) => `${c.method.toUpperCase()} ${c.path}: ${c.state}`); return [read(0), ...READ_REST]; },
+    MAP, TRACE,
+    record("post", "/api/v2/users"), "Recorded POST /api/v2/users.",
+    FINISH, written,
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(refusal).toBe(`6 of 7 changed files are not mapped yet, so nothing was traced: tracing waits until every changed file is mapped, so that the candidates it counts are all there are. Map each with putChangelogMapping once its whole patch is read, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside; then call traceEndpoints again. Not mapped yet:
+- src/users/dto/a.dto.ts
+- src/users/dto/b.dto.ts
+- src/users/dto/c.dto.ts
+- src/users/dto/d.dto.ts
+- src/users/dto/e.dto.ts
+- src/users/dto/f.dto.ts`);
+  expect(kept).toEqual(["POST /api/v2/users: waiting"]);
+  // One worker, started once every file was mapped, for the one candidate the seven changes reach.
+  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users"]);
+  expect(briefOf(workerStarts(s)[0]!)).toContain("src/users/dto/f.dto.ts: a body field changed");
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual([`The acme/api changelog is written: ${WRITTEN}`]);
+});
+
+discordScenario("traceEndpoints on a draft whose every changed file reaches no endpoint has nothing to trace and points to finishing (#369)", async (s) => {
+  await acmeApi(s);
+  let refusal = "", finished: any;
+  s.model.script(
+    START, [NOTE_CONVENTIONS, { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: CONTROLLER, none: "a comment changed" }] } }],
+    TRACE,
+    (turn) => { refusal = turn.toolResults.at(-1).error; return FINISH; },
+    (turn) => { finished = turn.toolResults.at(-1); return "Nothing the frontend sees changed."; },
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(refusal).toBe("No mapped file reaches an endpoint, so this changelog keeps no candidate endpoint to trace. Record removed endpoints with putChangelogNotes, then call finishChangelog. Nothing was traced.");
+  expect(workerStarts(s)).toEqual([]);
+  expect(finished).toMatchObject({ written: false });
 });
 
 /** A new endpoint's operation, valid as it stands, with one change: what a worker records for any endpoint but the example's. */
@@ -162,13 +228,13 @@ discordScenario("a turn cut while its workers trace goes on by itself with the c
   await budgets(3000, { leastMs: 1000 });
   let state = "";
   s.model.script(
-    START, [NOTE_CONVENTIONS, mapController()],
-    trace(candidate("post", "/api/v2/users"), EXPORT, SESSIONS),
+    START, [NOTE_CONVENTIONS, mapController(candidate("post", "/api/v2/users"), EXPORT, SESSIONS)],
+    TRACE,
     // The first worker records its endpoint and answers once the turn's time is gone.
     record("post", "/api/v2/users"), async () => { await pause(3200); return "Recorded POST /api/v2/users."; },
     "One of three endpoints is traced; two wait.",
     // The turn that goes on by itself starts from the draft, which says which candidates wait.
-    (turn) => { state = text(turn.messages[1]); return trace(); },
+    (turn) => { state = text(turn.messages[1]); return TRACE; },
     recordNew("get", "/api/v2/users/export", "exportUsers"), "Recorded GET /api/v2/users/export.",
     recordNew("delete", "/api/v2/sessions", "endSession"), "Recorded DELETE /api/v2/sessions.",
     FINISH, written,
@@ -186,9 +252,9 @@ const states = async (s: Scenario) => (await draftMeta(s)).candidates.map((c: an
 discordScenario("a worker that cannot reach the model leaves its endpoint waiting, and the draft goes through the model's rule: one retry after the tenant's wait, then a pause (#343)", async (s) => {
   await acmeApi(s);
   s.model.script(
-    START, NOTE_CONVENTIONS, "Started the acme/api changelog.",
-    trace(candidate("post", "/api/v2/users"), EXPORT), PROVIDER_DOWN,
-    trace(), PROVIDER_DOWN,
+    START, [NOTE_CONVENTIONS, mapController(candidate("post", "/api/v2/users"), EXPORT)], "Started the acme/api changelog.",
+    TRACE, PROVIDER_DOWN,
+    TRACE, PROVIDER_DOWN,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
@@ -216,11 +282,11 @@ discordScenario("a worker that fails otherwise has its endpoint listed as unveri
   await acmeApi(s);
   let failed: any;
   s.model.script(
-    START, [NOTE_CONVENTIONS, mapController()],
-    trace(candidate("post", "/api/v2/users"), EXPORT),
+    START, [NOTE_CONVENTIONS, mapController(candidate("post", "/api/v2/users"), EXPORT)],
+    TRACE,
     "Its route is registered from config at runtime, so its path cannot be read from the code.",
     recordNew("get", "/api/v2/users/export", "exportUsers"), "Recorded GET /api/v2/users/export.",
-    (turn) => { failed = turn.toolResults.at(-1).failed; return trace(); },
+    (turn) => { failed = turn.toolResults.at(-1).failed; return TRACE; },
     // Notes set again later do not drop it.
     { tool: "putChangelogNotes", args: { draft: DRAFT, unverified: [] } },
     FINISH, written,
@@ -241,8 +307,8 @@ discordScenario("the progress message names the range's commits and changed file
   await fastProgress();
   const slowly = (step: unknown) => async () => { await pause(250); return step as any; };
   s.model.script(
-    slowly(START), [NOTE_CONVENTIONS, mapController()],
-    trace(candidate("post", "/api/v2/users"), EXPORT, SESSIONS),
+    slowly(START), [NOTE_CONVENTIONS, mapController(candidate("post", "/api/v2/users"), EXPORT, SESSIONS)],
+    TRACE,
     record("post", "/api/v2/users"), slowly("Recorded POST /api/v2/users."),
     recordNew("get", "/api/v2/users/export", "exportUsers"), slowly("Recorded GET /api/v2/users/export."),
     slowly("Its route is registered from config at runtime."),
@@ -281,7 +347,7 @@ discordScenario("with the tenant's playbookWorkers at 2, two workers trace at on
   };
   s.model.script(
     START, [NOTE_CONVENTIONS, mapController(EXPORT, SESSIONS, candidate("get", "/api/v2/health"))],
-    trace(),
+    TRACE,
     ...Array(6).fill(workerStep),
     FINISH, written,
   );
@@ -295,14 +361,17 @@ discordScenario("with the tenant's playbookWorkers at 2, two workers trace at on
 
 discordScenario("a turn that goes on by itself and only settles candidates made progress: two such turns in a row do not pause the draft (#343)", async (s) => {
   await acmeApi(s);
+  // A turn has 3 seconds here, and a worker starts only with at least 2 left: the turn of the first worker has no time for the second.
+  await budgets(3000, { leastMs: 2000 });
   s.model.script(
-    START, [NOTE_CONVENTIONS, mapController()], "Started the acme/api changelog.",
-    trace(candidate("post", "/api/v2/users")), "Its route is built at runtime.", "One endpoint could not be traced.",
-    trace(EXPORT), "Its handler comes from another service.", "Another endpoint could not be traced.",
+    START, [NOTE_CONVENTIONS, mapController(candidate("post", "/api/v2/users"), EXPORT)], "Started the acme/api changelog.",
+    TRACE, async () => { await pause(1200); return "Its route is built at runtime."; }, "One endpoint could not be traced.",
+    TRACE, "Its handler comes from another service.", "Another endpoint could not be traced.",
     FINISH, written,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
+  expect(workerStarts(s).map(endpointOf)).toEqual(["POST /api/v2/users", "GET /api/v2/users/export"]);
   expect(await pauses(s)).toEqual([]);
   expect(s.model.calls).toHaveLength(11);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual([`<@user-alice> The acme/api changelog is written: ${WRITTEN}`]);
@@ -311,8 +380,8 @@ discordScenario("a turn that goes on by itself and only settles candidates made 
 discordScenario("a worker that GitHub refuses leaves its endpoint waiting and pauses the draft, naming only GitHub, as the turn's own read would (#343, #359)", async (s) => {
   await acmeApi(s);
   s.model.script(
-    START, NOTE_CONVENTIONS, "Started the acme/api changelog.",
-    trace(candidate("post", "/api/v2/users"), EXPORT),
+    START, [NOTE_CONVENTIONS, mapController(candidate("post", "/api/v2/users"), EXPORT)], "Started the acme/api changelog.",
+    TRACE,
     () => { s.http.on("GET api.github.com/repos/acme/api/contents/", () => Response.json({ message: "Bad credentials" }, { status: 401 })); return readController; },
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
@@ -351,8 +420,8 @@ discordScenario("a changelog whose every candidate endpoint failed is written wi
   await acmeApi(s);
   let finished: any;
   s.model.script(
-    START, [NOTE_CONVENTIONS, mapController()],
-    trace(candidate("post", "/api/v2/users"), EXPORT),
+    START, [NOTE_CONVENTIONS, mapController(candidate("post", "/api/v2/users"), EXPORT)],
+    TRACE,
     // Neither worker records its endpoint.
     "Its route is registered from config at runtime.",
     "Its handler comes from another service.",
