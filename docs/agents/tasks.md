@@ -52,4 +52,4 @@ Model behaviour belongs to the daily-behaviour eval (`apps/agent/eval/README.md`
 
 ## Changing the default persona
 
-Copy the current `DEFAULT_SYSTEM_PROMPT` byte for byte into a new frozen constant in `packages/db/src/persona.ts`, and append it to `OLD_DEFAULT_PROMPTS`. The migration then replaces only tenants who kept the default. `packages/db/test/persona-migration.test.ts` holds its own copies of the old defaults; add the new one there too and shift its indices.
+Copy the current `DEFAULT_SYSTEM_PROMPT` byte for byte into a new frozen constant in `packages/db/src/persona.ts`, and append it to `OLD_DEFAULT_PROMPTS`. The migration then replaces only tenants who kept the default. `packages/db/test/persona-migration.test.ts` pins the sha256 of each old default as it shipped; append the new one's sha256 to `SHIPPED_DEFAULTS` before you change `DEFAULT_SYSTEM_PROMPT`.
