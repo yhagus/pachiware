@@ -208,6 +208,27 @@ discordScenario("a different range asked for while a draft is open starts nothin
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
 });
 
+discordScenario("another repository's changelog asked for while a paused draft is open starts nothing, and the question to go on with the open one or stop it pauses that draft for the question (#368)", async (s) => {
+  await acmeApi(s);
+  // Alice's turn starts the acme/api changelog, and her Stop pauses it.
+  await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
+  expect((await draftMeta(s)).work).toMatchObject({ state: "paused", reason: "stopped" });
+  s.http.on("GET api.github.com/repos/acme/web", () => ({ default_branch: "main" }));
+  const QUESTION = "The acme/api changelog of 1 to 22 October is paused here. Go on with it, or stop it first and start acme/web's?";
+  let refused = "";
+  s.model.script(
+    { tool: "startChangelog", args: { repo: "acme/web", scope: "range", from: "2026-10-15" } },
+    (t) => { refused = t.toolResults[0].error; return { tool: "askChangelogAsker", args: { draft: DRAFT, question: QUESTION } }; },
+    "Asked.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/web from 15 October`);
+
+  expect(refused).toStartWith(`Another API changelog is open here and nothing new was started: acme/api, branch main, 2026-10-01 to 2026-10-22, started by Alice, 0 endpoints recorded (draft ${DRAFT}). This request was for acme/web, branch main, 2026-10-15 to 2026-10-22.`);
+  expect(s.discord.botMessages.at(-1)!.content).toBe(QUESTION);
+  expect((await draftMeta(s)).work).toEqual({ state: "paused", reason: "question", question: QUESTION, since: "2026-10-22T03:00:00.000Z" });
+  expect(await s.workspace.files("guilds/guild-1/channels/channel-1/files/changelogs")).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
+});
+
 discordScenario("a range becomes two commits, the operation and components go into a draft, and finishing writes the validated changelog", async (s) => {
   await acmeApi(s);
   const [started] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
