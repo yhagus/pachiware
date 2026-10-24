@@ -224,3 +224,18 @@ discordScenario("the progress message counts the changed files mapped and the ca
     expect([detail, shown.includes(`🧠 Working…\n${detail}\n-# ✓ Checking what changed in acme/api`)]).toEqual([detail, true]);
   }
 });
+
+discordScenario("mapChangedFiles on a draft with no conventions summary maps nothing, starts no worker, and says to write it first (#370)", async (s) => {
+  await acmeApi(s);
+  let refusal = "";
+  s.model.script(
+    START, MAP_FILES,
+    (turn) => { refusal = turn.toolResults.at(-1).error; return { tool: "stopChangelog", args: {} }; },
+    "Stopped the changelog.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(refusal).toBe("This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call mapChangedFiles again. Nothing was mapped.");
+  expect(workerStarts(s)).toEqual([]);
+  expect(s.model.calls).toHaveLength(4);
+});

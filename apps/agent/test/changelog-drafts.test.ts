@@ -215,7 +215,7 @@ discordScenario("a range becomes two commits, the operation and components go in
       commits: 3, totalFiles: 2, patches: "Patches are given for 1 of these 2 files; get the others with repoFileDiff.",
       files: [{ path: "src/users/users.controller.ts", status: "modified", patch: "@@ -10 +10 @@\n-  @Post()\n+  @Post('v2')" }, { path: "src/users/dto/create-user.dto.ts", status: "modified" }],
     },
-    mappingNote: "Before it is written, every changed file must be mapped with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile; the patches given here count), or set aside with a reason (putChangelogNotes setAside). Mapped so far: 0 of 2.",
+    mappingNote: "Before it is written, every changed file must be mapped or set aside with a reason (putChangelogNotes setAside). Set aside first what cannot change what the frontend sees, then map the rest with mapChangedFiles: its workers read the patches and record how each file ends. Mapped so far: 0 of 2.",
   });
 
   // The endpoint both files reach goes to a worker, which records it with its components (#369).
@@ -304,8 +304,8 @@ discordScenario("a changelog is written only when every changed file was mapped 
     { filename: "src/users/dto/create-user.dto.ts", status: "modified" }, { filename: "src/users/dto/update-user.dto.ts", status: "modified" }, { filename: "src/users/users.controller.spec.ts", status: "modified" },
   ] }));
   const [started] = await turn(s, { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01" } }, results);
-  expect(started.mappingNote).toBe("Before it is written, every changed file must be mapped with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile; the patches given here count), or set aside with a reason (putChangelogNotes setAside). Mapped so far: 0 of 5.");
-  const fix = "Map each one with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile), or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.";
+  expect(started.mappingNote).toBe("Before it is written, every changed file must be mapped or set aside with a reason (putChangelogNotes setAside). Set aside first what cannot change what the frontend sees, then map the rest with mapChangedFiles: its workers read the patches and record how each file ends. Mapped so far: 0 of 5.");
+  const fix = "Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.";
   // Read is not mapped: the two patches startChangelog gave are read, and every file is still unmapped.
   const [early] = await turn(s, { tool: "finishChangelog", args: { draft: DRAFT } }, results);
   expect(early).toEqual({ written: false, unmapped: 5, files: ["src/users/users.controller.ts", "README.md", "src/users/dto/create-user.dto.ts", "src/users/dto/update-user.dto.ts", "src/users/users.controller.spec.ts"], fix });

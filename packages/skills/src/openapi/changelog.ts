@@ -772,7 +772,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     ...(same ? { goesOn: "This is the changelog already open here, for the same repository, branch and coverage: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to." } : {}),
     ...(moved && moved.head !== moved.from ? { lastDay: `${covers.to} had not ended when this changelog was pinned: its head moved from ${short(moved.from)} to that day's last commit, ${short(moved.head)}, adding ${moved.commits} commit${moved.commits === 1 ? "" : "s"}. The files they changed are to be mapped again, and the traced candidates those files reach are traced again. Say so in one line.` } : {}),
     changedFiles: changed,
-    ...(seen.counted ? { mappingNote: `Before it is written, every changed file must be mapped with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile; the patches given here count), or set aside with a reason (putChangelogNotes setAside). Mapped so far: ${seen.counted.mapped} of ${seen.counted.files}.` } : {}),
+    ...(seen.counted ? { mappingNote: `Before it is written, every changed file must be mapped or set aside with a reason (putChangelogNotes setAside). Set aside first what cannot change what the frontend sees, then map the rest with mapChangedFiles: its workers read the patches and record how each file ends. Mapped so far: ${seen.counted.mapped} of ${seen.counted.files}.` } : {}),
     ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
     ...(written ? { alreadyWritten: `${at.folder}/${written}`, alreadyNote: "A changelog of these same commits was written before. Offer it with sendFiles unless the person asked to write it again." } : {}),
   };
@@ -1144,7 +1144,7 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     if (left.length) {
       return {
         written: false, unmapped: left.length, files: left.slice(0, NAMED_LEFT).map((f) => f.path),
-        fix: "Map each one with putChangelogMapping once its whole patch is read (repoFileDiff from base to head, or every line at either commit with repoReadFile), or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.",
+        fix: "Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside, each with its reason; then call finishChangelog again.",
       };
     }
     // Every candidate traced or failed too: one still waiting may be a Changed endpoint, so finishing now could say nothing changed (#369).
