@@ -52,7 +52,7 @@ Before touching individual endpoints, find out how this codebase shapes every re
 
 Read a convention's files at base too only when they are among the changed files: a file the range did not change is the same at both commits. If a global convention differs between base and head (envelope shape, error format, a header every request now needs, CORS, naming strategy), record it once as a global change with `putChangelogNotes` instead of repeating it on every endpoint.
 
-Then write what you learned into the draft with `putChangelogNotes` conventions, in at most about 1,500 tokens: how routes are declared, prefixed and versioned, the envelope, the error format, validation, serialization (field names, and how null and absent fields come out) and auth, each with the files that hold it. The turns that go on by themselves start from the draft, not from what you read, and the workers of step 4 get this summary instead of checklist.md, so it is all they know of the repository's conventions.
+Then write what you learned into the draft with `putChangelogNotes` conventions, in at most about 1,500 tokens: how routes are declared, prefixed and versioned, the envelope, the error format, validation, serialization (field names, and how null and absent fields come out) and auth, each with the files that hold it. The turns that go on by themselves start from the draft, not from what you read, and the workers of step 4 get this summary instead of checklist.md, so it is all they know of the repository's conventions. Write it before any endpoint is traced: `traceEndpoints` refuses while the draft has none. A draft started earlier without one, such as one you go on with, gets it first too.
 
 ## 3. Find the affected endpoints
 
