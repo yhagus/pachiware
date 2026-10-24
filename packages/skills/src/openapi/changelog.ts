@@ -604,7 +604,9 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
   if (other) {
     throw new Error(`Another API changelog is open here and nothing new was started: ${other.repo}, branch ${other.branch}, ${coverage(other)}, ${other.startedBy ? `started by ${other.startedBy.name ?? other.startedBy.id}` : "started earlier"}, ${other.operations} endpoint${other.operations === 1 ? "" : "s"} recorded (draft ${other.draft}). This request was for ${repo}, branch ${branch}, ${coverage(covers)}. Ask with askChangelogAsker, passing that draft, whether to go on with the open one or stop it first: it pauses the work until someone answers. Never ask it in plain text, or the work goes on without the answer.`);
   }
-  const { base, head } = (same && await commitsOf(ctx, same.draft)) ?? await changelogRevisions(conn, repo, branch, covers, timezone);
+  // The days are pinned for the open draft's request too, so a branch gone since pauses it (#359); that draft goes on at the commits it keeps.
+  const pinned = await changelogRevisions(conn, repo, branch, covers, timezone);
+  const { base, head } = (same && await commitsOf(ctx, same.draft)) ?? pinned;
   const at = changelogFiles(ctx, repo, base, { ref: head.ref, commit: head.commit }, today);
   const names = (await workspaceStore().list(ctx.tenantId, resolvePath(ctx, at.folder, true))).map((e) => e.path.split("/").pop()!);
   const draftFile = names.find((n) => n.endsWith(`_${at.stem}.draft.json`)), written = names.find((n) => n.endsWith(`_${at.stem}.json`));
