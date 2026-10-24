@@ -5,7 +5,8 @@ import { join } from "node:path";
 
 const w = process.cwd();
 
-// Runs `body` against the admin API with a fresh SQLite database and Plane faked at fetch, in the shapes Plane v1.3.1 answers with.
+// Runs `body` against the admin API with a fresh SQLite database and runtime-config.json, so Allowed hosts one scenario saves never reach
+// another, and Plane faked at fetch in the shapes Plane v1.3.1 answers with.
 function adminScenario(name: string, body: string) {
   test(name, () => {
     const dir = mkdtempSync(join(tmpdir(), "pachiware-plane-"));
@@ -56,7 +57,7 @@ function adminScenario(name: string, body: string) {
           console.log("ok");
         `],
         cwd: w,
-        env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "p.db")}`, PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
+        env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "p.db")}`, PACHIWARE_RUNTIME_CONFIG: join(dir, "runtime-config.json"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
       });
       expect(r.exitCode, new TextDecoder().decode(r.stderr)).toBe(0);
       expect(new TextDecoder().decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");

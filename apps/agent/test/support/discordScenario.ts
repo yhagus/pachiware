@@ -185,10 +185,11 @@ function callerFile() {
 async function runInSubprocess(file: string, name: string) {
   const dir = mkdtempSync(join(tmpdir(), "pachiware-scenario-"));
   try {
+    // Scenarios run side by side, so each gets its own runtime-config.json: Allowed hosts one saves never reach another.
     const run = Bun.spawn({
       cmd: ["bun", "test", file, "-t", name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")],
       cwd: ROOT,
-      env: { ...process.env, PACHIWARE_SCENARIO: name, DATABASE_URL: `sqlite:${join(dir, "scenario.db")}`, WORKSPACE_DIR: join(dir, "workspace"), LOG_DIR: join(dir, "logs"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"), PLATFORM_ADMIN_KEY: "scenario", NODE_ENV: "test" },
+      env: { ...process.env, PACHIWARE_SCENARIO: name, DATABASE_URL: `sqlite:${join(dir, "scenario.db")}`, PACHIWARE_RUNTIME_CONFIG: join(dir, "runtime-config.json"), WORKSPACE_DIR: join(dir, "workspace"), LOG_DIR: join(dir, "logs"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"), PLATFORM_ADMIN_KEY: "scenario", NODE_ENV: "test" },
       stdout: "pipe", stderr: "pipe",
     });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);

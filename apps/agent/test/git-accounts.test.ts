@@ -83,7 +83,8 @@ test("git accounts: verified, write-only token, shared across bots, tenant-bound
         console.log("ok");
       `],
       cwd: w,
-      env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "g.db")}`, PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
+      // Its own runtime-config.json, so the Allowed hosts it saves never reach another test.
+      env: { ...process.env, DATABASE_URL: `sqlite:${join(dir, "g.db")}`, PACHIWARE_RUNTIME_CONFIG: join(dir, "runtime-config.json"), PLATFORM_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"), PLATFORM_ADMIN_KEY: "k", NODE_ENV: "test" },
     });
     expect(r.exitCode, new TextDecoder().decode(r.stderr)).toBe(0);
     expect(new TextDecoder().decode(r.stdout).trim().split("\n").at(-1)).toBe("ok");
