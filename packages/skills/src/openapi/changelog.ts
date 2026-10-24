@@ -1085,8 +1085,11 @@ function listUnmappable(changelog: Json, path: string, why: string) {
   if (!list.some((u) => String(u?.reason ?? "").startsWith(unmappable(path)))) list.push({ in: "operation", reason: `${unmappable(path)}${why}` });
 }
 
-/** How many global changes and removed operations the notes hold, which mapping records beside the candidates (#372). */
-const notesOf = (changelog: Json) => ({ globalChanges: (changelog.globalChanges ?? []).length as number, removedOperations: (changelog.removedOperations ?? []).length as number });
+/**
+ * How many global changes and removed operations the notes hold, which mapping records beside the candidates, and the global changes
+ * themselves, which a mapping worker's brief lists so a file making one is given that entry (#372).
+ */
+const notesOf = (changelog: Json) => ({ globalChanges: (changelog.globalChanges ?? []).length as number, removedOperations: (changelog.removedOperations ?? []).length as number, recordedGlobal: (changelog.globalChanges ?? []) as Json[] });
 
 /** mapChangedFiles' refusal while the draft holds no conventions summary: its workers' briefs carry it (#370). */
 const NO_CONVENTIONS_TO_MAP = "This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call mapChangedFiles again. Nothing was mapped.";

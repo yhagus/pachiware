@@ -44,10 +44,11 @@ export function mappingGroups<T extends Weighed>(files: T[]): T[][] {
 type Work = Awaited<ReturnType<typeof mappingWork>>;
 
 /**
- * What one worker starts from: the draft's repository, commits and conventions, the same for every worker, and its files last. The whole
- * history has no base: its worker reads its route files at head, each route they declare NEW, and is told how they were chosen (#373).
+ * What one worker starts from: the draft's repository, commits and conventions, the same for every worker, then the global changes other
+ * workers recorded so far (#372), and its files last. The whole history has no base: its worker reads its route files at head, each route
+ * they declare NEW, and is told how they were chosen (#373).
  */
-function briefOf(work: Work, draft: string, group: ChangedFile[]) {
+function briefOf(work: Work, draft: string, group: ChangedFile[], recordedGlobal: unknown[]) {
   const kind = mappedKind(work.scope), many = group.length === 1 ? kind : `${group.length} ${kind}s`;
   return [
     `Map ${group.length === 1 ? `one ${kind}` : many} of the API changelog of ${work.repo}${"account" in work ? ` (git account ${work.account})` : ""}, branch ${work.branch}, and record how each ends in the changelog's draft before you stop.`,
@@ -58,6 +59,10 @@ function briefOf(work: Work, draft: string, group: ChangedFile[]) {
     "The repository's conventions, as the changelog's main work wrote them down:",
     asUntrusted("conventions summary", work.conventions),
     "",
+    ...(recordedGlobal.length ? [
+      "The global changes other workers recorded, each a change to every endpoint alike: when one of your files makes one of them, give it that entry exactly.",
+      asUntrusted("global changes", recordedGlobal.map((g) => JSON.stringify(g)).join("\n")), "",
+    ] : []),
     ...(work.base ? [`Your ${many}, with how ${group.length === 1 ? "it" : "each"} changed:`, asUntrusted("changed files", group.map((f) => `- ${f.path} (${f.status}${f.oldPath ? `, was ${f.oldPath}` : ""})`).join("\n"))]
       : [`Your ${many}, which the changelog's main work chose as follows:`, asUntrusted("how the route files were chosen", work.chosenBy ?? ""), ...group.map((f) => `- ${f.path}`)]),
   ].join("\n");
@@ -92,17 +97,17 @@ export async function mapChangedFiles(ctx: SkillContext, args: { draft?: unknown
   // The files still to map; those a worker has are busy, and one it leaves unmapped goes back, to join the next group formed.
   let pool = [...work.files];
   const busy = new Set<string>(), next = () => mappingGroups(pool.filter((f) => !busy.has(f.path)))[0];
-  let mapped = 0, unverified = 0, stands = { files: work.counted, candidates: work.candidates, globalChanges: work.globalChanges, removedOperations: work.removedOperations };
+  let mapped = 0, unverified = 0, stands = { files: work.counted, candidates: work.candidates, globalChanges: work.globalChanges, removedOperations: work.removedOperations, recordedGlobal: work.recordedGlobal };
 
   const halted = await fanOut(workers, limit, { more: () => !!next(), take: () => { const group = next()!; group.forEach((f) => busy.add(f.path)); return group; } }, async (group, ms) => {
-    const outcome = await workers.run({ playbook, rules, brief: briefOf(work, draft, group), tools: MAPPING_TOOLS, steps: workerBudget.steps, ms, cacheKey: `changelog-mapping:${draft}` });
+    const outcome = await workers.run({ playbook, rules, brief: briefOf(work, draft, group, stands.recordedGlobal), tools: MAPPING_TOOLS, steps: workerBudget.steps, ms, cacheKey: `changelog-mapping:${draft}` });
     const cut = outcome.halted ?? (cutByTurn(outcome, ms) ? "time" : null);
     const settled = await settleFiles(ctx, draft, group.map((f) => f.path), cut ? null : (path) => whyUnmapped(outcome, path));
     group.forEach((f) => busy.delete(f.path));
     pool = pool.filter((f) => !group.includes(f) || settled.left.includes(f.path));
     mapped += group.length - settled.left.length - settled.unverified.length;
     unverified += settled.unverified.length;
-    stands = { files: settled.files, candidates: settled.candidates, globalChanges: settled.globalChanges, removedOperations: settled.removedOperations };
+    stands = { files: settled.files, candidates: settled.candidates, globalChanges: settled.globalChanges, removedOperations: settled.removedOperations, recordedGlobal: settled.recordedGlobal };
     console.info(`[changelog] Mapping worker on ${files(group.length)} (${work.repo}, draft ${draftName(draft)}): ${outcome.calls.length} tool call${outcome.calls.length === 1 ? "" : "s"}, ${group.length - settled.left.length - settled.unverified.length} mapped${settled.unverified.length ? `, ${settled.unverified.length} unverified` : ""}${settled.left.length ? `, ${settled.left.length} ${cut ? "left waiting" : "for a later group"}` : ""}`);
     return cut;
   });

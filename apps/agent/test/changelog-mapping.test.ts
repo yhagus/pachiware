@@ -360,6 +360,28 @@ discordScenario("a file mapped again takes out of the notes the global change an
   expect(notes).toMatchObject({ globalChanges: [ENVELOPE], removedOperations: [REVOKE] });
 });
 
+discordScenario("a mapping worker's brief lists the global changes other workers recorded, so a file making the same change is given that entry (#372)", async (s) => {
+  await acmeApi(s);
+  const INTERCEPTOR = "src/common/transform.interceptor.ts", MAIN = "src/main.ts";
+  // The bootstrap's patch is too long to come with startChangelog, and too long to share a worker with the interceptor's.
+  changed(s, [{ filename: INTERCEPTOR, status: "added", patch: "@@ -0,0 +1 @@\n+export class TransformInterceptor {}" }, { filename: MAIN, status: "modified", patch: patchOf(45_000) }]);
+  const ENVELOPE = { status: "CHANGED", impact: "breaking", in: "envelope", before: "body", after: "{ data: body }", note: "Every success response is wrapped in data." };
+  let globals: unknown;
+  s.model.script(
+    START, NOTE_CONVENTIONS, MAP_FILES,
+    { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: INTERCEPTOR, global: ENVELOPE }] } }, "Mapped.",
+    read(MAIN), { tool: "putChangelogMapping", args: { draft: DRAFT, files: [{ path: MAIN, global: ENVELOPE }] } }, "Mapped.",
+    async () => { globals = JSON.parse((await s.workspace.read(DRAFT_FILE))!).info["x-changelog"].globalChanges; return { tool: "stopChangelog", args: {} }; },
+    "Stopped the changelog.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  const [first, second] = workerStarts(s).map(briefOf);
+  expect(first).not.toContain("global changes");
+  expect(second).toContain(`\nThe global changes other workers recorded, each a change to every endpoint alike: when one of your files makes one of them, give it that entry exactly.\n<untrusted_data source="global changes">\n${JSON.stringify(ENVELOPE)}\n</untrusted_data>\n`);
+  expect(globals).toEqual([ENVELOPE]);
+});
+
 discordScenario("a mapping worker records a global interceptor change once in the notes and no candidate for it, its files count as mapped, and the main loop hears to finish (#372)", async (s) => {
   await acmeApi(s);
   const INTERCEPTOR = "src/common/transform.interceptor.ts", MAIN = "src/main.ts";
