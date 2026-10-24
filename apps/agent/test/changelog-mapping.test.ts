@@ -1,7 +1,7 @@
 import { afterEach, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { discordScenario, type Scenario } from "./support/discordScenario";
-import { BASE, DRAFT, FINISH, HEAD, START, contractDiffOn, draftMeta } from "./support/changelog";
+import { BASE, DRAFT, FINISH, HEAD, START, WRITTEN_FILE, contractDiffOn, draftMeta } from "./support/changelog";
 
 const PLAYBOOK = new URL("../../../packages/skills/playbooks/contract-diff/", import.meta.url);
 /** What every file of acme/api reads as, at any commit: what a worker reads, and the main loop never should. */
@@ -79,4 +79,73 @@ discordScenario("mapChangedFiles hands the changed files to workers in groups by
   expect(mapped).toEqual({ mapped: 4, unverified: 0, files: { mapped: 4, setAside: 0, left: 0 }, candidates: 0, note: "Every changed file is mapped or set aside, and no change reaches an endpoint: call finishChangelog." });
   for (const call of s.model.calls.slice(12)) expect(call.map(text).join("\n")).not.toContain(SOURCE);
   expect(s.discord.botMessages.map((m) => m.content)).toEqual(["Nothing the frontend sees changed."]);
+});
+
+// Budgets are shortened for a scenario and put back after it.
+let shipped: { turn: number; worker: { steps: number; ms: number; leastMs: number } } | undefined;
+async function budgets(turnMs: number, worker: Partial<{ steps: number; ms: number; leastMs: number }>) {
+  const { turnDeadline } = await import("../src/loop/react.ts");
+  const { workerBudget } = await import("../../../packages/skills/src/openapi/workers.ts");
+  shipped ??= { turn: turnDeadline.ms, worker: { ...workerBudget } };
+  turnDeadline.ms = turnMs;
+  Object.assign(workerBudget, worker);
+}
+afterEach(async () => {
+  if (!shipped) return;
+  (await import("../src/loop/react.ts")).turnDeadline.ms = shipped.turn;
+  Object.assign((await import("../../../packages/skills/src/openapi/workers.ts")).workerBudget, shipped.worker);
+  shipped = undefined;
+});
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+discordScenario("a turn cut while its workers map goes on by itself with the files still unmapped only, and never maps one again (#370)", async (s) => {
+  await acmeApi(s);
+  // A turn has 3 seconds here, and a worker starts only with at least 1 second left.
+  await budgets(3000, { leastMs: 1000 });
+  let cut: any, state = "";
+  s.model.script(
+    START, NOTE_CONVENTIONS, MAP_FILES,
+    // The first worker maps its file and answers once the turn's time is gone, so no other worker starts.
+    read(CREATE), mapNone(CREATE), async () => { await pause(3200); return "Mapped."; },
+    // Out of time, the main loop is asked for its answer after the tool's result.
+    (turn) => { cut = JSON.parse(text(turn.messages.findLast((m: any) => m.role === "tool")).replace(/<\/?untrusted_data[^>]*>/g, "")); return "One of four changed files is mapped; three wait."; },
+    // The turn that goes on by itself starts from the draft, which lists the files left.
+    (turn) => { state = text(turn.messages[1]); return MAP_FILES; },
+    read(UPDATE), mapNone(UPDATE, CONTROLLER), "Mapped.",
+    read(SERVICE), mapNone(SERVICE), "Mapped.",
+    FINISH, "Nothing the frontend sees changed.",
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  expect(cut).toEqual({ mapped: 1, unverified: 0, files: { mapped: 1, setAside: 0, left: 3 }, candidates: 0, note: "This turn's time is nearly out: 3 changed files wait to be mapped, and the next turn goes on with them through mapChangedFiles." });
+  expect(state).toContain(`Changed files: 4: 1 mapped, 0 set aside, 3 left.\nMapped:\n- ${CREATE} → no endpoint (only a log line changed)\nLeft:\n- ${SERVICE} (modified)\n- ${CONTROLLER} (modified, read whole)\n- ${UPDATE} (modified)\n`);
+  expect(workerStarts(s).map(filesOf)).toEqual([[CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
+  expect(s.discord.botMessages.map((m) => m.content)).toEqual(["<@user-alice> Nothing the frontend sees changed."]);
+}, 30000);
+
+discordScenario("a file two workers could not map is listed as unverified with why, counts as mapped, and does not keep the changelog from being written (#370)", async (s) => {
+  await acmeApi(s);
+  let mapped: any, entry: any, finished: any;
+  s.model.script(
+    START, NOTE_CONVENTIONS, MAP_FILES,
+    // Neither worker given the DTO maps it; the second's line for it says why.
+    "Its class is generated at build time.",
+    `${CREATE}: its class is generated from a schema at build time, and the generator is not in the repository`,
+    read(UPDATE), mapNone(UPDATE, CONTROLLER), "Mapped.",
+    read(SERVICE), mapNone(SERVICE), "Mapped.",
+    async (turn) => { mapped = turn.toolResults.at(-1); entry = (await draftMeta(s)).mapping[CREATE]; return { tool: "putChangelogNotes", args: { draft: DRAFT, unverified: [] } }; },
+    // Notes set again do not drop it.
+    FINISH,
+    (turn) => { finished = turn.toolResults.at(-1); return "The changelog is written: one file could not be confirmed."; },
+  );
+  await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
+
+  // The DTO left unmapped joins the next group formed, again alone by its patch's size.
+  expect(workerStarts(s).map(filesOf)).toEqual([[CREATE], [CREATE], [UPDATE, CONTROLLER], [SERVICE]]);
+  expect(mapped).toEqual({ mapped: 3, unverified: 1, files: { mapped: 4, setAside: 0, left: 0 }, candidates: 0, note: "Every changed file is mapped or set aside; 1 could not be mapped and is listed as unverified, and no change reaches an endpoint: call finishChangelog." });
+  const why = "its class is generated from a schema at build time, and the generator is not in the repository";
+  expect(entry).toEqual({ attempts: 2, unverified: why });
+  const unverified = [{ in: "operation", reason: `${CREATE} could not be mapped: ${why}` }];
+  expect(finished).toMatchObject({ written: true, summary: { breaking: 0, deprecated: 0, "non-breaking": 0 }, unverified });
+  expect(JSON.parse((await s.workspace.read(WRITTEN_FILE))!).info["x-changelog"].unverified).toEqual(unverified);
 });
