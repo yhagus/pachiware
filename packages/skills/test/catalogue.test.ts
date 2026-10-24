@@ -34,7 +34,7 @@ describe("tool catalogue", () => {
 
   test("the brief tools belong to the issue-draft playbook, the changelog drafting tools to contract-diff, and no other tool belongs to one", () => {
     const brief = ["postBriefRound", "recordBriefAnswers", "writeIssueDraft", "describeBriefImages", "briefRepositories", "briefRead", "createBriefIssues"];
-    const changelog = ["startChangelog", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "putChangelogMapping", "finishChangelog", "stopChangelog", "askChangelogAsker", "traceEndpoints"];
+    const changelog = ["startChangelog", "putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "putChangelogMapping", "mapChangedFiles", "finishChangelog", "stopChangelog", "askChangelogAsker", "traceEndpoints"];
     expect(catalogue.flatMap((s) => s.tools).filter((t) => t.playbook).map((t) => [t.name, t.playbook]).sort()).toEqual([...brief.map((n) => [n, "issue-draft"]), ...changelog.map((n) => [n, "contract-diff"])].sort());
   });
 

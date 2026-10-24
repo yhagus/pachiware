@@ -49,7 +49,7 @@ const STAGES: Record<string, { stage: string; tools: string[] }[]> = {
   "contract-diff": [
     { stage: "range", tools: reads("startChangelog") },
     { stage: "conventions", tools: ["readPlaybookFile"] },
-    { stage: "mapping", tools: [...reads("repoCompare", "repoFileDiff", "repoReadFile", "repoTree"), "putChangelogMapping"] },
+    { stage: "mapping", tools: [...reads("repoCompare", "repoFileDiff", "repoReadFile", "repoTree"), "putChangelogMapping", "mapChangedFiles"] },
     { stage: "tracing", tools: [...reads("repoSearchCode", "repoFindDefinition"), "traceEndpoints", "putChangelogOperation", "putChangelogComponents"] },
     { stage: "checking", tools: ["finishChangelog"] },
     { stage: "publishing", tools: ["publishOpenApi"] },

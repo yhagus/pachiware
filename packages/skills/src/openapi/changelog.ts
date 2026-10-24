@@ -74,14 +74,16 @@ export type WorkState = {
   /** A turn that went on by itself could not reach the model: the same continuation runs once more at this time (#358). */
   retryAt?: string;
 } | { state: "paused"; reason: PauseReason; since: string; service?: string; question?: string };
-type ChangedFile = { path: string; oldPath?: string; status: string };
+/** A changed file of a range, with its patch's length when the comparison gave a patch, which mapping groups weigh it by (#370). */
+export type ChangedFile = { path: string; oldPath?: string; status: string; patchChars?: number };
 /**
  * How far a changed file is mapped (ADR 0026), kept by its path at head: `read` once its whole patch was read, and only then how it ended.
  * It reaches the candidate endpoints `reaches` names ("POST /api/v2/users"), reaches none for the reason `none` gives, or makes `global`, a
- * change to every endpoint alike that the notes record once. A file set aside by pattern has no state of its own.
+ * change to every endpoint alike that the notes record once. A file set aside by pattern has no state of its own. `attempts` counts the
+ * mapping workers that ended without mapping it; the second lists it as `unverified`, with why, which counts as mapped (#370).
  */
-export type FileMapping = { read?: true; reaches?: string[]; none?: string; global?: Json };
-const isMapped = (m: FileMapping | undefined) => !!m && (m.reaches !== undefined || m.none !== undefined || m.global !== undefined);
+export type FileMapping = { read?: true; reaches?: string[]; none?: string; global?: Json; attempts?: number; unverified?: string };
+const isMapped = (m: FileMapping | undefined) => !!m && (m.reaches !== undefined || m.none !== undefined || m.global !== undefined || m.unverified !== undefined);
 type Side = "base" | "head";
 /** Files set aside unmapped, each pattern with why; kept in the written changelog, so a reader sees what was not read. */
 type SetAside = { pattern: string; reason: string };
@@ -384,7 +386,7 @@ export const isWorkedOn = (d: Pick<OpenDraft, "work">) => d.work?.state === "wor
  * The tools that go on with a draft named by its path; stopChangelog ends it, and a refused stop goes on with nothing. A question to its
  * asker goes on with it too: the turn that asks pauses it (#356).
  */
-const DRAFT_TOOLS = new Set(["putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "putChangelogMapping", "finishChangelog", "askChangelogAsker", "traceEndpoints"]);
+const DRAFT_TOOLS = new Set(["putChangelogOperation", "putChangelogComponents", "putChangelogNotes", "putChangelogMapping", "mapChangedFiles", "finishChangelog", "askChangelogAsker", "traceEndpoints"]);
 /**
  * The repository reads of contract-diff, which go on with a draft of the repository they read; startChangelog names it the same way. The
  * one list of them: its workers' reads and the progress stages name theirs from it, and the playbook's frontmatter offers every one.
@@ -476,7 +478,7 @@ const NO_PROGRESS_TURNS = 2;
 const progressOf = (doc: Json) => {
   const changelog = doc.info?.["x-changelog"] ?? {};
   const candidates = (doc["x-draft"]?.candidates ?? []).map((c: Candidate) => [c.method, c.path, c.state]);
-  const mapped = Object.entries<FileMapping>(doc["x-draft"]?.mapping ?? {}).filter(([, m]) => isMapped(m)).map(([path, m]) => [path, m.reaches, m.none, m.global]);
+  const mapped = Object.entries<FileMapping>(doc["x-draft"]?.mapping ?? {}).filter(([, m]) => isMapped(m)).map(([path, m]) => [path, m.reaches, m.none, m.global, m.unverified]);
   const held = [mapped, changelog.setAside ?? [], changelog.removedOperations ?? [], doc.paths ?? {}, doc.components ?? {}, candidates];
   return createHash("sha256").update(JSON.stringify(held)).digest("base64");
 };
@@ -546,7 +548,7 @@ const upTo = (items: string[]) => (items.length > STATE_ITEMS ? [...items.slice(
 
 /** How a mapped file ended, in a line of the draft's state. */
 function mappedLine(path: string, m: FileMapping) {
-  const ended = m.reaches ? m.reaches.join(", ") : m.none !== undefined ? `no endpoint (${m.none})` : `a global change: ${JSON.stringify(m.global)}`;
+  const ended = m.reaches ? m.reaches.join(", ") : m.none !== undefined ? `no endpoint (${m.none})` : m.global !== undefined ? `a global change: ${JSON.stringify(m.global)}` : `unverified: two workers could not map it (${m.unverified})`;
   return `- ${path} → ${ended}`;
 }
 
@@ -733,8 +735,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     if (found) {
       const notes = found.doc.info["x-changelog"], meta: DraftMeta = found.doc["x-draft"];
       // A draft from before drafts listed their files learns them now.
-      if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files, changedFiles: meta.changedFiles ?? changed.totalFiles });
-      if (args.publish === true) meta.publish = true;
+      if (files && !meta.files) Object.assign(meta, { base: base.commit, head: head.commit, files, changedFiles: meta.changedFiles ?? changed.totalFiles });      if (args.publish === true) meta.publish = true;
       if ("commits" in changed) meta.commits = changed.commits;
       given.forEach((path) => markRead(meta, path));
       await writeDraft(ctx.tenantId, full, found.doc, found.version);
@@ -967,6 +968,59 @@ export async function putMapping(ctx: SkillContext, sent: { draft?: unknown; fil
   });
 }
 
+/** How many mapping workers may end without mapping a file before it is listed as unverified (ADR 0026). */
+const MAPPING_ATTEMPTS = 2;
+/** The start of the unverified entry naming a changed file no worker could map. */
+const unmappable = (path: string) => `${path} could not be mapped: `;
+/** An unverified entry naming a changed file two workers could not map, unless the notes name it already. */
+function listUnmappable(changelog: Json, path: string, why: string) {
+  const list: Json[] = (changelog.unverified ??= []);
+  if (!list.some((u) => String(u?.reason ?? "").startsWith(unmappable(path)))) list.push({ in: "operation", reason: `${unmappable(path)}${why}` });
+}
+
+/** mapChangedFiles' refusal while the draft holds no conventions summary: its workers' briefs carry it (#370). */
+const NO_CONVENTIONS_TO_MAP = "This changelog's draft holds no conventions summary yet, so every worker would have to find the repository's conventions in the code again. Write it first, as step 2 says: read checklist.md with readPlaybookFile, work through it at head, and keep what you learned with putChangelogNotes conventions; then call mapChangedFiles again. Nothing was mapped.";
+
+/**
+ * What mapChangedFiles starts from (#370), read without changing the draft, so a refusal is no progress: the changed files neither mapped
+ * nor set aside, and what every worker's brief carries of the draft (its repository, commits and conventions summary). Refused for a draft
+ * that lists no changed files, or holds no conventions summary.
+ */
+export async function mappingWork(ctx: SkillContext, draft: unknown) {
+  const doc = (await readJson(ctx.tenantId, draftPath(ctx, draft)))?.doc, meta: DraftMeta | undefined = doc?.["x-draft"];
+  if (!meta) throw new Error("No such draft: start it with startChangelog.");
+  if (!meta.files) throw new Error(meta.scope === "range" ? "This draft does not list its changed files yet: call startChangelog once with its repository, branch and coverage. Nothing was mapped." : "A changelog of the whole history has no changed files to map. Nothing was mapped.");
+  if (!meta.conventions) throw new Error(NO_CONVENTIONS_TO_MAP);
+  const changelog = doc.info["x-changelog"], counted = accounting(meta, changelog.setAside);
+  return {
+    files: counted.left, counted: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0,
+    repo: meta.repo, ...(meta.account ? { account: meta.account } : {}), branch: meta.branch, conventions: meta.conventions,
+    base: { commit: meta.base!, ref: changelog.base?.ref as string }, head: { commit: meta.head!, ref: changelog.head?.ref as string },
+  };
+}
+
+/**
+ * Settles the files a mapping worker was given (#370). Those it mapped are done. One it left unmapped waits for a later group, and counts
+ * an attempt unless the worker was cut short (`why` null); the MAPPING_ATTEMPTS-th is listed as unverified with `why`, which counts as
+ * mapped. Returns the files still to map of those given, those listed as unverified, and how the draft's files and candidates stand.
+ */
+export async function settleFiles(ctx: SkillContext, draft: unknown, paths: string[], why: ((path: string) => string) | null) {
+  return withDraft(ctx, draft, (doc) => {
+    const meta: DraftMeta = doc["x-draft"], changelog = doc.info["x-changelog"], left: string[] = [], unverified: string[] = [];
+    for (const path of paths) {
+      if (isMapped(meta.mapping?.[path])) continue;
+      if (why) {
+        const entry = ((meta.mapping ??= {})[path] ??= {});
+        entry.attempts = (entry.attempts ?? 0) + 1;
+        if (entry.attempts >= MAPPING_ATTEMPTS) { entry.unverified = why(path); listUnmappable(changelog, path, entry.unverified); unverified.push(path); continue; }
+      }
+      left.push(path);
+    }
+    const counted = accounting(meta, changelog.setAside);
+    return { left, unverified, files: { mapped: counted.mapped, setAside: counted.setAside, left: counted.left.length }, candidates: meta.candidates?.length ?? 0 };
+  });
+}
+
 /** "POST /api/v2/users". */
 const endpointOf = (c: { method: string; path: string }) => `${c.method.toUpperCase()} ${c.path}`;
 /** The most a candidate's note holds: where its route is declared and what reaches it, not the trace itself. */
@@ -1103,6 +1157,8 @@ export async function finishChangelog(ctx: SkillContext, args: { draft?: unknown
     }
     // A candidate that failed is listed as unverified, even when the notes were set again since (#343).
     for (const c of meta?.candidates ?? []) if (c.state === "failed") listUnverified(changelog, c);
+    // So is a changed file two workers could not map (#370).
+    for (const [path, m] of Object.entries<FileMapping>(meta?.mapping ?? {})) if (m.unverified !== undefined) listUnmappable(changelog, path, m.unverified);
     const unsettled = recordsNothing(doc) ? (changelog.unverified ?? []).length : 0;
     if (recordsNothing(doc) && !unsettled) {
       await workspaceStore().remove(ctx.tenantId, full);
