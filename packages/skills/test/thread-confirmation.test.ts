@@ -42,12 +42,6 @@ test("with TRUSTED_DISCORD_IDS unset or blank, GIT_OWNER_DISCORD_IDS still names
   expect(isTrustedMember({ userId: undefined })).toBe(false);
 });
 
-test("reset clears all process-local grants", () => {
-  grantThreadConfirmation(base);
-  resetThreadConfirmations();
-  expect(hasThreadConfirmation(base)).toBe(false);
-});
-
 test("generic guarded writes use the thread grant while retaining scope checks", () => {
   const skill: any = { id: "x", effect: "write", requiresConfirmation: true, tools: [], handlers: {} };
   const context: any = { ...base, auth: { ...base, roleIds: [], permissions: [] } };

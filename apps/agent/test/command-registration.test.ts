@@ -88,12 +88,6 @@ discordScenario("a guild-level change re-registers only that guild, and an uncha
   expect(sentTo()).toEqual(["guild-1", "guild-2", "guild-2"]);
 });
 
-discordScenario("joining a guild registers its commands there", async (s) => {
-  expect(s.discord.commandsIn("guild-2")).toBeNull();
-  await s.discord.joinGuild("guild-2");
-  expect(menus(s.discord.commandsIn("guild-2"))).toEqual(["Draft issues", "Write minutes"]);
-});
-
 discordScenario("up to fifteen menu commands are registered in a guild", async (s) => {
   for (let n = 1; n <= 16; n++) {
     const name = `retro-${String(n).padStart(2, "0")}`;

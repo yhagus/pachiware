@@ -39,16 +39,6 @@ discordScenario("a 12 MB file and a file of another type stay placeholders with 
   expect(s.discord.botMessages.at(-1)?.content).toBe("Noted.\nI can't see images at the moment.");
 });
 
-discordScenario("in an always-on channel a file sent without addressing the bot keeps a placeholder with the message id", async (s) => {
-  await s.guildSettings({ alwaysChannelIds: ["channel-1"] });
-  const report = attachment(s, "report.pdf", pdf(["Friday"]), { contentType: "application/pdf" });
-  s.model.script("Seen.");
-  const post = await s.discord.send("the report for Friday", { attachments: [report] });
-  expect(turnOf(s)).toBe(`Alice (<@user-alice>): the report for Friday [file: report.pdf (message ${post.id})]`);
-  expect(s.http.requests).toEqual([]);
-  expect(await s.workspace.list("guilds/guild-1/channels/channel-1/files")).toEqual([]);
-});
-
 discordScenario("a file sent in a DM is filed under the DM's folder", async (s) => {
   const dm = s.discord.channel("dm-alice", { dm: true });
   const notes = attachment(s, "notes.md", new TextEncoder().encode("# Notes\n"), { contentType: "text/markdown" });

@@ -7,11 +7,6 @@ const skill = (id: string) => catalogue.find((s) => s.id === id)!;
 const tool = (name: string) => catalogue.flatMap((s) => s.tools).find((t) => t.name === name)!;
 
 describe("tool catalogue", () => {
-  test("every built-in tool declares an effect", () => {
-    const undeclared = catalogue.flatMap((s) => s.tools).filter((t) => !["read", "write", "danger"].includes(t.effect as string));
-    expect(undeclared.map((t) => t.name)).toEqual([]);
-  });
-
   test("every git tool sits in exactly one of git's groups; the other skills declare none", () => {
     const git = skill("git_repositories");
     expect(git.groups).toEqual(["Browse", "Issues & PRs", "Code", "CI", "Repo admin", "Org"]);

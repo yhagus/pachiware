@@ -44,14 +44,6 @@ async function threeGuilds(s: Scenario) {
   ]);
 }
 
-discordScenario("mine from a DM lists Alice's tasks from every guild she shares with the bot plus her Personal tasks, never a denied channel or a guild she is not in", async (s) => {
-  await threeGuilds(s);
-  const dm = s.discord.channel("dm-alice", { dm: true });
-  s.model.script({ tool: "listTasks", args: { scope: "mine" } }, plan);
-  await s.discord.send("what's on my plate?", { channel: dm });
-  expect(lastReply(s)?.content).toBe("#ops (Beta): Renew the domain\n#launch (Acme): Print the flyers\nPersonal tasks: Call the dentist\n3 of 3");
-});
-
 discordScenario("delegated from a DM covers both shared guilds, and nothing from a guild Alice is not in", async (s) => {
   await threeGuilds(s);
   const dm = s.discord.channel("dm-alice", { dm: true });

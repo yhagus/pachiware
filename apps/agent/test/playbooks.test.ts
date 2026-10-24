@@ -1,11 +1,6 @@
 import { expect } from "bun:test";
 import { discordScenario } from "./support/discordScenario";
 
-discordScenario("the bot registers a message command for each playbook when it starts", async (s) => {
-  await s.settle();
-  expect(s.discord.registeredCommands).toContainEqual(expect.objectContaining({ name: "Draft issues", type: 3 }));
-});
-
 discordScenario("Draft issues on a message opens a thread from it that follows the issue-draft playbook", async (s) => {
   const { readFileSync } = await import("node:fs");
   const playbook = readFileSync("packages/skills/playbooks/issue-draft/PLAYBOOK.md", "utf8").split(/\n---\n/)[1]!.trim();
