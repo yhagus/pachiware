@@ -1,3 +1,4 @@
+import { wallClock } from "./clock.js";
 import { textIn, type Language } from "./language.js";
 import type { OpenDraft, RepositoryTool } from "./openapi/changelog.js";
 
@@ -90,7 +91,10 @@ const REASON_SHOWN = 100;
 export function draftProgress(d: Pick<OpenDraft, "commits" | "changedFiles" | "mapped" | "setAside" | "left" | "candidates"> & Partial<Pick<OpenDraft, "scope" | "to" | "addedCommits">>, language?: Language): string | null {
   const t = textIn(language).progress, lines: string[] = [];
   // A head moved to the end of the range's last day says so first, with the commits that added (#371).
-  if (d.addedCommits && d.to) lines.push(t.lastDay(d.addedCommits, Number(d.to.slice(8, 10)), Number(d.to.slice(5, 7))));
+  if (d.addedCommits && d.to) {
+    const last = wallClock("UTC", Date.parse(`${d.to}T00:00:00Z`));
+    lines.push(t.lastDay(d.addedCommits, last.day, last.month));
+  }
   const c = d.candidates, found = c ? c.waiting + c.changed + c.unchanged + c.failed : 0, mapping = !!d.left && d.changedFiles !== undefined;
   const files = d.left === undefined || d.changedFiles === undefined ? undefined
     : d.scope === "all" ? t.routeFiles(d.mapped! + d.setAside!, d.mapped! + d.setAside! + d.left, found)
