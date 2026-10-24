@@ -39,7 +39,8 @@ The repository is this thread's. When the prompt does not name it, call `playboo
 
 Then call `startChangelog` with the repository, the scope, and for a range from and to; pass publish when the request also asks to publish, show, preview or share the changelog. It turns the days into two commits on the branch (head: the last commit through the last day; base: the last commit before the first day) and returns the draft path, both commits, and the first page of changed files.
 
-- When it refuses, say why in one line and stop. When another changelog is open here, say which and ask whether to go on with it or stop it first.
+- When it refuses, say why in one line and stop. When it refuses because another changelog is open here, ask with `askChangelogAsker`, passing that draft, whether to go on with it or stop it first, naming both changelogs. Never ask this in plain text: the work goes on without the answer.
+- When it says goesOn, the changelog asked for is the one open here, with the same repository, branch and coverage: say so in one line and go on with it, without asking.
 - When no branch was named, it uses the default branch: name it when you say you are starting, and in your answer.
 - When it says resumed, an earlier run recorded the operations it lists: go on with the endpoints not yet recorded.
 - When it says alreadyWritten, a changelog of the same commits exists: offer it with `sendFiles`, unless the person asked to write it again.

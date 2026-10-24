@@ -112,7 +112,7 @@ discordScenario("a place holds one open draft: another changelog is refused with
   expect(await contextAfter(s)).not.toContain("the whole history");
 });
 
-discordScenario("the same repository, branch and days asked for on a later day go on with the open draft at its own commits, though the days now pin another head (#368)", async (s) => {
+discordScenario("the same repository, branch and coverage asked for on a later day go on with the open draft at its own commits, though the days now pin another head (#368)", async (s) => {
   await acmeApi(s);
   const SAME = { tool: "startChangelog", args: { repo: "acme/api", scope: "range", from: "2026-10-01", to: "2026-10-22" } };
   await turn(s, SAME, results);
@@ -125,7 +125,7 @@ discordScenario("the same repository, branch and days asked for on a later day g
   const [again] = await turn(s, SAME, results);
   expect(again).toMatchObject({
     draft: DRAFT, base: { ref: "main before 2026-10-01", commit: BASE }, head: { ref: "main through 2026-10-22", commit: HEAD },
-    goesOn: "This is the changelog already open here, for the same repository, branch and days: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to.",
+    goesOn: "This is the changelog already open here, for the same repository, branch and coverage: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to.",
   });
   expect(await s.workspace.list(FOLDER)).toEqual([`${FOLDER}/2026-10-22_9f8e7d6..a1b2c3d.draft.json`]);
 });

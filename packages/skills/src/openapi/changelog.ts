@@ -597,7 +597,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
   const covers = changelogScope(args, today);
   const named = typeof args.branch === "string" && args.branch.trim() ? args.branch.trim() : null;
   const branch = named ?? await defaultBranch(conn, repo);
-  // A place has one open draft at a time (GLOSSARY). Asked for again by its repository, branch and days, it goes on, whatever commits
+  // A place has one open draft at a time (GLOSSARY). Asked for again by its repository, branch and coverage, it goes on, whatever commits
   // those days pin now; any other changelog is a question to its asker before anything else happens, asked so the work waits (#368).
   const open = await openDrafts(ctx), same = open.find((d) => d.repo.toLowerCase() === repo.toLowerCase() && d.branch === branch && d.scope === covers.scope && d.from === covers.from && d.to === covers.to);
   const other = open.find((d) => d !== same);
@@ -660,7 +660,7 @@ export async function startChangelog(ctx: SkillContext, conn: GitConn, repo: str
     ...(named ? {} : { branchNote: `No branch was named, so this is the repository's default branch, ${branch}. Name it when you tell the person you are starting, and in your answer.` }),
     base: { ...base, commit: fromNothing ? "empty tree" : base.commit }, head,
     ...(fromNothing ? { note: "Nothing came before this changelog: every endpoint of head is NEW. Read head only." } : {}),
-    ...(same ? { goesOn: "This is the changelog already open here, for the same repository, branch and days: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to." } : {}),
+    ...(same ? { goesOn: "This is the changelog already open here, for the same repository, branch and coverage: it goes on with its draft, and nothing new was started. Say so in one line and go on, without asking whether to." } : {}),
     changedFiles: changed,
     ...(seen.counted ? { examinedNote: `Before it is written, every changed file must be examined, its whole patch read with repoFileDiff or the whole file with repoReadFile at either commit, or set aside with a reason (putChangelogNotes setAside). Examined so far: ${seen.counted.examined} of ${seen.counted.files}; the patches given here count.` } : {}),
     ...(resumed ? { resumed: { ...resumed, note: "This changelog was started before; what it recorded so far is kept. Go on with the endpoints not yet recorded." } } : {}),
