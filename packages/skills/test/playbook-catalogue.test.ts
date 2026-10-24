@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { skillRegistry } from "../src/registry.ts";
 import { BUILTIN_PLAYBOOKS_DIR, builtinPlaybooks, builtinPlaybookFiles, playbookChain } from "../src/playbooks.ts";
 import { REPOSITORY_TOOLS } from "../src/openapi/changelog.ts";
+import { MAX_DESCRIPTION, MAX_PLAYBOOK_BODY } from "../src/builtin/guildPlaybooks.ts";
 
 // Ours; every other built-in is copied from mattpocock/skills and must say so.
 const OWN = ["contract-diff", "daily-log", "issue-draft", "making-playbooks", "minutes"];
@@ -37,8 +38,8 @@ describe("built-in playbooks", () => {
 
   test("making-playbooks is an own reference that is on, and its limits match what savePlaybook takes", () => {
     expect(named("making-playbooks")).toMatchObject({ start: false, defaultOff: false, menu: null, words: [] });
-    expect(named("making-playbooks")!.body).toContain("under 6000 characters");
-    expect(named("making-playbooks")!.body).toContain("under 100 characters");
+    expect(named("making-playbooks")!.body).toContain(`under ${MAX_PLAYBOOK_BODY} characters`);
+    expect(named("making-playbooks")!.body).toContain(`under ${MAX_DESCRIPTION} characters`);
   });
 
   test("contract-diff starts off like the other repository playbooks, from changelog:, needs git and the OpenAPI skill and one repository, runs long, and reads its two references; its workers follow mapping.md and tracing.md", () => {

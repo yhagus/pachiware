@@ -16,7 +16,8 @@ export const PLAYBOOK_TOOLS = [SAVE_PLAYBOOK, DELETE_PLAYBOOK];
 /** How many playbooks a server may keep of its own. */
 export const MAX_SERVER_PLAYBOOKS = 25;
 export const MAX_PLAYBOOK_BODY = 6000;
-const MAX_DESCRIPTION = 100, MAX_WORDS = 3, PREVIEW = 1500, DIFF = 1200;
+export const MAX_DESCRIPTION = 100;
+const MAX_WORDS = 3, PREVIEW = 1500, DIFF = 1200;
 /** The skills a playbook made in chat may require, by id with the name people see; a test holds it to the registry. */
 export const PLAYBOOK_SKILLS: Record<string, string> = {
   discord_management: "Discord Management", git_repositories: "Git Repositories", openapi: "OpenAPI", plane: "Plane", reminders: "Reminders", task_management: "Task Management", workspace: "Workspace",
