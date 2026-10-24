@@ -165,7 +165,7 @@ discordScenario("traceEndpoints traces nothing while a changed file is unmapped,
   );
   await s.discord.send(`${s.discord.mention} changelog acme/api from 1 to 22 October`);
 
-  expect(refusal).toBe(`6 of 7 changed files are not mapped yet, so nothing was traced: tracing waits until every changed file is mapped, so that the candidates it counts are all there are. Map each with putChangelogMapping once its whole patch is read, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside; then call traceEndpoints again. Not mapped yet:
+  expect(refusal).toBe(`6 of 7 changed files are not mapped yet, so nothing was traced: tracing waits until every changed file is mapped, so that the candidates it counts are all there are. Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside; then call traceEndpoints again. Not mapped yet:
 - src/users/dto/a.dto.ts
 - src/users/dto/b.dto.ts
 - src/users/dto/c.dto.ts

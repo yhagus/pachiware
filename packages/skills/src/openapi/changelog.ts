@@ -1069,7 +1069,7 @@ export async function takeCandidates(ctx: SkillContext, draft: unknown, sent: un
     // Tracing waits until every changed file is mapped, so the total it starts from is final (#369, ADR 0026).
     if (meta.scope === "range" && !meta.files) throw new Error(`${UNLISTED} Nothing was traced.`);
     const counted = meta.files ? accounting(meta, changelog.setAside) : null;
-    if (counted?.left.length) throw new Error(`${counted.left.length} of ${counted.files} changed files ${counted.left.length === 1 ? "is" : "are"} not mapped yet, so nothing was traced: tracing waits until every changed file is mapped, so that the candidates it counts are all there are. Map each with putChangelogMapping once its whole patch is read, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside; then call traceEndpoints again. Not mapped yet:\n${namedFiles(counted.left)}`);
+    if (counted?.left.length) throw new Error(`${counted.left.length} of ${counted.files} changed files ${counted.left.length === 1 ? "is" : "are"} not mapped yet, so nothing was traced: tracing waits until every changed file is mapped, so that the candidates it counts are all there are. Map them with mapChangedFiles, or set aside those that cannot change what the frontend sees with putChangelogNotes setAside; then call traceEndpoints again. Not mapped yet:\n${namedFiles(counted.left)}`);
     const kept = (meta.candidates ??= []);
     if (!kept.length) throw new Error("No mapped file reaches an endpoint, so this changelog keeps no candidate endpoint to trace. Record removed endpoints with putChangelogNotes, then call finishChangelog. Nothing was traced.");
     return {
