@@ -100,12 +100,13 @@ describe("Router hardening", () => {
   test("a turn's deadline cuts a hung request at the deadline and starts no retry or fallback that would run past it", () => {
     const { code, stderr } = scenario(`
       await useOpenAI(tenant.id);
+      // An attempt timeout at the bound below, so a request that ignored the deadline, and its retries, still end within the test's time, but after it.
+      retryPolicy.timeoutMs = 5000;
       reply = () => HANG;
       const started = performance.now();
       const hung = await llmRouter.complete([{ role: "user", content: "hi" }], { tenantId: tenant.id, deadline: Date.now() + 60 });
       const elapsed = performance.now() - started;
       assert(hung.finishReason === "error" && calls.length === 1 && calls[0].aborted, "hung request retried past the deadline: " + calls.length);
-      // An uncut request would hang for the 60 s attempt timeout.
       assert(elapsed >= 50 && elapsed < 5000, "not cut at the deadline: " + elapsed);
 
       calls.length = 0; waits.length = 0; reply = () => json({ error: { message: "overloaded" } }, 503);
@@ -117,7 +118,7 @@ describe("Router hardening", () => {
       assert(late.finishReason === "error" && calls.length === 0, "a request started past the deadline: " + calls.length);
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("a tool's own model call given the turn's deadline is cut there in flight and gets null, and one made past it sends no request", () => {
     const { code, stderr } = scenario(`
@@ -140,7 +141,7 @@ describe("Router hardening", () => {
       assert(inTime === "Hall B" && calls.length === 1, "a call within the deadline not answered: " + JSON.stringify(inTime));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("a tool's own model call given its own deadline, before the turn's, is cut there in flight, and one made past it sends no request", () => {
     const { code, stderr } = scenario(`
@@ -163,7 +164,7 @@ describe("Router hardening", () => {
       assert(inTime === "Hall B" && calls.length === 1, "a call within its own deadline not answered: " + JSON.stringify(inTime));
     `);
     expect(code, stderr).toBe(0);
-  });
+  }, 30_000);
 
   test("an Anthropic request marks the last system block and the last tool for caching, sends no temperature, and records cached tokens", () => {
     const { code, stderr } = scenario(`
